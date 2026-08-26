@@ -10,7 +10,6 @@ import {
   ChevronRight,
   CircleAlert,
   Files,
-  FolderGit2,
   GitBranch,
   Globe2,
   House,
@@ -286,8 +285,7 @@ const fallbackChecks: CheckItem[] = [
 ]
 
 const statusStyles = {
-  running:
-    "text-[var(--sylph-live)] drop-shadow-[0_0_4px_color-mix(in_oklch,var(--sylph-live)_35%,transparent)]",
+  running: "text-[var(--sylph-live)]",
   waiting: "text-amber-400",
   ready: "text-muted-foreground",
   error: "text-destructive",
@@ -399,7 +397,6 @@ function ProjectRail({
           {projects.map((project) => (
             <section key={project.id}>
               <div className="flex h-9 items-center gap-2 px-2 text-xs font-semibold text-foreground/85">
-                <FolderGit2 className="size-3.5 text-[#ef9b7e]" />
                 <span className="min-w-0 flex-1 truncate">{project.name}</span>
                 <Button
                   aria-label={`New workspace in ${project.name}`}
@@ -446,7 +443,7 @@ function ProjectRail({
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
-              <div className="grid gap-0.5 pr-1 pl-4">
+              <div className="grid gap-0.5 pr-1 pl-2">
                 {project.workspaces.map((workspace) => {
                   const active = workspace.name === workspaceName
                   const label =
@@ -463,13 +460,6 @@ function ProjectRail({
                         active && "bg-white/[.065]"
                       )}
                     >
-                      <GitBranch
-                        aria-label={`${workspace.status} workspace`}
-                        className={cn(
-                          "size-3.5 shrink-0",
-                          statusStyles[workspace.status]
-                        )}
-                      />
                       <span
                         className={cn(
                           "min-w-0 flex-1 truncate text-xs",
@@ -485,6 +475,18 @@ function ProjectRail({
                           {workspace.changes}
                         </span>
                       )}
+                      <span
+                        role="status"
+                        className={cn(
+                          "grid size-3.5 shrink-0 place-items-center",
+                          statusStyles[workspace.status]
+                        )}
+                      >
+                        <span className="size-1.5 rounded-full bg-current" />
+                        <span className="sr-only">
+                          Workspace status: {workspace.status}
+                        </span>
+                      </span>
                     </button>
                   )
                 })}
@@ -541,7 +543,6 @@ function WorkspaceTopbar({
       >
         {navigationCollapsed ? <PanelLeftOpen /> : <Files />}
       </Button>
-      <FolderGit2 className="size-4 text-[#ef9b7e]" />
       <span className="hidden text-xs text-muted-foreground sm:inline">
         {projectName}
       </span>
