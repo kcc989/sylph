@@ -5,7 +5,7 @@ Sylph gives a user durable coding workspaces for projects inside an organization
 ## Language
 
 **Organization**:
-A membership boundary that owns projects.
+A membership boundary that owns Projects and is identified to people by a unique slug.
 
 **Project**:
 The product a user creates inside an organization. A Project contains one Repository and one or more Workspaces.

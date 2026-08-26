@@ -1,15 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { Button } from "@workspace/ui/components/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@workspace/ui/components/card"
 import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
-import { ArrowLeft, Building2 } from "lucide-react"
+import { ArrowLeft, ArrowRight, LoaderCircle } from "lucide-react"
 import { type FormEvent, useState } from "react"
 
 import { authClient } from "@/lib/auth-client"
@@ -55,65 +48,66 @@ function NewOrganizationScreen() {
     }
 
     window.location.assign(
-      `/organizations/${encodeURIComponent(result.data.id)}/projects/new`
+      `/organizations/${encodeURIComponent(result.data.slug)}/projects/new`
     )
   }
 
   return (
-    <main className="min-h-svh bg-muted/30 px-5 py-10">
-      <div className="mx-auto max-w-lg">
+    <main className="min-h-svh bg-background px-5 py-10 text-foreground">
+      <div className="mx-auto w-full max-w-xl">
         <Link
           to="/organizations"
           className="mb-5 inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="size-4" /> Organizations
         </Link>
-        <Card>
-          <CardHeader>
-            <div className="mb-2 grid size-9 place-items-center rounded-lg bg-muted">
-              <Building2 className="size-4" />
-            </div>
-            <CardTitle>New organization</CardTitle>
-            <CardDescription>
-              Create a shared boundary for projects and workspaces.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {dashboard.user ? (
-              <form className="grid gap-4" onSubmit={handleSubmit}>
-                <div className="grid gap-2">
-                  <Label htmlFor="name">Name</Label>
-                  <Input
-                    id="name"
-                    name="name"
-                    placeholder="Acme Labs"
-                    required
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="slug">Slug</Label>
-                  <Input
-                    id="slug"
-                    name="slug"
-                    placeholder="acme-labs"
-                    pattern="[a-z0-9-]+"
-                    required
-                  />
-                </div>
-                <Button type="submit" disabled={pending}>
-                  Create organization
-                </Button>
-                {message ? (
-                  <p className="text-sm text-destructive">{message}</p>
-                ) : null}
-              </form>
-            ) : (
-              <div className="text-sm text-muted-foreground">
-                Sign in before creating an organization.
+        <section className="border-y py-8">
+          <h1 className="text-xl font-semibold tracking-[-0.03em]">
+            New organization
+          </h1>
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">
+            Create a shared boundary for Projects, Workspaces, and AI provider
+            connections.
+          </p>
+          {dashboard.user ? (
+            <form className="mt-7 grid gap-5" onSubmit={handleSubmit}>
+              <div className="grid gap-2">
+                <Label htmlFor="name">Name</Label>
+                <Input id="name" name="name" placeholder="Acme Labs" required />
               </div>
-            )}
-          </CardContent>
-        </Card>
+              <div className="grid gap-2">
+                <Label htmlFor="slug">Slug</Label>
+                <Input
+                  id="slug"
+                  name="slug"
+                  placeholder="acme-labs"
+                  pattern="[a-z0-9-]+"
+                  required
+                />
+                <p className="text-xs text-muted-foreground">
+                  Used in Organization URLs.
+                </p>
+              </div>
+              <Button type="submit" disabled={pending}>
+                {pending ? (
+                  <LoaderCircle className="animate-spin" />
+                ) : (
+                  <ArrowRight />
+                )}
+                Create organization
+              </Button>
+              {message ? (
+                <p role="alert" className="text-sm text-destructive">
+                  {message}
+                </p>
+              ) : null}
+            </form>
+          ) : (
+            <p className="mt-7 text-sm text-muted-foreground">
+              Sign in before creating an Organization.
+            </p>
+          )}
+        </section>
       </div>
     </main>
   )

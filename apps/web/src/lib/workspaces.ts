@@ -273,6 +273,7 @@ export const getWorkspaceCreationContext = createServerFn({ method: "GET" })
         id: schema.project.id,
         name: schema.project.name,
         organizationId: schema.project.organizationId,
+        organizationSlug: schema.organization.slug,
         repositoryName: schema.project.artifactRepo,
         defaultBranch: schema.project.defaultBranch,
       })
@@ -283,6 +284,10 @@ export const getWorkspaceCreationContext = createServerFn({ method: "GET" })
           eq(schema.member.organizationId, schema.project.organizationId),
           eq(schema.member.userId, session.user.id)
         )
+      )
+      .innerJoin(
+        schema.organization,
+        eq(schema.organization.id, schema.project.organizationId)
       )
       .where(eq(schema.project.id, data.projectId))
       .get()

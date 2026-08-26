@@ -33,9 +33,13 @@ export const Route = createRootRoute({
     ],
   }),
   notFoundComponent: () => (
-    <main className="container mx-auto p-4 pt-16">
-      <h1>404</h1>
-      <p>The requested page could not be found.</p>
+    <main className="grid min-h-svh place-items-center bg-background px-5 text-foreground">
+      <div className="text-center">
+        <h1 className="text-xl font-semibold">Page not found</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          The requested page does not exist.
+        </p>
+      </div>
     </main>
   ),
   shellComponent: RootDocument,
@@ -47,7 +51,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       <head>
         <HeadContent />
       </head>
-      <body data-impeccable-direction={directionContract}>
+      <body className="dark" data-impeccable-direction={directionContract}>
         {children}
         <Scripts />
       </body>

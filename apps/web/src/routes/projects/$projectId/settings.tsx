@@ -23,7 +23,7 @@ function ProjectSettingsScreen() {
 
   if (!context) {
     return (
-      <main className="dark grid min-h-svh place-items-center bg-[var(--sylph-ink)] px-5 text-foreground">
+      <main className="grid min-h-svh place-items-center bg-background px-5 text-foreground">
         <div className="text-center">
           <h1 className="text-lg font-semibold">Project unavailable</h1>
           <Button
@@ -39,7 +39,7 @@ function ProjectSettingsScreen() {
   }
 
   return (
-    <main className="dark min-h-svh bg-[var(--sylph-ink)] text-foreground">
+    <main className="min-h-svh bg-background text-foreground">
       <header className="flex h-12 items-center border-b px-4 sm:px-6">
         <Link
           to="/"
@@ -104,7 +104,7 @@ function ProjectSettingsScreen() {
           </div>
           <div className="grid gap-4 border-b py-6 sm:grid-cols-[180px_1fr]">
             <div className="flex items-center gap-2 text-xs font-medium">
-              <Bot className="size-3.5 text-[var(--sylph-coral)]" />
+              <Bot className="size-3.5 text-primary" />
               OpenCode
             </div>
             <div>
@@ -118,8 +118,8 @@ function ProjectSettingsScreen() {
                 Project and Workspace it contains.
               </p>
               <a
-                href={`/organizations/${encodeURIComponent(context.project.organizationId)}/settings`}
-                className="mt-2 inline-flex text-xs font-medium text-[var(--sylph-coral)] hover:underline"
+                href={`/organizations/${encodeURIComponent(context.project.organizationSlug)}/settings`}
+                className="mt-2 inline-flex text-xs font-medium text-primary hover:underline"
               >
                 Organization OpenCode settings
               </a>

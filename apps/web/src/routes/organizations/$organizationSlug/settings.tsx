@@ -25,25 +25,26 @@ import {
   startOpenCodeSubscription,
 } from "@/lib/workspaces"
 
-export const Route = createFileRoute("/organizations/$organizationId/settings")(
-  {
-    loader: async ({ params }) => {
-      const [dashboard, setup] = await Promise.all([
-        getDashboard(),
-        getOpenCodeSetup({ data: { organizationId: params.organizationId } }),
-      ])
+export const Route = createFileRoute(
+  "/organizations/$organizationSlug/settings"
+)({
+  loader: async ({ params }) => {
+    const dashboard = await getDashboard()
+    const organization =
+      dashboard.organizations.find(
+        (candidate) => candidate.slug === params.organizationSlug
+      ) ?? null
+    const setup = organization
+      ? await getOpenCodeSetup({ data: { organizationId: organization.id } })
+      : null
 
-      return {
-        organization:
-          dashboard.organizations.find(
-            (organization) => organization.id === params.organizationId
-          ) ?? null,
-        setup,
-      }
-    },
-    component: OrganizationSettingsScreen,
-  }
-)
+    return {
+      organization,
+      setup,
+    }
+  },
+  component: OrganizationSettingsScreen,
+})
 
 const subscriptionModels: ReadonlyArray<{
   id: OpenCodeSubscriptionModel
@@ -85,8 +86,8 @@ const authMethodName = (authMethod: string) =>
 type SetupFlow = "list" | "choose" | "openai" | "subscription" | "key" | "model"
 
 function OrganizationSettingsScreen() {
-  const { organizationId } = Route.useParams()
   const { organization, setup } = Route.useLoaderData()
+  const organizationId = organization?.id ?? ""
   const router = useRouter()
   const saveSetup = useServerFn(saveOpenCodeSetup)
   const setDefaultConnection = useServerFn(setDefaultOpenCodeConnection)
@@ -121,7 +122,7 @@ function OrganizationSettingsScreen() {
   } | null>(null)
 
   useEffect(() => {
-    if (flow !== "subscription" || !attempt) return
+    if (flow !== "subscription" || !attempt || !organizationId) return
 
     let active = true
     const poll = async () => {
@@ -182,7 +183,7 @@ function OrganizationSettingsScreen() {
 
   if (!organization) {
     return (
-      <main className="dark grid min-h-svh place-items-center bg-[var(--sylph-ink)] px-5 text-foreground">
+      <main className="grid min-h-svh place-items-center bg-background px-5 text-foreground">
         <div className="text-center">
           <h1 className="text-lg font-semibold">Organization unavailable</h1>
           <Button
@@ -306,13 +307,13 @@ function OrganizationSettingsScreen() {
   }
 
   return (
-    <main className="dark min-h-svh bg-[var(--sylph-ink)] text-foreground">
+    <main className="min-h-svh bg-background text-foreground">
       <header className="flex h-12 items-center border-b px-4 sm:px-6">
         <Link
-          to="/organizations"
+          to="/"
           className="inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground"
         >
-          <ArrowLeft className="size-3.5" /> Organizations
+          <ArrowLeft className="size-3.5" /> Projects
         </Link>
         <span className="mx-2 text-muted-foreground/40">/</span>
         <span className="truncate text-xs font-medium">
@@ -324,7 +325,7 @@ function OrganizationSettingsScreen() {
           size="sm"
           render={
             <a
-              href={`/organizations/${encodeURIComponent(organizationId)}/projects/new`}
+              href={`/organizations/${encodeURIComponent(organization.slug)}/projects/new`}
             />
           }
         >
@@ -372,7 +373,7 @@ function OrganizationSettingsScreen() {
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <span className="size-1.5 rounded-full bg-[var(--sylph-live)]" />
+                      <span className="size-1.5 rounded-full bg-status-live" />
                       <h2 className="text-sm font-medium">
                         {providerName(connection.providerId)}
                       </h2>

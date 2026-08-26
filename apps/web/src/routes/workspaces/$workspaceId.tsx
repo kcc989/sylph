@@ -41,7 +41,7 @@ function WorkspaceScreen() {
 
   if (!result) {
     return (
-      <main className="grid min-h-svh place-items-center bg-muted/30 px-5">
+      <main className="grid min-h-svh place-items-center bg-background px-5 text-foreground">
         <div className="w-full max-w-lg">
           <Card>
             <CardContent className="grid justify-items-center gap-3 py-12 text-center">

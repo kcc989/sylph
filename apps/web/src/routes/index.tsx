@@ -84,7 +84,7 @@ function ProductRail() {
   return (
     <aside
       aria-label="Product navigation"
-      className="hidden w-12 shrink-0 flex-col items-center border-r bg-[var(--sylph-ink)] py-2.5 md:flex"
+      className="hidden w-12 shrink-0 flex-col items-center border-r bg-surface-utility py-2.5 md:flex"
     >
       <div
         aria-label="Sylph"
@@ -174,9 +174,8 @@ function HomeScreen() {
 
   if (!dashboard.user) {
     return (
-      <main className="dark grid min-h-svh bg-[var(--sylph-ink)] lg:grid-cols-[minmax(0,1fr)_minmax(420px,0.72fr)]">
+      <main className="grid min-h-svh bg-background lg:grid-cols-[minmax(0,1fr)_minmax(420px,0.72fr)]">
         <section className="relative hidden min-h-svh overflow-hidden border-r p-12 lg:flex lg:flex-col">
-          <div className="absolute inset-0 sylph-grid opacity-25" />
           <div className="relative flex items-center gap-3">
             <div className="grid size-9 place-items-center rounded-[8px] bg-[#f0a087] text-[#241613]">
               <SylphMark className="size-5" />
@@ -237,7 +236,7 @@ function HomeScreen() {
               {magicLink ? (
                 <a
                   href={magicLink}
-                  className="rounded-[8px] border border-dashed px-3 py-2.5 text-center text-xs font-medium text-[var(--sylph-coral)] underline-offset-4 hover:underline"
+                  className="rounded-[8px] border border-dashed px-3 py-2.5 text-center text-xs font-medium text-primary underline-offset-4 hover:underline"
                 >
                   Open local test magic link
                 </a>
@@ -253,7 +252,7 @@ function HomeScreen() {
   const firstOrganization = dashboard.organizations[0]
 
   return (
-    <div className="dark flex min-h-svh bg-[var(--sylph-ink)] text-foreground">
+    <div className="flex min-h-svh bg-background text-foreground">
       <ProductRail />
       <aside className="hidden w-[268px] shrink-0 flex-col border-r bg-sidebar md:flex">
         <header className="flex h-12 items-center gap-2 border-b px-3">
@@ -285,7 +284,7 @@ function HomeScreen() {
             render={
               firstOrganization ? (
                 <a
-                  href={`/organizations/${encodeURIComponent(firstOrganization.id)}/projects/new`}
+                  href={`/organizations/${encodeURIComponent(firstOrganization.slug)}/projects/new`}
                 />
               ) : (
                 <Link to="/organizations/new" />
@@ -371,7 +370,7 @@ function HomeScreen() {
           })}
         </div>
         <footer className="flex h-10 items-center gap-2 border-t px-3 text-[10px] text-muted-foreground">
-          <span className="size-1.5 rounded-full bg-[var(--sylph-live)]" />
+          <span className="size-1.5 rounded-full bg-status-live" />
           Durable workspace service online
         </footer>
       </aside>
@@ -413,7 +412,7 @@ function HomeScreen() {
             className="relative h-10 px-3 text-xs font-medium text-foreground"
           >
             Projects
-            <span className="absolute inset-x-2 bottom-0 h-px bg-[var(--sylph-coral)]" />
+            <span className="absolute inset-x-2 bottom-0 h-px bg-primary" />
           </button>
           <Link
             to="/organizations"
@@ -438,7 +437,7 @@ function HomeScreen() {
               render={
                 firstOrganization ? (
                   <a
-                    href={`/organizations/${encodeURIComponent(firstOrganization.id)}/projects/new`}
+                    href={`/organizations/${encodeURIComponent(firstOrganization.slug)}/projects/new`}
                   />
                 ) : (
                   <Link to="/organizations/new" />
@@ -589,7 +588,7 @@ function WorkspaceStatusDot({ status }: { status: string }) {
   ) : active ? (
     <CircleDot
       aria-label={`${status} Workspace`}
-      className="size-3.5 shrink-0 text-[var(--sylph-live)]"
+      className="size-3.5 shrink-0 text-status-live"
     />
   ) : (
     <LoaderCircle

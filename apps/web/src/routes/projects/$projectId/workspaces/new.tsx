@@ -33,7 +33,7 @@ function NewWorkspaceScreen() {
 
   if (!context) {
     return (
-      <main className="dark grid min-h-svh place-items-center bg-[var(--sylph-ink)] px-5 text-foreground">
+      <main className="grid min-h-svh place-items-center bg-background px-5 text-foreground">
         <div className="max-w-sm text-center">
           <FolderGit2 className="mx-auto size-7 text-muted-foreground" />
           <h1 className="mt-4 text-lg font-semibold">Project unavailable</h1>
@@ -79,7 +79,7 @@ function NewWorkspaceScreen() {
   const needsSetup = !context.setup.providerId
 
   return (
-    <main className="dark min-h-svh bg-[var(--sylph-ink)] text-foreground">
+    <main className="min-h-svh bg-background text-foreground">
       <header className="flex h-12 items-center border-b px-4 sm:px-6">
         <Link
           to="/"
@@ -107,14 +107,14 @@ function NewWorkspaceScreen() {
           </p>
           <div className="mt-9 grid gap-4 border-t pt-6 text-xs text-muted-foreground">
             <div className="flex gap-3">
-              <ShieldCheck className="mt-0.5 size-4 shrink-0 text-[var(--sylph-live)]" />
+              <ShieldCheck className="mt-0.5 size-4 shrink-0 text-status-live" />
               <p className="leading-5">
                 The Project’s Repository remains canonical. This Workspace gets
                 its own durable fork.
               </p>
             </div>
             <div className="flex gap-3">
-              <Bot className="mt-0.5 size-4 shrink-0 text-[var(--sylph-coral)]" />
+              <Bot className="mt-0.5 size-4 shrink-0 text-primary" />
               <p className="leading-5">
                 OpenCode starts in a new session with the selected model and
                 isolated working files.
@@ -142,9 +142,9 @@ function NewWorkspaceScreen() {
                   className="mt-8"
                   render={
                     <Link
-                      to="/organizations/$organizationId/settings"
+                      to="/organizations/$organizationSlug/settings"
                       params={{
-                        organizationId: context.project.organizationId,
+                        organizationSlug: context.project.organizationSlug,
                       }}
                     />
                   }
@@ -175,9 +175,9 @@ function NewWorkspaceScreen() {
                       variant="ghost"
                       render={
                         <Link
-                          to="/organizations/$organizationId/settings"
+                          to="/organizations/$organizationSlug/settings"
                           params={{
-                            organizationId: context.project.organizationId,
+                            organizationSlug: context.project.organizationSlug,
                           }}
                         />
                       }

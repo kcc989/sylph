@@ -1,13 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { Button } from "@workspace/ui/components/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@workspace/ui/components/card"
-import { ArrowRight, Boxes, Building2, Plus, Settings2 } from "lucide-react"
+import { ArrowLeft, ArrowRight, Plus, Settings2 } from "lucide-react"
 
 import { getDashboard } from "@/lib/workspaces"
 
@@ -20,103 +13,100 @@ function OrganizationsScreen() {
   const dashboard = Route.useLoaderData()
 
   return (
-    <main className="min-h-svh bg-muted/30">
-      <header className="border-b bg-background">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-5 py-4">
-          <Link to="/" className="flex items-center gap-3">
-            <div className="grid size-9 place-items-center rounded-lg bg-primary text-primary-foreground">
-              <Boxes className="size-4" />
-            </div>
-            <div>
-              <h1 className="text-sm font-semibold">Organizations</h1>
-              <p className="text-xs text-muted-foreground">
-                Your Better Auth organization memberships
-              </p>
-            </div>
-          </Link>
-          <Link
-            to="/"
-            className="text-xs font-medium text-muted-foreground hover:text-foreground"
+    <main className="min-h-svh bg-background text-foreground">
+      <header className="flex h-12 items-center border-b px-4 sm:px-6">
+        <Link
+          to="/"
+          className="inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="size-3.5" /> Projects
+        </Link>
+        {dashboard.user ? (
+          <Button
+            nativeButton={false}
+            className="ml-auto"
+            size="sm"
+            render={<Link to="/organizations/new" />}
           >
-            Workspace lab
-          </Link>
-        </div>
+            <Plus /> New organization
+          </Button>
+        ) : null}
       </header>
-
-      <div className="mx-auto max-w-5xl px-5 py-8">
-        <div className="mb-5 flex items-end justify-between gap-4">
-          <div>
-            <h2 className="text-lg font-semibold">Your organizations</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Choose an organization to create a Project and its first
-              Workspace.
+      <div className="mx-auto w-full max-w-3xl px-5 py-8 sm:px-8 sm:py-10">
+        <section className="border-b pb-6">
+          <h1 className="text-xl font-semibold tracking-[-0.03em]">
+            Organizations
+          </h1>
+          <p className="mt-1.5 text-sm leading-6 text-muted-foreground">
+            Organizations contain Projects and share AI provider connections.
+          </p>
+        </section>
+        {!dashboard.user ? (
+          <section className="border-b py-8">
+            <p className="text-sm text-muted-foreground">
+              Sign in before viewing your Organizations.
             </p>
-          </div>
-          {dashboard.user ? (
             <Button
               nativeButton={false}
+              className="mt-5"
+              render={<Link to="/" />}
+            >
+              Return to sign in
+            </Button>
+          </section>
+        ) : dashboard.organizations.length ? (
+          <section aria-label="Organizations">
+            {dashboard.organizations.map((organization) => (
+              <div
+                key={organization.id}
+                className="flex flex-col gap-4 border-b py-5 sm:flex-row sm:items-center"
+              >
+                <h2 className="min-w-0 flex-1 truncate text-sm font-medium">
+                  {organization.name}
+                </h2>
+                <div className="flex items-center gap-2">
+                  <Button
+                    nativeButton={false}
+                    size="sm"
+                    variant="ghost"
+                    render={
+                      <Link
+                        to="/organizations/$organizationSlug/settings"
+                        params={{ organizationSlug: organization.slug }}
+                      />
+                    }
+                  >
+                    <Settings2 /> Settings
+                  </Button>
+                  <Button
+                    nativeButton={false}
+                    size="sm"
+                    render={
+                      <Link
+                        to="/organizations/$organizationSlug/projects/new"
+                        params={{ organizationSlug: organization.slug }}
+                      />
+                    }
+                  >
+                    New Project <ArrowRight />
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </section>
+        ) : (
+          <section className="border-b py-8">
+            <p className="text-sm text-muted-foreground">
+              You do not belong to an Organization yet.
+            </p>
+            <Button
+              nativeButton={false}
+              className="mt-5"
               render={<Link to="/organizations/new" />}
             >
-              <Plus /> New organization
+              <Plus /> Create your first organization
             </Button>
-          ) : null}
-        </div>
-
-        {!dashboard.user ? (
-          <Card>
-            <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
-              <Building2 className="size-8 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">
-                Sign in before viewing your organizations.
-              </p>
-              <Button nativeButton={false} render={<Link to="/" />}>
-                Return to sign in
-              </Button>
-            </CardContent>
-          </Card>
-        ) : dashboard.organizations.length ? (
-          <div className="grid gap-4 sm:grid-cols-2">
-            {dashboard.organizations.map((organization) => (
-              <Card key={organization.id}>
-                <CardHeader>
-                  <div className="mb-2 grid size-9 place-items-center rounded-lg bg-muted">
-                    <Building2 className="size-4" />
-                  </div>
-                  <CardTitle>{organization.name}</CardTitle>
-                  <CardDescription>{organization.slug}</CardDescription>
-                </CardHeader>
-                <CardContent className="flex items-center justify-between gap-3">
-                  <a
-                    href={`/organizations/${encodeURIComponent(organization.id)}/projects/new`}
-                    className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
-                  >
-                    New project <ArrowRight className="size-4" />
-                  </a>
-                  <a
-                    href={`/organizations/${encodeURIComponent(organization.id)}/settings`}
-                    className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground"
-                  >
-                    <Settings2 className="size-4" /> Settings
-                  </a>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        ) : (
-          <Card>
-            <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
-              <Building2 className="size-8 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">
-                You do not belong to an organization yet.
-              </p>
-              <Button
-                nativeButton={false}
-                render={<Link to="/organizations/new" />}
-              >
-                <Plus /> Create your first organization
-              </Button>
-            </CardContent>
-          </Card>
+          </section>
         )}
       </div>
     </main>
