@@ -1,12 +1,12 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router"
 import { useServerFn } from "@tanstack/react-start"
+import type { OpenCodeSubscriptionModel } from "@workspace/domain"
 import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
 import {
   ArrowLeft,
   ArrowRight,
-  Bot,
   Building2,
   Check,
   ExternalLink,
@@ -46,6 +46,33 @@ export const Route = createFileRoute("/organizations/$organizationId/settings")(
   }
 )
 
+const subscriptionModels: ReadonlyArray<{
+  id: OpenCodeSubscriptionModel
+  name: string
+  description: string
+}> = [
+  {
+    id: "gpt-5.6-sol",
+    name: "GPT-5.6 Sol",
+    description: "Highest capability for complex coding work",
+  },
+  {
+    id: "gpt-5.6-terra",
+    name: "GPT-5.6 Terra",
+    description: "Balanced intelligence, speed, and cost",
+  },
+  {
+    id: "gpt-5.6-luna",
+    name: "GPT-5.6 Luna",
+    description: "Fast and economical for everyday tasks",
+  },
+]
+
+const isSubscriptionModel = (
+  modelId: string | null | undefined
+): modelId is OpenCodeSubscriptionModel =>
+  subscriptionModels.some((model) => model.id === modelId)
+
 function OrganizationSettingsScreen() {
   const { organizationId } = Route.useParams()
   const { organization, setup } = Route.useLoaderData()
@@ -58,8 +85,13 @@ function OrganizationSettingsScreen() {
     "intro"
   )
   const [apiKey, setApiKey] = useState("")
-  const [modelId, setModelId] = useState(
-    setup?.modelId ?? "nemotron-3.5-lightning-free"
+  const [apiModelId, setApiModelId] = useState(
+    setup?.authMethod === "api-key"
+      ? setup.modelId
+      : "nemotron-3.5-lightning-free"
+  )
+  const [subscriptionModelId, setSubscriptionModelId] = useState(
+    isSubscriptionModel(setup?.modelId) ? setup.modelId : "gpt-5.6-sol"
   )
   const [editing, setEditing] = useState(!setup?.providerId)
   const [pending, setPending] = useState(false)
@@ -78,7 +110,11 @@ function OrganizationSettingsScreen() {
     const poll = async () => {
       try {
         const result = await subscriptionStatus({
-          data: { organizationId, attemptId: attempt.attemptId },
+          data: {
+            organizationId,
+            attemptId: attempt.attemptId,
+            modelId: subscriptionModelId,
+          },
         })
 
         if (!active) return
@@ -119,7 +155,14 @@ function OrganizationSettingsScreen() {
       active = false
       window.clearTimeout(timer)
     }
-  }, [attempt, organizationId, router, step, subscriptionStatus])
+  }, [
+    attempt,
+    organizationId,
+    router,
+    step,
+    subscriptionModelId,
+    subscriptionStatus,
+  ])
 
   if (!organization) {
     return (
@@ -154,7 +197,7 @@ function OrganizationSettingsScreen() {
         data: {
           organizationId,
           providerId: "opencode",
-          modelId,
+          modelId: apiModelId,
           apiKey,
         },
       })
@@ -177,7 +220,7 @@ function OrganizationSettingsScreen() {
 
     try {
       const nextAttempt = await startSubscription({
-        data: { organizationId },
+        data: { organizationId, modelId: subscriptionModelId },
       })
       setAttempt(nextAttempt)
       setStep("subscription")
@@ -201,7 +244,11 @@ function OrganizationSettingsScreen() {
 
     try {
       await cancelSubscription({
-        data: { organizationId, attemptId: currentAttempt.attemptId },
+        data: {
+          organizationId,
+          attemptId: currentAttempt.attemptId,
+          modelId: subscriptionModelId,
+        },
       })
     } catch (cause) {
       setError(
@@ -277,7 +324,7 @@ function OrganizationSettingsScreen() {
                     </p>
                     <p className="mt-1 text-[10px] text-muted-foreground">
                       {setup.authMethod === "chatgpt-subscription"
-                        ? "ChatGPT subscription"
+                        ? "Codex subscription"
                         : "API key"}
                     </p>
                   </div>
@@ -306,7 +353,7 @@ function OrganizationSettingsScreen() {
                 </h2>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
                   {step === "intro"
-                    ? `Connect ${organization.name} once so its members can start durable coding Workspaces with a ChatGPT subscription or API key.`
+                    ? `Connect ${organization.name} once so its members can start durable coding Workspaces with a Codex subscription or API key.`
                     : step === "subscription"
                       ? "Open the OpenAI authorization page, enter the code shown there, and return here. Sylph will finish automatically."
                       : step === "key"
@@ -315,13 +362,44 @@ function OrganizationSettingsScreen() {
                 </p>
                 {step === "intro" ? (
                   <div className="mt-8 grid gap-3">
+                    <fieldset className="mb-2 grid gap-1.5">
+                      <legend className="mb-2 text-xs font-medium">
+                        Codex subscription model
+                      </legend>
+                      {subscriptionModels.map((model, index) => (
+                        <label
+                          key={model.id}
+                          className="flex cursor-pointer items-center gap-3 rounded-[8px] border px-3 py-2.5 transition-colors hover:bg-sidebar/55 has-checked:border-[#ef9b7e]/70 has-checked:bg-[#ef9b7e]/6"
+                        >
+                          <input
+                            type="radio"
+                            name="subscription-model"
+                            value={model.id}
+                            checked={subscriptionModelId === model.id}
+                            onChange={() => setSubscriptionModelId(model.id)}
+                            className="size-3.5 accent-[#ef9b7e]"
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="flex items-center gap-2 text-xs font-medium">
+                              {model.name}
+                              {index === 0 ? (
+                                <span className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
+                                  Default
+                                </span>
+                              ) : null}
+                            </span>
+                            <span className="mt-0.5 block text-[10px] leading-4 text-muted-foreground">
+                              {model.description}
+                            </span>
+                          </span>
+                        </label>
+                      ))}
+                    </fieldset>
                     <Button onClick={handleSubscription} disabled={pending}>
                       {pending ? (
                         <LoaderCircle className="animate-spin" />
-                      ) : (
-                        <Bot />
-                      )}
-                      Use ChatGPT subscription
+                      ) : null}
+                      Connect Codex subscription
                     </Button>
                     <Button variant="outline" onClick={() => setStep("key")}>
                       Use an API key <ArrowRight />
@@ -394,8 +472,10 @@ function OrganizationSettingsScreen() {
                           </span>
                           <Input
                             id="model-id"
-                            value={modelId}
-                            onChange={(event) => setModelId(event.target.value)}
+                            value={apiModelId}
+                            onChange={(event) =>
+                              setApiModelId(event.target.value)
+                            }
                             className="border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
                             autoFocus
                             required

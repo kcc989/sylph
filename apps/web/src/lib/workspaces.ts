@@ -42,7 +42,6 @@ const normalizeName = (value: string) =>
     .replace(/^-+|-+$/g, "")
 
 const subscriptionProviderId = "openai"
-const subscriptionModelId = "gpt-5.5"
 
 const organizationMembership = async (organizationId: string, userId: string) =>
   drizzle(env.DB, { schema })
@@ -415,7 +414,7 @@ export const getOpenCodeSubscriptionStatus = createServerFn({ method: "POST" })
         organizationId: data.organizationId,
         configuredByUserId: session.user.id,
         providerId: subscriptionProviderId,
-        modelId: subscriptionModelId,
+        modelId: data.modelId,
         authMethod: "chatgpt-subscription",
         encryptedCredential: encrypted.encrypted,
         encryptionIv: encrypted.iv,
@@ -427,7 +426,7 @@ export const getOpenCodeSubscriptionStatus = createServerFn({ method: "POST" })
         set: {
           configuredByUserId: session.user.id,
           providerId: subscriptionProviderId,
-          modelId: subscriptionModelId,
+          modelId: data.modelId,
           authMethod: "chatgpt-subscription",
           encryptedCredential: encrypted.encrypted,
           encryptionIv: encrypted.iv,

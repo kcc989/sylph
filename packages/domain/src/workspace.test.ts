@@ -7,6 +7,7 @@ import {
   decodeCreateWorkspaceInputPromise,
   decodeInitializeWorkspaceRuntime,
   decodeOpenCodeKeySetupInputPromise,
+  decodeOpenCodeSubscriptionStartInputPromise,
   decodeOpenCodeSubscriptionStatusInputPromise,
   decodeWorkspaceSummary,
   decodeWorkspaceWriteFile,
@@ -100,13 +101,33 @@ describe("Project and runtime inputs", () => {
     expect(setup.organizationId).toBe(OrganizationId.make("organization-1"))
   })
 
-  test("decodes a ChatGPT subscription status request", async () => {
+  test("accepts the default Codex subscription model", async () => {
+    const start = await decodeOpenCodeSubscriptionStartInputPromise({
+      organizationId: "organization-1",
+      modelId: "gpt-5.6-sol",
+    })
+
+    expect(start.modelId).toBe("gpt-5.6-sol")
+  })
+
+  test("decodes a Codex subscription status request", async () => {
     const status = await decodeOpenCodeSubscriptionStatusInputPromise({
       organizationId: "organization-1",
       attemptId: "attempt-1",
+      modelId: "gpt-5.6-terra",
     })
 
     expect(status.attemptId).toBe("attempt-1")
+    expect(status.modelId).toBe("gpt-5.6-terra")
+  })
+
+  test("rejects a model outside the Codex subscription catalog", async () => {
+    await expect(
+      decodeOpenCodeSubscriptionStartInputPromise({
+        organizationId: "organization-1",
+        modelId: "gpt-5.5",
+      })
+    ).rejects.toBeDefined()
   })
 
   test("decodes an OAuth credential for Workspace initialization", async () => {
@@ -118,7 +139,7 @@ describe("Project and runtime inputs", () => {
       repositoryName: "weather-desk-workspace",
       repositoryRemote: "https://repositories.example/weather-desk-workspace",
       providerId: "openai",
-      modelId: "gpt-5.5",
+      modelId: "gpt-5.6-sol",
       credential: {
         type: "oauth",
         methodID: "chatgpt-headless",

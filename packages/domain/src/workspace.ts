@@ -92,10 +92,18 @@ export class OpenCodeKeySetupInput extends Schema.Class<OpenCodeKeySetupInput>(
   apiKey: Schema.NonEmptyString,
 }) {}
 
+export const OpenCodeSubscriptionModel = Schema.Literals([
+  "gpt-5.6-sol",
+  "gpt-5.6-terra",
+  "gpt-5.6-luna",
+])
+export type OpenCodeSubscriptionModel = typeof OpenCodeSubscriptionModel.Type
+
 export class OpenCodeSubscriptionStartInput extends Schema.Class<OpenCodeSubscriptionStartInput>(
   "@sylph/domain/OpenCodeSubscriptionStartInput"
 )({
   organizationId: OrganizationId,
+  modelId: OpenCodeSubscriptionModel,
 }) {}
 
 export class OpenCodeSubscriptionStatusInput extends Schema.Class<OpenCodeSubscriptionStatusInput>(
@@ -103,6 +111,7 @@ export class OpenCodeSubscriptionStatusInput extends Schema.Class<OpenCodeSubscr
 )({
   organizationId: OrganizationId,
   attemptId: Schema.NonEmptyString,
+  modelId: OpenCodeSubscriptionModel,
 }) {}
 
 export class OpenCodeSubscriptionAttempt extends Schema.Class<OpenCodeSubscriptionAttempt>(
