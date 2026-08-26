@@ -8,7 +8,11 @@ import {
 } from "@workspace/ui/components/workspace-shell"
 import { useEffect, useState } from "react"
 
-import { getWorkspace, promptWorkspace } from "@/lib/workspaces"
+import {
+  getWorkspace,
+  promptWorkspace,
+  restartWorkspace,
+} from "@/lib/workspaces"
 
 export const Route = createFileRoute("/workspaces/$workspaceId")({
   loader: ({ params }) =>
@@ -21,7 +25,9 @@ function WorkspaceScreen() {
   const result = Route.useLoaderData()
   const router = useRouter()
   const prompt = useServerFn(promptWorkspace)
+  const restart = useServerFn(restartWorkspace)
   const [promptPending, setPromptPending] = useState(false)
+  const [restartPending, setRestartPending] = useState(false)
   const [promptError, setPromptError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -50,25 +56,38 @@ function WorkspaceScreen() {
   }
 
   const { runtime, workspace } = result
-  const entries: ThreadEntry[] = runtime.messages.length
-    ? runtime.messages.map((message) => ({
-        id: message.id,
-        kind: message.role === "user" ? "user" : "agent",
-        title: message.error ? "OpenCode error" : undefined,
-        body: message.error ?? message.text,
-        meta: message.role === "user" ? "You" : "OpenCode v2",
-        details: message.tools.length ? [...message.tools] : undefined,
-      }))
-    : [
-        {
-          id: "workspace-ready",
-          kind: "result",
-          title: "Your durable coding Workspace is ready",
-          body: "Ask OpenCode to build the first feature. Source edits persist in this Durable Object while process-heavy checks stay in Cloudflare CI.",
-          meta: `${runtime.files.length} starter files`,
-          details: [...runtime.files],
-        },
-      ]
+  const entries: ThreadEntry[] =
+    runtime.status === "error"
+      ? [
+          {
+            id: "workspace-error",
+            kind: "agent",
+            title: "Workspace startup failed",
+            body:
+              workspace.errorSummary ??
+              "OpenCode did not finish initializing this Workspace.",
+            meta: "Action required",
+          },
+        ]
+      : runtime.messages.length
+        ? runtime.messages.map((message) => ({
+            id: message.id,
+            kind: message.role === "user" ? "user" : "agent",
+            title: message.error ? "OpenCode error" : undefined,
+            body: message.error ?? message.text,
+            meta: message.role === "user" ? "You" : "OpenCode v2",
+            details: message.tools.length ? [...message.tools] : undefined,
+          }))
+        : [
+            {
+              id: "workspace-ready",
+              kind: "result",
+              title: "Your durable coding Workspace is ready",
+              body: "Ask OpenCode to build the first feature. Source edits persist in this Durable Object while process-heavy checks stay in Cloudflare CI.",
+              meta: `${runtime.files.length} starter files`,
+              details: [...runtime.files],
+            },
+          ]
 
   return (
     <WorkspaceShell
@@ -142,6 +161,27 @@ function WorkspaceScreen() {
       }
       promptError={promptError}
       promptPending={promptPending}
+      restartPending={restartPending}
+      workspaceError={
+        runtime.status === "error"
+          ? (workspace.errorSummary ?? "Workspace startup failed")
+          : null
+      }
+      onRestartWorkspace={async () => {
+        setRestartPending(true)
+        setPromptError(null)
+
+        try {
+          await restart({ data: { workspaceId } })
+          await router.invalidate()
+        } catch (cause) {
+          setPromptError(
+            cause instanceof Error ? cause.message : "Workspace restart failed"
+          )
+        } finally {
+          setRestartPending(false)
+        }
+      }}
     />
   )
 }

@@ -6,8 +6,11 @@ import {
   decodeWorkspaceRequestInputPromise,
   decodeWorkspaceRuntimeHealth,
   encodeWorkspaceRuntimeHealth,
+  InitializeWorkspaceRuntime,
+  OrganizationId,
   ProjectId,
   WorkspaceId,
+  WorkspaceRuntimeHealth,
 } from "@workspace/domain"
 import { schema } from "@workspace/db"
 import { createServerFn } from "@tanstack/react-start"
@@ -28,6 +31,20 @@ const normalizeName = (value: string) =>
     .trim()
     .replace(/[^a-z0-9._-]+/g, "-")
     .replace(/^-+|-+$/g, "")
+
+const initializeWorkspaceRuntime = async (
+  workspaceId: string,
+  input: InitializeWorkspaceRuntime
+) => {
+  const runtime = env.WORKSPACES.get(env.WORKSPACES.idFromName(workspaceId))
+  const response = await runtime.fetch("https://workspace/initialize", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  })
+
+  if (!response.ok) throw new Error(await response.text())
+}
 
 const currentSession = async (request: Request) => {
   const auth = createRequestAuth(request, env)
@@ -88,6 +105,7 @@ export const getDashboard = createServerFn({ method: "GET" }).handler(
         status: schema.workspace.status,
         repositoryName: schema.workspace.workspaceArtifactRepo,
         organizationId: schema.workspace.organizationId,
+        errorSummary: schema.workspace.errorSummary,
         createdAt: schema.workspace.createdAt,
       })
       .from(schema.workspace)
@@ -104,7 +122,16 @@ export const getDashboard = createServerFn({ method: "GET" }).handler(
       )
       .orderBy(desc(schema.workspace.createdAt))
 
-    return { user: session.user, organizations, projects, workspaces }
+    return {
+      user: session.user,
+      organizations,
+      projects,
+      workspaces: workspaces.map((workspace) =>
+        workspace.errorSummary && workspace.status === "provisioning"
+          ? { ...workspace, status: "error" }
+          : workspace
+      ),
+    }
   }
 )
 
@@ -275,14 +302,10 @@ export const createProject = createServerFn({ method: "POST" })
       }),
     ])
 
-    const runtime = env.WORKSPACES.get(env.WORKSPACES.idFromName(workspaceId))
-    let response: Response
-
     try {
-      response = await runtime.fetch("https://workspace/initialize", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
+      await initializeWorkspaceRuntime(
+        workspaceId,
+        new InitializeWorkspaceRuntime({
           organizationId: data.organizationId,
           projectId,
           workspaceId,
@@ -292,32 +315,28 @@ export const createProject = createServerFn({ method: "POST" })
           providerId: connection.providerId,
           modelId: connection.modelId,
           apiKey,
-        }),
-      })
+        })
+      )
     } catch (error) {
       console.error("Workspace runtime initialization failed", error)
+      const summary =
+        error instanceof Error && error.message
+          ? error.message
+          : "Workspace runtime failed"
       await database
         .update(schema.workspace)
         .set({
           status: "error",
-          errorSummary: "Runtime initialization failed",
+          errorSummary: summary,
+          updatedAt: new Date(),
         })
         .where(eq(schema.workspace.id, workspaceId))
-      throw error
-    }
-
-    if (!response.ok) {
-      const errorSummary = await response.text()
-      await database
-        .update(schema.workspace)
-        .set({ status: "error", errorSummary })
-        .where(eq(schema.workspace.id, workspaceId))
-      throw new Error(errorSummary)
+      throw new Error(summary)
     }
 
     await database
       .update(schema.workspace)
-      .set({ status: "ready", updatedAt: new Date() })
+      .set({ status: "ready", errorSummary: null, updatedAt: new Date() })
       .where(eq(schema.workspace.id, workspaceId))
 
     return {
@@ -350,6 +369,7 @@ export const getWorkspace = createServerFn({ method: "GET" })
         repositoryName: schema.project.artifactRepo,
         workspaceRepositoryName: schema.workspace.workspaceArtifactRepo,
         defaultBranch: schema.project.defaultBranch,
+        errorSummary: schema.workspace.errorSummary,
       })
       .from(schema.workspace)
       .innerJoin(
@@ -387,17 +407,122 @@ export const getWorkspace = createServerFn({ method: "GET" })
       await response.json()
     )
 
-    if (workspace.status !== runtimeSnapshot.status) {
+    const status =
+      (workspace.status === "error" || workspace.errorSummary) &&
+      runtimeSnapshot.status === "provisioning"
+        ? "error"
+        : runtimeSnapshot.status
+
+    if (workspace.status !== status) {
       await drizzle(env.DB, { schema })
         .update(schema.workspace)
-        .set({ status: runtimeSnapshot.status, updatedAt: new Date() })
+        .set({ status, updatedAt: new Date() })
         .where(eq(schema.workspace.id, data.workspaceId))
     }
 
     return {
-      workspace: { ...workspace, status: runtimeSnapshot.status },
-      runtime: await encodeWorkspaceRuntimeHealth(runtimeSnapshot),
+      workspace: { ...workspace, status },
+      runtime: await encodeWorkspaceRuntimeHealth(
+        new WorkspaceRuntimeHealth({ ...runtimeSnapshot, status })
+      ),
     }
+  })
+
+export const restartWorkspace = createServerFn({ method: "POST" })
+  .validator((input) => decodeWorkspaceRequestInputPromise(input))
+  .handler(async ({ data }) => {
+    const request = getRequest()
+    const { session } = await currentSession(request)
+
+    if (!session) throw new Error("Sign in before restarting a Workspace")
+
+    const database = drizzle(env.DB, { schema })
+    const workspace = await database
+      .select({
+        id: schema.workspace.id,
+        projectId: schema.workspace.projectId,
+        projectName: schema.project.name,
+        organizationId: schema.workspace.organizationId,
+        repositoryName: schema.workspace.workspaceArtifactRepo,
+      })
+      .from(schema.workspace)
+      .innerJoin(
+        schema.project,
+        eq(schema.workspace.projectId, schema.project.id)
+      )
+      .innerJoin(
+        schema.member,
+        and(
+          eq(schema.member.organizationId, schema.workspace.organizationId),
+          eq(schema.member.userId, session.user.id)
+        )
+      )
+      .where(eq(schema.workspace.id, data.workspaceId))
+      .get()
+
+    if (!workspace) {
+      throw new Error("This Workspace does not exist or you cannot access it")
+    }
+
+    const connection = await database
+      .select()
+      .from(schema.openCodeConnection)
+      .where(eq(schema.openCodeConnection.userId, session.user.id))
+      .get()
+
+    if (!connection) {
+      throw new Error("Reconnect OpenCode before restarting this Workspace")
+    }
+
+    const apiKey = await decryptCredential(
+      connection.encryptedApiKey,
+      connection.encryptionIv,
+      env.CREDENTIAL_ENCRYPTION_KEY
+    )
+    const repository = await env.REPOS.get(workspace.repositoryName)
+
+    await database
+      .update(schema.workspace)
+      .set({
+        status: "provisioning",
+        errorSummary: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.workspace.id, workspace.id))
+
+    try {
+      await initializeWorkspaceRuntime(
+        workspace.id,
+        new InitializeWorkspaceRuntime({
+          organizationId: OrganizationId.make(workspace.organizationId),
+          projectId: ProjectId.make(workspace.projectId),
+          workspaceId: WorkspaceId.make(workspace.id),
+          projectName: workspace.projectName,
+          repositoryName: workspace.repositoryName,
+          repositoryRemote: repository.remote,
+          providerId: connection.providerId,
+          modelId: connection.modelId,
+          apiKey,
+        })
+      )
+    } catch (error) {
+      const summary =
+        error instanceof Error && error.message
+          ? error.message
+          : "Workspace runtime failed"
+      await database
+        .update(schema.workspace)
+        .set({ status: "error", errorSummary: summary, updatedAt: new Date() })
+        .where(eq(schema.workspace.id, workspace.id))
+      throw new Error(summary)
+    }
+
+    await database
+      .update(schema.workspace)
+      .set({ status: "ready", errorSummary: null, updatedAt: new Date() })
+      .where(eq(schema.workspace.id, workspace.id))
+
+    return { id: workspace.id, status: "ready" as const }
   })
 
 export const promptWorkspace = createServerFn({ method: "POST" })

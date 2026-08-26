@@ -7,6 +7,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  CircleAlert,
   Files,
   FolderGit2,
   GitBranch,
@@ -123,7 +124,10 @@ type WorkspaceShellProps = {
   promptDisabled?: boolean
   promptError?: string | null
   promptPending?: boolean
+  restartPending?: boolean
   onSubmitPrompt?: (text: string) => Promise<void>
+  onRestartWorkspace?: () => Promise<void>
+  workspaceError?: string | null
 }
 
 function SylphMark({ className }: { className?: string }) {
@@ -532,12 +536,18 @@ function AgentThread({
   promptDisabled,
   promptError,
   promptPending,
+  restartPending,
+  onRestartWorkspace,
+  workspaceError,
 }: {
   entries: ThreadEntry[]
   onSubmitPrompt?: (text: string) => Promise<void>
   promptDisabled?: boolean
   promptError?: string | null
   promptPending?: boolean
+  restartPending?: boolean
+  onRestartWorkspace?: () => Promise<void>
+  workspaceError?: string | null
 }) {
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-background">
@@ -617,6 +627,30 @@ function AgentThread({
           ))}
         </div>
       </ScrollArea>
+      {workspaceError ? (
+        <div className="mx-auto mb-3 flex w-[calc(100%-1.5rem)] max-w-3xl items-center gap-3 border border-destructive/25 bg-destructive/[.06] px-3 py-2.5">
+          <CircleAlert className="size-4 shrink-0 text-destructive" />
+          <p className="min-w-0 flex-1 text-[11px] text-foreground/80">
+            {workspaceError}
+          </p>
+          {onRestartWorkspace ? (
+            <Button
+              size="sm"
+              type="button"
+              variant="outline"
+              disabled={restartPending}
+              onClick={onRestartWorkspace}
+            >
+              {restartPending ? (
+                <LoaderCircle className="animate-spin" />
+              ) : (
+                <RefreshCw />
+              )}
+              Restart
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
       <PromptComposer
         disabled={promptDisabled}
         error={promptError}
@@ -973,12 +1007,15 @@ function WorkspaceTabs({
   onAddBrowser,
   onCloseTab,
   onSubmitPrompt,
+  onRestartWorkspace,
   patch,
   previewContent,
   promptDisabled,
   promptError,
   promptPending,
+  restartPending,
   tabs,
+  workspaceError,
 }: {
   activeTabId: string
   browser: BrowserState
@@ -991,12 +1028,15 @@ function WorkspaceTabs({
   onAddBrowser: () => void
   onCloseTab: (tabId: string) => void
   onSubmitPrompt?: (text: string) => Promise<void>
+  onRestartWorkspace?: () => Promise<void>
   patch?: string
   previewContent?: ReactNode
   promptDisabled?: boolean
   promptError?: string | null
   promptPending?: boolean
+  restartPending?: boolean
   tabs: WorkspaceTab[]
+  workspaceError?: string | null
 }) {
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0]
 
@@ -1093,6 +1133,9 @@ function WorkspaceTabs({
             promptDisabled={promptDisabled}
             promptError={promptError}
             promptPending={promptPending}
+            restartPending={restartPending}
+            onRestartWorkspace={onRestartWorkspace}
+            workspaceError={workspaceError}
           />
         ) : null}
         {activeTab.kind === "browser" ? (
@@ -1138,6 +1181,9 @@ function WorkspaceShell({
   promptDisabled = false,
   promptError,
   promptPending = false,
+  restartPending = false,
+  onRestartWorkspace,
+  workspaceError,
 }: WorkspaceShellProps) {
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false)
   const [tabs, setTabs] = useState<WorkspaceTab[]>(initialWorkspaceTabs)
@@ -1253,6 +1299,9 @@ function WorkspaceShell({
             promptDisabled={promptDisabled}
             promptError={promptError}
             promptPending={promptPending}
+            restartPending={restartPending}
+            onRestartWorkspace={onRestartWorkspace}
+            workspaceError={workspaceError}
             tabs={tabs}
           />
         </main>
