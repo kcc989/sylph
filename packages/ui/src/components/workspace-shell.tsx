@@ -618,21 +618,16 @@ function AgentThread({
 }) {
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-background">
-      <MessageScrollerProvider
-        autoScroll
-        defaultScrollPosition="last-anchor"
-        scrollPreviousItemPeek={64}
-      >
+      <MessageScrollerProvider autoScroll defaultScrollPosition="end">
         <MessageScroller className="min-h-0 flex-1">
           <MessageScrollerViewport>
-            <MessageScrollerContent className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-7">
+            <MessageScrollerContent className="mx-auto w-full max-w-3xl px-4 py-5 sm:px-7">
               {entries.map((entry) => (
                 <MessageScrollerItem
                   key={entry.id}
                   messageId={entry.id}
-                  scrollAnchor={entry.kind === "user"}
                   className={cn(
-                    "py-3 first:pt-0 last:pb-8",
+                    "py-2 first:pt-0 last:pb-4",
                     entry.kind === "user" && "flex justify-end",
                     entry.kind === "tool" && "font-mono"
                   )}
