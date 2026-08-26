@@ -7,7 +7,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@workspace/ui/components/card"
-import { ArrowRight, Boxes, Building2, Plus } from "lucide-react"
+import { ArrowRight, Boxes, Building2, Plus, Settings2 } from "lucide-react"
 
 import { getDashboard } from "@/lib/workspaces"
 
@@ -85,12 +85,18 @@ function OrganizationsScreen() {
                   <CardTitle>{organization.name}</CardTitle>
                   <CardDescription>{organization.slug}</CardDescription>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="flex items-center justify-between gap-3">
                   <a
                     href={`/organizations/${encodeURIComponent(organization.id)}/projects/new`}
                     className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
                   >
                     New project <ArrowRight className="size-4" />
+                  </a>
+                  <a
+                    href={`/organizations/${encodeURIComponent(organization.id)}/settings`}
+                    className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground"
+                  >
+                    <Settings2 className="size-4" /> Settings
                   </a>
                 </CardContent>
               </Card>

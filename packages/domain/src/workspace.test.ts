@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test"
 import { Effect, Exit } from "effect"
 
-import { WorkspaceId } from "./ids"
+import { OrganizationId, ProjectId, WorkspaceId } from "./ids"
 import {
   decodeCreateProjectInput,
+  decodeCreateWorkspaceInputPromise,
   decodeOpenCodeSetupInputPromise,
   decodeWorkspaceSummary,
   decodeWorkspaceWriteFile,
@@ -56,13 +57,44 @@ describe("Project and runtime inputs", () => {
     ).rejects.toBeDefined()
   })
 
+  test("decodes a Workspace for an existing Project", async () => {
+    const workspace = await decodeCreateWorkspaceInputPromise({
+      projectId: "project-1",
+      title: "Add billing",
+    })
+
+    expect(workspace.projectId).toBe(ProjectId.make("project-1"))
+    expect(workspace.title).toBe("Add billing")
+  })
+
+  test("rejects an empty Workspace title", async () => {
+    await expect(
+      decodeCreateWorkspaceInputPromise({
+        projectId: "project-1",
+        title: "",
+      })
+    ).rejects.toBeDefined()
+  })
+
   test("requires an API key for OpenCode setup", async () => {
     await expect(
       decodeOpenCodeSetupInputPromise({
+        organizationId: "organization-1",
         providerId: "opencode",
         modelId: "gpt-5.2-codex",
         apiKey: "",
       })
     ).rejects.toBeDefined()
+  })
+
+  test("scopes OpenCode setup to an Organization", async () => {
+    const setup = await decodeOpenCodeSetupInputPromise({
+      organizationId: "organization-1",
+      providerId: "opencode",
+      modelId: "nemotron-3.5-lightning-free",
+      apiKey: "secret",
+    })
+
+    expect(setup.organizationId).toBe(OrganizationId.make("organization-1"))
   })
 })

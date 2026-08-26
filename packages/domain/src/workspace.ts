@@ -30,9 +30,29 @@ export class CreateProjectInput extends Schema.Class<CreateProjectInput>(
   name: Schema.NonEmptyString,
 }) {}
 
+export class CreateWorkspaceInput extends Schema.Class<CreateWorkspaceInput>(
+  "@sylph/domain/CreateWorkspaceInput"
+)({
+  projectId: ProjectId,
+  title: Schema.NonEmptyString,
+}) {}
+
+export class ProjectRequestInput extends Schema.Class<ProjectRequestInput>(
+  "@sylph/domain/ProjectRequestInput"
+)({
+  projectId: ProjectId,
+}) {}
+
+export class OrganizationRequestInput extends Schema.Class<OrganizationRequestInput>(
+  "@sylph/domain/OrganizationRequestInput"
+)({
+  organizationId: OrganizationId,
+}) {}
+
 export class OpenCodeSetupInput extends Schema.Class<OpenCodeSetupInput>(
   "@sylph/domain/OpenCodeSetupInput"
 )({
+  organizationId: OrganizationId,
   providerId: Schema.NonEmptyString,
   modelId: Schema.NonEmptyString,
   apiKey: Schema.NonEmptyString,
@@ -154,6 +174,15 @@ export const decodeCreateProjectInput =
 
 export const decodeCreateProjectInputPromise =
   Schema.decodeUnknownPromise(CreateProjectInput)
+
+export const decodeCreateWorkspaceInputPromise =
+  Schema.decodeUnknownPromise(CreateWorkspaceInput)
+
+export const decodeProjectRequestInputPromise =
+  Schema.decodeUnknownPromise(ProjectRequestInput)
+
+export const decodeOrganizationRequestInputPromise =
+  Schema.decodeUnknownPromise(OrganizationRequestInput)
 
 export const decodeOpenCodeSetupInputPromise =
   Schema.decodeUnknownPromise(OpenCodeSetupInput)

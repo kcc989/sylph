@@ -220,9 +220,12 @@ export const workspace = sqliteTable(
 )
 
 export const openCodeConnection = sqliteTable("open_code_connection", {
-  userId: text("user_id")
+  organizationId: text("organization_id")
     .primaryKey()
-    .references(() => user.id, { onDelete: "cascade" }),
+    .references(() => organization.id, { onDelete: "cascade" }),
+  configuredByUserId: text("configured_by_user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "restrict" }),
   providerId: text("provider_id").notNull(),
   modelId: text("model_id").notNull(),
   encryptedApiKey: text("encrypted_api_key").notNull(),

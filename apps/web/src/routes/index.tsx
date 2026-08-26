@@ -3,6 +3,12 @@ import { useServerFn } from "@tanstack/react-start"
 import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@workspace/ui/components/dropdown-menu"
 import { cn } from "@workspace/ui/lib/utils"
 import {
   Boxes,
@@ -17,6 +23,7 @@ import {
   LoaderCircle,
   LogOut,
   Mail,
+  MoreHorizontal,
   Plus,
   RefreshCw,
   Search,
@@ -297,14 +304,56 @@ function HomeScreen() {
             return (
               <section key={project.id} className="mb-2">
                 <div className="flex h-8 items-center gap-2 px-2 text-xs font-semibold text-foreground/85">
-                  <ChevronRight className="size-3 text-muted-foreground" />
                   <FolderGit2 className="size-3.5 text-[#ef9b7e]" />
-                  <span className="truncate">{project.name}</span>
+                  <span className="min-w-0 flex-1 truncate">
+                    {project.name}
+                  </span>
+                  <Button
+                    nativeButton={false}
+                    aria-label={`New Workspace in ${project.name}`}
+                    size="icon-xs"
+                    variant="ghost"
+                    render={
+                      <a
+                        href={`/projects/${encodeURIComponent(project.id)}/workspaces/new`}
+                      />
+                    }
+                  >
+                    <Plus />
+                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      aria-label={`Open ${project.name} menu`}
+                      className="grid size-6 place-items-center rounded-[4px] text-muted-foreground hover:bg-white/[.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                    >
+                      <MoreHorizontal className="size-3.5" />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-44">
+                      <DropdownMenuItem
+                        onClick={() =>
+                          window.location.assign(
+                            `/projects/${encodeURIComponent(project.id)}/workspaces/new`
+                          )
+                        }
+                      >
+                        <Plus /> New Workspace
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() =>
+                          window.location.assign(
+                            `/projects/${encodeURIComponent(project.id)}/settings`
+                          )
+                        }
+                      >
+                        <Settings2 /> Project settings
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
-                <p className="ml-[34px] truncate font-mono text-[9px] text-muted-foreground">
+                <p className="ml-[22px] truncate font-mono text-[10px] text-muted-foreground">
                   Repository · {project.repositoryName}
                 </p>
-                <div className="mt-1 ml-[17px] border-l border-white/[.07] pl-1.5">
+                <div className="mt-1 ml-[5px] border-l border-white/[.07] pl-1.5">
                   {workspaces.map((workspace) => (
                     <Link
                       key={workspace.id}
@@ -415,9 +464,34 @@ function HomeScreen() {
                     <div>
                       <div className="flex items-center gap-2.5">
                         <FolderGit2 className="size-4 text-[#ef9b7e]" />
-                        <h2 className="text-sm font-semibold">
+                        <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">
                           {project.name}
                         </h2>
+                        <Button
+                          nativeButton={false}
+                          size="sm"
+                          variant="ghost"
+                          render={
+                            <a
+                              href={`/projects/${encodeURIComponent(project.id)}/workspaces/new`}
+                            />
+                          }
+                        >
+                          <Plus /> Workspace
+                        </Button>
+                        <Button
+                          nativeButton={false}
+                          aria-label={`${project.name} settings`}
+                          size="icon-sm"
+                          variant="ghost"
+                          render={
+                            <a
+                              href={`/projects/${encodeURIComponent(project.id)}/settings`}
+                            />
+                          }
+                        >
+                          <MoreHorizontal />
+                        </Button>
                       </div>
                       <p className="mt-2 pl-6 font-mono text-[10px] text-muted-foreground">
                         Repository · {project.repositoryName}

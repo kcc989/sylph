@@ -9,20 +9,23 @@ import {
 import { useEffect, useState } from "react"
 
 import {
+  getDashboard,
   getWorkspace,
   promptWorkspace,
   restartWorkspace,
 } from "@/lib/workspaces"
 
 export const Route = createFileRoute("/workspaces/$workspaceId")({
-  loader: ({ params }) =>
-    getWorkspace({ data: { workspaceId: params.workspaceId } }),
+  loader: async ({ params }) => ({
+    dashboard: await getDashboard(),
+    result: await getWorkspace({ data: { workspaceId: params.workspaceId } }),
+  }),
   component: WorkspaceScreen,
 })
 
 function WorkspaceScreen() {
   const { workspaceId } = Route.useParams()
-  const result = Route.useLoaderData()
+  const { dashboard, result } = Route.useLoaderData()
   const router = useRouter()
   const prompt = useServerFn(promptWorkspace)
   const restart = useServerFn(restartWorkspace)
@@ -134,28 +137,28 @@ function WorkspaceScreen() {
           setPromptPending(false)
         }
       }}
-      projects={[
-        {
-          id: workspace.projectId,
-          name: workspace.projectName,
-          repositoryName: workspace.repositoryName,
-          workspaces: [
-            {
-              id: workspace.id,
-              name: workspace.title,
-              branch: workspace.defaultBranch,
-              status:
-                runtime.status === "error"
-                  ? "error"
-                  : runtime.status === "running"
-                    ? "running"
-                    : runtime.status === "ready"
-                      ? "ready"
-                      : "waiting",
-            },
-          ],
-        },
-      ]}
+      projects={dashboard.projects.map((project) => ({
+        id: project.id,
+        name: project.name,
+        repositoryName: project.repositoryName,
+        newWorkspaceHref: `/projects/${encodeURIComponent(project.id)}/workspaces/new`,
+        settingsHref: `/projects/${encodeURIComponent(project.id)}/settings`,
+        workspaces: dashboard.workspaces
+          .filter((item) => item.projectId === project.id)
+          .map((item) => ({
+            id: item.id,
+            name: item.title,
+            branch: project.defaultBranch,
+            status:
+              item.status === "error"
+                ? "error"
+                : item.status === "running"
+                  ? "running"
+                  : item.status === "ready"
+                    ? "ready"
+                    : "waiting",
+          })),
+      }))}
       promptDisabled={
         runtime.status === "provisioning" || runtime.status === "error"
       }

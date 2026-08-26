@@ -1,7 +1,10 @@
 import {
+  decodeCreateWorkspaceInputPromise,
   decodeCreateProjectInputPromise,
   decodeMagicLinkRequest,
   decodeOpenCodeSetupInputPromise,
+  decodeOrganizationRequestInputPromise,
+  decodeProjectRequestInputPromise,
   decodeWorkspacePromptInputPromise,
   decodeWorkspaceRequestInputPromise,
   decodeWorkspaceRuntimeHealth,
@@ -135,24 +138,85 @@ export const getDashboard = createServerFn({ method: "GET" }).handler(
   }
 )
 
-export const getOpenCodeSetup = createServerFn({ method: "GET" }).handler(
-  async () => {
+export const getOpenCodeSetup = createServerFn({ method: "GET" })
+  .validator((input) => decodeOrganizationRequestInputPromise(input))
+  .handler(async ({ data }) => {
     const { session } = await currentSession(getRequest())
 
     if (!session) return null
 
-    const connection = await drizzle(env.DB, { schema })
+    const database = drizzle(env.DB, { schema })
+    const membership = await database
+      .select({ id: schema.member.id })
+      .from(schema.member)
+      .where(
+        and(
+          eq(schema.member.organizationId, data.organizationId),
+          eq(schema.member.userId, session.user.id)
+        )
+      )
+      .get()
+
+    if (!membership) return null
+
+    const connection = await database
       .select({
         providerId: schema.openCodeConnection.providerId,
         modelId: schema.openCodeConnection.modelId,
       })
       .from(schema.openCodeConnection)
-      .where(eq(schema.openCodeConnection.userId, session.user.id))
+      .where(eq(schema.openCodeConnection.organizationId, data.organizationId))
       .get()
 
     return connection ?? { providerId: null, modelId: null }
-  }
-)
+  })
+
+export const getWorkspaceCreationContext = createServerFn({ method: "GET" })
+  .validator((input) => decodeProjectRequestInputPromise(input))
+  .handler(async ({ data }) => {
+    const request = getRequest()
+    const { session } = await currentSession(request)
+
+    if (!session) return null
+
+    const database = drizzle(env.DB, { schema })
+    const project = await database
+      .select({
+        id: schema.project.id,
+        name: schema.project.name,
+        organizationId: schema.project.organizationId,
+        repositoryName: schema.project.artifactRepo,
+        defaultBranch: schema.project.defaultBranch,
+      })
+      .from(schema.project)
+      .innerJoin(
+        schema.member,
+        and(
+          eq(schema.member.organizationId, schema.project.organizationId),
+          eq(schema.member.userId, session.user.id)
+        )
+      )
+      .where(eq(schema.project.id, data.projectId))
+      .get()
+
+    if (!project) return null
+
+    const setup = await database
+      .select({
+        providerId: schema.openCodeConnection.providerId,
+        modelId: schema.openCodeConnection.modelId,
+      })
+      .from(schema.openCodeConnection)
+      .where(
+        eq(schema.openCodeConnection.organizationId, project.organizationId)
+      )
+      .get()
+
+    return {
+      project,
+      setup: setup ?? { providerId: null, modelId: null },
+    }
+  })
 
 export const saveOpenCodeSetup = createServerFn({ method: "POST" })
   .validator((input) => decodeOpenCodeSetupInputPromise(input))
@@ -161,8 +225,24 @@ export const saveOpenCodeSetup = createServerFn({ method: "POST" })
 
     if (!session) throw new Error("Sign in before connecting OpenCode")
 
+    const database = drizzle(env.DB, { schema })
+    const membership = await database
+      .select({ id: schema.member.id })
+      .from(schema.member)
+      .where(
+        and(
+          eq(schema.member.organizationId, data.organizationId),
+          eq(schema.member.userId, session.user.id)
+        )
+      )
+      .get()
+
+    if (!membership) {
+      throw new Error("You cannot configure OpenCode for this Organization")
+    }
+
     const validator = env.WORKSPACES.get(
-      env.WORKSPACES.idFromName(`opencode-setup-${session.user.id}`)
+      env.WORKSPACES.idFromName(`opencode-setup-${data.organizationId}`)
     )
     const validation = await validator.fetch("https://workspace/connect", {
       method: "POST",
@@ -178,10 +258,11 @@ export const saveOpenCodeSetup = createServerFn({ method: "POST" })
     )
     const now = new Date()
 
-    await drizzle(env.DB, { schema })
+    await database
       .insert(schema.openCodeConnection)
       .values({
-        userId: session.user.id,
+        organizationId: data.organizationId,
+        configuredByUserId: session.user.id,
         providerId: data.providerId,
         modelId: data.modelId,
         encryptedApiKey: credential.encrypted,
@@ -190,8 +271,9 @@ export const saveOpenCodeSetup = createServerFn({ method: "POST" })
         updatedAt: now,
       })
       .onConflictDoUpdate({
-        target: schema.openCodeConnection.userId,
+        target: schema.openCodeConnection.organizationId,
         set: {
+          configuredByUserId: session.user.id,
           providerId: data.providerId,
           modelId: data.modelId,
           encryptedApiKey: credential.encrypted,
@@ -214,21 +296,6 @@ export const createProject = createServerFn({ method: "POST" })
     }
 
     const database = drizzle(env.DB, { schema })
-    const connection = await database
-      .select()
-      .from(schema.openCodeConnection)
-      .where(eq(schema.openCodeConnection.userId, session.user.id))
-      .get()
-
-    if (!connection) {
-      throw new Error("Connect OpenCode before creating a Project")
-    }
-
-    const apiKey = await decryptCredential(
-      connection.encryptedApiKey,
-      connection.encryptionIv,
-      env.CREDENTIAL_ENCRYPTION_KEY
-    )
     const membership = await database
       .select({ organizationSlug: schema.organization.slug })
       .from(schema.member)
@@ -247,6 +314,24 @@ export const createProject = createServerFn({ method: "POST" })
     if (!membership) {
       throw new Error("You are not a member of this organization")
     }
+
+    const connection = await database
+      .select()
+      .from(schema.openCodeConnection)
+      .where(eq(schema.openCodeConnection.organizationId, data.organizationId))
+      .get()
+
+    if (!connection) {
+      throw new Error(
+        "Connect OpenCode for this Organization before creating a Project"
+      )
+    }
+
+    const apiKey = await decryptCredential(
+      connection.encryptedApiKey,
+      connection.encryptionIv,
+      env.CREDENTIAL_ENCRYPTION_KEY
+    )
 
     const projectSlug = normalizeName(data.name)
     const requestedRepositoryName = projectSlug
@@ -273,21 +358,22 @@ export const createProject = createServerFn({ method: "POST" })
     )
     const now = new Date()
 
-    await database.batch([
-      database.insert(schema.project).values({
-        id: projectId,
-        organizationId: data.organizationId,
-        ownerUserId: session.user.id,
-        name: data.name,
-        slug: projectSlug,
-        artifactRepoId: artifact.id,
-        artifactRepo: artifact.name,
-        artifactRemote: artifact.remote,
-        defaultBranch: artifact.defaultBranch,
-        createdAt: now,
-        updatedAt: now,
-      }),
-      database.insert(schema.workspace).values({
+    await database.insert(schema.project).values({
+      id: projectId,
+      organizationId: data.organizationId,
+      ownerUserId: session.user.id,
+      name: data.name,
+      slug: projectSlug,
+      artifactRepoId: artifact.id,
+      artifactRepo: artifact.name,
+      artifactRemote: artifact.remote,
+      defaultBranch: artifact.defaultBranch,
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    try {
+      await database.insert(schema.workspace).values({
         id: workspaceId,
         projectId,
         organizationId: data.organizationId,
@@ -299,8 +385,13 @@ export const createProject = createServerFn({ method: "POST" })
         workspaceArtifactRepo: workspaceArtifact.name,
         createdAt: now,
         updatedAt: now,
-      }),
-    ])
+      })
+    } catch (error) {
+      await database
+        .delete(schema.project)
+        .where(eq(schema.project.id, projectId))
+      throw error
+    }
 
     try {
       await initializeWorkspaceRuntime(
@@ -331,7 +422,13 @@ export const createProject = createServerFn({ method: "POST" })
           updatedAt: new Date(),
         })
         .where(eq(schema.workspace.id, workspaceId))
-      throw new Error(summary)
+      return {
+        id: workspaceId,
+        projectId,
+        repositoryName: artifact.name,
+        status: "error" as const,
+        errorSummary: summary,
+      }
     }
 
     await database
@@ -344,7 +441,123 @@ export const createProject = createServerFn({ method: "POST" })
       projectId,
       repositoryName: artifact.name,
       status: "ready" as const,
+      errorSummary: null,
     }
+  })
+
+export const createWorkspace = createServerFn({ method: "POST" })
+  .validator((input) => decodeCreateWorkspaceInputPromise(input))
+  .handler(async ({ data }) => {
+    const request = getRequest()
+    const { session } = await currentSession(request)
+
+    if (!session) throw new Error("Sign in before creating a Workspace")
+
+    const title = data.title.trim()
+
+    if (!title) throw new Error("Workspace name needs a letter or number")
+
+    const database = drizzle(env.DB, { schema })
+    const project = await database
+      .select({
+        id: schema.project.id,
+        name: schema.project.name,
+        organizationId: schema.project.organizationId,
+        repositoryName: schema.project.artifactRepo,
+      })
+      .from(schema.project)
+      .innerJoin(
+        schema.member,
+        and(
+          eq(schema.member.organizationId, schema.project.organizationId),
+          eq(schema.member.userId, session.user.id)
+        )
+      )
+      .where(eq(schema.project.id, data.projectId))
+      .get()
+
+    if (!project) {
+      throw new Error("This Project does not exist or you cannot access it")
+    }
+
+    const connection = await database
+      .select()
+      .from(schema.openCodeConnection)
+      .where(
+        eq(schema.openCodeConnection.organizationId, project.organizationId)
+      )
+      .get()
+
+    if (!connection) {
+      throw new Error(
+        "Connect OpenCode for this Organization before creating a Workspace"
+      )
+    }
+
+    const apiKey = await decryptCredential(
+      connection.encryptedApiKey,
+      connection.encryptionIv,
+      env.CREDENTIAL_ENCRYPTION_KEY
+    )
+    const workspaceId = WorkspaceId.make(crypto.randomUUID())
+    const workspaceRepositoryName = `${project.repositoryName.slice(0, 44)}-${workspaceId.replaceAll("-", "").slice(0, 12)}`
+    const baseRepository = await env.REPOS.get(project.repositoryName)
+    const workspaceRepository = await baseRepository.fork(
+      workspaceRepositoryName,
+      {
+        description: `Workspace for ${project.name}: ${title}`,
+        defaultBranchOnly: true,
+      }
+    )
+    const now = new Date()
+
+    await database.insert(schema.workspace).values({
+      id: workspaceId,
+      projectId: ProjectId.make(project.id),
+      organizationId: OrganizationId.make(project.organizationId),
+      ownerUserId: session.user.id,
+      title,
+      status: "provisioning",
+      repositoryMode: "fork",
+      baseArtifactRepo: project.repositoryName,
+      workspaceArtifactRepo: workspaceRepository.name,
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    try {
+      await initializeWorkspaceRuntime(
+        workspaceId,
+        new InitializeWorkspaceRuntime({
+          organizationId: OrganizationId.make(project.organizationId),
+          projectId: ProjectId.make(project.id),
+          workspaceId,
+          projectName: project.name,
+          repositoryName: workspaceRepository.name,
+          repositoryRemote: workspaceRepository.remote,
+          providerId: connection.providerId,
+          modelId: connection.modelId,
+          apiKey,
+        })
+      )
+    } catch (error) {
+      const errorSummary =
+        error instanceof Error && error.message
+          ? error.message
+          : "Workspace runtime failed"
+      await database
+        .update(schema.workspace)
+        .set({ status: "error", errorSummary, updatedAt: new Date() })
+        .where(eq(schema.workspace.id, workspaceId))
+      return { id: workspaceId, status: "error" as const, errorSummary }
+    }
+
+    await database
+      .update(schema.workspace)
+      .set({ status: "ready", errorSummary: null, updatedAt: new Date() })
+      .where(eq(schema.workspace.id, workspaceId))
+
+    return { id: workspaceId, status: "ready" as const, errorSummary: null }
   })
 
 export const getWorkspace = createServerFn({ method: "GET" })
@@ -467,11 +680,15 @@ export const restartWorkspace = createServerFn({ method: "POST" })
     const connection = await database
       .select()
       .from(schema.openCodeConnection)
-      .where(eq(schema.openCodeConnection.userId, session.user.id))
+      .where(
+        eq(schema.openCodeConnection.organizationId, workspace.organizationId)
+      )
       .get()
 
     if (!connection) {
-      throw new Error("Reconnect OpenCode before restarting this Workspace")
+      throw new Error(
+        "Reconnect OpenCode for this Organization before restarting this Workspace"
+      )
     }
 
     const apiKey = await decryptCredential(

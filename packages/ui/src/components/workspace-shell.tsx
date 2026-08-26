@@ -40,6 +40,12 @@ import { useRef, useState, type ReactNode } from "react"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import { CodeReview } from "@workspace/ui/components/code-review"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@workspace/ui/components/dropdown-menu"
 import { ScrollArea } from "@workspace/ui/components/scroll-area"
 import { Textarea } from "@workspace/ui/components/textarea"
 import {
@@ -64,6 +70,8 @@ type ProjectGroup = {
   id: string
   name: string
   repositoryName: string
+  newWorkspaceHref?: string
+  settingsHref?: string
   workspaces: WorkspaceItem[]
 }
 
@@ -362,21 +370,57 @@ function ProjectRail({
           {projects.map((project) => (
             <section key={project.id}>
               <div className="flex h-8 items-center gap-2 px-2 text-xs font-semibold text-foreground/85">
-                <ChevronDown className="size-3.5 text-muted-foreground" />
                 <FolderGit2 className="size-3.5 text-[#ef9b7e]" />
                 <span className="min-w-0 flex-1 truncate">{project.name}</span>
                 <Button
                   aria-label={`New workspace in ${project.name}`}
+                  disabled={!project.newWorkspaceHref}
+                  nativeButton={!project.newWorkspaceHref}
+                  render={
+                    project.newWorkspaceHref ? (
+                      <a href={project.newWorkspaceHref} />
+                    ) : undefined
+                  }
                   size="icon-xs"
                   variant="ghost"
                 >
                   <Plus />
                 </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    aria-label={`Open ${project.name} menu`}
+                    className="grid size-6 place-items-center rounded-[4px] text-muted-foreground hover:bg-white/[.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                  >
+                    <MoreHorizontal className="size-3.5" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-44">
+                    <DropdownMenuItem
+                      disabled={!project.newWorkspaceHref}
+                      onClick={() => {
+                        if (project.newWorkspaceHref) {
+                          window.location.assign(project.newWorkspaceHref)
+                        }
+                      }}
+                    >
+                      <Plus /> New Workspace
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      disabled={!project.settingsHref}
+                      onClick={() => {
+                        if (project.settingsHref) {
+                          window.location.assign(project.settingsHref)
+                        }
+                      }}
+                    >
+                      <Settings2 /> Project settings
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
-              <p className="ml-[38px] truncate pr-3 font-mono text-[9px] text-muted-foreground">
+              <p className="ml-[22px] truncate pr-3 font-mono text-[9px] text-muted-foreground">
                 Repository · {project.repositoryName}
               </p>
-              <div className="ml-[17px] border-l border-white/[.07] pl-1.5">
+              <div className="ml-[5px] border-l border-white/[.07] pl-1.5">
                 {project.workspaces.map((workspace) => {
                   const active = workspace.name === workspaceName
                   return (

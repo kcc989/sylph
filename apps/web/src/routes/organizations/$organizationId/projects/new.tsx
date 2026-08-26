@@ -34,7 +34,8 @@ import {
 export const Route = createFileRoute(
   "/organizations/$organizationId/projects/new"
 )({
-  loader: () => getOpenCodeSetup(),
+  loader: ({ params }) =>
+    getOpenCodeSetup({ data: { organizationId: params.organizationId } }),
   component: NewProjectScreen,
 })
 
@@ -49,7 +50,7 @@ function NewProjectScreen() {
   const [error, setError] = useState<string | null>(null)
   const [setupStep, setSetupStep] = useState<"intro" | "key" | "model">("intro")
   const [apiKey, setApiKey] = useState("")
-  const [modelId, setModelId] = useState("gpt-5.2-codex")
+  const [modelId, setModelId] = useState("nemotron-3.5-lightning-free")
   const [editingSetup, setEditingSetup] = useState(false)
 
   const handleSetup = async (event: FormEvent<HTMLFormElement>) => {
@@ -65,7 +66,7 @@ function NewProjectScreen() {
 
     try {
       await saveSetup({
-        data: { providerId: "opencode", modelId, apiKey },
+        data: { organizationId, providerId: "opencode", modelId, apiKey },
       })
       setEditingSetup(false)
       await router.invalidate()
@@ -128,7 +129,7 @@ function NewProjectScreen() {
                   ? "Sylph needs a model provider before it can code. OpenCode Zen is the simplest path to a working agent."
                   : setupStep === "key"
                     ? "Paste your OpenCode Zen API key. Sylph encrypts it before storing it and never returns it to the browser."
-                    : "Choose the OpenCode model this user should start with."}
+                    : "Choose the OpenCode model this Organization should use."}
               </CardDescription>
             </CardHeader>
             <CardContent>
