@@ -5,7 +5,9 @@ import { OrganizationId, ProjectId, WorkspaceId } from "./ids"
 import {
   decodeCreateProjectInput,
   decodeCreateWorkspaceInputPromise,
-  decodeOpenCodeSetupInputPromise,
+  decodeInitializeWorkspaceRuntime,
+  decodeOpenCodeKeySetupInputPromise,
+  decodeOpenCodeSubscriptionStatusInputPromise,
   decodeWorkspaceSummary,
   decodeWorkspaceWriteFile,
 } from "./workspace"
@@ -78,7 +80,7 @@ describe("Project and runtime inputs", () => {
 
   test("requires an API key for OpenCode setup", async () => {
     await expect(
-      decodeOpenCodeSetupInputPromise({
+      decodeOpenCodeKeySetupInputPromise({
         organizationId: "organization-1",
         providerId: "opencode",
         modelId: "gpt-5.2-codex",
@@ -88,7 +90,7 @@ describe("Project and runtime inputs", () => {
   })
 
   test("scopes OpenCode setup to an Organization", async () => {
-    const setup = await decodeOpenCodeSetupInputPromise({
+    const setup = await decodeOpenCodeKeySetupInputPromise({
       organizationId: "organization-1",
       providerId: "opencode",
       modelId: "nemotron-3.5-lightning-free",
@@ -96,5 +98,36 @@ describe("Project and runtime inputs", () => {
     })
 
     expect(setup.organizationId).toBe(OrganizationId.make("organization-1"))
+  })
+
+  test("decodes a ChatGPT subscription status request", async () => {
+    const status = await decodeOpenCodeSubscriptionStatusInputPromise({
+      organizationId: "organization-1",
+      attemptId: "attempt-1",
+    })
+
+    expect(status.attemptId).toBe("attempt-1")
+  })
+
+  test("decodes an OAuth credential for Workspace initialization", async () => {
+    const runtime = await decodeInitializeWorkspaceRuntime({
+      organizationId: "organization-1",
+      projectId: "project-1",
+      workspaceId: "workspace-1",
+      projectName: "Weather desk",
+      repositoryName: "weather-desk-workspace",
+      repositoryRemote: "https://repositories.example/weather-desk-workspace",
+      providerId: "openai",
+      modelId: "gpt-5.5",
+      credential: {
+        type: "oauth",
+        methodID: "chatgpt-headless",
+        refresh: "refresh-token",
+        access: "access-token",
+        expires: 1_800_000_000_000,
+      },
+    })
+
+    expect(runtime.credential.type).toBe("oauth")
   })
 })

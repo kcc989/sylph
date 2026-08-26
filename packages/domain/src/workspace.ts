@@ -49,13 +49,84 @@ export class OrganizationRequestInput extends Schema.Class<OrganizationRequestIn
   organizationId: OrganizationId,
 }) {}
 
-export class OpenCodeSetupInput extends Schema.Class<OpenCodeSetupInput>(
-  "@sylph/domain/OpenCodeSetupInput"
+export const OpenCodeAuthMethod = Schema.Literals([
+  "api-key",
+  "chatgpt-subscription",
+])
+export type OpenCodeAuthMethod = typeof OpenCodeAuthMethod.Type
+
+export const OpenCodeCredential = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literal("key"),
+    key: Schema.NonEmptyString,
+    metadata: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+    configuration: Schema.optional(
+      Schema.Record(
+        Schema.String,
+        Schema.Union([
+          Schema.String,
+          Schema.Number,
+          Schema.Boolean,
+          Schema.Array(Schema.String),
+        ])
+      )
+    ),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("oauth"),
+    methodID: Schema.NonEmptyString,
+    refresh: Schema.NonEmptyString,
+    access: Schema.NonEmptyString,
+    expires: Schema.Int,
+    metadata: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+  }),
+])
+export type OpenCodeCredential = typeof OpenCodeCredential.Type
+
+export class OpenCodeKeySetupInput extends Schema.Class<OpenCodeKeySetupInput>(
+  "@sylph/domain/OpenCodeKeySetupInput"
 )({
   organizationId: OrganizationId,
   providerId: Schema.NonEmptyString,
   modelId: Schema.NonEmptyString,
   apiKey: Schema.NonEmptyString,
+}) {}
+
+export class OpenCodeSubscriptionStartInput extends Schema.Class<OpenCodeSubscriptionStartInput>(
+  "@sylph/domain/OpenCodeSubscriptionStartInput"
+)({
+  organizationId: OrganizationId,
+}) {}
+
+export class OpenCodeSubscriptionStatusInput extends Schema.Class<OpenCodeSubscriptionStatusInput>(
+  "@sylph/domain/OpenCodeSubscriptionStatusInput"
+)({
+  organizationId: OrganizationId,
+  attemptId: Schema.NonEmptyString,
+}) {}
+
+export class OpenCodeSubscriptionAttempt extends Schema.Class<OpenCodeSubscriptionAttempt>(
+  "@sylph/domain/OpenCodeSubscriptionAttempt"
+)({
+  attemptId: Schema.NonEmptyString,
+  url: Schema.NonEmptyString,
+  instructions: Schema.NonEmptyString,
+  expiresAt: Schema.Number,
+}) {}
+
+export class OpenCodeSubscriptionStatus extends Schema.Class<OpenCodeSubscriptionStatus>(
+  "@sylph/domain/OpenCodeSubscriptionStatus"
+)({
+  status: Schema.Literals(["pending", "complete", "failed", "expired"]),
+  message: Schema.optional(Schema.String),
+}) {}
+
+export class OpenCodeSubscriptionRuntimeStatus extends Schema.Class<OpenCodeSubscriptionRuntimeStatus>(
+  "@sylph/domain/OpenCodeSubscriptionRuntimeStatus"
+)({
+  status: Schema.Literals(["pending", "complete", "failed", "expired"]),
+  message: Schema.optional(Schema.String),
+  credential: Schema.optional(OpenCodeCredential),
 }) {}
 
 export class InitializeWorkspaceRuntime extends Schema.Class<InitializeWorkspaceRuntime>(
@@ -69,7 +140,7 @@ export class InitializeWorkspaceRuntime extends Schema.Class<InitializeWorkspace
   repositoryRemote: Schema.NonEmptyString,
   providerId: Schema.NonEmptyString,
   modelId: Schema.NonEmptyString,
-  apiKey: Schema.NonEmptyString,
+  credential: OpenCodeCredential,
 }) {}
 
 export class WorkspacePromptInput extends Schema.Class<WorkspacePromptInput>(
@@ -184,8 +255,24 @@ export const decodeProjectRequestInputPromise =
 export const decodeOrganizationRequestInputPromise =
   Schema.decodeUnknownPromise(OrganizationRequestInput)
 
-export const decodeOpenCodeSetupInputPromise =
-  Schema.decodeUnknownPromise(OpenCodeSetupInput)
+export const decodeOpenCodeKeySetupInputPromise = Schema.decodeUnknownPromise(
+  OpenCodeKeySetupInput
+)
+
+export const decodeOpenCodeSubscriptionStartInputPromise =
+  Schema.decodeUnknownPromise(OpenCodeSubscriptionStartInput)
+
+export const decodeOpenCodeSubscriptionStatusInputPromise =
+  Schema.decodeUnknownPromise(OpenCodeSubscriptionStatusInput)
+
+export const decodeOpenCodeCredentialPromise =
+  Schema.decodeUnknownPromise(OpenCodeCredential)
+
+export const decodeOpenCodeSubscriptionAttemptPromise =
+  Schema.decodeUnknownPromise(OpenCodeSubscriptionAttempt)
+
+export const decodeOpenCodeSubscriptionRuntimeStatusPromise =
+  Schema.decodeUnknownPromise(OpenCodeSubscriptionRuntimeStatus)
 
 export const decodeInitializeWorkspaceRuntime = Schema.decodeUnknownPromise(
   InitializeWorkspaceRuntime

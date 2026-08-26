@@ -12,13 +12,18 @@ import {
   KeyRound,
   LoaderCircle,
   Plus,
+  RefreshCw,
+  Sparkles,
 } from "lucide-react"
-import { type FormEvent, useState } from "react"
+import { type FormEvent, useEffect, useState } from "react"
 
 import {
+  cancelOpenCodeSubscription,
   getDashboard,
+  getOpenCodeSubscriptionStatus,
   getOpenCodeSetup,
   saveOpenCodeSetup,
+  startOpenCodeSubscription,
 } from "@/lib/workspaces"
 
 export const Route = createFileRoute("/organizations/$organizationId/settings")(
@@ -46,7 +51,12 @@ function OrganizationSettingsScreen() {
   const { organization, setup } = Route.useLoaderData()
   const router = useRouter()
   const saveSetup = useServerFn(saveOpenCodeSetup)
-  const [step, setStep] = useState<"intro" | "key" | "model">("intro")
+  const startSubscription = useServerFn(startOpenCodeSubscription)
+  const subscriptionStatus = useServerFn(getOpenCodeSubscriptionStatus)
+  const cancelSubscription = useServerFn(cancelOpenCodeSubscription)
+  const [step, setStep] = useState<"intro" | "subscription" | "key" | "model">(
+    "intro"
+  )
   const [apiKey, setApiKey] = useState("")
   const [modelId, setModelId] = useState(
     setup?.modelId ?? "nemotron-3.5-lightning-free"
@@ -54,6 +64,62 @@ function OrganizationSettingsScreen() {
   const [editing, setEditing] = useState(!setup?.providerId)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [attempt, setAttempt] = useState<{
+    attemptId: string
+    url: string
+    instructions: string
+    expiresAt: number
+  } | null>(null)
+
+  useEffect(() => {
+    if (step !== "subscription" || !attempt) return
+
+    let active = true
+    const poll = async () => {
+      try {
+        const result = await subscriptionStatus({
+          data: { organizationId, attemptId: attempt.attemptId },
+        })
+
+        if (!active) return
+
+        if (result.status === "complete") {
+          setEditing(false)
+          setStep("intro")
+          setAttempt(null)
+          await router.invalidate()
+          return
+        }
+
+        if (result.status === "failed" || result.status === "expired") {
+          setError(
+            result.message ??
+              (result.status === "expired"
+                ? "This sign-in code expired. Start again."
+                : "OpenAI sign-in failed. Start again.")
+          )
+          setAttempt(null)
+          setStep("intro")
+          return
+        }
+
+        window.setTimeout(poll, 2_000)
+      } catch (cause) {
+        if (!active) return
+        setError(
+          cause instanceof Error ? cause.message : "Could not check sign-in"
+        )
+        setAttempt(null)
+        setStep("intro")
+      }
+    }
+
+    const timer = window.setTimeout(poll, 1_000)
+    return () => {
+      active = false
+      window.clearTimeout(timer)
+    }
+  }, [attempt, organizationId, router, step, subscriptionStatus])
 
   if (!organization) {
     return (
@@ -105,6 +171,47 @@ function OrganizationSettingsScreen() {
     }
   }
 
+  const handleSubscription = async () => {
+    setPending(true)
+    setError(null)
+
+    try {
+      const nextAttempt = await startSubscription({
+        data: { organizationId },
+      })
+      setAttempt(nextAttempt)
+      setStep("subscription")
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Could not start OpenAI sign-in"
+      )
+    } finally {
+      setPending(false)
+    }
+  }
+
+  const handleSubscriptionCancel = async () => {
+    const currentAttempt = attempt
+    setAttempt(null)
+    setStep("intro")
+
+    if (!currentAttempt) return
+
+    try {
+      await cancelSubscription({
+        data: { organizationId, attemptId: currentAttempt.attemptId },
+      })
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Could not cancel OpenAI sign-in"
+      )
+    }
+  }
+
   return (
     <main className="dark min-h-svh bg-[var(--sylph-ink)] text-foreground">
       <header className="flex h-12 items-center border-b px-4 sm:px-6">
@@ -143,8 +250,8 @@ function OrganizationSettingsScreen() {
           </p>
           <p className="mt-9 border-t pt-6 text-xs leading-5 text-muted-foreground">
             The OpenCode connection is shared by every Project and Workspace
-            this Organization contains. The API key is encrypted at rest and is
-            never returned to the browser.
+            this Organization contains. Credentials are encrypted at rest and
+            are never returned to the browser.
           </p>
         </aside>
 
@@ -168,6 +275,11 @@ function OrganizationSettingsScreen() {
                     <p className="mt-1 font-mono text-[10px] text-muted-foreground">
                       {setup.providerId}/{setup.modelId}
                     </p>
+                    <p className="mt-1 text-[10px] text-muted-foreground">
+                      {setup.authMethod === "chatgpt-subscription"
+                        ? "ChatGPT subscription"
+                        : "API key"}
+                    </p>
                   </div>
                   <Button
                     size="sm"
@@ -186,34 +298,75 @@ function OrganizationSettingsScreen() {
                 <h2 className="mt-5 text-2xl font-semibold tracking-[-0.03em]">
                   {step === "intro"
                     ? "Connect OpenCode"
-                    : step === "key"
-                      ? "Add the Organization key"
-                      : "Choose the default model"}
+                    : step === "subscription"
+                      ? "Authorize your subscription"
+                      : step === "key"
+                        ? "Add the Organization key"
+                        : "Choose the default model"}
                 </h2>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
                   {step === "intro"
-                    ? `Connect ${organization.name} once so its members can start durable coding Workspaces.`
-                    : step === "key"
-                      ? "Use an OpenCode Zen API key authorized for this Organization."
-                      : "Every new OpenCode session in this Organization starts with this model."}
+                    ? `Connect ${organization.name} once so its members can start durable coding Workspaces with a ChatGPT subscription or API key.`
+                    : step === "subscription"
+                      ? "Open the OpenAI authorization page, enter the code shown there, and return here. Sylph will finish automatically."
+                      : step === "key"
+                        ? "Use an OpenCode Zen API key authorized for this Organization."
+                        : "Every new OpenCode session in this Organization starts with this model."}
                 </p>
                 {step === "intro" ? (
-                  <div className="mt-8 grid gap-3 sm:grid-cols-2">
+                  <div className="mt-8 grid gap-3">
+                    <Button onClick={handleSubscription} disabled={pending}>
+                      {pending ? (
+                        <LoaderCircle className="animate-spin" />
+                      ) : (
+                        <Sparkles />
+                      )}
+                      Use ChatGPT subscription
+                    </Button>
+                    <Button variant="outline" onClick={() => setStep("key")}>
+                      Use an API key <ArrowRight />
+                    </Button>
+                    <a
+                      href="https://opencode.ai/docs/providers/#openai"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-2 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                    >
+                      How OpenCode connects to OpenAI{" "}
+                      <ExternalLink className="size-3" />
+                    </a>
+                  </div>
+                ) : step === "subscription" && attempt ? (
+                  <div className="mt-8">
+                    <div className="border-y py-5">
+                      <p className="text-xs font-medium">OpenAI sign-in</p>
+                      <p className="mt-2 font-mono text-sm leading-6 text-foreground">
+                        {attempt.instructions}
+                      </p>
+                    </div>
                     <Button
                       nativeButton={false}
-                      variant="outline"
+                      className="mt-5 w-full"
                       render={
                         <a
-                          href="https://opencode.ai/auth"
+                          href={attempt.url}
                           target="_blank"
                           rel="noreferrer"
                         />
                       }
                     >
-                      Get a Zen key <ExternalLink />
+                      Open OpenAI authorization <ExternalLink />
                     </Button>
-                    <Button onClick={() => setStep("key")}>
-                      I have a key <ArrowRight />
+                    <p className="mt-4 flex items-center justify-center gap-2 text-xs text-muted-foreground">
+                      <RefreshCw className="size-3 animate-spin" /> Waiting for
+                      authorization
+                    </p>
+                    <Button
+                      className="mt-3 w-full"
+                      variant="ghost"
+                      onClick={handleSubscriptionCancel}
+                    >
+                      Cancel
                     </Button>
                   </div>
                 ) : (

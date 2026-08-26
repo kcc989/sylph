@@ -1,9 +1,4 @@
-import {
-  createFileRoute,
-  Link,
-  useNavigate,
-  useRouter,
-} from "@tanstack/react-router"
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { useServerFn } from "@tanstack/react-start"
 import { Button } from "@workspace/ui/components/button"
 import {
@@ -19,17 +14,12 @@ import {
   ArrowLeft,
   ArrowRight,
   Boxes,
-  ExternalLink,
   KeyRound,
   LoaderCircle,
 } from "lucide-react"
 import { type FormEvent, useState } from "react"
 
-import {
-  createProject,
-  getOpenCodeSetup,
-  saveOpenCodeSetup,
-} from "@/lib/workspaces"
+import { createProject, getOpenCodeSetup } from "@/lib/workspaces"
 
 export const Route = createFileRoute(
   "/organizations/$organizationId/projects/new"
@@ -42,42 +32,10 @@ export const Route = createFileRoute(
 function NewProjectScreen() {
   const { organizationId } = Route.useParams()
   const navigate = useNavigate()
-  const router = useRouter()
   const setup = Route.useLoaderData()
   const create = useServerFn(createProject)
-  const saveSetup = useServerFn(saveOpenCodeSetup)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [setupStep, setSetupStep] = useState<"intro" | "key" | "model">("intro")
-  const [apiKey, setApiKey] = useState("")
-  const [modelId, setModelId] = useState("nemotron-3.5-lightning-free")
-  const [editingSetup, setEditingSetup] = useState(false)
-
-  const handleSetup = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-
-    if (setupStep === "key") {
-      setSetupStep("model")
-      return
-    }
-
-    setPending(true)
-    setError(null)
-
-    try {
-      await saveSetup({
-        data: { organizationId, providerId: "opencode", modelId, apiKey },
-      })
-      setEditingSetup(false)
-      await router.invalidate()
-    } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "OpenCode could not connect"
-      )
-    } finally {
-      setPending(false)
-    }
-  }
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -106,7 +64,7 @@ function NewProjectScreen() {
     }
   }
 
-  const needsSetup = !setup?.providerId || editingSetup
+  const needsSetup = !setup?.providerId
 
   return (
     <main className="grid min-h-svh place-items-center bg-muted/30 px-5 py-10">
@@ -125,91 +83,23 @@ function NewProjectScreen() {
               </div>
               <CardTitle>Connect OpenCode</CardTitle>
               <CardDescription>
-                {setupStep === "intro"
-                  ? "Sylph needs a model provider before it can code. OpenCode Zen is the simplest path to a working agent."
-                  : setupStep === "key"
-                    ? "Paste your OpenCode Zen API key. Sylph encrypts it before storing it and never returns it to the browser."
-                    : "Choose the OpenCode model this Organization should use."}
+                This Organization needs one OpenCode connection before its
+                members can create Projects and durable Workspaces.
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {setupStep === "intro" ? (
-                <div className="grid gap-4">
-                  <Button
-                    nativeButton={false}
-                    variant="outline"
-                    render={
-                      <a
-                        href="https://opencode.ai/auth"
-                        target="_blank"
-                        rel="noreferrer"
-                      />
-                    }
-                  >
-                    Get an OpenCode Zen key <ExternalLink />
-                  </Button>
-                  <Button onClick={() => setSetupStep("key")}>
-                    I have a key <ArrowRight />
-                  </Button>
-                </div>
-              ) : (
-                <form className="grid gap-5" onSubmit={handleSetup}>
-                  {setupStep === "key" ? (
-                    <div className="grid gap-2">
-                      <Label htmlFor="api-key">API key</Label>
-                      <Input
-                        id="api-key"
-                        type="password"
-                        value={apiKey}
-                        onChange={(event) => setApiKey(event.target.value)}
-                        autoComplete="off"
-                        placeholder="opk_…"
-                        autoFocus
-                        required
-                      />
-                    </div>
-                  ) : (
-                    <div className="grid gap-2">
-                      <Label htmlFor="model-id">Model ID</Label>
-                      <div className="flex rounded-md border bg-muted/30 px-3 shadow-xs focus-within:ring-2 focus-within:ring-ring/50">
-                        <span className="self-center text-sm text-muted-foreground">
-                          opencode/
-                        </span>
-                        <Input
-                          id="model-id"
-                          value={modelId}
-                          onChange={(event) => setModelId(event.target.value)}
-                          className="border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
-                          autoFocus
-                          required
-                        />
-                      </div>
-                    </div>
-                  )}
-                  {error ? (
-                    <p role="alert" className="text-sm text-destructive">
-                      {error}
-                    </p>
-                  ) : null}
-                  <div className="grid grid-cols-2 gap-3">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() =>
-                        setSetupStep(setupStep === "model" ? "key" : "intro")
-                      }
-                    >
-                      Back
-                    </Button>
-                    <Button type="submit" disabled={pending}>
-                      {pending ? (
-                        <LoaderCircle className="animate-spin" />
-                      ) : null}
-                      {setupStep === "model" ? "Connect" : "Continue"}
-                    </Button>
-                  </div>
-                </form>
-              )}
+              <Button
+                nativeButton={false}
+                className="w-full"
+                render={
+                  <Link
+                    to="/organizations/$organizationId/settings"
+                    params={{ organizationId }}
+                  />
+                }
+              >
+                Open Organization settings <ArrowRight />
+              </Button>
             </CardContent>
           </Card>
         ) : (
@@ -234,13 +124,15 @@ function NewProjectScreen() {
                     </p>
                   </div>
                   <Button
-                    type="button"
+                    nativeButton={false}
                     variant="ghost"
                     size="sm"
-                    onClick={() => {
-                      setSetupStep("intro")
-                      setEditingSetup(true)
-                    }}
+                    render={
+                      <Link
+                        to="/organizations/$organizationId/settings"
+                        params={{ organizationId }}
+                      />
+                    }
                   >
                     Change
                   </Button>

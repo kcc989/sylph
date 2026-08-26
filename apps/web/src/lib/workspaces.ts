@@ -2,7 +2,12 @@ import {
   decodeCreateWorkspaceInputPromise,
   decodeCreateProjectInputPromise,
   decodeMagicLinkRequest,
-  decodeOpenCodeSetupInputPromise,
+  decodeOpenCodeCredentialPromise,
+  decodeOpenCodeKeySetupInputPromise,
+  decodeOpenCodeSubscriptionAttemptPromise,
+  decodeOpenCodeSubscriptionRuntimeStatusPromise,
+  decodeOpenCodeSubscriptionStartInputPromise,
+  decodeOpenCodeSubscriptionStatusInputPromise,
   decodeOrganizationRequestInputPromise,
   decodeProjectRequestInputPromise,
   decodeWorkspacePromptInputPromise,
@@ -10,6 +15,7 @@ import {
   decodeWorkspaceRuntimeHealth,
   encodeWorkspaceRuntimeHealth,
   InitializeWorkspaceRuntime,
+  OpenCodeSubscriptionStatus,
   OrganizationId,
   ProjectId,
   WorkspaceId,
@@ -34,6 +40,37 @@ const normalizeName = (value: string) =>
     .trim()
     .replace(/[^a-z0-9._-]+/g, "-")
     .replace(/^-+|-+$/g, "")
+
+const subscriptionProviderId = "openai"
+const subscriptionModelId = "gpt-5.5"
+
+const organizationMembership = async (organizationId: string, userId: string) =>
+  drizzle(env.DB, { schema })
+    .select({ id: schema.member.id })
+    .from(schema.member)
+    .where(
+      and(
+        eq(schema.member.organizationId, organizationId),
+        eq(schema.member.userId, userId)
+      )
+    )
+    .get()
+
+const connectionCredential = async (connection: {
+  authMethod: string
+  encryptedCredential: string
+  encryptionIv: string
+}) => {
+  const plaintext = await decryptCredential(
+    connection.encryptedCredential,
+    connection.encryptionIv,
+    env.CREDENTIAL_ENCRYPTION_KEY
+  )
+
+  return connection.authMethod === "chatgpt-subscription"
+    ? decodeOpenCodeCredentialPromise(JSON.parse(plaintext))
+    : decodeOpenCodeCredentialPromise({ type: "key", key: plaintext })
+}
 
 const initializeWorkspaceRuntime = async (
   workspaceId: string,
@@ -163,12 +200,13 @@ export const getOpenCodeSetup = createServerFn({ method: "GET" })
       .select({
         providerId: schema.openCodeConnection.providerId,
         modelId: schema.openCodeConnection.modelId,
+        authMethod: schema.openCodeConnection.authMethod,
       })
       .from(schema.openCodeConnection)
       .where(eq(schema.openCodeConnection.organizationId, data.organizationId))
       .get()
 
-    return connection ?? { providerId: null, modelId: null }
+    return connection ?? { providerId: null, modelId: null, authMethod: null }
   })
 
 export const getWorkspaceCreationContext = createServerFn({ method: "GET" })
@@ -205,6 +243,7 @@ export const getWorkspaceCreationContext = createServerFn({ method: "GET" })
       .select({
         providerId: schema.openCodeConnection.providerId,
         modelId: schema.openCodeConnection.modelId,
+        authMethod: schema.openCodeConnection.authMethod,
       })
       .from(schema.openCodeConnection)
       .where(
@@ -214,28 +253,22 @@ export const getWorkspaceCreationContext = createServerFn({ method: "GET" })
 
     return {
       project,
-      setup: setup ?? { providerId: null, modelId: null },
+      setup: setup ?? { providerId: null, modelId: null, authMethod: null },
     }
   })
 
 export const saveOpenCodeSetup = createServerFn({ method: "POST" })
-  .validator((input) => decodeOpenCodeSetupInputPromise(input))
+  .validator((input) => decodeOpenCodeKeySetupInputPromise(input))
   .handler(async ({ data }) => {
     const { session } = await currentSession(getRequest())
 
     if (!session) throw new Error("Sign in before connecting OpenCode")
 
     const database = drizzle(env.DB, { schema })
-    const membership = await database
-      .select({ id: schema.member.id })
-      .from(schema.member)
-      .where(
-        and(
-          eq(schema.member.organizationId, data.organizationId),
-          eq(schema.member.userId, session.user.id)
-        )
-      )
-      .get()
+    const membership = await organizationMembership(
+      data.organizationId,
+      session.user.id
+    )
 
     if (!membership) {
       throw new Error("You cannot configure OpenCode for this Organization")
@@ -244,7 +277,7 @@ export const saveOpenCodeSetup = createServerFn({ method: "POST" })
     const validator = env.WORKSPACES.get(
       env.WORKSPACES.idFromName(`opencode-setup-${data.organizationId}`)
     )
-    const validation = await validator.fetch("https://workspace/connect", {
+    const validation = await validator.fetch("https://workspace/connect/key", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(data),
@@ -265,7 +298,8 @@ export const saveOpenCodeSetup = createServerFn({ method: "POST" })
         configuredByUserId: session.user.id,
         providerId: data.providerId,
         modelId: data.modelId,
-        encryptedApiKey: credential.encrypted,
+        authMethod: "api-key",
+        encryptedCredential: credential.encrypted,
         encryptionIv: credential.iv,
         createdAt: now,
         updatedAt: now,
@@ -276,13 +310,160 @@ export const saveOpenCodeSetup = createServerFn({ method: "POST" })
           configuredByUserId: session.user.id,
           providerId: data.providerId,
           modelId: data.modelId,
-          encryptedApiKey: credential.encrypted,
+          authMethod: "api-key",
+          encryptedCredential: credential.encrypted,
           encryptionIv: credential.iv,
           updatedAt: now,
         },
       })
 
     return { providerId: data.providerId, modelId: data.modelId }
+  })
+
+export const startOpenCodeSubscription = createServerFn({ method: "POST" })
+  .validator((input) => decodeOpenCodeSubscriptionStartInputPromise(input))
+  .handler(async ({ data }) => {
+    const { session } = await currentSession(getRequest())
+
+    if (!session) throw new Error("Sign in before connecting OpenCode")
+
+    const membership = await organizationMembership(
+      data.organizationId,
+      session.user.id
+    )
+
+    if (!membership) {
+      throw new Error("You cannot configure OpenCode for this Organization")
+    }
+
+    const runtime = env.WORKSPACES.get(
+      env.WORKSPACES.idFromName(`opencode-setup-${data.organizationId}`)
+    )
+    const response = await runtime.fetch("https://workspace/oauth/start", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(data),
+    })
+
+    if (!response.ok) throw new Error(await response.text())
+
+    const attempt = await decodeOpenCodeSubscriptionAttemptPromise(
+      await response.json()
+    )
+
+    return {
+      attemptId: attempt.attemptId,
+      url: attempt.url,
+      instructions: attempt.instructions,
+      expiresAt: attempt.expiresAt,
+    }
+  })
+
+export const getOpenCodeSubscriptionStatus = createServerFn({ method: "POST" })
+  .validator((input) => decodeOpenCodeSubscriptionStatusInputPromise(input))
+  .handler(async ({ data }) => {
+    const { session } = await currentSession(getRequest())
+
+    if (!session) throw new Error("Sign in before connecting OpenCode")
+
+    const membership = await organizationMembership(
+      data.organizationId,
+      session.user.id
+    )
+
+    if (!membership) {
+      throw new Error("You cannot configure OpenCode for this Organization")
+    }
+
+    const runtime = env.WORKSPACES.get(
+      env.WORKSPACES.idFromName(`opencode-setup-${data.organizationId}`)
+    )
+    const response = await runtime.fetch("https://workspace/oauth/status", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(data),
+    })
+
+    if (!response.ok) throw new Error(await response.text())
+
+    const result = await decodeOpenCodeSubscriptionRuntimeStatusPromise(
+      await response.json()
+    )
+
+    if (result.status !== "complete") {
+      const status = new OpenCodeSubscriptionStatus({
+        status: result.status,
+        message: result.message,
+      })
+
+      return { status: status.status, message: status.message }
+    }
+
+    if (!result.credential || result.credential.type !== "oauth") {
+      throw new Error("OpenCode completed sign-in without a subscription")
+    }
+
+    const encrypted = await encryptCredential(
+      JSON.stringify(result.credential),
+      env.CREDENTIAL_ENCRYPTION_KEY
+    )
+    const now = new Date()
+
+    await drizzle(env.DB, { schema })
+      .insert(schema.openCodeConnection)
+      .values({
+        organizationId: data.organizationId,
+        configuredByUserId: session.user.id,
+        providerId: subscriptionProviderId,
+        modelId: subscriptionModelId,
+        authMethod: "chatgpt-subscription",
+        encryptedCredential: encrypted.encrypted,
+        encryptionIv: encrypted.iv,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: schema.openCodeConnection.organizationId,
+        set: {
+          configuredByUserId: session.user.id,
+          providerId: subscriptionProviderId,
+          modelId: subscriptionModelId,
+          authMethod: "chatgpt-subscription",
+          encryptedCredential: encrypted.encrypted,
+          encryptionIv: encrypted.iv,
+          updatedAt: now,
+        },
+      })
+
+    return { status: "complete" as const, message: undefined }
+  })
+
+export const cancelOpenCodeSubscription = createServerFn({ method: "POST" })
+  .validator((input) => decodeOpenCodeSubscriptionStatusInputPromise(input))
+  .handler(async ({ data }) => {
+    const { session } = await currentSession(getRequest())
+
+    if (!session) throw new Error("Sign in before connecting OpenCode")
+
+    const membership = await organizationMembership(
+      data.organizationId,
+      session.user.id
+    )
+
+    if (!membership) {
+      throw new Error("You cannot configure OpenCode for this Organization")
+    }
+
+    const runtime = env.WORKSPACES.get(
+      env.WORKSPACES.idFromName(`opencode-setup-${data.organizationId}`)
+    )
+    const response = await runtime.fetch("https://workspace/oauth/cancel", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(data),
+    })
+
+    if (!response.ok) throw new Error(await response.text())
   })
 
 export const createProject = createServerFn({ method: "POST" })
@@ -327,11 +508,7 @@ export const createProject = createServerFn({ method: "POST" })
       )
     }
 
-    const apiKey = await decryptCredential(
-      connection.encryptedApiKey,
-      connection.encryptionIv,
-      env.CREDENTIAL_ENCRYPTION_KEY
-    )
+    const credential = await connectionCredential(connection)
 
     const projectSlug = normalizeName(data.name)
     const requestedRepositoryName = projectSlug
@@ -405,7 +582,7 @@ export const createProject = createServerFn({ method: "POST" })
           repositoryRemote: workspaceArtifact.remote,
           providerId: connection.providerId,
           modelId: connection.modelId,
-          apiKey,
+          credential,
         })
       )
     } catch (error) {
@@ -494,11 +671,7 @@ export const createWorkspace = createServerFn({ method: "POST" })
       )
     }
 
-    const apiKey = await decryptCredential(
-      connection.encryptedApiKey,
-      connection.encryptionIv,
-      env.CREDENTIAL_ENCRYPTION_KEY
-    )
+    const credential = await connectionCredential(connection)
     const workspaceId = WorkspaceId.make(crypto.randomUUID())
     const workspaceRepositoryName = `${project.repositoryName.slice(0, 44)}-${workspaceId.replaceAll("-", "").slice(0, 12)}`
     const baseRepository = await env.REPOS.get(project.repositoryName)
@@ -537,7 +710,7 @@ export const createWorkspace = createServerFn({ method: "POST" })
           repositoryRemote: workspaceRepository.remote,
           providerId: connection.providerId,
           modelId: connection.modelId,
-          apiKey,
+          credential,
         })
       )
     } catch (error) {
@@ -691,11 +864,7 @@ export const restartWorkspace = createServerFn({ method: "POST" })
       )
     }
 
-    const apiKey = await decryptCredential(
-      connection.encryptedApiKey,
-      connection.encryptionIv,
-      env.CREDENTIAL_ENCRYPTION_KEY
-    )
+    const credential = await connectionCredential(connection)
     const repository = await env.REPOS.get(workspace.repositoryName)
 
     await database
@@ -719,7 +888,7 @@ export const restartWorkspace = createServerFn({ method: "POST" })
           repositoryRemote: repository.remote,
           providerId: connection.providerId,
           modelId: connection.modelId,
-          apiKey,
+          credential,
         })
       )
     } catch (error) {

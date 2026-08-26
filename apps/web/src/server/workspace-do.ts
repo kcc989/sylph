@@ -1,9 +1,13 @@
 import {
   AgentSessionId,
   decodeInitializeWorkspaceRuntime,
-  decodeOpenCodeSetupInputPromise,
+  decodeOpenCodeCredentialPromise,
+  decodeOpenCodeKeySetupInputPromise,
+  decodeOpenCodeSubscriptionStartInputPromise,
+  decodeOpenCodeSubscriptionStatusInputPromise,
   decodeWorkspacePromptInputPromise,
   type InitializeWorkspaceRuntime,
+  type OpenCodeCredential,
   type WorkspaceRuntimeMessage,
 } from "@workspace/domain"
 import { OpenCodeWorkerd } from "@opencode-ai/sdk/workerd"
@@ -110,6 +114,10 @@ const seedFiles = (projectName: string) => [
   },
 ]
 
+const subscriptionProviderId = "openai"
+const subscriptionMethodId = "chatgpt-headless"
+const subscriptionCredentialLabel = "Sylph Organization connection"
+
 export class WorkspaceDO extends DurableObject<Cloudflare.Env> {
   readonly #database
   readonly #opencode
@@ -137,6 +145,11 @@ export class WorkspaceDO extends DurableObject<Cloudflare.Env> {
 
       const opencode = await OpenCodeWorkerd.create({
         storage: context.storage,
+        log: {
+          level: "error",
+          emit: ({ message, cause }) =>
+            console.error("OpenCode runtime error", message, cause),
+        },
         config: {
           default_agent: "build",
         },
@@ -199,8 +212,8 @@ export class WorkspaceDO extends DurableObject<Cloudflare.Env> {
       const opencode = await this.#opencode
       const url = new URL(request.url)
 
-      if (request.method === "POST" && url.pathname === "/connect") {
-        const input = await decodeOpenCodeSetupInputPromise(
+      if (request.method === "POST" && url.pathname === "/connect/key") {
+        const input = await decodeOpenCodeKeySetupInputPromise(
           await request.json()
         )
 
@@ -229,6 +242,78 @@ export class WorkspaceDO extends DurableObject<Cloudflare.Env> {
           )
         }
 
+        return new Response(null, { status: 204 })
+      }
+
+      if (request.method === "POST" && url.pathname === "/oauth/start") {
+        await decodeOpenCodeSubscriptionStartInputPromise(await request.json())
+        await this.#waitForIntegration(opencode, subscriptionProviderId)
+        const attempt = await opencode.integration.oauth.connect({
+          integrationID: subscriptionProviderId,
+          methodID: subscriptionMethodId,
+          label: subscriptionCredentialLabel,
+        })
+
+        return Response.json({
+          attemptId: attempt.data.attemptID,
+          url: attempt.data.url,
+          instructions: attempt.data.instructions,
+          expiresAt: Number(attempt.data.time.expires),
+        })
+      }
+
+      if (request.method === "POST" && url.pathname === "/oauth/status") {
+        const input = await decodeOpenCodeSubscriptionStatusInputPromise(
+          await request.json()
+        )
+        const result = await opencode.integration.oauth
+          .status({
+            integrationID: subscriptionProviderId,
+            attemptID: input.attemptId,
+          })
+          .catch(() => ({
+            data: {
+              status: "expired" as const,
+              time: { created: Date.now(), expires: Date.now() },
+            },
+          }))
+
+        if (result.data.status !== "complete") {
+          return Response.json(result.data)
+        }
+
+        const row = this.ctx.storage.sql
+          .exec<{ value: string }>(
+            "SELECT value FROM credential WHERE integration_id = ? AND active = 1 ORDER BY time_updated DESC LIMIT 1",
+            subscriptionProviderId
+          )
+          .toArray()[0]
+
+        if (!row) {
+          throw new Error("OpenCode completed sign-in without a credential")
+        }
+
+        const credential = await decodeOpenCodeCredentialPromise(
+          JSON.parse(row.value)
+        )
+
+        if (credential.type !== "oauth") {
+          throw new Error("OpenCode returned the wrong credential type")
+        }
+
+        return Response.json({ ...result.data, credential })
+      }
+
+      if (request.method === "POST" && url.pathname === "/oauth/cancel") {
+        const input = await decodeOpenCodeSubscriptionStatusInputPromise(
+          await request.json()
+        )
+        await opencode.integration.oauth
+          .cancel({
+            integrationID: subscriptionProviderId,
+            attemptID: input.attemptId,
+          })
+          .catch(() => undefined)
         return new Response(null, { status: 204 })
       }
 
@@ -306,13 +391,14 @@ export class WorkspaceDO extends DurableObject<Cloudflare.Env> {
       .run()
 
     try {
-      await opencode.integration.connect.key({
-        integrationID: input.providerId,
-        key: input.apiKey,
-      })
+      await this.#installCredential(
+        opencode,
+        input.providerId,
+        input.credential
+      )
     } catch {
       throw new Error(
-        `OpenCode could not connect to ${input.providerId}. Update the provider key and try again.`
+        `OpenCode could not connect to ${input.providerId}. Replace the Organization connection and try again.`
       )
     }
 
@@ -362,6 +448,93 @@ export class WorkspaceDO extends DurableObject<Cloudflare.Env> {
         `OpenCode could not use ${input.providerId}/${input.modelId}. Update the model and try again.`
       )
     }
+  }
+
+  async #installCredential(
+    opencode: OpenCodeWorkerd.Interface,
+    providerId: string,
+    credential: OpenCodeCredential
+  ) {
+    await this.#waitForIntegration(opencode, providerId)
+
+    if (credential.type === "key") {
+      await opencode.integration.connect.key({
+        integrationID: providerId,
+        key: credential.key,
+      })
+      return
+    }
+
+    const existing = this.ctx.storage.sql
+      .exec<{ id: string }>(
+        "SELECT id FROM credential WHERE integration_id = ? AND label = ? LIMIT 1",
+        providerId,
+        subscriptionCredentialLabel
+      )
+      .toArray()[0]
+    const credentialId = existing?.id ?? `cred_sylph_${crypto.randomUUID()}`
+    const switchCredentialId = `cred_sylph_switch_${providerId}`
+    const now = Date.now()
+
+    this.ctx.storage.sql.exec(
+      "UPDATE credential SET active = 0, time_updated = ? WHERE integration_id = ?",
+      now,
+      providerId
+    )
+
+    if (existing) {
+      this.ctx.storage.sql.exec(
+        "UPDATE credential SET value = ?, method_id = ?, active = 0, time_updated = ? WHERE id = ?",
+        JSON.stringify(credential),
+        credential.methodID,
+        now,
+        credentialId
+      )
+    } else {
+      this.ctx.storage.sql.exec(
+        "INSERT INTO credential (id, integration_id, label, value, connector_id, method_id, active, time_created, time_updated) VALUES (?, ?, ?, ?, NULL, ?, 0, ?, ?)",
+        credentialId,
+        providerId,
+        subscriptionCredentialLabel,
+        JSON.stringify(credential),
+        credential.methodID,
+        now,
+        now
+      )
+    }
+
+    this.ctx.storage.sql.exec(
+      "INSERT INTO credential (id, integration_id, label, value, connector_id, method_id, active, time_created, time_updated) VALUES (?, ?, ?, ?, NULL, ?, 1, ?, ?) ON CONFLICT(id) DO UPDATE SET value = excluded.value, method_id = excluded.method_id, active = 1, time_updated = excluded.time_updated",
+      switchCredentialId,
+      providerId,
+      "Sylph connection switch",
+      JSON.stringify(credential),
+      credential.methodID,
+      now,
+      now
+    )
+    await opencode.credential.activate({ credentialID: credentialId })
+    this.ctx.storage.sql.exec(
+      "DELETE FROM credential WHERE id = ?",
+      switchCredentialId
+    )
+  }
+
+  async #waitForIntegration(
+    opencode: OpenCodeWorkerd.Interface,
+    providerId: string
+  ) {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const integration = await opencode.integration.get({
+        integrationID: providerId,
+      })
+
+      if (integration.data) return
+
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+
+    throw new Error(`OpenCode integration ${providerId} did not start`)
   }
 
   async #snapshot(opencode: OpenCodeWorkerd.Interface) {
