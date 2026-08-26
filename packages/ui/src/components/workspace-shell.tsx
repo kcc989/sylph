@@ -22,6 +22,7 @@ import {
   MoreHorizontal,
   Moon,
   PanelLeftClose,
+  PanelLeftOpen,
   Paperclip,
   Play,
   Plus,
@@ -35,6 +36,10 @@ import {
   X,
 } from "lucide-react"
 import { useRef, useState, type ReactNode } from "react"
+import {
+  useDefaultLayout,
+  type PanelImperativeHandle,
+} from "react-resizable-panels"
 
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
@@ -53,6 +58,11 @@ import {
   MessageScrollerProvider,
   MessageScrollerViewport,
 } from "@workspace/ui/components/message-scroller"
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "@workspace/ui/components/resizable"
 import { ScrollArea } from "@workspace/ui/components/scroll-area"
 import { Textarea } from "@workspace/ui/components/textarea"
 import {
@@ -64,6 +74,23 @@ import {
 import { cn } from "@workspace/ui/lib/utils"
 
 type WorkspaceStatus = "running" | "waiting" | "ready" | "error"
+
+const workspacePanelStorage = {
+  getItem: (name: string) => {
+    try {
+      return window.localStorage.getItem(name)
+    } catch {
+      return null
+    }
+  },
+  setItem: (name: string, value: string) => {
+    try {
+      window.localStorage.setItem(name, value)
+    } catch {
+      return
+    }
+  },
+}
 
 type WorkspaceItem = {
   id: string
@@ -344,8 +371,8 @@ function ProjectRail({
       aria-modal={mobile || undefined}
       role={mobile ? "dialog" : undefined}
       className={cn(
-        "w-[268px] shrink-0 flex-col border-r bg-sidebar",
-        mobile ? "flex" : "hidden md:flex"
+        "h-full shrink-0 flex-col bg-sidebar",
+        mobile ? "flex w-[268px] border-r" : "hidden w-full md:flex"
       )}
     >
       <header className="flex h-12 items-center gap-2 border-b px-3">
@@ -495,6 +522,7 @@ function WorkspaceTopbar({
   projectName,
   repositoryName,
   workspaceName,
+  navigationCollapsed,
   onOpenNavigation,
   onOpenTerminal,
 }: {
@@ -505,6 +533,7 @@ function WorkspaceTopbar({
   projectName: string
   repositoryName: string
   workspaceName: string
+  navigationCollapsed: boolean
   onOpenNavigation: () => void
   onOpenTerminal: () => void
 }) {
@@ -515,13 +544,15 @@ function WorkspaceTopbar({
   return (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b bg-background px-3">
       <Button
-        className="md:hidden"
-        aria-label="Open navigation"
+        className={cn(navigationCollapsed ? "md:inline-flex" : "md:hidden")}
+        aria-label={
+          navigationCollapsed ? "Expand project navigation" : "Open navigation"
+        }
         size="icon-sm"
         variant="ghost"
         onClick={onOpenNavigation}
       >
-        <Files />
+        {navigationCollapsed ? <PanelLeftOpen /> : <Files />}
       </Button>
       <FolderGit2 className="size-4 text-[#ef9b7e]" />
       <span className="hidden text-xs text-muted-foreground sm:inline">
@@ -1250,9 +1281,17 @@ function WorkspaceShell({
   workspaceError,
 }: WorkspaceShellProps) {
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false)
+  const [projectRailCollapsed, setProjectRailCollapsed] = useState(false)
   const [tabs, setTabs] = useState<WorkspaceTab[]>(initialWorkspaceTabs)
   const [activeTabId, setActiveTabId] = useState("chat")
   const browserTabNumber = useRef(1)
+  const projectRailRef = useRef<PanelImperativeHandle>(null)
+  const projectLayout = useDefaultLayout({
+    id: "workspace-shell-navigation-v2",
+    onlySaveAfterUserInteractions: true,
+    panelIds: ["project-navigation", "workspace-area"],
+    storage: workspacePanelStorage,
+  })
 
   const addBrowserTab = () => {
     browserTabNumber.current += 1
@@ -1307,68 +1346,104 @@ function WorkspaceShell({
         )}
       >
         <UtilityRail />
-        <ProjectRail
-          organization={organization}
-          projects={projects}
-          workspaceName={workspaceName}
-        />
-        <main className="flex min-w-0 flex-1 flex-col">
-          <WorkspaceTopbar
-            agentControllingBrowser={agentControllingBrowser}
-            browser={browser}
-            checks={checks}
-            demo={demo}
-            onOpenNavigation={() => setMobileNavigationOpen(true)}
-            onOpenTerminal={openTerminal}
-            projectName={projectName}
-            repositoryName={repositoryName}
-            workspaceName={workspaceName}
+        <ResizablePanelGroup
+          className="min-w-0 flex-1 max-md:[&>#project-navigation]:hidden max-md:[&>#project-navigation-handle]:hidden"
+          defaultLayout={projectLayout.defaultLayout}
+          id="workspace-shell-navigation"
+          onLayoutChanged={projectLayout.onLayoutChanged}
+          orientation="horizontal"
+        >
+          <ResizablePanel
+            collapsedSize={0}
+            collapsible
+            defaultSize="268px"
+            groupResizeBehavior="preserve-pixel-size"
+            id="project-navigation"
+            maxSize="420px"
+            minSize="220px"
+            onResize={({ inPixels }) => setProjectRailCollapsed(inPixels === 0)}
+            panelRef={projectRailRef}
+          >
+            <ProjectRail
+              onClose={() => projectRailRef.current?.collapse()}
+              organization={organization}
+              projects={projects}
+              workspaceName={workspaceName}
+            />
+          </ResizablePanel>
+          <ResizableHandle
+            aria-label="Resize project navigation"
+            className="hidden transition-colors hover:bg-[var(--sylph-coral)]/50 md:flex"
+            id="project-navigation-handle"
+            withHandle
           />
-          {mobileNavigationOpen && (
-            <div
-              className="absolute inset-0 z-50 flex bg-black/60 md:hidden"
-              onKeyDown={(event) => {
-                if (event.key === "Escape") setMobileNavigationOpen(false)
-              }}
-            >
-              <ProjectRail
-                mobile
-                onClose={() => setMobileNavigationOpen(false)}
-                organization={organization}
-                projects={projects}
+          <ResizablePanel id="workspace-area" minSize="480px">
+            <main className="flex size-full min-w-0 flex-col">
+              <WorkspaceTopbar
+                agentControllingBrowser={agentControllingBrowser}
+                browser={browser}
+                checks={checks}
+                demo={demo}
+                navigationCollapsed={projectRailCollapsed}
+                onOpenNavigation={() => {
+                  if (projectRailCollapsed) {
+                    projectRailRef.current?.expand()
+                    return
+                  }
+                  setMobileNavigationOpen(true)
+                }}
+                onOpenTerminal={openTerminal}
+                projectName={projectName}
+                repositoryName={repositoryName}
                 workspaceName={workspaceName}
               />
-              <button
-                aria-label="Dismiss navigation"
-                className="min-w-0 flex-1"
-                type="button"
-                onClick={() => setMobileNavigationOpen(false)}
+              {mobileNavigationOpen && (
+                <div
+                  className="absolute inset-0 z-50 flex bg-black/60 md:hidden"
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") setMobileNavigationOpen(false)
+                  }}
+                >
+                  <ProjectRail
+                    mobile
+                    onClose={() => setMobileNavigationOpen(false)}
+                    organization={organization}
+                    projects={projects}
+                    workspaceName={workspaceName}
+                  />
+                  <button
+                    aria-label="Dismiss navigation"
+                    className="min-w-0 flex-1"
+                    type="button"
+                    onClick={() => setMobileNavigationOpen(false)}
+                  />
+                </div>
+              )}
+              <WorkspaceTabs
+                activeTabId={activeTabId}
+                browser={browser}
+                changedFileCount={changedFileCount}
+                changeSummary={changeSummary}
+                checks={checks}
+                entries={entries}
+                model={model}
+                onActivateTab={setActiveTabId}
+                onAddBrowser={addBrowserTab}
+                onCloseTab={closeTab}
+                onSubmitPrompt={onSubmitPrompt}
+                patch={patch}
+                previewContent={previewContent}
+                promptDisabled={promptDisabled}
+                promptError={promptError}
+                promptPending={promptPending}
+                restartPending={restartPending}
+                onRestartWorkspace={onRestartWorkspace}
+                workspaceError={workspaceError}
+                tabs={tabs}
               />
-            </div>
-          )}
-          <WorkspaceTabs
-            activeTabId={activeTabId}
-            browser={browser}
-            changedFileCount={changedFileCount}
-            changeSummary={changeSummary}
-            checks={checks}
-            entries={entries}
-            model={model}
-            onActivateTab={setActiveTabId}
-            onAddBrowser={addBrowserTab}
-            onCloseTab={closeTab}
-            onSubmitPrompt={onSubmitPrompt}
-            patch={patch}
-            previewContent={previewContent}
-            promptDisabled={promptDisabled}
-            promptError={promptError}
-            promptPending={promptPending}
-            restartPending={restartPending}
-            onRestartWorkspace={onRestartWorkspace}
-            workspaceError={workspaceError}
-            tabs={tabs}
-          />
-        </main>
+            </main>
+          </ResizablePanel>
+        </ResizablePanelGroup>
       </div>
     </TooltipProvider>
   )
