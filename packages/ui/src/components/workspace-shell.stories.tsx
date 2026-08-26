@@ -3,11 +3,11 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { defaultPatch } from "@workspace/ui/components/code-review"
 import {
   BrowserPreview,
-  RepositoryRail,
+  ProjectRail,
   ReviewSurface,
   WorkspaceShell,
   fallbackChecks,
-  fallbackRepositories,
+  fallbackProjects,
 } from "@workspace/ui/components/workspace-shell"
 
 function DemoPreview() {
@@ -53,6 +53,7 @@ const meta = {
   },
   args: {
     organization: "Folk Hero",
+    projectName: "Sylph",
     repositoryName: "sylph",
     workspaceName: "Browser preview shell",
     patch: defaultPatch,
@@ -104,12 +105,12 @@ export const Compact: Story = {
   },
 }
 
-export const RepositoryNavigator: Story = {
+export const ProjectNavigator: Story = {
   render: () => (
     <div className="h-[760px] w-[268px]">
-      <RepositoryRail
+      <ProjectRail
         organization="Folk Hero"
-        repositories={fallbackRepositories}
+        projects={fallbackProjects}
         workspaceName="Browser preview shell"
       />
     </div>

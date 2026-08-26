@@ -69,9 +69,10 @@ type WorkspaceItem = {
   changes?: string
 }
 
-type RepositoryGroup = {
+type ProjectGroup = {
   id: string
   name: string
+  repositoryName: string
   workspaces: WorkspaceItem[]
 }
 
@@ -99,9 +100,10 @@ type CheckItem = {
 
 type WorkspaceShellProps = {
   organization?: string
+  projectName: string
   repositoryName: string
   workspaceName: string
-  repositories?: RepositoryGroup[]
+  projects?: ProjectGroup[]
   entries?: ThreadEntry[]
   browser?: BrowserState
   checks?: CheckItem[]
@@ -112,6 +114,11 @@ type WorkspaceShellProps = {
   agentControllingBrowser?: boolean
   demo?: boolean
   className?: string
+  model?: string | null
+  promptDisabled?: boolean
+  promptError?: string | null
+  promptPending?: boolean
+  onSubmitPrompt?: (text: string) => Promise<void>
 }
 
 function SylphMark({ className }: { className?: string }) {
@@ -142,10 +149,11 @@ function SylphMark({ className }: { className?: string }) {
   )
 }
 
-const fallbackRepositories: RepositoryGroup[] = [
+const fallbackProjects: ProjectGroup[] = [
   {
     id: "sylph",
-    name: "sylph",
+    name: "Sylph",
+    repositoryName: "sylph",
     workspaces: [
       {
         id: "preview",
@@ -171,7 +179,8 @@ const fallbackRepositories: RepositoryGroup[] = [
   },
   {
     id: "open-relic",
-    name: "open-relic",
+    name: "Open Relic",
+    repositoryName: "open-relic",
     workspaces: [
       {
         id: "artifact",
@@ -199,7 +208,7 @@ const fallbackEntries: ThreadEntry[] = [
     meta: "4 steps",
     details: [
       "Audit the workspace shell and preview route",
-      "Keep Repository → Workspace hierarchy persistent",
+      "Keep Project → Workspace hierarchy persistent",
       "Verify the browser at mobile and desktop widths",
       "Run typecheck, accessibility, and build checks",
     ],
@@ -292,22 +301,22 @@ function UtilityRail() {
   )
 }
 
-function RepositoryRail({
+function ProjectRail({
   organization,
-  repositories,
+  projects,
   workspaceName,
   mobile,
   onClose,
 }: {
   organization: string
-  repositories: RepositoryGroup[]
+  projects: ProjectGroup[]
   workspaceName: string
   mobile?: boolean
   onClose?: () => void
 }) {
   return (
     <aside
-      aria-label="Repository and workspace navigation"
+      aria-label="Project and workspace navigation"
       aria-modal={mobile || undefined}
       role={mobile ? "dialog" : undefined}
       className={cn(
@@ -333,31 +342,33 @@ function RepositoryRail({
       </header>
       <div className="flex h-10 items-center justify-between px-3">
         <span className="text-[10px] font-semibold tracking-[0.14em] text-muted-foreground uppercase">
-          Repositories
+          Projects
         </span>
-        <Button aria-label="Add repository" size="icon-xs" variant="ghost">
+        <Button aria-label="Add project" size="icon-xs" variant="ghost">
           <Plus />
         </Button>
       </div>
       <ScrollArea className="min-h-0 flex-1 px-2 pb-3">
         <div className="grid gap-2">
-          {repositories.map((repository) => (
-            <section key={repository.id}>
+          {projects.map((project) => (
+            <section key={project.id}>
               <div className="flex h-8 items-center gap-2 px-2 text-xs font-semibold text-foreground/85">
                 <ChevronDown className="size-3.5 text-muted-foreground" />
                 <FolderGit2 className="size-3.5 text-[#ef9b7e]" />
-                <span className="truncate">{repository.name}</span>
+                <span className="min-w-0 flex-1 truncate">{project.name}</span>
                 <Button
-                  aria-label={`New workspace in ${repository.name}`}
-                  className="ml-auto"
+                  aria-label={`New workspace in ${project.name}`}
                   size="icon-xs"
                   variant="ghost"
                 >
                   <Plus />
                 </Button>
               </div>
+              <p className="ml-[38px] truncate pr-3 font-mono text-[9px] text-muted-foreground">
+                Repository · {project.repositoryName}
+              </p>
               <div className="ml-[17px] border-l border-white/[.07] pl-1.5">
-                {repository.workspaces.map((workspace) => {
+                {project.workspaces.map((workspace) => {
                   const active = workspace.name === workspaceName
                   return (
                     <button
@@ -421,6 +432,7 @@ function WorkspaceTopbar({
   browser,
   checks,
   demo,
+  projectName,
   repositoryName,
   workspaceName,
   onOpenNavigation,
@@ -429,6 +441,7 @@ function WorkspaceTopbar({
   browser: BrowserState
   checks: CheckItem[]
   demo: boolean
+  projectName: string
   repositoryName: string
   workspaceName: string
   onOpenNavigation: () => void
@@ -450,11 +463,14 @@ function WorkspaceTopbar({
       </Button>
       <FolderGit2 className="size-4 text-[#ef9b7e]" />
       <span className="hidden text-xs text-muted-foreground sm:inline">
-        {repositoryName}
+        {projectName}
       </span>
       <ChevronRight className="hidden size-3 text-muted-foreground/50 sm:block" />
       <span className="min-w-0 truncate text-xs font-medium">
         {workspaceName}
+      </span>
+      <span className="hidden font-mono text-[9px] text-muted-foreground lg:inline">
+        {repositoryName}
       </span>
       {demo && (
         <Badge className="rounded-[4px] px-1.5 text-[9px]" variant="outline">
@@ -503,7 +519,21 @@ function WorkspaceTopbar({
   )
 }
 
-function AgentThread({ entries }: { entries: ThreadEntry[] }) {
+function AgentThread({
+  entries,
+  model,
+  onSubmitPrompt,
+  promptDisabled,
+  promptError,
+  promptPending,
+}: {
+  entries: ThreadEntry[]
+  model?: string | null
+  onSubmitPrompt?: (text: string) => Promise<void>
+  promptDisabled?: boolean
+  promptError?: string | null
+  promptPending?: boolean
+}) {
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-background">
       <div className="flex h-10 shrink-0 items-center gap-2 border-b px-3">
@@ -514,7 +544,7 @@ function AgentThread({ entries }: { entries: ThreadEntry[] }) {
           className="ml-auto rounded-[4px] px-1.5 font-mono text-[9px]"
           variant="outline"
         >
-          5.6 Sol
+          {model ?? "OpenCode v2"}
         </Badge>
       </div>
       <ScrollArea className="min-h-0 flex-1">
@@ -593,20 +623,69 @@ function AgentThread({ entries }: { entries: ThreadEntry[] }) {
           ))}
         </div>
       </ScrollArea>
-      <PromptComposer />
+      <PromptComposer
+        disabled={promptDisabled}
+        error={promptError}
+        onSubmit={onSubmitPrompt}
+        pending={promptPending}
+      />
     </section>
   )
 }
 
-function PromptComposer() {
+function PromptComposer({
+  disabled = false,
+  error,
+  onSubmit,
+  pending = false,
+}: {
+  disabled?: boolean
+  error?: string | null
+  onSubmit?: (text: string) => Promise<void>
+  pending?: boolean
+}) {
+  const [text, setText] = useState("")
+
+  const submit = async () => {
+    const prompt = text.trim()
+
+    if (!prompt || disabled || pending || !onSubmit) return
+    await onSubmit(prompt)
+    setText("")
+  }
+
   return (
     <div className="shrink-0 p-3 pt-0">
-      <div className="mx-auto max-w-3xl border border-white/[.12] bg-[#1c1a18] shadow-[0_16px_45px_rgba(0,0,0,.24)] focus-within:border-[#ef9b7e]/45">
+      <form
+        className="mx-auto max-w-3xl border border-white/[.12] bg-[#1c1a18] shadow-[0_16px_45px_rgba(0,0,0,.24)] focus-within:border-[#ef9b7e]/45"
+        onSubmit={async (event) => {
+          event.preventDefault()
+          await submit()
+        }}
+      >
         <Textarea
           aria-label="Message the agent"
           className="min-h-20 resize-none border-0 bg-transparent px-3 py-2.5 text-[13px] shadow-none focus-visible:ring-0"
-          placeholder="Ask to make changes, @mention files, or run /commands"
+          disabled={disabled || pending}
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          onKeyDown={async (event) => {
+            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+              event.preventDefault()
+              await submit()
+            }
+          }}
+          placeholder={
+            disabled
+              ? "OpenCode is still provisioning this Workspace"
+              : "Ask OpenCode to create or change the Project"
+          }
         />
+        {error ? (
+          <p role="alert" className="px-3 pb-2 text-[11px] text-destructive">
+            {error}
+          </p>
+        ) : null}
         <div className="flex h-9 items-center gap-1 border-t border-white/[.07] px-2">
           <Button aria-label="Attach file" size="icon-xs" variant="ghost">
             <Paperclip />
@@ -627,12 +706,14 @@ function PromptComposer() {
           <Button
             aria-label="Send message"
             className="bg-[#ef9b7e] text-[#241613] hover:bg-[#f4af98]"
+            disabled={disabled || pending || !text.trim()}
             size="icon-sm"
+            type="submit"
           >
-            <ArrowUp />
+            {pending ? <LoaderCircle className="animate-spin" /> : <ArrowUp />}
           </Button>
         </div>
-      </div>
+      </form>
     </div>
   )
 }
@@ -857,16 +938,26 @@ function MobileWorkspaceSurface({
   changeSummary,
   checks,
   entries,
+  model,
+  onSubmitPrompt,
   patch,
   previewContent,
+  promptDisabled,
+  promptError,
+  promptPending,
 }: {
   browser: BrowserState
   changedFileCount?: number
   changeSummary?: string
   checks: CheckItem[]
   entries: ThreadEntry[]
+  model?: string | null
+  onSubmitPrompt?: (text: string) => Promise<void>
   patch?: string
   previewContent?: ReactNode
+  promptDisabled?: boolean
+  promptError?: string | null
+  promptPending?: boolean
 }) {
   return (
     <Tabs className="min-h-0 flex-1 gap-0 md:hidden" defaultValue="agent">
@@ -885,7 +976,14 @@ function MobileWorkspaceSurface({
         </TabsTrigger>
       </TabsList>
       <TabsContent className="min-h-0" value="agent">
-        <AgentThread entries={entries} />
+        <AgentThread
+          entries={entries}
+          model={model}
+          onSubmitPrompt={onSubmitPrompt}
+          promptDisabled={promptDisabled}
+          promptError={promptError}
+          promptPending={promptPending}
+        />
       </TabsContent>
       <TabsContent className="min-h-0" value="preview">
         <BrowserPreview browser={browser} content={previewContent} />
@@ -904,9 +1002,10 @@ function MobileWorkspaceSurface({
 
 function WorkspaceShell({
   organization = "Casey’s workspace",
+  projectName,
   repositoryName,
   workspaceName,
-  repositories = fallbackRepositories,
+  projects = fallbackProjects,
   entries = fallbackEntries,
   browser = {
     url: "http://127.0.0.1:3000/workspaces/preview",
@@ -921,6 +1020,11 @@ function WorkspaceShell({
   agentControllingBrowser = false,
   demo = false,
   className,
+  model,
+  onSubmitPrompt,
+  promptDisabled = false,
+  promptError,
+  promptPending = false,
 }: WorkspaceShellProps) {
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false)
 
@@ -933,9 +1037,9 @@ function WorkspaceShell({
         )}
       >
         <UtilityRail />
-        <RepositoryRail
+        <ProjectRail
           organization={organization}
-          repositories={repositories}
+          projects={projects}
           workspaceName={workspaceName}
         />
         <main className="flex min-w-0 flex-1 flex-col">
@@ -945,6 +1049,7 @@ function WorkspaceShell({
             checks={checks}
             demo={demo}
             onOpenNavigation={() => setMobileNavigationOpen(true)}
+            projectName={projectName}
             repositoryName={repositoryName}
             workspaceName={workspaceName}
           />
@@ -955,11 +1060,11 @@ function WorkspaceShell({
                 if (event.key === "Escape") setMobileNavigationOpen(false)
               }}
             >
-              <RepositoryRail
+              <ProjectRail
                 mobile
                 onClose={() => setMobileNavigationOpen(false)}
                 organization={organization}
-                repositories={repositories}
+                projects={projects}
                 workspaceName={workspaceName}
               />
               <button
@@ -976,13 +1081,25 @@ function WorkspaceShell({
             changeSummary={changeSummary}
             checks={checks}
             entries={entries}
+            model={model}
+            onSubmitPrompt={onSubmitPrompt}
             patch={patch}
             previewContent={previewContent}
+            promptDisabled={promptDisabled}
+            promptError={promptError}
+            promptPending={promptPending}
           />
           <div className="hidden min-h-0 flex-1 md:block">
             <ResizablePanelGroup className="min-h-0" orientation="horizontal">
               <ResizablePanel defaultSize="54%" minSize="34%">
-                <AgentThread entries={entries} />
+                <AgentThread
+                  entries={entries}
+                  model={model}
+                  onSubmitPrompt={onSubmitPrompt}
+                  promptDisabled={promptDisabled}
+                  promptError={promptError}
+                  promptPending={promptPending}
+                />
               </ResizablePanel>
               <ResizableHandle />
               <ResizablePanel defaultSize="46%" minSize="30%">
@@ -1016,18 +1133,18 @@ export {
   AgentThread,
   BrowserPreview,
   CheckList,
-  RepositoryRail,
+  ProjectRail,
   ReviewSurface,
   WorkspaceShell,
   WorkspaceTopbar,
   fallbackChecks,
   fallbackEntries,
-  fallbackRepositories,
+  fallbackProjects,
 }
 export type {
   BrowserState,
   CheckItem,
-  RepositoryGroup,
+  ProjectGroup,
   ThreadEntry,
   WorkspaceItem,
   WorkspaceShellProps,

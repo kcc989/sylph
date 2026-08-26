@@ -179,50 +179,71 @@ function WorkspaceLab() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Workspaces</CardTitle>
+              <CardTitle>Projects</CardTitle>
               <CardDescription>
-                Durable OpenCode workspaces across your organizations.
+                Each Project contains a Repository and durable OpenCode
+                Workspaces.
               </CardDescription>
             </CardHeader>
             <CardContent className="p-0">
-              {dashboard.workspaces.length ? (
+              {dashboard.projects.length ? (
                 <div className="divide-y">
-                  {dashboard.workspaces.map((workspace) => (
-                    <Link
-                      key={workspace.id}
-                      to="/workspaces/$workspaceId"
-                      params={{ workspaceId: workspace.id }}
-                      className="grid gap-3 px-5 py-4 sm:grid-cols-[1fr_auto] sm:items-center"
-                    >
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <CircleDot className="size-3.5 text-emerald-500" />
-                          <p className="truncate text-sm font-medium">
-                            {workspace.title}
-                          </p>
+                  {dashboard.projects.map((project) => {
+                    const workspaces = dashboard.workspaces.filter(
+                      (workspace) => workspace.projectId === project.id
+                    )
+
+                    return (
+                      <section key={project.id} className="px-5 py-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium">
+                              {project.name}
+                            </p>
+                            <p className="mt-1 truncate text-xs text-muted-foreground">
+                              Repository · {project.repositoryName}
+                            </p>
+                          </div>
+                          <span className="font-mono text-[10px] text-muted-foreground">
+                            {workspaces.length} Workspace
+                            {workspaces.length === 1 ? "" : "s"}
+                          </span>
                         </div>
-                        <p className="mt-1 truncate text-xs text-muted-foreground">
-                          {workspace.repositoryName}
-                        </p>
-                      </div>
-                      <span className="w-fit rounded-full bg-emerald-500/10 px-2 py-1 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
-                        {workspace.status}
-                      </span>
-                    </Link>
-                  ))}
+                        <div className="mt-3 grid gap-1">
+                          {workspaces.map((workspace) => (
+                            <Link
+                              key={workspace.id}
+                              to="/workspaces/$workspaceId"
+                              params={{ workspaceId: workspace.id }}
+                              className="flex items-center gap-2 rounded-md bg-muted/50 px-3 py-2 text-xs hover:bg-muted"
+                            >
+                              <CircleDot className="size-3.5 text-emerald-500" />
+                              <span className="min-w-0 flex-1 truncate">
+                                {workspace.title}
+                              </span>
+                              <span className="text-muted-foreground">
+                                {workspace.status}
+                              </span>
+                            </Link>
+                          ))}
+                        </div>
+                      </section>
+                    )
+                  })}
                 </div>
               ) : (
                 <div className="p-10 text-center">
-                  <p className="text-sm font-medium">No workspaces yet</p>
+                  <p className="text-sm font-medium">No projects yet</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Open an organization to create its first workspace.
+                    Create a Project to provision its Repository, Workspace, and
+                    OpenCode session.
                   </p>
                   <Button
                     nativeButton={false}
                     className="mt-4"
                     render={<Link to="/organizations" />}
                   >
-                    Choose organization
+                    Create your first project
                   </Button>
                 </div>
               )}

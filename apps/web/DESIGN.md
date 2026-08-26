@@ -102,7 +102,7 @@ components:
 
 Sylph is a dense, dark engineering workspace in which agent intent, a running product, and proof remain visible together. Its visual world is calm and workmanlike: warm soft-black planes, warm near-white text, fine separators, compact controls, and a small number of precise state signals. The agent thread is the narrative center, while the persistent browser and review surface make verification part of the work rather than a destination after it.
 
-The system is familiar enough for sustained IDE use without becoming a file-editor-first IDE or a generic dashboard. Repository hierarchy anchors orientation, the active Workspace is cut into that hierarchy with a coral hairline, and live browser state is reserved for aqua. Dense chrome gives way to more generous transcript measure so the interface feels deliberate rather than cramped.
+The system is familiar enough for sustained IDE use without becoming a file-editor-first IDE or a generic dashboard. Project hierarchy anchors orientation, the active Workspace is cut into that hierarchy with a coral hairline, and live browser state is reserved for aqua. Dense chrome gives way to more generous transcript measure so the interface feels deliberate rather than cramped.
 
 **Key Characteristics:**
 
@@ -168,17 +168,17 @@ The palette is a warm-black working environment punctuated by one selection colo
 
 ## Layout
 
-The Workspace fills the viewport and maintains stable left-side orientation. On desktop, a 48px utility rail precedes a 268px Repository rail. Repositories are the parents and Workspaces are nested directly beneath them; they are never separated into independent navigation sections. A 48px top bar establishes Repository → Workspace context above the operating surface.
+The Workspace fills the viewport and maintains stable left-side orientation. On desktop, a 48px utility rail precedes a 268px Project rail. Projects are the parents and Workspaces are nested directly beneath them; each Project also names its contained Repository. Projects and Workspaces are never separated into independent navigation sections. A 48px top bar establishes Project → Workspace context above the operating surface.
 
 At the `md` breakpoint, the operating surface becomes a resizable split: the agent thread begins at 54% and the proof region at 46%. The proof region divides vertically into a browser beginning at 56% and review at 44%. Panel minimums preserve usable targets rather than allowing a pane to collapse into noise. The thread body centers within a 48rem maximum measure, with 16px mobile and 28px wider horizontal insets.
 
-Below `md`, the utility and Repository rails leave the canvas. Navigation opens as a modal rail, and Agent, Preview, and Review become three explicit full-height modes. The desktop split must not be squeezed onto a narrow viewport. The shell uses the small viewport height and keeps a 620px minimum height for the complete desktop composition.
+Below `md`, the utility and Project rails leave the canvas. Navigation opens as a modal rail, and Agent, Preview, and Review become three explicit full-height modes. The desktop split must not be squeezed onto a narrow viewport. The shell uses the small viewport height and keeps a 620px minimum height for the complete desktop composition.
 
 Spacing follows a compact 4/6/8/12/16/24/28px rhythm. Structural toolbars are 36–48px tall; controls are 24–32px. Separators and resizable handles align panels into a single continuous workspace rather than a collection of cards.
 
 ### Named Rules
 
-**The Stable-Orientation Rule.** Repository and nested Workspace identity remain on the left while the active work changes to their right.
+**The Stable-Orientation Rule.** Project and nested Workspace identity remain on the left while the active work changes to their right.
 
 **The Proof-Stays-Present Rule.** On desktop, browser proof remains beside the thread and review remains directly below it.
 
@@ -235,7 +235,7 @@ Borders are fine and quiet. Active navigation is not boxed; it combines a shallo
 
 ### Navigation
 
-The utility rail is icon-led and fixed at 48px. The adjacent Repository rail is a textual hierarchy with stronger Repository parents and denser Workspace children. An active Workspace combines a shallow warm field, a coral hairline, stronger text, and an `aria-current` state. Branch and change metadata remain secondary and monospace where numeric.
+The utility rail is icon-led and fixed at 48px. The adjacent Project rail is a textual hierarchy with stronger Project parents, contained Repository metadata, and denser Workspace children. An active Workspace combines a shallow warm field, a coral hairline, stronger text, and an `aria-current` state. Branch and change metadata remain secondary and monospace where numeric.
 
 ### Agent Thread
 
@@ -253,7 +253,7 @@ Changes and Checks share a line-tab surface beneath the browser. Active tabs use
 
 ### Do:
 
-- **Do** preserve the Organization → Repository → nested Workspace hierarchy and keep it persistent on desktop.
+- **Do** preserve the Organization → Project → nested Workspace hierarchy, with the contained Repository visible as metadata, and keep it persistent on desktop.
 - **Do** make the browser persistent beside the thread and keep Changes and Checks directly beneath it.
 - **Do** use coral as a narrow selection/action cue and aqua as a labeled live-state cue.
 - **Do** keep app chrome compact, keyboard-visible, and structured by fine separators.
@@ -263,7 +263,7 @@ Changes and Checks share a line-tab surface beneath the browser. Active tabs use
 ### Don't:
 
 - **Don't** turn the Workspace into a file-editor-first IDE or a grid of equal-weight dashboard cards.
-- **Don't** split Repositories and Workspaces into separate navigation sections.
+- **Don't** split Projects and Workspaces into separate navigation sections.
 - **Don't** use decorative gradients, glassmorphism, neon, or a physical cockpit metaphor.
 - **Don't** introduce oversized titles, floating card stacks, or pill-shaped chrome.
 - **Don't** hide browser proof behind a desktop tab or reduce it to a thumbnail.

@@ -218,3 +218,15 @@ export const workspace = sqliteTable(
     index("workspace_project_id_idx").on(table.projectId),
   ]
 )
+
+export const openCodeConnection = sqliteTable("open_code_connection", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  providerId: text("provider_id").notNull(),
+  modelId: text("model_id").notNull(),
+  encryptedApiKey: text("encrypted_api_key").notNull(),
+  encryptionIv: text("encryption_iv").notNull(),
+  createdAt: timestamp("created_at"),
+  updatedAt: timestamp("updated_at"),
+})

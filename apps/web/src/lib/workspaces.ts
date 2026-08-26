@@ -1,6 +1,11 @@
 import {
-  decodeCreateRepositoryInputPromise,
+  decodeCreateProjectInputPromise,
   decodeMagicLinkRequest,
+  decodeOpenCodeSetupInputPromise,
+  decodeWorkspacePromptInputPromise,
+  decodeWorkspaceRequestInputPromise,
+  decodeWorkspaceRuntimeHealth,
+  encodeWorkspaceRuntimeHealth,
   ProjectId,
   WorkspaceId,
 } from "@workspace/domain"
@@ -12,6 +17,10 @@ import { and, desc, eq } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/d1"
 
 import { createRequestAuth } from "@/server/auth.server"
+import {
+  decryptCredential,
+  encryptCredential,
+} from "@/server/credentials.server"
 
 const normalizeName = (value: string) =>
   value
@@ -45,16 +54,36 @@ export const getDashboard = createServerFn({ method: "GET" }).handler(
     const { auth, session } = await currentSession(request)
 
     if (!session) {
-      return { user: null, organizations: [], workspaces: [] }
+      return { user: null, organizations: [], projects: [], workspaces: [] }
     }
 
     const organizations = await auth.api.listOrganizations({
       headers: request.headers,
     })
     const database = drizzle(env.DB, { schema })
+    const projects = await database
+      .select({
+        id: schema.project.id,
+        name: schema.project.name,
+        organizationId: schema.project.organizationId,
+        repositoryName: schema.project.artifactRepo,
+        defaultBranch: schema.project.defaultBranch,
+        createdAt: schema.project.createdAt,
+      })
+      .from(schema.project)
+      .innerJoin(
+        schema.member,
+        and(
+          eq(schema.member.organizationId, schema.project.organizationId),
+          eq(schema.member.userId, session.user.id)
+        )
+      )
+      .orderBy(desc(schema.project.createdAt))
     const workspaces = await database
       .select({
         id: schema.workspace.id,
+        projectId: schema.workspace.projectId,
+        projectName: schema.project.name,
         title: schema.workspace.title,
         status: schema.workspace.status,
         repositoryName: schema.workspace.workspaceArtifactRepo,
@@ -75,12 +104,80 @@ export const getDashboard = createServerFn({ method: "GET" }).handler(
       )
       .orderBy(desc(schema.workspace.createdAt))
 
-    return { user: session.user, organizations, workspaces }
+    return { user: session.user, organizations, projects, workspaces }
   }
 )
 
-export const createRepository = createServerFn({ method: "POST" })
-  .validator((input) => decodeCreateRepositoryInputPromise(input))
+export const getOpenCodeSetup = createServerFn({ method: "GET" }).handler(
+  async () => {
+    const { session } = await currentSession(getRequest())
+
+    if (!session) return null
+
+    const connection = await drizzle(env.DB, { schema })
+      .select({
+        providerId: schema.openCodeConnection.providerId,
+        modelId: schema.openCodeConnection.modelId,
+      })
+      .from(schema.openCodeConnection)
+      .where(eq(schema.openCodeConnection.userId, session.user.id))
+      .get()
+
+    return connection ?? { providerId: null, modelId: null }
+  }
+)
+
+export const saveOpenCodeSetup = createServerFn({ method: "POST" })
+  .validator((input) => decodeOpenCodeSetupInputPromise(input))
+  .handler(async ({ data }) => {
+    const { session } = await currentSession(getRequest())
+
+    if (!session) throw new Error("Sign in before connecting OpenCode")
+
+    const validator = env.WORKSPACES.get(
+      env.WORKSPACES.idFromName(`opencode-setup-${session.user.id}`)
+    )
+    const validation = await validator.fetch("https://workspace/connect", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(data),
+    })
+
+    if (!validation.ok) throw new Error(await validation.text())
+
+    const credential = await encryptCredential(
+      data.apiKey,
+      env.CREDENTIAL_ENCRYPTION_KEY
+    )
+    const now = new Date()
+
+    await drizzle(env.DB, { schema })
+      .insert(schema.openCodeConnection)
+      .values({
+        userId: session.user.id,
+        providerId: data.providerId,
+        modelId: data.modelId,
+        encryptedApiKey: credential.encrypted,
+        encryptionIv: credential.iv,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: schema.openCodeConnection.userId,
+        set: {
+          providerId: data.providerId,
+          modelId: data.modelId,
+          encryptedApiKey: credential.encrypted,
+          encryptionIv: credential.iv,
+          updatedAt: now,
+        },
+      })
+
+    return { providerId: data.providerId, modelId: data.modelId }
+  })
+
+export const createProject = createServerFn({ method: "POST" })
+  .validator((input) => decodeCreateProjectInputPromise(input))
   .handler(async ({ data }) => {
     const request = getRequest()
     const { session } = await currentSession(request)
@@ -90,6 +187,21 @@ export const createRepository = createServerFn({ method: "POST" })
     }
 
     const database = drizzle(env.DB, { schema })
+    const connection = await database
+      .select()
+      .from(schema.openCodeConnection)
+      .where(eq(schema.openCodeConnection.userId, session.user.id))
+      .get()
+
+    if (!connection) {
+      throw new Error("Connect OpenCode before creating a Project")
+    }
+
+    const apiKey = await decryptCredential(
+      connection.encryptedApiKey,
+      connection.encryptionIv,
+      env.CREDENTIAL_ENCRYPTION_KEY
+    )
     const membership = await database
       .select({ organizationSlug: schema.organization.slug })
       .from(schema.member)
@@ -113,7 +225,7 @@ export const createRepository = createServerFn({ method: "POST" })
     const requestedRepositoryName = projectSlug
 
     if (!projectSlug || !requestedRepositoryName) {
-      throw new Error("Repository name needs a letter or number")
+      throw new Error("Project name needs a letter or number")
     }
 
     const repositoryName = `${membership.organizationSlug}-${requestedRepositoryName}`
@@ -123,6 +235,15 @@ export const createRepository = createServerFn({ method: "POST" })
     })
     const projectId = ProjectId.make(crypto.randomUUID())
     const workspaceId = WorkspaceId.make(crypto.randomUUID())
+    const workspaceRepositoryName = `${repositoryName.slice(0, 44)}-${workspaceId.replaceAll("-", "").slice(0, 12)}`
+    const baseRepository = await env.REPOS.get(artifact.name)
+    const workspaceArtifact = await baseRepository.fork(
+      workspaceRepositoryName,
+      {
+        description: `Workspace for ${data.name}`,
+        defaultBranchOnly: true,
+      }
+    )
     const now = new Date()
 
     await database.batch([
@@ -146,9 +267,9 @@ export const createRepository = createServerFn({ method: "POST" })
         ownerUserId: session.user.id,
         title: data.name,
         status: "provisioning",
-        repositoryMode: "base",
+        repositoryMode: "fork",
         baseArtifactRepo: artifact.name,
-        workspaceArtifactRepo: artifact.name,
+        workspaceArtifactRepo: workspaceArtifact.name,
         createdAt: now,
         updatedAt: now,
       }),
@@ -165,8 +286,12 @@ export const createRepository = createServerFn({ method: "POST" })
           organizationId: data.organizationId,
           projectId,
           workspaceId,
-          repositoryName: artifact.name,
-          repositoryRemote: artifact.remote,
+          projectName: data.name,
+          repositoryName: workspaceArtifact.name,
+          repositoryRemote: workspaceArtifact.remote,
+          providerId: connection.providerId,
+          modelId: connection.modelId,
+          apiKey,
         }),
       })
     } catch (error) {
@@ -182,13 +307,12 @@ export const createRepository = createServerFn({ method: "POST" })
     }
 
     if (!response.ok) {
+      const errorSummary = await response.text()
       await database
         .update(schema.workspace)
-        .set({ status: "error", errorSummary: await response.text() })
+        .set({ status: "error", errorSummary })
         .where(eq(schema.workspace.id, workspaceId))
-      throw new Error(
-        "The repository was created, but OpenCode failed to start"
-      )
+      throw new Error(errorSummary)
     }
 
     await database
@@ -202,4 +326,127 @@ export const createRepository = createServerFn({ method: "POST" })
       repositoryName: artifact.name,
       status: "ready" as const,
     }
+  })
+
+export const getWorkspace = createServerFn({ method: "GET" })
+  .validator((input) => decodeWorkspaceRequestInputPromise(input))
+  .handler(async ({ data }) => {
+    const request = getRequest()
+    const { session } = await currentSession(request)
+
+    if (!session) {
+      return null
+    }
+
+    const workspace = await drizzle(env.DB, { schema })
+      .select({
+        id: schema.workspace.id,
+        projectId: schema.workspace.projectId,
+        projectName: schema.project.name,
+        organizationId: schema.workspace.organizationId,
+        organizationName: schema.organization.name,
+        title: schema.workspace.title,
+        status: schema.workspace.status,
+        repositoryName: schema.project.artifactRepo,
+        workspaceRepositoryName: schema.workspace.workspaceArtifactRepo,
+        defaultBranch: schema.project.defaultBranch,
+      })
+      .from(schema.workspace)
+      .innerJoin(
+        schema.project,
+        eq(schema.workspace.projectId, schema.project.id)
+      )
+      .innerJoin(
+        schema.member,
+        and(
+          eq(schema.member.organizationId, schema.workspace.organizationId),
+          eq(schema.member.userId, session.user.id)
+        )
+      )
+      .innerJoin(
+        schema.organization,
+        eq(schema.organization.id, schema.workspace.organizationId)
+      )
+      .where(eq(schema.workspace.id, data.workspaceId))
+      .get()
+
+    if (!workspace) {
+      return null
+    }
+
+    const runtime = env.WORKSPACES.get(
+      env.WORKSPACES.idFromName(data.workspaceId)
+    )
+    const response = await runtime.fetch("https://workspace/snapshot")
+
+    if (!response.ok) {
+      throw new Error(await response.text())
+    }
+
+    const runtimeSnapshot = await decodeWorkspaceRuntimeHealth(
+      await response.json()
+    )
+
+    if (workspace.status !== runtimeSnapshot.status) {
+      await drizzle(env.DB, { schema })
+        .update(schema.workspace)
+        .set({ status: runtimeSnapshot.status, updatedAt: new Date() })
+        .where(eq(schema.workspace.id, data.workspaceId))
+    }
+
+    return {
+      workspace: { ...workspace, status: runtimeSnapshot.status },
+      runtime: await encodeWorkspaceRuntimeHealth(runtimeSnapshot),
+    }
+  })
+
+export const promptWorkspace = createServerFn({ method: "POST" })
+  .validator((input) => decodeWorkspacePromptInputPromise(input))
+  .handler(async ({ data }) => {
+    const request = getRequest()
+    const { session } = await currentSession(request)
+
+    if (!session) {
+      throw new Error("Sign in before messaging OpenCode")
+    }
+
+    const database = drizzle(env.DB, { schema })
+    const workspace = await database
+      .select({ id: schema.workspace.id })
+      .from(schema.workspace)
+      .innerJoin(
+        schema.member,
+        and(
+          eq(schema.member.organizationId, schema.workspace.organizationId),
+          eq(schema.member.userId, session.user.id)
+        )
+      )
+      .where(eq(schema.workspace.id, data.workspaceId))
+      .get()
+
+    if (!workspace) {
+      throw new Error("This workspace does not exist or you cannot access it")
+    }
+
+    const runtime = env.WORKSPACES.get(
+      env.WORKSPACES.idFromName(data.workspaceId)
+    )
+    const response = await runtime.fetch("https://workspace/prompt", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(data),
+    })
+
+    if (!response.ok) {
+      throw new Error(await response.text())
+    }
+
+    await database
+      .update(schema.workspace)
+      .set({ status: "running", updatedAt: new Date() })
+      .where(eq(schema.workspace.id, data.workspaceId))
+
+    return encodeWorkspaceRuntimeHealth(
+      await decodeWorkspaceRuntimeHealth(await response.json())
+    )
   })

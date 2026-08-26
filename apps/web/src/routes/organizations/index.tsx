@@ -48,7 +48,8 @@ function OrganizationsScreen() {
           <div>
             <h2 className="text-lg font-semibold">Your organizations</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Choose an organization to create a repository and workspace.
+              Choose an organization to create a Project and its first
+              Workspace.
             </p>
           </div>
           {dashboard.user ? (
@@ -86,10 +87,10 @@ function OrganizationsScreen() {
                 </CardHeader>
                 <CardContent>
                   <a
-                    href={`/organizations/${encodeURIComponent(organization.id)}/repositories/new`}
+                    href={`/organizations/${encodeURIComponent(organization.id)}/projects/new`}
                     className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
                   >
-                    New repository <ArrowRight className="size-4" />
+                    New project <ArrowRight className="size-4" />
                   </a>
                 </CardContent>
               </Card>

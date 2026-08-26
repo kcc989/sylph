@@ -55,7 +55,7 @@ function NewOrganizationScreen() {
     }
 
     window.location.assign(
-      `/organizations/${encodeURIComponent(result.data.id)}/repositories/new`
+      `/organizations/${encodeURIComponent(result.data.id)}/projects/new`
     )
   }
 

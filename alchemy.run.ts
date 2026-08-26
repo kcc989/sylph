@@ -23,6 +23,7 @@ export class Website extends Cloudflare.Website.Vite<Website>()("Website", {
     DB: Database,
     GITHUB_CLIENT_ID: Config.string("GITHUB_CLIENT_ID"),
     GITHUB_CLIENT_SECRET: Config.redacted("GITHUB_CLIENT_SECRET"),
+    CREDENTIAL_ENCRYPTION_KEY: Config.redacted("CREDENTIAL_ENCRYPTION_KEY"),
     REPOS: Repositories,
     WORKSPACES: Workspaces,
   },
