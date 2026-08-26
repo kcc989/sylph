@@ -1,0 +1,7 @@
+pre-commit:
+  commands:
+    format:
+      glob: "*.{js,jsx,ts,tsx,json,jsonc,css,md,yaml,yml}"
+      exclude: "README.md"
+      run: bunx oxfmt --write {staged_files}
+      stage_fixed: true
