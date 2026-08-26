@@ -8,6 +8,23 @@ Build a web IDE for parallel coding-agent work on Cloudflare. The interface shou
 
 Sylph is a Bun monorepo managed with Turborepo. The web app lives in `apps/web`. Shared database code lives in `packages/db`, and the shared design system lives in `packages/ui`. This keeps both packages available to a future `apps/desktop` client without coupling them to TanStack Start.
 
+## Run the workspace lab
+
+Copy `.env.example` to `.env` and provide a Better Auth secret plus a GitHub OAuth app's client ID and secret. Configure the OAuth app with this local callback URL:
+
+```text
+http://localhost:1337/api/auth/callback/github
+```
+
+Then install and start the Cloudflare-backed TanStack Start app:
+
+```sh
+bun install
+bun alchemy dev --stage dev
+```
+
+The test app stores requested magic-link URLs in `magic_link_outbox` and exposes the latest link in the sign-in screen. This is a local development delivery seam, not a production mail transport. Replace it with an email provider and remove the test-link lookup before deploying publicly.
+
 The core unit is a **workspace**:
 
 - One Cloudflare Durable Object owns one workspace.

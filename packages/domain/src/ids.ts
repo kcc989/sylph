@@ -3,6 +3,11 @@ import { Schema } from "effect"
 export const ProjectId = Schema.NonEmptyString.pipe(Schema.brand("ProjectId"))
 export type ProjectId = typeof ProjectId.Type
 
+export const OrganizationId = Schema.NonEmptyString.pipe(
+  Schema.brand("OrganizationId")
+)
+export type OrganizationId = typeof OrganizationId.Type
+
 export const WorkspaceId = Schema.NonEmptyString.pipe(
   Schema.brand("WorkspaceId")
 )
