@@ -11,14 +11,11 @@ import {
 } from "@workspace/ui/components/dropdown-menu"
 import { cn } from "@workspace/ui/lib/utils"
 import {
-  Boxes,
   Blocks,
-  Building2,
   ChevronRight,
   CircleAlert,
   CircleDot,
   Code2,
-  FolderGit2,
   House,
   Layers3,
   LoaderCircle,
@@ -73,7 +70,13 @@ function SylphMark({ className }: { className?: string }) {
   )
 }
 
-function ProductRail() {
+function ProductRail({
+  organizations,
+  onSignOut,
+}: {
+  organizations: ReadonlyArray<{ id: string; name: string; slug: string }>
+  onSignOut: () => Promise<void>
+}) {
   const tools = [
     { label: "Home", icon: House },
     { label: "Search", icon: Search },
@@ -112,9 +115,36 @@ function ProductRail() {
         <Button aria-label="Settings" size="icon-sm" variant="ghost">
           <Settings2 />
         </Button>
-        <div className="grid size-7 place-items-center rounded-full border border-white/10 bg-white/[.06]">
-          <UserRound className="size-3.5 text-muted-foreground" />
-        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            aria-label="Open account menu"
+            className="grid size-7 place-items-center rounded-full border border-white/10 bg-white/[.06] text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          >
+            <UserRound className="size-3.5" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent side="right" align="end" className="w-52">
+            {organizations.map((organization) => (
+              <DropdownMenuItem
+                key={organization.id}
+                onClick={() =>
+                  window.location.assign(
+                    `/organizations/${encodeURIComponent(organization.slug)}`
+                  )
+                }
+              >
+                <span className="truncate">{organization.name}</span>
+              </DropdownMenuItem>
+            ))}
+            <DropdownMenuItem
+              onClick={() => window.location.assign("/organizations")}
+            >
+              All organizations
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onSignOut}>
+              <LogOut /> Sign out
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </aside>
   )
@@ -249,26 +279,15 @@ function HomeScreen() {
 
   return (
     <div className="flex min-h-svh bg-background text-foreground">
-      <ProductRail />
+      <ProductRail
+        organizations={dashboard.organizations}
+        onSignOut={async () => {
+          await authClient.signOut()
+          await router.invalidate()
+        }}
+      />
       <aside className="hidden w-[268px] shrink-0 flex-col border-r bg-sidebar md:flex">
-        <header className="flex h-12 items-center gap-2 border-b px-3">
-          <div className="grid size-6 place-items-center rounded-[5px] bg-foreground text-[10px] font-bold text-background">
-            {dashboard.organizations[0]?.name.slice(0, 1).toUpperCase() ?? "S"}
-          </div>
-          <span className="min-w-0 flex-1 truncate text-sm font-medium">
-            {dashboard.organizations[0]?.name ?? "Sylph"}
-          </span>
-          <Button
-            nativeButton={false}
-            aria-label="Manage organizations"
-            size="icon-xs"
-            variant="ghost"
-            render={<Link to="/organizations" />}
-          >
-            <Building2 />
-          </Button>
-        </header>
-        <div className="flex h-10 items-center justify-between px-3">
+        <header className="flex h-12 items-center justify-between border-b px-3">
           <span className="text-[10px] font-semibold tracking-[0.14em] text-muted-foreground uppercase">
             Projects
           </span>
@@ -289,7 +308,7 @@ function HomeScreen() {
           >
             <Plus />
           </Button>
-        </div>
+        </header>
         <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
           {dashboard.projects.map((project) => {
             const workspaces = dashboard.workspaces.filter(
@@ -299,7 +318,6 @@ function HomeScreen() {
             return (
               <section key={project.id} className="mb-2">
                 <div className="flex h-8 items-center gap-2 px-2 text-xs font-semibold text-foreground/85">
-                  <FolderGit2 className="size-3.5 text-[#ef9b7e]" />
                   <span className="min-w-0 flex-1 truncate">
                     {project.name}
                   </span>
@@ -345,19 +363,16 @@ function HomeScreen() {
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
-                <p className="ml-[22px] truncate font-mono text-[10px] text-muted-foreground">
-                  Repository · {project.repositoryName}
-                </p>
-                <div className="mt-1 ml-[5px] border-l border-white/[.07] pl-1.5">
+                <div className="grid gap-0.5 px-1">
                   {workspaces.map((workspace) => (
                     <Link
                       key={workspace.id}
                       to="/workspaces/$workspaceId"
                       params={{ workspaceId: workspace.id }}
-                      className="grid grid-cols-[10px_minmax(0,1fr)] gap-2 rounded-[5px] px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-white/[.045] hover:text-foreground"
+                      className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-[5px] px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-white/[.045] hover:text-foreground"
                     >
-                      <WorkspaceStatusDot status={workspace.status} />
                       <span className="truncate">{workspace.title}</span>
+                      <WorkspaceStatusDot status={workspace.status} />
                     </Link>
                   ))}
                 </div>
@@ -365,10 +380,6 @@ function HomeScreen() {
             )
           })}
         </div>
-        <footer className="flex h-10 items-center gap-2 border-t px-3 text-[10px] text-muted-foreground">
-          <span className="size-1.5 rounded-full bg-status-live" />
-          Durable workspace service online
-        </footer>
       </aside>
 
       <main className="min-w-0 flex-1 bg-background">
@@ -384,22 +395,6 @@ function HomeScreen() {
             <span className="text-muted-foreground">Home</span>
             <ChevronRight className="size-3 text-muted-foreground/50" />
             <span className="font-medium">Projects</span>
-          </div>
-          <div className="ml-auto flex items-center gap-2">
-            <span className="hidden max-w-56 truncate text-xs text-muted-foreground sm:block">
-              {dashboard.user.email}
-            </span>
-            <Button
-              aria-label="Sign out"
-              size="icon-sm"
-              variant="ghost"
-              onClick={async () => {
-                await authClient.signOut()
-                await router.invalidate()
-              }}
-            >
-              <LogOut />
-            </Button>
           </div>
         </header>
         <div className="flex h-10 items-end gap-1 overflow-x-auto border-b px-3 sm:px-5">
@@ -418,16 +413,10 @@ function HomeScreen() {
           </Link>
         </div>
         <div className="mx-auto max-w-5xl px-4 py-8 sm:px-8 sm:py-12">
-          <div className="flex flex-col items-start gap-5 border-b pb-7 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <h1 className="text-3xl font-semibold tracking-[-0.03em]">
-                Projects
-              </h1>
-              <p className="mt-2 max-w-[62ch] text-sm leading-6 text-muted-foreground">
-                Each Project contains one Repository. Start a Workspace for a
-                new feature, fix, or experiment.
-              </p>
-            </div>
+          <div className="flex items-center justify-between gap-5 border-b pb-7">
+            <h1 className="text-3xl font-semibold tracking-[-0.03em]">
+              Projects
+            </h1>
             <Button
               nativeButton={false}
               render={
@@ -452,50 +441,38 @@ function HomeScreen() {
                 )
 
                 return (
-                  <section
-                    key={project.id}
-                    className="grid gap-5 py-6 lg:grid-cols-[minmax(180px,0.65fr)_minmax(0,1.35fr)]"
-                  >
-                    <div>
-                      <div className="flex items-center gap-2.5">
-                        <FolderGit2 className="size-4 text-[#ef9b7e]" />
-                        <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">
-                          {project.name}
-                        </h2>
-                        <Button
-                          nativeButton={false}
-                          size="sm"
-                          variant="ghost"
-                          render={
-                            <a
-                              href={`/projects/${encodeURIComponent(project.id)}/workspaces/new`}
-                            />
-                          }
-                        >
-                          <Plus /> Workspace
-                        </Button>
-                        <Button
-                          nativeButton={false}
-                          aria-label={`${project.name} settings`}
-                          size="icon-sm"
-                          variant="ghost"
-                          render={
-                            <a
-                              href={`/projects/${encodeURIComponent(project.id)}/settings`}
-                            />
-                          }
-                        >
-                          <MoreHorizontal />
-                        </Button>
-                      </div>
-                      <p className="mt-2 pl-6 font-mono text-[10px] text-muted-foreground">
-                        Repository · {project.repositoryName}
-                      </p>
-                      <p className="mt-1 pl-6 text-[10px] text-muted-foreground">
-                        Default branch · {project.defaultBranch}
-                      </p>
+                  <section key={project.id} className="py-5">
+                    <div className="flex items-center gap-2.5">
+                      <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">
+                        {project.name}
+                      </h2>
+                      <Button
+                        nativeButton={false}
+                        size="sm"
+                        variant="ghost"
+                        render={
+                          <a
+                            href={`/projects/${encodeURIComponent(project.id)}/workspaces/new`}
+                          />
+                        }
+                      >
+                        <Plus /> Workspace
+                      </Button>
+                      <Button
+                        nativeButton={false}
+                        aria-label={`${project.name} settings`}
+                        size="icon-sm"
+                        variant="ghost"
+                        render={
+                          <a
+                            href={`/projects/${encodeURIComponent(project.id)}/settings`}
+                          />
+                        }
+                      >
+                        <MoreHorizontal />
+                      </Button>
                     </div>
-                    <div className="grid gap-2">
+                    <div className="mt-3 grid gap-2">
                       {workspaces.map((workspace) => (
                         <div
                           key={workspace.id}
@@ -554,8 +531,7 @@ function HomeScreen() {
           ) : (
             <div className="grid min-h-72 place-items-center text-center">
               <div className="max-w-sm">
-                <Boxes className="mx-auto size-7 text-muted-foreground" />
-                <h2 className="mt-4 text-sm font-semibold">
+                <h2 className="text-sm font-semibold">
                   Create your first Project
                 </h2>
                 <p className="mt-2 text-xs leading-5 text-muted-foreground">
