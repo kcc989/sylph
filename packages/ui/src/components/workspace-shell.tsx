@@ -1148,10 +1148,11 @@ function WorkspaceChat({
   workspaceError?: string | null
 }) {
   return (
-    <section className="flex size-full min-w-0 flex-col bg-background">
+    <section
+      aria-label="Workspace conversation"
+      className="flex size-full min-w-0 flex-col bg-background"
+    >
       <header className="flex h-10 shrink-0 items-center gap-2 border-b px-3">
-        <MessageSquare className="size-3.5 text-[#ef9b7e]" />
-        <h1 className="text-xs font-medium">Chat</h1>
         <Badge
           className="hidden rounded-[4px] px-1.5 font-mono text-[9px] sm:inline-flex"
           variant="outline"
