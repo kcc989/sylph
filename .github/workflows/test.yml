@@ -1,0 +1,42 @@
+name: Test
+
+on:
+  push:
+    branches:
+      - "**"
+    paths:
+      - ".github/workflows/test.yml"
+      - ".npmrc"
+      - ".oxfmtrc.json"
+      - "alchemy.run.ts"
+      - "apps/**"
+      - "bun.lock"
+      - "lefthook.yml"
+      - "oxlint.config.ts"
+      - "package.json"
+      - "packages/**"
+      - "tools/oxlint/**"
+      - "tsconfig.json"
+      - "turbo.json"
+      - "!**/*.md"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run format:check
+      - run: bun run lint
+      - run: bun run typecheck
+      - run: bun run test
+      - run: bun run build
