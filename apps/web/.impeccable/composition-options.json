@@ -1,0 +1,58 @@
+{
+  "title": "Choose the Thread-First composition",
+  "question": "The visual world is locked. Which balance of agent thread, live browser, and review tools should Sylph build?",
+  "options": [
+    {
+      "id": "persistent-preview",
+      "label": "Persistent Preview",
+      "kicker": "YOUR DIRECTION",
+      "lineage": "the selected Thread-First Sylph comp",
+      "thesis": "The thread owns the center while the live browser and change proof remain continuously visible at right.",
+      "palette": ["#12100F", "#F1EEEA", "#C86A4A", "#66C7C0", "#292524"],
+      "materials": [
+        "soft black chrome",
+        "warm transcript field",
+        "clear preview glass",
+        "fine copper rules"
+      ],
+      "viewport": "Nested Repositories and Workspaces at left; agent thread and composer in the center; live browser above Changes and Checks at right.",
+      "risk": "The browser remains persistent but is constrained when inspecting dense desktop layouts.",
+      "comp": ".impeccable/mocks/decision/conductor-thread-first.webp"
+    },
+    {
+      "id": "wide-preview",
+      "label": "Wide Preview Crown",
+      "lineage": "the same Thread-First world with a wide proof band",
+      "thesis": "The live product spans the top of the work area while the agent narrative and review evidence continue together beneath it.",
+      "palette": ["#12100F", "#F1EEEA", "#C86A4A", "#66C7C0", "#292524"],
+      "materials": [
+        "soft black chrome",
+        "warm transcript field",
+        "clear preview glass",
+        "fine copper rules"
+      ],
+      "viewport": "Nested left rail unchanged; a wide browser crown spans center and right; the thread runs below at center with Changes and Checks beside it.",
+      "risk": "The horizontal browser band gives less uninterrupted vertical room to long conversations.",
+      "comp": ".impeccable/mocks/conductor-thread-wide-preview.webp"
+    },
+    {
+      "id": "tandem",
+      "label": "Tandem Workbench",
+      "lineage": "the same Thread-First world with equal live surfaces",
+      "thesis": "Agent and browser read as a paired workbench, with review evidence consolidated into a lower deck.",
+      "palette": ["#12100F", "#F1EEEA", "#C86A4A", "#66C7C0", "#292524"],
+      "materials": [
+        "soft black chrome",
+        "warm transcript field",
+        "clear preview glass",
+        "fine copper rules"
+      ],
+      "viewport": "Nested left rail unchanged; agent and browser share the center in a stable 55/45 split; Files, Changes, Checks, and Skills form a lower deck.",
+      "risk": "The paired surfaces are flexible but less opinionated about where attention should begin.",
+      "comp": ".impeccable/mocks/conductor-thread-tandem.webp"
+    }
+  ],
+  "buildPath": { "value": "comp", "toggle": false },
+  "steer": true,
+  "followup": true
+}

@@ -1,0 +1,8 @@
+{
+  "optionId": "persistent-preview",
+  "steer": "",
+  "followup": true,
+  "comp": ".impeccable/mocks/decision/conductor-thread-first.webp",
+  "buildPath": "comp",
+  "buildPathFlipped": false
+}

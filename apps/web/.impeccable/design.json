@@ -1,0 +1,367 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-26T17:46:12Z",
+  "title": "Design System: Sylph",
+  "extensions": {
+    "colorMeta": {
+      "canvas": {
+        "role": "neutral",
+        "displayName": "Warm Canvas",
+        "canonical": "oklch(0.145 0.008 52)",
+        "tonalRamp": [
+          "oklch(0.15 0.008 52)",
+          "oklch(0.25 0.008 52)",
+          "oklch(0.36 0.008 52)",
+          "oklch(0.48 0.008 52)",
+          "oklch(0.60 0.008 52)",
+          "oklch(0.72 0.008 52)",
+          "oklch(0.84 0.008 52)",
+          "oklch(0.95 0.008 52)"
+        ]
+      },
+      "utility-ink": {
+        "role": "neutral",
+        "displayName": "Utility Ink",
+        "canonical": "oklch(0.125 0.008 48)",
+        "tonalRamp": [
+          "oklch(0.15 0.008 48)",
+          "oklch(0.25 0.008 48)",
+          "oklch(0.36 0.008 48)",
+          "oklch(0.48 0.008 48)",
+          "oklch(0.60 0.008 48)",
+          "oklch(0.72 0.008 48)",
+          "oklch(0.84 0.008 48)",
+          "oklch(0.95 0.008 48)"
+        ]
+      },
+      "panel": {
+        "role": "neutral",
+        "displayName": "Panel Black",
+        "canonical": "#171614",
+        "tonalRamp": [
+          "oklch(0.15 0.008 55)",
+          "oklch(0.25 0.008 55)",
+          "oklch(0.36 0.008 55)",
+          "oklch(0.48 0.008 55)",
+          "oklch(0.60 0.008 55)",
+          "oklch(0.72 0.008 55)",
+          "oklch(0.84 0.008 55)",
+          "oklch(0.95 0.008 55)"
+        ]
+      },
+      "raised-panel": {
+        "role": "neutral",
+        "displayName": "Raised Panel",
+        "canonical": "#1c1a18",
+        "tonalRamp": [
+          "oklch(0.15 0.010 53)",
+          "oklch(0.25 0.010 53)",
+          "oklch(0.36 0.010 53)",
+          "oklch(0.48 0.010 53)",
+          "oklch(0.60 0.010 53)",
+          "oklch(0.72 0.010 53)",
+          "oklch(0.84 0.010 53)",
+          "oklch(0.95 0.010 53)"
+        ]
+      },
+      "warm-text": {
+        "role": "neutral",
+        "displayName": "Warm Near-White",
+        "canonical": "oklch(0.93 0.014 77)",
+        "tonalRamp": [
+          "oklch(0.15 0.014 77)",
+          "oklch(0.25 0.014 77)",
+          "oklch(0.36 0.014 77)",
+          "oklch(0.48 0.014 77)",
+          "oklch(0.60 0.014 77)",
+          "oklch(0.72 0.014 77)",
+          "oklch(0.84 0.014 77)",
+          "oklch(0.95 0.014 77)"
+        ]
+      },
+      "muted-text": {
+        "role": "neutral",
+        "displayName": "Muted Warm Gray",
+        "canonical": "oklch(0.68 0.013 70)",
+        "tonalRamp": [
+          "oklch(0.15 0.013 70)",
+          "oklch(0.25 0.013 70)",
+          "oklch(0.36 0.013 70)",
+          "oklch(0.48 0.013 70)",
+          "oklch(0.60 0.013 70)",
+          "oklch(0.72 0.013 70)",
+          "oklch(0.84 0.013 70)",
+          "oklch(0.95 0.013 70)"
+        ]
+      },
+      "coral": {
+        "role": "primary",
+        "displayName": "Burnt Coral",
+        "canonical": "oklch(0.73 0.13 38)",
+        "tonalRamp": [
+          "oklch(0.15 0.055 38)",
+          "oklch(0.25 0.075 38)",
+          "oklch(0.36 0.095 38)",
+          "oklch(0.48 0.115 38)",
+          "oklch(0.60 0.13 38)",
+          "oklch(0.72 0.13 38)",
+          "oklch(0.84 0.09 38)",
+          "oklch(0.95 0.035 38)"
+        ]
+      },
+      "live-aqua": {
+        "role": "secondary",
+        "displayName": "Live Aqua",
+        "canonical": "oklch(0.78 0.12 174)",
+        "tonalRamp": [
+          "oklch(0.15 0.05 174)",
+          "oklch(0.25 0.07 174)",
+          "oklch(0.36 0.09 174)",
+          "oklch(0.48 0.11 174)",
+          "oklch(0.60 0.12 174)",
+          "oklch(0.72 0.12 174)",
+          "oklch(0.84 0.085 174)",
+          "oklch(0.95 0.03 174)"
+        ]
+      },
+      "fine-border": {
+        "role": "neutral",
+        "displayName": "Fine Warm Border",
+        "canonical": "oklch(0.91 0.02 76 / 12%)",
+        "tonalRamp": [
+          "oklch(0.15 0.02 76)",
+          "oklch(0.25 0.02 76)",
+          "oklch(0.36 0.02 76)",
+          "oklch(0.48 0.02 76)",
+          "oklch(0.60 0.02 76)",
+          "oklch(0.72 0.02 76)",
+          "oklch(0.84 0.02 76)",
+          "oklch(0.95 0.02 76)"
+        ]
+      },
+      "preview-paper": {
+        "role": "neutral",
+        "displayName": "Preview Paper",
+        "canonical": "#f1eee8",
+        "tonalRamp": [
+          "oklch(0.15 0.012 78)",
+          "oklch(0.25 0.012 78)",
+          "oklch(0.36 0.012 78)",
+          "oklch(0.48 0.012 78)",
+          "oklch(0.60 0.012 78)",
+          "oklch(0.72 0.012 78)",
+          "oklch(0.84 0.012 78)",
+          "oklch(0.95 0.012 78)"
+        ]
+      },
+      "preview-ink": {
+        "role": "neutral",
+        "displayName": "Preview Ink",
+        "canonical": "#201d19",
+        "tonalRamp": [
+          "oklch(0.15 0.012 68)",
+          "oklch(0.25 0.012 68)",
+          "oklch(0.36 0.012 68)",
+          "oklch(0.48 0.012 68)",
+          "oklch(0.60 0.012 68)",
+          "oklch(0.72 0.012 68)",
+          "oklch(0.84 0.012 68)",
+          "oklch(0.95 0.012 68)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Preview Headline",
+        "purpose": "Rare emphasis inside preview fallbacks and empty content states."
+      },
+      "title": {
+        "displayName": "Compact Title",
+        "purpose": "Workspace names, message titles, check names, and compact actions."
+      },
+      "body": {
+        "displayName": "Thread Body",
+        "purpose": "Human and agent narrative within the centered transcript measure."
+      },
+      "label": {
+        "displayName": "Rail Label",
+        "purpose": "Uppercase section labels in persistent navigation."
+      },
+      "mono": {
+        "displayName": "Machine Detail",
+        "purpose": "URLs, branches, counts, timings, viewport dimensions, and code."
+      }
+    },
+    "shadows": [
+      {
+        "name": "composer-lift",
+        "value": "0 16px 45px rgba(0,0,0,.24)",
+        "purpose": "Anchors the message composer above the scrolling thread."
+      },
+      {
+        "name": "preview-annotation",
+        "value": "0 1px 2px rgba(0,0,0,.05)",
+        "purpose": "Separates viewport metadata from the light preview canvas."
+      }
+    ],
+    "motion": [
+      {
+        "name": "control-state",
+        "value": "150ms ease",
+        "purpose": "Default color, field, and focus transition on compact controls."
+      },
+      {
+        "name": "preview-width",
+        "value": "200ms ease",
+        "purpose": "Moves the embedded product between responsive and 390px mobile width; removed under reduced motion."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "640px"
+      },
+      {
+        "name": "md",
+        "value": "768px"
+      },
+      {
+        "name": "xl",
+        "value": "1280px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Compact coral action used for the message send control and other singular actions.",
+      "html": "<button class=\"ds-button-primary\" type=\"button\">Send</button>",
+      "css": ".ds-button-primary { height: 32px; padding: 0 10px; border: 1px solid transparent; border-radius: 8px; background: var(--sylph-coral, oklch(0.73 0.13 38)); color: #201d19; font: 500 13px/1.5 'Geist Variable', sans-serif; transition: background-color 150ms ease, border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease; } .ds-button-primary:hover { background: #f4af98; } .ds-button-primary:focus-visible { border-color: oklch(0.75 0.11 37); box-shadow: 0 0 0 3px oklch(0.75 0.11 37 / 50%); outline: none; } .ds-button-primary:active { transform: translateY(1px); }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Quiet utility action that appears through a shallow field on interaction.",
+      "html": "<button class=\"ds-button-ghost\" type=\"button\">Terminal</button>",
+      "css": ".ds-button-ghost { height: 28px; padding: 0 8px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: oklch(0.68 0.013 70); font: 500 13px/1.5 'Geist Variable', sans-serif; transition: background-color 150ms ease, color 150ms ease, box-shadow 150ms ease; } .ds-button-ghost:hover { background: rgb(255 255 255 / 5%); color: oklch(0.93 0.014 77); } .ds-button-ghost:focus-visible { box-shadow: 0 0 0 3px oklch(0.75 0.11 37 / 50%); outline: none; }"
+    },
+    {
+      "name": "Active Workspace",
+      "kind": "nav",
+      "refersTo": "workspace-active",
+      "description": "Nested Workspace row with a shallow field, coral edge, live status, branch, and change summary.",
+      "html": "<button class=\"ds-workspace\" type=\"button\" aria-current=\"page\"><span class=\"ds-workspace-dot\"></span><span class=\"ds-workspace-copy\"><strong>Browser preview shell</strong><small>codex/browser-shell <span>+286 −41</span></small></span></button>",
+      "css": ".ds-workspace { position: relative; display: grid; width: 268px; grid-template-columns: 12px minmax(0,1fr); gap: 8px; padding: 6px 8px; border: 0; border-radius: 5px; background: rgb(255 255 255 / 6.5%); color: oklch(0.93 0.014 77); text-align: left; } .ds-workspace::before { content: ''; position: absolute; inset: 4px auto 4px 0; width: 1px; background: var(--sylph-coral, oklch(0.73 0.13 38)); } .ds-workspace-dot { width: 6px; height: 6px; margin-top: 5px; border-radius: 999px; background: var(--sylph-live, oklch(0.78 0.12 174)); box-shadow: 0 0 0 3px oklch(0.78 0.12 174 / 14%); } .ds-workspace-copy { min-width: 0; font: 400 12px/1.4 'Geist Variable', sans-serif; } .ds-workspace-copy strong { display: block; overflow: hidden; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; } .ds-workspace-copy small { display: flex; gap: 6px; margin-top: 2px; color: oklch(0.68 0.013 70); font: 400 10px/1.5 'Geist Mono', monospace; } .ds-workspace-copy small span { margin-left: auto; } .ds-workspace:hover { background: rgb(255 255 255 / 8%); } .ds-workspace:focus-visible { box-shadow: 0 0 0 2px oklch(0.75 0.11 37); outline: none; }"
+    },
+    {
+      "name": "Prompt Composer",
+      "kind": "input",
+      "refersTo": "prompt-composer",
+      "description": "Square-edged, lifted action surface anchored below the agent transcript.",
+      "html": "<div class=\"ds-composer\"><textarea aria-label=\"Message the agent\" placeholder=\"Ask to make changes, @mention files, or run /commands\"></textarea><div class=\"ds-composer-bar\"><button type=\"button\">Context</button><span>⌘ ↵</span><button class=\"ds-composer-send\" type=\"button\">Send</button></div></div>",
+      "css": ".ds-composer { width: min(100%, 768px); border: 1px solid rgb(255 255 255 / 12%); border-radius: 0; background: #1c1a18; box-shadow: 0 16px 45px rgba(0,0,0,.24); color: oklch(0.93 0.014 77); } .ds-composer:focus-within { border-color: oklch(0.73 0.13 38 / 45%); } .ds-composer textarea { display: block; width: 100%; min-height: 80px; padding: 10px 12px; border: 0; background: transparent; color: inherit; font: 400 13px/20px 'Geist Variable', sans-serif; outline: none; resize: none; } .ds-composer textarea::placeholder { color: oklch(0.68 0.013 70); } .ds-composer-bar { display: flex; align-items: center; gap: 4px; height: 36px; padding: 0 8px; border-top: 1px solid rgb(255 255 255 / 7%); color: oklch(0.68 0.013 70); font: 400 10px/1.5 'Geist Variable', sans-serif; } .ds-composer-bar span { margin-left: auto; } .ds-composer-bar button { height: 28px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: inherit; } .ds-composer-bar button:hover { background: rgb(255 255 255 / 5%); color: oklch(0.93 0.014 77); } .ds-composer-bar button:focus-visible { box-shadow: 0 0 0 2px oklch(0.75 0.11 37); outline: none; } .ds-composer-bar .ds-composer-send { background: #ef9b7e; color: #241613; } .ds-composer-bar .ds-composer-send:hover { background: #f4af98; color: #241613; }"
+    },
+    {
+      "name": "Browser Address",
+      "kind": "input",
+      "refersTo": "browser-address",
+      "description": "Dense editable URL field inside the persistent browser toolbar.",
+      "html": "<label class=\"ds-browser-address\"><svg aria-hidden=\"true\" viewBox=\"0 0 24 24\"><circle cx=\"12\" cy=\"12\" r=\"9\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"/><path d=\"M3 12h18M12 3c2.5 2.5 3.7 5.5 3.7 9S14.5 18.5 12 21c-2.5-2.5-3.7-5.5-3.7-9S9.5 5.5 12 3Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"/></svg><input value=\"http://127.0.0.1:3000\" aria-label=\"Preview URL\"></label>",
+      "css": ".ds-browser-address { display: flex; min-width: 260px; align-items: center; gap: 8px; padding: 4px 8px; border: 1px solid rgb(255 255 255 / 8%); border-radius: 5px; background: rgb(0 0 0 / 20%); color: oklch(0.68 0.013 70); } .ds-browser-address:focus-within { border-color: oklch(0.73 0.13 38 / 50%); box-shadow: 0 0 0 2px oklch(0.73 0.13 38 / 20%); } .ds-browser-address svg { width: 12px; height: 12px; flex: none; } .ds-browser-address input { min-width: 0; flex: 1; border: 0; background: transparent; color: oklch(0.93 0.014 77 / 75%); font: 400 10px/1.5 'Geist Mono', monospace; outline: none; }"
+    },
+    {
+      "name": "Live Status Chip",
+      "kind": "chip",
+      "description": "Labeled aqua status for a connected browser or remote Workspace.",
+      "html": "<span class=\"ds-live-chip\"><span aria-hidden=\"true\"></span>Live</span>",
+      "css": ".ds-live-chip { display: inline-flex; height: 20px; align-items: center; gap: 4px; padding: 2px 6px; border: 1px solid rgb(255 255 255 / 10%); border-radius: 5px; background: rgb(255 255 255 / 4.5%); color: oklch(0.68 0.013 70); font: 400 10px/1.4 'Geist Variable', sans-serif; } .ds-live-chip > span { width: 6px; height: 6px; border-radius: 999px; background: var(--sylph-live, oklch(0.78 0.12 174)); } .ds-live-chip:focus-visible { box-shadow: 0 0 0 2px oklch(0.75 0.11 37); outline: none; }"
+    },
+    {
+      "name": "Review Tabs",
+      "kind": "nav",
+      "description": "Line tabs that switch between Changes and Checks beneath the browser.",
+      "html": "<div class=\"ds-review-tabs\" role=\"tablist\"><button class=\"ds-review-active\" role=\"tab\" aria-selected=\"true\">Changes <span>+286 −41</span></button><button role=\"tab\" aria-selected=\"false\">Checks <i></i></button></div>",
+      "css": ".ds-review-tabs { display: flex; height: 36px; align-items: center; gap: 4px; padding: 0 8px; border-block: 1px solid oklch(0.91 0.02 76 / 12%); background: #171614; } .ds-review-tabs button { position: relative; align-self: stretch; padding: 0 8px; border: 0; background: transparent; color: oklch(0.68 0.013 70); font: 500 12px/1.4 'Geist Variable', sans-serif; } .ds-review-tabs button:hover { color: oklch(0.93 0.014 77); } .ds-review-tabs button:focus-visible { box-shadow: inset 0 0 0 2px oklch(0.75 0.11 37); outline: none; } .ds-review-tabs .ds-review-active { color: oklch(0.93 0.014 77); } .ds-review-tabs .ds-review-active::after { content: ''; position: absolute; right: 0; bottom: -1px; left: 0; height: 2px; background: currentColor; } .ds-review-tabs span { color: #4ade80; font: 400 9px/1.4 'Geist Mono', monospace; } .ds-review-tabs i { display: inline-block; width: 6px; height: 6px; margin-left: 4px; border-radius: 999px; background: var(--sylph-live, oklch(0.78 0.12 174)); }"
+    },
+    {
+      "name": "Check Row",
+      "kind": "custom",
+      "description": "Compact proof row pairing textual status with machine detail.",
+      "html": "<div class=\"ds-check-row\"><svg aria-hidden=\"true\" viewBox=\"0 0 16 16\"><path d=\"m3 8 3 3 7-7\" fill=\"none\" stroke=\"currentColor\" stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"1.7\"/></svg><strong>Typecheck</strong><span>packages/ui</span><span class=\"ds-sr\">passed</span></div>",
+      "css": ".ds-check-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid rgb(255 255 255 / 6%); background: oklch(0.145 0.008 52); color: oklch(0.93 0.014 77); } .ds-check-row svg { width: 14px; height: 14px; flex: none; color: #4ade80; } .ds-check-row strong { font: 500 12px/1.4 'Geist Variable', sans-serif; } .ds-check-row span { margin-left: auto; color: oklch(0.68 0.013 70); font: 400 10px/1.5 'Geist Mono', monospace; } .ds-check-row .ds-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; } .ds-check-row:hover { background: rgb(255 255 255 / 2.5%); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Thread-First Workshop",
+    "overview": "Sylph is a dense, dark engineering workspace in which agent intent, a running product, and proof remain visible together. Its visual world is calm and workmanlike: warm soft-black planes, warm near-white text, fine separators, compact controls, and a small number of precise state signals. The agent thread is the narrative center, while the persistent browser and review surface make verification part of the work rather than a destination after it.\n\nThe system is familiar enough for sustained IDE use without becoming a file-editor-first IDE or a generic dashboard. Repository hierarchy anchors orientation, the active Workspace is cut into that hierarchy with a coral hairline, and live browser state is reserved for aqua. Dense chrome gives way to more generous transcript measure so the interface feels deliberate rather than cramped.",
+    "keyCharacteristics": [
+      "Warm, tonal dark planes separated by hairlines rather than card chrome",
+      "Compact sans-serif interface text with monospace reserved for machine output",
+      "Coral for selection and agent action; aqua only for live state",
+      "Persistent thread, browser, changes, and checks within one Workspace",
+      "Nearly square geometry with clipped 4–9px corners",
+      "Explicit mobile modes instead of a compressed desktop split"
+    ],
+    "rules": [
+      {
+        "name": "The Two-Signal Rule",
+        "body": "Coral means selection or agent action; aqua means live or connected. Never exchange their roles.",
+        "section": "colors"
+      },
+      {
+        "name": "The Preview Boundary Rule",
+        "body": "Light surfaces may appear inside the browser viewport because they belong to the product under test. Sylph chrome remains dark around them.",
+        "section": "colors"
+      },
+      {
+        "name": "The Human-or-Machine Rule",
+        "body": "Conversation and navigation use Geist sans; values emitted by tools or runtimes use Geist Mono.",
+        "section": "typography"
+      },
+      {
+        "name": "The Quiet-Chrome Rule",
+        "body": "Structural bars use 10–13px type. Large product-style headings do not belong in Workspace chrome.",
+        "section": "typography"
+      },
+      {
+        "name": "The Stable-Orientation Rule",
+        "body": "Repository and nested Workspace identity remain on the left while the active work changes to their right.",
+        "section": "layout"
+      },
+      {
+        "name": "The Proof-Stays-Present Rule",
+        "body": "On desktop, browser proof remains beside the thread and review remains directly below it.",
+        "section": "layout"
+      },
+      {
+        "name": "The Tonal-First Rule",
+        "body": "Use plane changes and separators for structure. Shadows are reserved for the composer and content inside the browser preview.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Clipped-Corner Rule",
+        "body": "Operational chrome lives between 4px and 9px. Rounded geometry must remain subordinate to the dense panel topology.",
+        "section": "shapes"
+      }
+    ],
+    "dos": [
+      "Do preserve the Organization → Repository → nested Workspace hierarchy and keep it persistent on desktop.",
+      "Do make the browser persistent beside the thread and keep Changes and Checks directly beneath it.",
+      "Do use coral as a narrow selection/action cue and aqua as a labeled live-state cue.",
+      "Do keep app chrome compact, keyboard-visible, and structured by fine separators.",
+      "Do switch narrow screens to explicit Agent, Preview, and Review modes.",
+      "Do use monospace only for URLs, branches, timings, counts, diffs, and other machine output."
+    ],
+    "donts": [
+      "Don't turn the Workspace into a file-editor-first IDE or a grid of equal-weight dashboard cards.",
+      "Don't split Repositories and Workspaces into separate navigation sections.",
+      "Don't use decorative gradients, glassmorphism, neon, or a physical cockpit metaphor.",
+      "Don't introduce oversized titles, floating card stacks, or pill-shaped chrome.",
+      "Don't hide browser proof behind a desktop tab or reduce it to a thumbnail.",
+      "Don't rely on color alone for connection, activity, success, or error state."
+    ]
+  }
+}

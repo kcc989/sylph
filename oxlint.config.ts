@@ -21,6 +21,7 @@ export default defineConfig({
     ...agentAndToolingIgnores,
     "**/dist/**",
     "**/node_modules/**",
+    "**/storybook-static/**",
     "**/.output/**",
     "**/.tanstack/**",
     "**/.turbo/**",

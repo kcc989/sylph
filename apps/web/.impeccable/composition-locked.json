@@ -1,0 +1,25 @@
+{
+  "title": "Thread-First Sylph is locked",
+  "question": "Persistent Preview is the approved composition and will now drive the component system and Workspace build.",
+  "options": [
+    {
+      "id": "approved",
+      "label": "Persistent Preview",
+      "kicker": "APPROVED",
+      "lineage": "Thread-First Sylph",
+      "thesis": "The agent narrative owns the center while the live browser and change proof remain continuously visible at right.",
+      "palette": ["#12100F", "#F1EEEA", "#C86A4A", "#66C7C0", "#292524"],
+      "materials": [
+        "soft black chrome",
+        "warm transcript field",
+        "clear preview glass",
+        "fine copper rules"
+      ],
+      "viewport": "Nested Repository and Workspace rail at left; agent thread and composer in the center; live browser above Changes and Checks at right.",
+      "risk": "The browser remains persistent but is constrained when inspecting dense desktop layouts.",
+      "comp": ".impeccable/mocks/decision/conductor-thread-first.webp"
+    }
+  ],
+  "buildPath": { "value": "comp", "toggle": false },
+  "steer": false
+}

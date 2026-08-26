@@ -1,0 +1,171 @@
+{
+  "title": "Choose Sylph's visual world — fresh hand",
+  "question": "This hand removes the themed control-room framing and starts from the product, the browser, and the change itself.",
+  "options": [
+    {
+      "id": "assigned",
+      "label": "Instrumented Preview",
+      "kicker": "THE ROLL",
+      "lineage": "browser inspectors, responsive overlays, and spatial debugging",
+      "thesis": "The running product is the Workspace ground; everything else attaches to what the user and agent can actually see and test.",
+      "palette": ["#F4F6F2", "#151A1E", "#2457F5", "#B7F23A"],
+      "materials": [
+        "matte browser canvas",
+        "measurement rules",
+        "translucent inspection layers",
+        "crisp ink"
+      ],
+      "viewport": "A persistent left rail groups Repositories and their Workspaces; a live browser canvas owns nearly two-thirds of the remaining screen, a narrow agent thread sits right, and code, diffs, responsive bounds, console evidence, and agent actions anchor directly to the preview as focused lenses.",
+      "risk": "Spatial overlays become noise if more than one inspection layer demands attention at once.",
+      "raised": [
+        {
+          "from": "Metro Typographic Tiles",
+          "raise": "Chrome that carries no action or state is deleted."
+        },
+        {
+          "from": "CRT Arcade Grid",
+          "raise": "Every browser and agent state remains addressable and inspectable in code."
+        },
+        {
+          "from": "Industrial Quote Grammar",
+          "raise": "Labels stay literal and self-explanatory."
+        },
+        {
+          "from": "Cyclorama Dawn",
+          "raise": "Inactive context recedes through value and depth rather than disappearing."
+        }
+      ],
+      "comp": ".impeccable/mocks/decision/instrumented-preview.webp"
+    },
+    {
+      "id": "model-pick",
+      "label": "Diff Proof Sheet",
+      "kicker": "IMPECCABLE’S PICK",
+      "lineage": "engineering proof sheets and Diffs-style mixed code views",
+      "thesis": "The change is the interface: intent, edited files, browser evidence, and acceptance read as one continuous proof.",
+      "palette": ["#F7F5EF", "#171917", "#D9E5FF", "#C9F0D2", "#FFD6CE"],
+      "materials": [
+        "uncoated proof paper",
+        "precise code ink",
+        "editorial annotations",
+        "browser captures"
+      ],
+      "viewport": "A persistent left rail groups Repositories and Workspaces, opening the selection into one mixed scroll of agent intent, editable file diffs, and large browser evidence, with a persistent live preview strip at the edge.",
+      "risk": "It is the clearest review model but may feel less like a freeform IDE during long exploratory work.",
+      "comp": ".impeccable/mocks/decision/diff-proof-sheet.webp"
+    },
+    {
+      "id": "challenger-manual",
+      "label": "Layered Workspace",
+      "verdict": "competitive",
+      "lineage": "boxed-software reference manuals with acetate leaves",
+      "thesis": "Code, agent context, preview, and tests are readable layers hinged over one shared Workspace board.",
+      "palette": ["#F2EDDF", "#171717", "#F2C319", "#16999D", "#2454A6"],
+      "materials": [
+        "milk acetate",
+        "section board",
+        "print ink",
+        "punched tabs"
+      ],
+      "viewport": "A persistent left rail groups Repositories and Workspaces; the live product sits on the base board while a clear active leaf carries code and agent annotations, and a stepped inner tab rail exposes Files, Changes, Preview, Skills, and Runs.",
+      "case": "Layering and tab extent make complex context legible, but the manual voice can imply reference reading rather than live manipulation.",
+      "risk": "Warm paper and tabs can become documentation nostalgia if the preview stops feeling live.",
+      "comp": ".impeccable/mocks/decision/layered-workspace.webp",
+      "hero": "https://impeccable.style/worlds/cards/rw-manual-acetate-tab-board-hero.webp",
+      "board": "https://impeccable.style/worlds/cards/rw-manual-acetate-tab-board.webp"
+    },
+    {
+      "id": "challenger-cutting",
+      "label": "Change Rail",
+      "verdict": "competitive",
+      "lineage": "film cutting benches and perforated select rails",
+      "thesis": "Every agent action, edit, browser step, and test is a frame on one persistent causal rail.",
+      "palette": ["#0A0A0A", "#F25A1F", "#F5F3EE"],
+      "materials": [
+        "coarse film grain",
+        "punched windows",
+        "grease marks",
+        "tape flags"
+      ],
+      "viewport": "A persistent left rail groups Repositories and Workspaces; a live browser frame dominates the upper field to its right while one precise causal rail crosses below it, keeping edits and agent actions reachable as marked frames.",
+      "case": "Persistent position and visible marks map well to agent work, but a single rail underrepresents simultaneous files and browser state.",
+      "risk": "The orange-and-black commitment can feel editorial rather than comfortably operational over long sessions.",
+      "comp": ".impeccable/mocks/decision/change-rail.webp",
+      "hero": "https://impeccable.style/worlds/cards/operate-a-cutting-bench-select-rail-hero.webp",
+      "board": "https://impeccable.style/worlds/cards/operate-a-cutting-bench-select-rail.webp"
+    },
+    {
+      "id": "challenger-metro",
+      "label": "Typographic Workspace",
+      "verdict": "declined",
+      "lineage": "flat metro tiles and panoramic type",
+      "thesis": "Words, state, and direct surfaces replace most application chrome.",
+      "palette": ["#000000", "#FFFFFF", "#00B7C3"],
+      "materials": ["flat color fields", "pure type", "live tiles"],
+      "viewport": "Large pane titles lead into a browser-first horizontal workspace with direct tile entry points.",
+      "case": "Poster-scale type and tiles reduce the density engineering work needs.",
+      "kept": "Delete chrome that carries no action or state.",
+      "risk": "The dramatic type consumes the room needed for code and evidence.",
+      "hero": "https://impeccable.style/worlds/cards/digital-design-canon-metro-typographic-tiles-hero.webp"
+    },
+    {
+      "id": "challenger-arcade",
+      "label": "Addressable Grid",
+      "verdict": "declined",
+      "lineage": "pixel-art arcade systems",
+      "thesis": "Every Workspace state is a strict code-addressable swap rather than ambient animation.",
+      "palette": ["#08090A", "#E8EEF2", "#4A77FF", "#FFCC3D"],
+      "materials": ["integer grid", "phosphor dark", "state sprites"],
+      "viewport": "A tiled Workspace makes browser, code, and agent state explicit at every cell.",
+      "case": "The game grammar misstates the seriousness of ordinary product work.",
+      "kept": "Every browser and agent state remains addressable and inspectable in code.",
+      "risk": "Playfulness overwhelms sustained professional use.",
+      "hero": "https://impeccable.style/worlds/cards/medium-native-crt-arcade-pixel-glow-hero.webp"
+    },
+    {
+      "id": "challenger-industrial",
+      "label": "Literal Zones",
+      "verdict": "declined",
+      "lineage": "industrial streetwear quote grammar",
+      "thesis": "Every zone names exactly what it is and what state it is in.",
+      "palette": ["#FFFFFF", "#0A0A0A", "#F36A21"],
+      "materials": ["white cotton", "black nylon", "safety tags"],
+      "viewport": "Literal Workspace, Agent, Code, Browser, and Checks zones make navigation self-explanatory.",
+      "case": "Quotation marks, hazards, and tags become costume faster than system.",
+      "kept": "Labels stay literal and self-explanatory.",
+      "risk": "Visual shouting undermines hours-long concentration.",
+      "hero": "https://impeccable.style/worlds/cards/textiles-weave-drape-fashion-industrial-quote-grammar-hero.webp"
+    },
+    {
+      "id": "challenger-cyclorama",
+      "label": "Depth States",
+      "verdict": "declined",
+      "lineage": "cyclorama lighting from night to day",
+      "thesis": "Context recedes and returns through explicit depth phases around the live product.",
+      "palette": ["#050609", "#244AA5", "#CF7892", "#F6F6F2"],
+      "materials": ["depthless ground", "horizon bands", "task light"],
+      "viewport": "The browser stays fully lit while code and agent context occupy labeled depth bands around it.",
+      "case": "Light-state transitions do not explain code or causality.",
+      "kept": "Inactive context recedes through value and depth rather than disappearing.",
+      "risk": "Atmosphere can replace information hierarchy.",
+      "hero": "https://impeccable.style/worlds/cards/stagecraft-theater-lighting-cyclorama-dawn-hero.webp"
+    }
+  ],
+  "reroll": { "registers": ["safer", "bolder"] },
+  "buildPath": { "value": "comp", "toggle": true },
+  "canon": true,
+  "canonCard": {
+    "label": "The category standard",
+    "thesis": "A refined dark agent IDE with a file tree, central editor, chat rail, and browser tab.",
+    "palette": ["#0F1115", "#E7EAF0", "#272C35", "#4F7CFF"],
+    "materials": [
+      "dark application chrome",
+      "hairline dividers",
+      "syntax color"
+    ],
+    "viewport": "A conventional resizable three-pane IDE keeps files left, code and preview center, and agent chat right.",
+    "risk": "It is immediately legible and indistinguishable from the category by design.",
+    "comp": ".impeccable/mocks/decision/category-standard.webp"
+  },
+  "steer": true
+}
