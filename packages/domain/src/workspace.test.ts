@@ -9,6 +9,7 @@ import {
   decodeOpenCodeKeySetupInputPromise,
   decodeOpenCodeSubscriptionStartInputPromise,
   decodeOpenCodeSubscriptionStatusInputPromise,
+  decodeSetDefaultOpenCodeConnectionInputPromise,
   decodeWorkspaceSummary,
   decodeWorkspaceWriteFile,
 } from "./workspace"
@@ -99,6 +100,16 @@ describe("Project and runtime inputs", () => {
     })
 
     expect(setup.organizationId).toBe(OrganizationId.make("organization-1"))
+  })
+
+  test("scopes a default Provider connection to an Organization", async () => {
+    const input = await decodeSetDefaultOpenCodeConnectionInputPromise({
+      organizationId: "organization-1",
+      providerId: "openai",
+    })
+
+    expect(input.organizationId).toBe(OrganizationId.make("organization-1"))
+    expect(input.providerId).toBe("openai")
   })
 
   test("accepts the default Codex subscription model", async () => {

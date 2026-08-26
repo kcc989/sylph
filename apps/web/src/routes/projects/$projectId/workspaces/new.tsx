@@ -131,11 +131,11 @@ function NewWorkspaceScreen() {
                   <KeyRound className="size-4" />
                 </div>
                 <h2 className="mt-5 text-2xl font-semibold tracking-[-0.03em]">
-                  Connect OpenCode
+                  Connect an AI provider
                 </h2>
                 <p className="mt-2 max-w-[58ch] text-sm leading-6 text-muted-foreground">
-                  This Organization needs one OpenCode connection before any of
-                  its Projects can start a durable Workspace.
+                  This Organization needs at least one Provider connection
+                  before any of its Projects can start a durable Workspace.
                 </p>
                 <Button
                   nativeButton={false}
@@ -164,7 +164,7 @@ function NewWorkspaceScreen() {
                 <form className="mt-8 grid gap-6" onSubmit={handleCreate}>
                   <div className="flex items-center justify-between border-y py-3">
                     <div>
-                      <p className="text-xs font-medium">OpenCode configured</p>
+                      <p className="text-xs font-medium">Default provider</p>
                       <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
                         {context.setup.providerId}/{context.setup.modelId}
                       </p>

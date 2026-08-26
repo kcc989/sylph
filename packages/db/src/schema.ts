@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm"
 import {
   index,
   integer,
+  primaryKey,
   sqliteTable,
   text,
   uniqueIndex,
@@ -219,18 +220,28 @@ export const workspace = sqliteTable(
   ]
 )
 
-export const openCodeConnection = sqliteTable("open_code_connection", {
-  organizationId: text("organization_id")
-    .primaryKey()
-    .references(() => organization.id, { onDelete: "cascade" }),
-  configuredByUserId: text("configured_by_user_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "restrict" }),
-  providerId: text("provider_id").notNull(),
-  modelId: text("model_id").notNull(),
-  authMethod: text("auth_method").notNull(),
-  encryptedCredential: text("encrypted_credential").notNull(),
-  encryptionIv: text("encryption_iv").notNull(),
-  createdAt: timestamp("created_at"),
-  updatedAt: timestamp("updated_at"),
-})
+export const openCodeConnection = sqliteTable(
+  "open_code_connection",
+  {
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    configuredByUserId: text("configured_by_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    providerId: text("provider_id").notNull(),
+    modelId: text("model_id").notNull(),
+    authMethod: text("auth_method").notNull(),
+    isDefault: integer("is_default", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    encryptedCredential: text("encrypted_credential").notNull(),
+    encryptionIv: text("encryption_iv").notNull(),
+    createdAt: timestamp("created_at"),
+    updatedAt: timestamp("updated_at"),
+  },
+  (table) => [
+    primaryKey({ columns: [table.organizationId, table.providerId] }),
+    index("open_code_connection_organization_id_idx").on(table.organizationId),
+  ]
+)

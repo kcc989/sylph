@@ -92,6 +92,13 @@ export class OpenCodeKeySetupInput extends Schema.Class<OpenCodeKeySetupInput>(
   apiKey: Schema.NonEmptyString,
 }) {}
 
+export class SetDefaultOpenCodeConnectionInput extends Schema.Class<SetDefaultOpenCodeConnectionInput>(
+  "@sylph/domain/SetDefaultOpenCodeConnectionInput"
+)({
+  organizationId: OrganizationId,
+  providerId: Schema.NonEmptyString,
+}) {}
+
 export const OpenCodeSubscriptionModel = Schema.Literals([
   "gpt-5.6-sol",
   "gpt-5.6-terra",
@@ -267,6 +274,9 @@ export const decodeOrganizationRequestInputPromise =
 export const decodeOpenCodeKeySetupInputPromise = Schema.decodeUnknownPromise(
   OpenCodeKeySetupInput
 )
+
+export const decodeSetDefaultOpenCodeConnectionInputPromise =
+  Schema.decodeUnknownPromise(SetDefaultOpenCodeConnectionInput)
 
 export const decodeOpenCodeSubscriptionStartInputPromise =
   Schema.decodeUnknownPromise(OpenCodeSubscriptionStartInput)

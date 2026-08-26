@@ -81,10 +81,10 @@ function NewProjectScreen() {
               <div className="mb-2 grid size-10 place-items-center rounded-lg bg-primary text-primary-foreground">
                 <KeyRound className="size-4" />
               </div>
-              <CardTitle>Connect OpenCode</CardTitle>
+              <CardTitle>Connect an AI provider</CardTitle>
               <CardDescription>
-                This Organization needs one OpenCode connection before its
-                members can create Projects and durable Workspaces.
+                This Organization needs at least one Provider connection before
+                its members can create Projects and durable Workspaces.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -118,7 +118,7 @@ function NewProjectScreen() {
               <form className="grid gap-5" onSubmit={handleSubmit}>
                 <div className="flex items-center justify-between rounded-lg border bg-muted/30 px-3 py-2">
                   <div>
-                    <p className="text-sm font-medium">OpenCode configured</p>
+                    <p className="text-sm font-medium">Default provider</p>
                     <p className="text-xs text-muted-foreground">
                       {setup.providerId}/{setup.modelId}
                     </p>
