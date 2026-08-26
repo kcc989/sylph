@@ -1,7 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { Button } from "@workspace/ui/components/button"
-import { ArrowLeft, ArrowRight, Plus, Settings2 } from "lucide-react"
+import { ArrowRight, Plus, Settings2 } from "lucide-react"
 
+import { AppShell } from "@/components/app-shell"
 import { getDashboard } from "@/lib/workspaces"
 
 export const Route = createFileRoute("/organizations/")({
@@ -13,33 +14,25 @@ function OrganizationsScreen() {
   const dashboard = Route.useLoaderData()
 
   return (
-    <main className="min-h-svh bg-background text-foreground">
-      <header className="flex h-12 items-center border-b px-4 sm:px-6">
-        <Link
-          to="/"
-          className="inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="size-3.5" /> Projects
-        </Link>
-        {dashboard.user ? (
-          <Button
-            nativeButton={false}
-            className="ml-auto"
-            size="sm"
-            render={<Link to="/organizations/new" />}
-          >
-            <Plus /> New organization
-          </Button>
-        ) : null}
-      </header>
+    <AppShell
+      active="organizations"
+      dashboard={dashboard}
+      topbar="Organizations"
+    >
       <div className="mx-auto w-full max-w-3xl px-5 py-8 sm:px-8 sm:py-10">
-        <section className="border-b pb-6">
-          <h1 className="text-xl font-semibold tracking-[-0.03em]">
+        <section className="flex items-center gap-4 border-b pb-6">
+          <h1 className="min-w-0 flex-1 text-xl font-semibold tracking-[-0.03em]">
             Organizations
           </h1>
-          <p className="mt-1.5 text-sm leading-6 text-muted-foreground">
-            Manage your Projects, Workspaces, and shared settings.
-          </p>
+          {dashboard.user ? (
+            <Button
+              nativeButton={false}
+              size="sm"
+              render={<Link to="/organizations/new" />}
+            >
+              <Plus /> New organization
+            </Button>
+          ) : null}
         </section>
         {!dashboard.user ? (
           <section className="border-b py-8">
@@ -114,6 +107,6 @@ function OrganizationsScreen() {
           </section>
         )}
       </div>
-    </main>
+    </AppShell>
   )
 }

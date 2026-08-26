@@ -181,7 +181,9 @@ export const getDashboard = createServerFn({ method: "GET" }).handler(
       .select({
         id: schema.project.id,
         name: schema.project.name,
+        slug: schema.project.slug,
         organizationId: schema.project.organizationId,
+        organizationSlug: schema.organization.slug,
         repositoryName: schema.project.artifactRepo,
         defaultBranch: schema.project.defaultBranch,
         createdAt: schema.project.createdAt,
@@ -194,16 +196,22 @@ export const getDashboard = createServerFn({ method: "GET" }).handler(
           eq(schema.member.userId, session.user.id)
         )
       )
+      .innerJoin(
+        schema.organization,
+        eq(schema.organization.id, schema.project.organizationId)
+      )
       .orderBy(desc(schema.project.createdAt))
     const workspaces = await database
       .select({
         id: schema.workspace.id,
         projectId: schema.workspace.projectId,
         projectName: schema.project.name,
+        projectSlug: schema.project.slug,
         title: schema.workspace.title,
         status: schema.workspace.status,
         repositoryName: schema.workspace.workspaceArtifactRepo,
         organizationId: schema.workspace.organizationId,
+        organizationSlug: schema.organization.slug,
         errorSummary: schema.workspace.errorSummary,
         createdAt: schema.workspace.createdAt,
       })
@@ -218,6 +226,10 @@ export const getDashboard = createServerFn({ method: "GET" }).handler(
           eq(schema.member.organizationId, schema.workspace.organizationId),
           eq(schema.member.userId, session.user.id)
         )
+      )
+      .innerJoin(
+        schema.organization,
+        eq(schema.organization.id, schema.workspace.organizationId)
       )
       .orderBy(desc(schema.workspace.createdAt))
 
@@ -372,6 +384,7 @@ export const getWorkspaceCreationContext = createServerFn({ method: "GET" })
       .select({
         id: schema.project.id,
         name: schema.project.name,
+        slug: schema.project.slug,
         organizationId: schema.project.organizationId,
         organizationSlug: schema.organization.slug,
         repositoryName: schema.project.artifactRepo,
@@ -822,6 +835,8 @@ export const createProject = createServerFn({ method: "POST" })
       return {
         id: workspaceId,
         projectId,
+        projectSlug,
+        organizationSlug: membership.organizationSlug,
         repositoryName: artifact.name,
         status: "error" as const,
         errorSummary: summary,
@@ -836,6 +851,8 @@ export const createProject = createServerFn({ method: "POST" })
     return {
       id: workspaceId,
       projectId,
+      projectSlug,
+      organizationSlug: membership.organizationSlug,
       repositoryName: artifact.name,
       status: "ready" as const,
       errorSummary: null,
@@ -966,8 +983,10 @@ export const getWorkspace = createServerFn({ method: "GET" })
         id: schema.workspace.id,
         projectId: schema.workspace.projectId,
         projectName: schema.project.name,
+        projectSlug: schema.project.slug,
         organizationId: schema.workspace.organizationId,
         organizationName: schema.organization.name,
+        organizationSlug: schema.organization.slug,
         title: schema.workspace.title,
         status: schema.workspace.status,
         repositoryName: schema.project.artifactRepo,

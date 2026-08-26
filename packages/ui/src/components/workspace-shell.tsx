@@ -98,6 +98,7 @@ const workspacePanelStorage = {
 type WorkspaceItem = {
   id: string
   name: string
+  href?: string
   branch: string
   status: WorkspaceStatus
   changes?: string
@@ -453,9 +454,9 @@ function ProjectRail({
                       ? workspace.branch
                       : workspace.name
                   return (
-                    <button
+                    <a
                       key={workspace.id}
-                      type="button"
+                      href={workspace.href}
                       aria-current={active ? "page" : undefined}
                       className={cn(
                         "group flex h-8 w-full items-center gap-2 rounded-[5px] px-2 text-left transition-colors hover:bg-white/[.045] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
@@ -489,7 +490,7 @@ function ProjectRail({
                           Workspace status: {workspace.status}
                         </span>
                       </span>
-                    </button>
+                    </a>
                   )
                 })}
               </div>

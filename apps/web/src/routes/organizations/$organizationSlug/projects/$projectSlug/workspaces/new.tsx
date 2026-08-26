@@ -4,7 +4,6 @@ import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
 import {
-  ArrowLeft,
   ArrowRight,
   Bot,
   FolderGit2,
@@ -15,17 +14,34 @@ import {
 } from "lucide-react"
 import { type FormEvent, useState } from "react"
 
-import { createWorkspace, getWorkspaceCreationContext } from "@/lib/workspaces"
+import { AppShell } from "@/components/app-shell"
+import {
+  createWorkspace,
+  getDashboard,
+  getWorkspaceCreationContext,
+} from "@/lib/workspaces"
 
-export const Route = createFileRoute("/projects/$projectId/workspaces/new")({
-  loader: ({ params }) =>
-    getWorkspaceCreationContext({ data: { projectId: params.projectId } }),
+export const Route = createFileRoute(
+  "/organizations/$organizationSlug/projects/$projectSlug/workspaces/new"
+)({
+  loader: async ({ params }) => {
+    const dashboard = await getDashboard()
+    const project = dashboard.projects.find(
+      (candidate) =>
+        candidate.slug === params.projectSlug &&
+        candidate.organizationSlug === params.organizationSlug
+    )
+    const context = project
+      ? await getWorkspaceCreationContext({ data: { projectId: project.id } })
+      : null
+    return { context, dashboard }
+  },
   component: NewWorkspaceScreen,
 })
 
 function NewWorkspaceScreen() {
-  const { projectId } = Route.useParams()
-  const context = Route.useLoaderData()
+  const { organizationSlug, projectSlug } = Route.useParams()
+  const { context, dashboard } = Route.useLoaderData()
   const navigate = useNavigate()
   const create = useServerFn(createWorkspace)
   const [pending, setPending] = useState(false)
@@ -60,11 +76,14 @@ function NewWorkspaceScreen() {
 
     try {
       const result = await create({
-        data: { projectId, title: String(form.get("title")) },
+        data: {
+          projectId: context.project.id,
+          title: String(form.get("title")),
+        },
       })
       await navigate({
-        to: "/workspaces/$workspaceId",
-        params: { workspaceId: result.id },
+        to: "/organizations/$organizationSlug/projects/$projectSlug/workspaces/$workspaceId",
+        params: { organizationSlug, projectSlug, workspaceId: result.id },
       })
     } catch (cause) {
       setError(
@@ -79,20 +98,12 @@ function NewWorkspaceScreen() {
   const needsSetup = !context.setup.providerId
 
   return (
-    <main className="min-h-svh bg-background text-foreground">
-      <header className="flex h-12 items-center border-b px-4 sm:px-6">
-        <Link
-          to="/"
-          className="inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="size-3.5" /> Projects
-        </Link>
-        <span className="mx-2 text-muted-foreground/40">/</span>
-        <span className="truncate text-xs font-medium">
-          {context.project.name}
-        </span>
-      </header>
-
+    <AppShell
+      active="home"
+      dashboard={dashboard}
+      organizationSlug={organizationSlug}
+      topbar={`New Workspace in ${context.project.name}`}
+    >
       <div className="mx-auto grid min-h-[calc(100svh-3rem)] max-w-5xl lg:grid-cols-[0.72fr_1.28fr]">
         <aside className="border-b px-6 py-8 lg:border-r lg:border-b-0 lg:px-8 lg:py-12">
           <div className="flex items-center gap-2.5">
@@ -218,6 +229,6 @@ function NewWorkspaceScreen() {
           </div>
         </section>
       </div>
-    </main>
+    </AppShell>
   )
 }

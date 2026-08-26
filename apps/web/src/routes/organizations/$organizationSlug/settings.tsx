@@ -8,7 +8,6 @@ import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
 import {
-  ArrowLeft,
   ArrowRight,
   Check,
   ExternalLink,
@@ -18,6 +17,7 @@ import {
 } from "lucide-react"
 import { type FormEvent, useEffect, useState } from "react"
 
+import { AppShell } from "@/components/app-shell"
 import {
   cancelOpenCodeSubscription,
   getDashboard,
@@ -42,6 +42,7 @@ export const Route = createFileRoute(
       : null
 
     return {
+      dashboard,
       organization,
       setup,
     }
@@ -89,7 +90,7 @@ const authMethodName = (authMethod: string) =>
 type SetupFlow = "list" | "choose" | "openai" | "subscription" | "key" | "model"
 
 function OrganizationSettingsScreen() {
-  const { organization, setup } = Route.useLoaderData()
+  const { dashboard, organization, setup } = Route.useLoaderData()
   const organizationId = organization?.id ?? ""
   const router = useRouter()
   const saveSetup = useServerFn(saveOpenCodeSetup)
@@ -322,21 +323,16 @@ function OrganizationSettingsScreen() {
   }
 
   return (
-    <main className="min-h-svh bg-background text-foreground">
-      <header className="flex h-12 items-center border-b px-4 sm:px-6">
-        <Link
-          to="/"
-          className="inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="size-3.5" /> Projects
-        </Link>
-        <span className="mx-2 text-muted-foreground/40">/</span>
-        <span className="truncate text-xs font-medium">
-          {organization.name}
-        </span>
+    <AppShell
+      active="organizations"
+      dashboard={dashboard}
+      organizationSlug={organization.slug}
+      topbar={`${organization.name} settings`}
+    >
+      <div className="mx-auto w-full max-w-3xl px-5 py-8 sm:px-8 sm:py-10">
         <Button
           nativeButton={false}
-          className="ml-auto"
+          className="mb-6"
           size="sm"
           render={
             <a
@@ -346,9 +342,6 @@ function OrganizationSettingsScreen() {
         >
           <Plus /> New Project
         </Button>
-      </header>
-
-      <div className="mx-auto w-full max-w-3xl px-5 py-8 sm:px-8 sm:py-10">
         <section className="flex items-start justify-between gap-6 border-b pb-6">
           <div>
             <h1 className="text-xl font-semibold tracking-[-0.03em]">
@@ -711,7 +704,7 @@ function OrganizationSettingsScreen() {
           </section>
         ) : null}
       </div>
-    </main>
+    </AppShell>
   )
 }
 

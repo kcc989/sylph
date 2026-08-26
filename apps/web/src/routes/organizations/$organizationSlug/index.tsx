@@ -1,7 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { Button } from "@workspace/ui/components/button"
-import { ArrowLeft, ChevronRight, Plus, Settings2 } from "lucide-react"
+import { ChevronRight, Plus, Settings2 } from "lucide-react"
 
+import { AppShell } from "@/components/app-shell"
 import { getDashboard } from "@/lib/workspaces"
 
 export const Route = createFileRoute("/organizations/$organizationSlug/")({
@@ -42,51 +43,44 @@ function OrganizationScreen() {
   )
 
   return (
-    <main className="min-h-svh bg-background text-foreground">
-      <header className="flex h-12 items-center border-b px-4 sm:px-6">
-        <Link
-          to="/organizations"
-          className="inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="size-3.5" /> Organizations
-        </Link>
-        <div className="ml-auto flex items-center gap-2">
-          <Button
-            nativeButton={false}
-            size="sm"
-            variant="ghost"
-            render={
-              <Link
-                to="/organizations/$organizationSlug/settings"
-                params={{ organizationSlug: organization.slug }}
-              />
-            }
-          >
-            <Settings2 /> Settings
-          </Button>
-          <Button
-            nativeButton={false}
-            size="sm"
-            render={
-              <Link
-                to="/organizations/$organizationSlug/projects/new"
-                params={{ organizationSlug: organization.slug }}
-              />
-            }
-          >
-            <Plus /> New Project
-          </Button>
-        </div>
-      </header>
-
+    <AppShell
+      active="organizations"
+      dashboard={dashboard}
+      organizationSlug={organization.slug}
+      topbar={organization.name}
+    >
       <div className="mx-auto w-full max-w-3xl px-5 py-8 sm:px-8 sm:py-10">
-        <section className="border-b pb-6">
-          <h1 className="text-xl font-semibold tracking-[-0.03em]">
+        <section className="flex items-center gap-4 border-b pb-6">
+          <h1 className="min-w-0 flex-1 text-xl font-semibold tracking-[-0.03em]">
             {organization.name}
           </h1>
-          <p className="mt-1.5 text-sm leading-6 text-muted-foreground">
-            Projects and Workspaces in this Organization.
-          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              nativeButton={false}
+              size="sm"
+              variant="ghost"
+              render={
+                <Link
+                  to="/organizations/$organizationSlug/settings"
+                  params={{ organizationSlug: organization.slug }}
+                />
+              }
+            >
+              <Settings2 /> Settings
+            </Button>
+            <Button
+              nativeButton={false}
+              size="sm"
+              render={
+                <Link
+                  to="/organizations/$organizationSlug/projects/new"
+                  params={{ organizationSlug: organization.slug }}
+                />
+              }
+            >
+              <Plus /> New Project
+            </Button>
+          </div>
         </section>
 
         {projects.length ? (
@@ -115,9 +109,8 @@ function OrganizationScreen() {
                         size="sm"
                         variant="ghost"
                         render={
-                          <Link
-                            to="/projects/$projectId/settings"
-                            params={{ projectId: project.id }}
+                          <a
+                            href={`/organizations/${encodeURIComponent(organization.slug)}/projects/${encodeURIComponent(project.slug)}/settings`}
                           />
                         }
                       >
@@ -127,9 +120,8 @@ function OrganizationScreen() {
                         nativeButton={false}
                         size="sm"
                         render={
-                          <Link
-                            to="/projects/$projectId/workspaces/new"
-                            params={{ projectId: project.id }}
+                          <a
+                            href={`/organizations/${encodeURIComponent(organization.slug)}/projects/${encodeURIComponent(project.slug)}/workspaces/new`}
                           />
                         }
                       >
@@ -140,10 +132,9 @@ function OrganizationScreen() {
                   {workspaces.length ? (
                     <div className="mt-3 divide-y border-t">
                       {workspaces.map((workspace) => (
-                        <Link
+                        <a
                           key={workspace.id}
-                          to="/workspaces/$workspaceId"
-                          params={{ workspaceId: workspace.id }}
+                          href={`/organizations/${encodeURIComponent(organization.slug)}/projects/${encodeURIComponent(project.slug)}/workspaces/${encodeURIComponent(workspace.id)}`}
                           className="group flex min-h-11 items-center gap-3 text-xs focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                         >
                           <span className="min-w-0 flex-1 truncate">
@@ -153,7 +144,7 @@ function OrganizationScreen() {
                             {workspace.status}
                           </span>
                           <ChevronRight className="size-3.5 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
-                        </Link>
+                        </a>
                       ))}
                     </div>
                   ) : null}
@@ -181,6 +172,6 @@ function OrganizationScreen() {
           </section>
         )}
       </div>
-    </main>
+    </AppShell>
   )
 }

@@ -1,25 +1,31 @@
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { Button } from "@workspace/ui/components/button"
-import {
-  ArrowLeft,
-  Bot,
-  FolderGit2,
-  GitBranch,
-  Plus,
-  Settings2,
-} from "lucide-react"
+import { Bot, FolderGit2, GitBranch, Plus, Settings2 } from "lucide-react"
 
-import { getWorkspaceCreationContext } from "@/lib/workspaces"
+import { AppShell } from "@/components/app-shell"
+import { getDashboard, getWorkspaceCreationContext } from "@/lib/workspaces"
 
-export const Route = createFileRoute("/projects/$projectId/settings")({
-  loader: ({ params }) =>
-    getWorkspaceCreationContext({ data: { projectId: params.projectId } }),
+export const Route = createFileRoute(
+  "/organizations/$organizationSlug/projects/$projectSlug/settings"
+)({
+  loader: async ({ params }) => {
+    const dashboard = await getDashboard()
+    const project = dashboard.projects.find(
+      (candidate) =>
+        candidate.slug === params.projectSlug &&
+        candidate.organizationSlug === params.organizationSlug
+    )
+    const context = project
+      ? await getWorkspaceCreationContext({ data: { projectId: project.id } })
+      : null
+    return { context, dashboard }
+  },
   component: ProjectSettingsScreen,
 })
 
 function ProjectSettingsScreen() {
-  const { projectId } = Route.useParams()
-  const context = Route.useLoaderData()
+  const { projectSlug, organizationSlug } = Route.useParams()
+  const { context, dashboard } = Route.useLoaderData()
 
   if (!context) {
     return (
@@ -39,33 +45,25 @@ function ProjectSettingsScreen() {
   }
 
   return (
-    <main className="min-h-svh bg-background text-foreground">
-      <header className="flex h-12 items-center border-b px-4 sm:px-6">
-        <Link
-          to="/"
-          className="inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="size-3.5" /> Projects
-        </Link>
-        <span className="mx-2 text-muted-foreground/40">/</span>
-        <span className="truncate text-xs font-medium">
-          {context.project.name}
-        </span>
+    <AppShell
+      active="home"
+      dashboard={dashboard}
+      organizationSlug={organizationSlug}
+      topbar={context.project.name}
+    >
+      <div className="mx-auto max-w-3xl px-5 py-10 sm:px-8 sm:py-14">
         <Button
           nativeButton={false}
           className="ml-auto"
           size="sm"
           render={
             <a
-              href={`/projects/${encodeURIComponent(projectId)}/workspaces/new`}
+              href={`/organizations/${encodeURIComponent(organizationSlug)}/projects/${encodeURIComponent(projectSlug)}/workspaces/new`}
             />
           }
         >
           <Plus /> New Workspace
         </Button>
-      </header>
-
-      <div className="mx-auto max-w-3xl px-5 py-10 sm:px-8 sm:py-14">
         <div className="flex items-center gap-3">
           <div className="grid size-9 place-items-center rounded-[7px] bg-white/[.05] text-muted-foreground">
             <Settings2 className="size-4" />
@@ -127,6 +125,6 @@ function ProjectSettingsScreen() {
           </div>
         </section>
       </div>
-    </main>
+    </AppShell>
   )
 }

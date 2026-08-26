@@ -15,11 +15,19 @@ import {
   restartWorkspace,
 } from "@/lib/workspaces"
 
-export const Route = createFileRoute("/workspaces/$workspaceId")({
-  loader: async ({ params }) => ({
-    dashboard: await getDashboard(),
-    result: await getWorkspace({ data: { workspaceId: params.workspaceId } }),
-  }),
+export const Route = createFileRoute(
+  "/organizations/$organizationSlug/projects/$projectSlug/workspaces/$workspaceId"
+)({
+  loader: async ({ params }) => {
+    const dashboard = await getDashboard()
+    const result = await getWorkspace({
+      data: { workspaceId: params.workspaceId },
+    })
+    const matches =
+      result?.workspace.projectSlug === params.projectSlug &&
+      result.workspace.organizationSlug === params.organizationSlug
+    return { dashboard, result: matches ? result : null }
+  },
   component: WorkspaceScreen,
 })
 
@@ -140,13 +148,14 @@ function WorkspaceScreen() {
         id: project.id,
         name: project.name,
         repositoryName: project.repositoryName,
-        newWorkspaceHref: `/projects/${encodeURIComponent(project.id)}/workspaces/new`,
-        settingsHref: `/projects/${encodeURIComponent(project.id)}/settings`,
+        newWorkspaceHref: `/organizations/${encodeURIComponent(project.organizationSlug)}/projects/${encodeURIComponent(project.slug)}/workspaces/new`,
+        settingsHref: `/organizations/${encodeURIComponent(project.organizationSlug)}/projects/${encodeURIComponent(project.slug)}/settings`,
         workspaces: dashboard.workspaces
           .filter((item) => item.projectId === project.id)
           .map((item) => ({
             id: item.id,
             name: item.title,
+            href: `/organizations/${encodeURIComponent(project.organizationSlug)}/projects/${encodeURIComponent(project.slug)}/workspaces/${encodeURIComponent(item.id)}`,
             branch: project.defaultBranch,
             status:
               item.status === "error"
