@@ -187,14 +187,10 @@ function HomeScreen() {
               Durable coding workspaces for agent-built software.
             </h1>
             <p className="mt-6 max-w-[58ch] text-base leading-7 text-muted-foreground">
-              A Project contains its Repository. Each Workspace forks that
-              Repository, starts OpenCode v2, and keeps the agent’s work durable
-              between turns.
+              A Project contains its Repository. Each Workspace gives the agent
+              an isolated place to work that stays ready between turns.
             </p>
           </div>
-          <p className="relative text-xs text-muted-foreground">
-            Durable Objects for state · Cloudflare CI for process-heavy work
-          </p>
         </section>
         <section className="flex min-h-svh items-center justify-center px-6 py-12">
           <div className="w-full max-w-sm">
@@ -428,8 +424,8 @@ function HomeScreen() {
                 Projects
               </h1>
               <p className="mt-2 max-w-[62ch] text-sm leading-6 text-muted-foreground">
-                Each Project contains one Repository. Start a Workspace to give
-                OpenCode v2 a durable fork of that Repository.
+                Each Project contains one Repository. Start a Workspace for a
+                new feature, fix, or experiment.
               </p>
             </div>
             <Button
@@ -526,8 +522,8 @@ function HomeScreen() {
                                   ? workspace.errorSummary ||
                                     "Workspace startup failed"
                                   : workspace.status === "provisioning"
-                                    ? "Starting OpenCode v2"
-                                    : `${workspace.status} · durable fork`}
+                                    ? "Starting Workspace"
+                                    : workspace.status}
                               </span>
                             </span>
                           </Link>
@@ -563,8 +559,7 @@ function HomeScreen() {
                   Create your first Project
                 </h2>
                 <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                  Sylph will create its Repository, first durable Workspace, and
-                  OpenCode v2 session together.
+                  Sylph will create its Repository and first Workspace together.
                 </p>
               </div>
             </div>

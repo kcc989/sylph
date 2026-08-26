@@ -96,8 +96,8 @@ function NewProjectScreen() {
               Connect an AI provider
             </h1>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              This Organization needs at least one Provider connection before
-              its members can create Projects and durable Workspaces.
+              Connect an AI provider for this Organization before creating a
+              Project.
             </p>
             <Button
               nativeButton={false}
@@ -118,8 +118,8 @@ function NewProjectScreen() {
               Create a project
             </h1>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Sylph creates its Repository, durable Workspace, starter files,
-              and first OpenCode v2 session in one step.
+              Sylph creates its Repository, first Workspace, and starter files
+              in one step.
             </p>
             <form className="mt-7 grid gap-5" onSubmit={handleSubmit}>
               <div className="flex items-center justify-between border-y py-3">
@@ -167,7 +167,7 @@ function NewProjectScreen() {
                 ) : (
                   <ArrowRight />
                 )}
-                {pending ? "Starting OpenCode…" : "Create project"}
+                {pending ? "Creating Project…" : "Create project"}
               </Button>
             </form>
           </section>

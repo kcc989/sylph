@@ -116,8 +116,8 @@ function NewWorkspaceScreen() {
             <div className="flex gap-3">
               <Bot className="mt-0.5 size-4 shrink-0 text-primary" />
               <p className="leading-5">
-                OpenCode starts in a new session with the selected model and
-                isolated working files.
+                The assistant starts with the selected model and isolated
+                working files.
               </p>
             </div>
           </div>
@@ -134,8 +134,8 @@ function NewWorkspaceScreen() {
                   Connect an AI provider
                 </h2>
                 <p className="mt-2 max-w-[58ch] text-sm leading-6 text-muted-foreground">
-                  This Organization needs at least one Provider connection
-                  before any of its Projects can start a durable Workspace.
+                  Connect an AI provider for this Organization before starting a
+                  Workspace.
                 </p>
                 <Button
                   nativeButton={false}
@@ -159,7 +159,7 @@ function NewWorkspaceScreen() {
                 </h2>
                 <p className="mt-2 max-w-[58ch] text-sm leading-6 text-muted-foreground">
                   Name the work you are starting. Sylph will fork the contained
-                  Repository and open a durable OpenCode session.
+                  Repository and open a new coding session.
                 </p>
                 <form className="mt-8 grid gap-6" onSubmit={handleCreate}>
                   <div className="flex items-center justify-between border-y py-3">

@@ -105,7 +105,7 @@ function ProjectSettingsScreen() {
           <div className="grid gap-4 border-b py-6 sm:grid-cols-[180px_1fr]">
             <div className="flex items-center gap-2 text-xs font-medium">
               <Bot className="size-3.5 text-primary" />
-              OpenCode
+              AI provider
             </div>
             <div>
               <p className="font-mono text-xs">
@@ -114,14 +114,14 @@ function ProjectSettingsScreen() {
                   : "Not connected"}
               </p>
               <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                OpenCode belongs to the Organization and is reused by every
-                Project and Workspace it contains.
+                This connection is shared by every Project and Workspace in the
+                Organization.
               </p>
               <a
                 href={`/organizations/${encodeURIComponent(context.project.organizationSlug)}/settings`}
                 className="mt-2 inline-flex text-xs font-medium text-primary hover:underline"
               >
-                Organization OpenCode settings
+                Organization provider settings
               </a>
             </div>
           </div>

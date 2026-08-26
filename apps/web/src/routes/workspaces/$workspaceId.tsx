@@ -68,7 +68,7 @@ function WorkspaceScreen() {
             title: "Workspace startup failed",
             body:
               workspace.errorSummary ??
-              "OpenCode did not finish initializing this Workspace.",
+              "The assistant did not finish initializing this Workspace.",
             meta: "Action required",
           },
         ]
@@ -76,9 +76,9 @@ function WorkspaceScreen() {
         ? runtime.messages.map((message) => ({
             id: message.id,
             kind: message.role === "user" ? "user" : "agent",
-            title: message.error ? "OpenCode error" : undefined,
+            title: message.error ? "Assistant error" : undefined,
             body: message.error ?? message.text,
-            meta: message.role === "user" ? "You" : "OpenCode v2",
+            meta: message.role === "user" ? "You" : "Assistant",
             details: message.tools.length ? [...message.tools] : undefined,
           }))
         : [
@@ -86,7 +86,7 @@ function WorkspaceScreen() {
               id: "workspace-ready",
               kind: "result",
               title: "Your durable coding Workspace is ready",
-              body: "Ask OpenCode to build the first feature. Source edits persist in this Durable Object while process-heavy checks stay in Cloudflare CI.",
+              body: "Ask the assistant to build the first feature. Your files and conversation stay with this Workspace between turns.",
               meta: `${runtime.files.length} starter files`,
               details: [...runtime.files],
             },
@@ -100,15 +100,14 @@ function WorkspaceScreen() {
       workspaceName={workspace.title}
       browser={{
         url: "about:blank",
-        title:
-          "A Cloudflare CI preview will appear after the first checkpoint.",
+        title: "A preview will appear after the first checkpoint.",
         status: "loading",
       }}
       changedFileCount={0}
       changeSummary="No checkpoint diff"
       checks={[
         {
-          name: "OpenCode v2 host",
+          name: "Assistant",
           detail: runtime.opencode.healthy ? "healthy" : "unavailable",
           status: runtime.opencode.healthy ? "passed" : "failed",
         },
@@ -131,7 +130,7 @@ function WorkspaceScreen() {
           setPromptError(
             cause instanceof Error
               ? cause.message
-              : "OpenCode could not start the turn"
+              : "The assistant could not start the turn"
           )
         } finally {
           setPromptPending(false)

@@ -461,8 +461,8 @@ function OrganizationSettingsScreen() {
           <section className="py-6">
             <h2 className="text-sm font-medium">Connect OpenAI</h2>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              Choose the default model for this Provider connection, then
-              authorize your Codex subscription.
+              Choose the default model for this connection, then authorize your
+              Codex subscription.
             </p>
             <fieldset className="mt-5 grid gap-1.5">
               <legend className="mb-2 text-xs font-medium">

@@ -38,7 +38,7 @@ function OrganizationsScreen() {
             Organizations
           </h1>
           <p className="mt-1.5 text-sm leading-6 text-muted-foreground">
-            Organizations contain Projects and share AI provider connections.
+            Manage your Projects, Workspaces, and shared settings.
           </p>
         </section>
         {!dashboard.user ? (
@@ -61,9 +61,14 @@ function OrganizationsScreen() {
                 key={organization.id}
                 className="flex flex-col gap-4 border-b py-5 sm:flex-row sm:items-center"
               >
-                <h2 className="min-w-0 flex-1 truncate text-sm font-medium">
-                  {organization.name}
-                </h2>
+                <Link
+                  to="/organizations/$organizationSlug"
+                  params={{ organizationSlug: organization.slug }}
+                  className="group flex min-w-0 flex-1 items-center gap-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                >
+                  <span className="truncate">{organization.name}</span>
+                  <ArrowRight className="size-3.5 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
+                </Link>
                 <div className="flex items-center gap-2">
                   <Button
                     nativeButton={false}
