@@ -5,7 +5,6 @@ import {
   ArrowUp,
   Bell,
   Blocks,
-  Bot,
   Check,
   ChevronDown,
   ChevronRight,
@@ -33,7 +32,6 @@ import {
   Terminal,
   AtSign,
   UserRound,
-  Wrench,
   X,
 } from "lucide-react"
 import { useRef, useState, type ReactNode } from "react"
@@ -47,6 +45,14 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu"
+import {
+  MessageScroller,
+  MessageScrollerButton,
+  MessageScrollerContent,
+  MessageScrollerItem,
+  MessageScrollerProvider,
+  MessageScrollerViewport,
+} from "@workspace/ui/components/message-scroller"
 import { ScrollArea } from "@workspace/ui/components/scroll-area"
 import { Textarea } from "@workspace/ui/components/textarea"
 import {
@@ -596,82 +602,95 @@ function AgentThread({
 }) {
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-background">
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-7">
-          {entries.map((entry) => (
-            <article
-              key={entry.id}
-              className={cn(
-                "border-b border-white/[.06] py-4 first:pt-0 last:border-b-0",
-                entry.kind === "tool" && "font-mono text-[12px]"
-              )}
-            >
-              <div className="flex items-start gap-3">
-                <span
+      <MessageScrollerProvider
+        autoScroll
+        defaultScrollPosition="last-anchor"
+        scrollPreviousItemPeek={64}
+      >
+        <MessageScroller className="min-h-0 flex-1">
+          <MessageScrollerViewport>
+            <MessageScrollerContent className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-7">
+              {entries.map((entry) => (
+                <MessageScrollerItem
+                  key={entry.id}
+                  messageId={entry.id}
+                  scrollAnchor={entry.kind === "user"}
                   className={cn(
-                    "mt-0.5 grid size-5 shrink-0 place-items-center rounded-[4px] border",
-                    entry.kind === "user" && "border-white/10 bg-white/[.04]",
-                    entry.kind === "agent" &&
-                      "border-[#ef9b7e]/30 bg-[#ef9b7e]/10 text-[#f2a68d]",
-                    entry.kind === "tool" &&
-                      "border-white/10 bg-black/20 text-muted-foreground",
-                    entry.kind === "result" &&
-                      "border-emerald-400/20 bg-emerald-400/[.08] text-emerald-300"
+                    "py-3 first:pt-0 last:pb-8",
+                    entry.kind === "user" && "flex justify-end",
+                    entry.kind === "tool" && "font-mono"
                   )}
                 >
-                  {entry.kind === "user" && <UserRound className="size-3" />}
-                  {entry.kind === "agent" && <Bot className="size-3" />}
-                  {entry.kind === "tool" && <Wrench className="size-3" />}
-                  {entry.kind === "result" && <Check className="size-3" />}
-                </span>
-                <div className="min-w-0 flex-1">
-                  {(entry.title || entry.meta) && (
-                    <div className="mb-1.5 flex items-center gap-2">
-                      {entry.title && (
-                        <h3 className="text-xs font-medium text-foreground/90">
-                          {entry.title}
-                        </h3>
+                  <article
+                    className={cn(
+                      "min-w-0",
+                      entry.kind === "user"
+                        ? "max-w-[85%] rounded-[18px] rounded-br-[6px] bg-white/[.07] px-4 py-2.5"
+                        : "w-full"
+                    )}
+                  >
+                    {(entry.title || entry.meta) && (
+                      <div
+                        className={cn(
+                          "mb-1.5 flex items-center gap-2",
+                          entry.kind === "user" && "hidden",
+                          entry.kind === "agent" && !entry.title && "hidden"
+                        )}
+                      >
+                        {entry.title && (
+                          <h3 className="text-xs font-medium text-foreground/90">
+                            {entry.title}
+                          </h3>
+                        )}
+                        {entry.meta && (
+                          <span className="text-[10px] text-muted-foreground">
+                            {entry.meta}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    <p
+                      className={cn(
+                        "text-[13px] leading-5 whitespace-pre-wrap",
+                        entry.kind === "user"
+                          ? "text-foreground"
+                          : "text-foreground/80"
                       )}
-                      {entry.meta && (
-                        <span className="text-[10px] text-muted-foreground">
-                          {entry.meta}
+                    >
+                      {entry.body}
+                    </p>
+                    {entry.details && (
+                      <ul className="mt-3 grid gap-1.5">
+                        {entry.details.map((detail) => (
+                          <li
+                            key={detail}
+                            className="flex items-center gap-2 text-[12px] text-muted-foreground"
+                          >
+                            <Check className="size-3 text-foreground/70" />
+                            {detail}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {entry.artifact && (
+                      <div className="mt-3 flex items-center gap-2 border border-white/[.09] bg-white/[.025] px-2.5 py-2">
+                        <Activity className="size-3.5 text-[#ef9b7e]" />
+                        <span className="text-[11px] font-medium">
+                          {entry.artifact.label}
                         </span>
-                      )}
-                    </div>
-                  )}
-                  <p className="text-[13px] leading-5 text-foreground/80">
-                    {entry.body}
-                  </p>
-                  {entry.details && (
-                    <ul className="mt-3 grid gap-1.5">
-                      {entry.details.map((detail) => (
-                        <li
-                          key={detail}
-                          className="flex items-center gap-2 text-[12px] text-muted-foreground"
-                        >
-                          <Check className="size-3 text-foreground/70" />
-                          {detail}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  {entry.artifact && (
-                    <div className="mt-3 flex items-center gap-2 border border-white/[.09] bg-white/[.025] px-2.5 py-2">
-                      <Activity className="size-3.5 text-[#ef9b7e]" />
-                      <span className="text-[11px] font-medium">
-                        {entry.artifact.label}
-                      </span>
-                      <span className="ml-auto truncate font-mono text-[9px] text-muted-foreground">
-                        {entry.artifact.detail}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </article>
-          ))}
-        </div>
-      </ScrollArea>
+                        <span className="ml-auto truncate font-mono text-[9px] text-muted-foreground">
+                          {entry.artifact.detail}
+                        </span>
+                      </div>
+                    )}
+                  </article>
+                </MessageScrollerItem>
+              ))}
+            </MessageScrollerContent>
+          </MessageScrollerViewport>
+          <MessageScrollerButton />
+        </MessageScroller>
+      </MessageScrollerProvider>
       {workspaceError ? (
         <div className="mx-auto mb-3 flex w-[calc(100%-1.5rem)] max-w-3xl items-center gap-3 border border-destructive/25 bg-destructive/[.06] px-3 py-2.5">
           <CircleAlert className="size-4 shrink-0 text-destructive" />
@@ -1167,7 +1186,7 @@ function WorkspaceTabs({
       </div>
       <div
         aria-labelledby={`workspace-tab-${activeTab.id}`}
-        className="min-h-0 flex-1"
+        className="flex min-h-0 flex-1 flex-col"
         id={`workspace-panel-${activeTab.id}`}
         role="tabpanel"
       >
