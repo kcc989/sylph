@@ -285,10 +285,10 @@ const fallbackChecks: CheckItem[] = [
 
 const statusStyles = {
   running:
-    "bg-[var(--sylph-live)] shadow-[0_0_0_3px_color-mix(in_oklch,var(--sylph-live)_14%,transparent)]",
-  waiting: "bg-amber-400",
-  ready: "bg-muted-foreground/45",
-  error: "bg-destructive",
+    "text-[var(--sylph-live)] drop-shadow-[0_0_4px_color-mix(in_oklch,var(--sylph-live)_35%,transparent)]",
+  waiting: "text-amber-400",
+  ready: "text-muted-foreground",
+  error: "text-destructive",
 } satisfies Record<WorkspaceStatus, string>
 
 function UtilityRail() {
@@ -393,10 +393,10 @@ function ProjectRail({
         </Button>
       </div>
       <ScrollArea className="min-h-0 flex-1 px-2 pb-3">
-        <div className="grid gap-2">
+        <div className="grid gap-3">
           {projects.map((project) => (
             <section key={project.id}>
-              <div className="flex h-8 items-center gap-2 px-2 text-xs font-semibold text-foreground/85">
+              <div className="flex h-9 items-center gap-2 px-2 text-xs font-semibold text-foreground/85">
                 <FolderGit2 className="size-3.5 text-[#ef9b7e]" />
                 <span className="min-w-0 flex-1 truncate">{project.name}</span>
                 <Button
@@ -444,53 +444,45 @@ function ProjectRail({
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
-              <p className="ml-[22px] truncate pr-3 font-mono text-[9px] text-muted-foreground">
-                Repository · {project.repositoryName}
-              </p>
-              <div className="ml-[5px] border-l border-white/[.07] pl-1.5">
+              <div className="grid gap-0.5 pr-1 pl-4">
                 {project.workspaces.map((workspace) => {
                   const active = workspace.name === workspaceName
+                  const label =
+                    workspace.name === project.name
+                      ? workspace.branch
+                      : workspace.name
                   return (
                     <button
                       key={workspace.id}
                       type="button"
                       aria-current={active ? "page" : undefined}
                       className={cn(
-                        "group relative mb-0.5 grid w-full grid-cols-[12px_minmax(0,1fr)] gap-x-2 rounded-[5px] px-2 py-1.5 text-left transition-colors hover:bg-white/[.045] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                        "group flex h-8 w-full items-center gap-2 rounded-[5px] px-2 text-left transition-colors hover:bg-white/[.045] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
                         active && "bg-white/[.065]"
                       )}
                     >
-                      {active && (
-                        <span className="absolute inset-y-1 left-0 w-px bg-[var(--sylph-coral)]" />
-                      )}
-                      <span
+                      <GitBranch
                         aria-label={`${workspace.status} workspace`}
                         className={cn(
-                          "mt-1 size-1.5 rounded-full",
+                          "size-3.5 shrink-0",
                           statusStyles[workspace.status]
                         )}
                       />
-                      <span className="min-w-0">
-                        <span
-                          className={cn(
-                            "block truncate text-xs",
-                            active
-                              ? "font-medium text-foreground"
-                              : "text-muted-foreground group-hover:text-foreground/80"
-                          )}
-                        >
-                          {workspace.name}
-                        </span>
-                        <span className="mt-0.5 flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                          <GitBranch className="size-2.5" />
-                          <span className="truncate">{workspace.branch}</span>
-                          {workspace.changes && (
-                            <span className="ml-auto whitespace-nowrap tabular-nums">
-                              {workspace.changes}
-                            </span>
-                          )}
-                        </span>
+                      <span
+                        className={cn(
+                          "min-w-0 flex-1 truncate text-xs",
+                          active
+                            ? "font-medium text-foreground"
+                            : "text-muted-foreground group-hover:text-foreground/80"
+                        )}
+                      >
+                        {label}
                       </span>
+                      {workspace.changes && (
+                        <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
+                          {workspace.changes}
+                        </span>
+                      )}
                     </button>
                   )
                 })}
