@@ -5,6 +5,8 @@
   "private": true,
   "scripts": {
     "build": "turbo build",
+    "storybook": "bun --cwd packages/ui storybook",
+    "build:storybook": "bun --cwd packages/ui build-storybook",
     "dev": "turbo dev",
     "dev:cloudflare": "alchemy dev",
     "lint": "oxlint . --deny-warnings",

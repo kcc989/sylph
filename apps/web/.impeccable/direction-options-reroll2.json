@@ -1,0 +1,71 @@
+{
+  "title": "Closer to Conductor, distinctly Sylph",
+  "question": "All three keep the nested Repository → Workspace rail and familiar IDE density. Choose where Sylph should depart from Conductor.",
+  "options": [
+    {
+      "id": "browser-first",
+      "label": "Browser-First Sylph",
+      "kicker": "RECOMMENDED",
+      "lineage": "Conductor hierarchy, browser-native product work",
+      "thesis": "Keep the proven IDE shell, but make the running product—not the transcript—the center of gravity.",
+      "palette": ["#0B0E14", "#F2F5F7", "#3E63F4", "#9BEA54", "#232938"],
+      "materials": [
+        "matte graphite chrome",
+        "clear browser glass",
+        "electric state bands",
+        "crisp code ink"
+      ],
+      "viewport": "A nested Repository and Workspace rail stays left; the live browser dominates the center; the agent thread stays visible at right; Changes, Checks, Console, and Skills share a precise lower evidence deck.",
+      "risk": "Browser dominance must still leave enough continuous space for long agent conversations and code review.",
+      "comp": ".impeccable/mocks/decision/conductor-browser-first.webp"
+    },
+    {
+      "id": "thread-first",
+      "label": "Thread-First Sylph",
+      "lineage": "Conductor conversation flow, Sylph live preview",
+      "thesis": "Preserve the agent narrative as the main surface while making browser proof persistent instead of tab-bound.",
+      "palette": ["#12100F", "#F1EEEA", "#C86A4A", "#66C7C0", "#292524"],
+      "materials": [
+        "soft black application chrome",
+        "warm transcript field",
+        "clear preview glass",
+        "fine copper rules"
+      ],
+      "viewport": "The nested Repository and Workspace rail stays left; the agent thread and composer own the center; a tall live browser sits above Changes and Checks on the right; browser-control state remains visible globally.",
+      "risk": "It is closest to Conductor and could feel derivative unless the preview behavior and Sylph color system carry real authority.",
+      "comp": ".impeccable/mocks/decision/conductor-thread-first.webp"
+    },
+    {
+      "id": "adaptive-split",
+      "label": "Adaptive Split",
+      "lineage": "dense tiling IDEs with task-aware pane ratios",
+      "thesis": "One stable shell changes its center of gravity as the user moves from prompting to watching to reviewing.",
+      "palette": ["#101216", "#EEF1F5", "#7357F6", "#3DD6A2", "#262A33"],
+      "materials": [
+        "charcoal shell",
+        "violet focus rail",
+        "mint verified state",
+        "precise separators"
+      ],
+      "viewport": "The nested Repository and Workspace rail stays left; agent and browser share the center in a deliberate 40/60 split; the right inspector holds Files, Changes, Checks, and Skills; one-key focus modes expand either center surface.",
+      "risk": "Adaptive ratios become disorienting if the transition is not predictable and reversible.",
+      "comp": ".impeccable/mocks/decision/conductor-adaptive-split.webp"
+    }
+  ],
+  "buildPath": { "value": "comp", "toggle": true },
+  "canon": true,
+  "canonCard": {
+    "label": "Conductor-adjacent baseline",
+    "thesis": "A polished dense dark IDE that groups repositories and Workspaces at left, keeps agent work central, and places changes and terminal tools at right.",
+    "palette": ["#151312", "#E5E0DD", "#292625", "#B88A78"],
+    "materials": [
+      "dark application chrome",
+      "hairline dividers",
+      "muted state color"
+    ],
+    "viewport": "A direct familiar three-pane shell sits alongside Conductor, bb, and Diffs with minimal structural departure.",
+    "risk": "It is immediately usable and gives Sylph almost no visual territory of its own.",
+    "comp": ".impeccable/mocks/decision/conductor-canon.webp"
+  },
+  "steer": true
+}

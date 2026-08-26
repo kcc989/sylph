@@ -1,0 +1,168 @@
+{
+  "title": "Choose Sylph's visual world",
+  "question": "Which world should define the Workspace where developers and agents build, preview, and test products together?",
+  "options": [
+    {
+      "id": "assigned",
+      "label": "Prompt Desk",
+      "kicker": "THE ROLL",
+      "lineage": "stage manager prompt books and live production desks",
+      "thesis": "The product is on stage; Sylph is the disciplined desk that coordinates every cue around it.",
+      "palette": ["#11100E", "#E9E2D2", "#B8432D", "#68B7B0"],
+      "materials": [
+        "blackened linen",
+        "cue paper",
+        "anodized aluminum",
+        "signal glass"
+      ],
+      "viewport": "A narrow Workspace ledger advances at left, a continuous agent prompt book occupies the center, and the live browser stage dominates the right with code and test evidence sliding up as cue sheets below it.",
+      "risk": "The theatrical lineage becomes costume if labels stop being literal engineering language.",
+      "raised": [
+        {
+          "from": "Nixie Laboratory Counter",
+          "raise": "Every run and status change is visible at its exact point of consequence."
+        },
+        {
+          "from": "Iridescent Cloud Edge",
+          "raise": "Color stays confined to a narrow band of live signals."
+        },
+        {
+          "from": "Sneaker Archive Wall",
+          "raise": "The active Workspace physically advances while the others remain legible."
+        },
+        {
+          "from": "Streaming Title Wall",
+          "raise": "Focus quiets adjacent regions without deleting their context."
+        }
+      ],
+      "comp": ".impeccable/mocks/decision/prompt-desk.webp"
+    },
+    {
+      "id": "model-pick",
+      "label": "Flight Strip Bay",
+      "kicker": "IMPECCABLE’S PICK",
+      "lineage": "air-traffic flight progress strips and coordination bays",
+      "thesis": "Every Workspace is a live movement with ownership, destination, current state, and an unbroken handoff trail.",
+      "palette": ["#D8D5C8", "#242522", "#E96B3B", "#316B74"],
+      "materials": [
+        "pressed fiberboard",
+        "paper strips",
+        "grease pencil",
+        "status lamps"
+      ],
+      "viewport": "A compact strip bay on the left opens the selected Workspace into a wide center conversation and evidence log, while the browser preview owns a tall clear field on the right.",
+      "risk": "It is the clearest operational metaphor and therefore the direction most likely to feel familiar.",
+      "comp": ".impeccable/mocks/decision/flight-strip-bay.webp"
+    },
+    {
+      "id": "challenger-hypercard",
+      "label": "Editable Stack",
+      "verdict": "competitive",
+      "lineage": "HyperCard shoebox stacks",
+      "thesis": "Browsing and authoring are two modes of the same Workspace object, never separate tools.",
+      "palette": ["#FFFFFF", "#050505", "#BEBEBE"],
+      "materials": ["one-bit ink", "stipple fields", "painted controls"],
+      "viewport": "A black-and-white stack places the active product card large at center, with file, agent, browser, and skill cards linked through direct hand-painted controls.",
+      "case": "It identifies strongly with software makers and unifies browsing with editing, but fixed cards weaken simultaneous preview context.",
+      "risk": "Pixel nostalgia can overpower the modern remote Workspace if the stack feels imitative.",
+      "comp": ".impeccable/mocks/decision/editable-stack.webp",
+      "hero": "https://impeccable.style/worlds/cards/medium-native-hypercard-stack-shoebox-hero.webp",
+      "board": "https://impeccable.style/worlds/cards/medium-native-hypercard-stack-shoebox.webp"
+    },
+    {
+      "id": "challenger-transit",
+      "label": "Workspace Lines",
+      "verdict": "competitive",
+      "lineage": "midnight enamel metropolitan transit diagrams",
+      "thesis": "Workspaces are routes through intent, change, test, preview, and release; transfers reveal exactly where attention is needed.",
+      "palette": [
+        "#081230",
+        "#F7F6F0",
+        "#E21D2D",
+        "#1E5BFF",
+        "#FFC20E",
+        "#22B14C"
+      ],
+      "materials": ["midnight enamel", "porcelain ticks", "line ink"],
+      "viewport": "The selected Workspace corridor runs across the top as a compact state line, feeding a centered work surface and a large live browser interchange on the right.",
+      "case": "It makes parallel progress and transitions exceptionally clear, but its passenger-wayfinding lineage identifies less directly with software making.",
+      "risk": "Too many colored routes can turn product state into decorative topology.",
+      "comp": ".impeccable/mocks/decision/workspace-lines.webp",
+      "hero": "https://impeccable.style/worlds/cards/wayfinding-cartography-signage-midnight-transit-diagram-hero.webp",
+      "board": "https://impeccable.style/worlds/cards/wayfinding-cartography-signage-midnight-transit-diagram.webp"
+    },
+    {
+      "id": "challenger-nixie",
+      "label": "Instrument Counter",
+      "verdict": "declined",
+      "lineage": "nixie-tube laboratory counters",
+      "thesis": "Agent runs and product state become physical readings on a calibrated bench.",
+      "palette": ["#0E0F11", "#FF6A00", "#3A3F46"],
+      "materials": ["clear glass", "blackened steel", "anode mesh"],
+      "viewport": "A calibrated workbench surrounds the active preview with run, test, and change readings.",
+      "case": "It overweights metrics and ornament relative to building the product.",
+      "kept": "Every state change becomes visible at its exact point of consequence.",
+      "risk": "The machinery can make ordinary product work feel performatively technical.",
+      "hero": "https://impeccable.style/worlds/cards/signals-instruments-nixie-laboratory-counter-hero.webp"
+    },
+    {
+      "id": "challenger-cloud",
+      "label": "Signal Fringe",
+      "verdict": "declined",
+      "lineage": "iridescent cloud edges",
+      "thesis": "A mostly neutral workspace reveals live state through narrow spectral edges.",
+      "palette": ["#F7F8F6", "#3E4854", "#8EDBC4", "#D894B7", "#8268C9"],
+      "materials": ["cloud white", "slate ink", "spectral fringe"],
+      "viewport": "A wide white work surface lets agent activity and browser control appear as thin spectral boundaries.",
+      "case": "Its evidence-analysis model does not map cleanly to routine software work.",
+      "kept": "Color is reserved for a narrow band of live signals.",
+      "risk": "The restraint can become generic productivity minimalism.",
+      "hero": "https://impeccable.style/worlds/cards/clouds-storms-auroras-iridescent-cloud-edge-hero.webp"
+    },
+    {
+      "id": "challenger-boxes",
+      "label": "Workspace Archive",
+      "verdict": "declined",
+      "lineage": "sneaker archive box walls",
+      "thesis": "Each Workspace pulls forward from a compact indexed wall and opens to reveal its living contents.",
+      "palette": ["#B84F2A", "#171717", "#F6F1E7"],
+      "materials": ["box board", "tissue paper", "printed labels"],
+      "viewport": "A selected Workspace slides forward from a dense left wall and opens into the main work surface.",
+      "case": "The catalog metaphor makes live Workspaces feel like stored inventory.",
+      "kept": "The active Workspace advances physically while its neighbors remain visible.",
+      "risk": "Object theatrics can overwhelm frequent navigation.",
+      "hero": "https://impeccable.style/worlds/cards/textiles-weave-drape-fashion-sneaker-box-stacks-hero.webp"
+    },
+    {
+      "id": "challenger-streaming",
+      "label": "Focus Wall",
+      "verdict": "declined",
+      "lineage": "streaming title-card walls",
+      "thesis": "The selected surface expands while every adjacent context yields without vanishing.",
+      "palette": ["#111214", "#F4F4F0", "#5F7CFF"],
+      "materials": ["deep neutral field", "focused surface", "dimmed rails"],
+      "viewport": "Rows of Workspace facets give way to an expanded browser and agent surface on focus.",
+      "case": "Poster rails obscure code, causality, and review.",
+      "kept": "Focus quiets surrounding regions without deleting their context.",
+      "risk": "It can feel like content browsing instead of product building.",
+      "hero": "https://impeccable.style/worlds/cards/pop-culture-shelf-streaming-title-card-wall-hero.webp"
+    }
+  ],
+  "reroll": { "registers": ["safer", "bolder"] },
+  "buildPath": { "value": "comp", "toggle": true },
+  "canon": true,
+  "canonCard": {
+    "label": "The category standard",
+    "thesis": "A refined dark agent IDE with a file tree, central editor, chat rail, and browser tab.",
+    "palette": ["#0F1115", "#E7EAF0", "#272C35", "#4F7CFF"],
+    "materials": [
+      "dark application chrome",
+      "hairline dividers",
+      "syntax color"
+    ],
+    "viewport": "A conventional resizable three-pane IDE keeps files left, code and preview center, and agent chat right.",
+    "risk": "It is immediately legible and indistinguishable from the category by design.",
+    "comp": ".impeccable/mocks/decision/category-standard.webp"
+  },
+  "steer": true
+}
