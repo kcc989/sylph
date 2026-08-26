@@ -1,0 +1,23 @@
+{
+  "name": "@workspace/db",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "lint": "oxlint . --deny-warnings",
+    "format": "oxfmt --write .",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@workspace/domain": "workspace:*",
+    "drizzle-orm": "latest",
+    "effect": "4.0.0-rc.112"
+  },
+  "devDependencies": {
+    "typescript": "^6"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}
