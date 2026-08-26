@@ -131,19 +131,12 @@ type CheckItem = {
   status: "passed" | "running" | "failed"
 }
 
-type WorkspaceTabKind =
-  | "chat"
-  | "browser"
-  | "changes"
-  | "checks"
-  | "review"
-  | "terminal"
+type WorkspaceTabKind = "browser" | "changes" | "checks" | "review" | "terminal"
 
 type WorkspaceTab = {
   id: string
   kind: WorkspaceTabKind
   label: string
-  closable: boolean
 }
 
 type WorkspaceShellProps = {
@@ -1073,16 +1066,9 @@ function TerminalSurface() {
   )
 }
 
-const initialWorkspaceTabs: WorkspaceTab[] = [
-  { id: "chat", kind: "chat", label: "Chat", closable: false },
-  { id: "browser-1", kind: "browser", label: "Browser", closable: true },
-  { id: "changes", kind: "changes", label: "Changes", closable: true },
-  { id: "checks", kind: "checks", label: "Checks", closable: true },
-  { id: "review", kind: "review", label: "Review", closable: true },
-]
+const initialWorkspaceTabs: WorkspaceTab[] = []
 
 const workspaceTabIcon = {
-  chat: MessageSquare,
   browser: Globe2,
   changes: Files,
   checks: ListChecks,
@@ -1090,58 +1076,138 @@ const workspaceTabIcon = {
   terminal: Terminal,
 } satisfies Record<WorkspaceTabKind, typeof MessageSquare>
 
+function WorkspaceToolLauncher({
+  activeTab,
+  onOpenTool,
+}: {
+  activeTab?: WorkspaceTab
+  onOpenTool: (kind: WorkspaceTabKind) => void
+}) {
+  const tools = [
+    { kind: "browser", label: "Browser", icon: Globe2 },
+    { kind: "changes", label: "Changes", icon: Files },
+    { kind: "checks", label: "Checks", icon: ListChecks },
+    { kind: "review", label: "Review", icon: Check },
+  ] satisfies Array<{
+    kind: WorkspaceTabKind
+    label: string
+    icon: typeof Globe2
+  }>
+
+  return (
+    <div className="ml-auto flex items-center gap-0.5">
+      {tools.map((tool) => {
+        const active = activeTab?.kind === tool.kind
+        const Icon = tool.icon
+        return (
+          <Tooltip key={tool.kind}>
+            <TooltipTrigger
+              aria-label={`Open ${tool.label} window`}
+              aria-pressed={active}
+              className={cn(
+                "grid size-8 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                active && "bg-accent text-accent-foreground"
+              )}
+              onClick={() => onOpenTool(tool.kind)}
+            >
+              <Icon className="size-4" />
+            </TooltipTrigger>
+            <TooltipContent>{tool.label}</TooltipContent>
+          </Tooltip>
+        )
+      })}
+    </div>
+  )
+}
+
+function WorkspaceChat({
+  activeTab,
+  entries,
+  model,
+  onOpenTool,
+  onSubmitPrompt,
+  onRestartWorkspace,
+  promptDisabled,
+  promptError,
+  promptPending,
+  restartPending,
+  workspaceError,
+}: {
+  activeTab?: WorkspaceTab
+  entries: ThreadEntry[]
+  model?: string | null
+  onOpenTool: (kind: WorkspaceTabKind) => void
+  onSubmitPrompt?: (text: string) => Promise<void>
+  onRestartWorkspace?: () => Promise<void>
+  promptDisabled?: boolean
+  promptError?: string | null
+  promptPending?: boolean
+  restartPending?: boolean
+  workspaceError?: string | null
+}) {
+  return (
+    <section className="flex size-full min-w-0 flex-col bg-background">
+      <header className="flex h-10 shrink-0 items-center gap-2 border-b px-3">
+        <MessageSquare className="size-3.5 text-[#ef9b7e]" />
+        <h1 className="text-xs font-medium">Chat</h1>
+        <Badge
+          className="hidden rounded-[4px] px-1.5 font-mono text-[9px] sm:inline-flex"
+          variant="outline"
+        >
+          {model ?? "OpenCode v2"}
+        </Badge>
+        <WorkspaceToolLauncher activeTab={activeTab} onOpenTool={onOpenTool} />
+      </header>
+      <AgentThread
+        entries={entries}
+        onSubmitPrompt={onSubmitPrompt}
+        promptDisabled={promptDisabled}
+        promptError={promptError}
+        promptPending={promptPending}
+        restartPending={restartPending}
+        onRestartWorkspace={onRestartWorkspace}
+        workspaceError={workspaceError}
+      />
+    </section>
+  )
+}
+
 function WorkspaceTabs({
   activeTabId,
   browser,
   changedFileCount,
   changeSummary,
   checks,
-  entries,
-  model,
   onActivateTab,
   onAddBrowser,
   onCloseTab,
-  onSubmitPrompt,
-  onRestartWorkspace,
+  onDismiss,
   patch,
   previewContent,
-  promptDisabled,
-  promptError,
-  promptPending,
-  restartPending,
   tabs,
-  workspaceError,
 }: {
   activeTabId: string
   browser: BrowserState
   changedFileCount?: number
   changeSummary?: string
   checks: CheckItem[]
-  entries: ThreadEntry[]
-  model?: string | null
   onActivateTab: (tabId: string) => void
   onAddBrowser: () => void
   onCloseTab: (tabId: string) => void
-  onSubmitPrompt?: (text: string) => Promise<void>
-  onRestartWorkspace?: () => Promise<void>
+  onDismiss: () => void
   patch?: string
   previewContent?: ReactNode
-  promptDisabled?: boolean
-  promptError?: string | null
-  promptPending?: boolean
-  restartPending?: boolean
   tabs: WorkspaceTab[]
-  workspaceError?: string | null
 }) {
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0]
 
   if (!activeTab) return null
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex size-full min-h-0 flex-col bg-background">
       <div className="flex h-10 shrink-0 items-stretch border-b bg-[#171614]">
         <div
-          aria-label="Workspace tabs"
+          aria-label="Workspace tool windows"
           className="flex min-w-0 flex-1 items-stretch overflow-x-auto"
           role="tablist"
         >
@@ -1171,12 +1237,7 @@ function WorkspaceTabs({
                   role="tab"
                   type="button"
                 >
-                  <Icon
-                    className={cn(
-                      "size-3.5",
-                      active && tab.kind === "chat" && "text-[#ef9b7e]"
-                    )}
-                  />
+                  <Icon className="size-3.5" />
                   {tab.label}
                   {tab.kind === "browser" && browser.status === "live" ? (
                     <span
@@ -1185,16 +1246,14 @@ function WorkspaceTabs({
                     />
                   ) : null}
                 </button>
-                {tab.closable ? (
-                  <button
-                    aria-label={`Close ${tab.label} tab`}
-                    className="mr-1 grid size-6 place-items-center rounded-[4px] text-muted-foreground/60 opacity-60 transition-opacity hover:bg-white/[.06] hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-                    onClick={() => onCloseTab(tab.id)}
-                    type="button"
-                  >
-                    <X className="size-3" />
-                  </button>
-                ) : null}
+                <button
+                  aria-label={`Close ${tab.label} window`}
+                  className="mr-1 grid size-6 place-items-center rounded-[4px] text-muted-foreground/60 opacity-60 transition-opacity hover:bg-white/[.06] hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                  onClick={() => onCloseTab(tab.id)}
+                  type="button"
+                >
+                  <X className="size-3" />
+                </button>
               </div>
             )
           })}
@@ -1208,12 +1267,15 @@ function WorkspaceTabs({
             <Plus />
           </Button>
         </div>
-        <Badge
-          className="m-1.5 hidden shrink-0 rounded-[4px] px-1.5 font-mono text-[9px] sm:inline-flex"
-          variant="outline"
+        <Button
+          aria-label="Return to Chat"
+          className="m-1 md:hidden"
+          onClick={onDismiss}
+          size="icon-xs"
+          variant="ghost"
         >
-          {model ?? "OpenCode v2"}
-        </Badge>
+          <MessageSquare />
+        </Button>
       </div>
       <div
         aria-labelledby={`workspace-tab-${activeTab.id}`}
@@ -1221,18 +1283,6 @@ function WorkspaceTabs({
         id={`workspace-panel-${activeTab.id}`}
         role="tabpanel"
       >
-        {activeTab.kind === "chat" ? (
-          <AgentThread
-            entries={entries}
-            onSubmitPrompt={onSubmitPrompt}
-            promptDisabled={promptDisabled}
-            promptError={promptError}
-            promptPending={promptPending}
-            restartPending={restartPending}
-            onRestartWorkspace={onRestartWorkspace}
-            workspaceError={workspaceError}
-          />
-        ) : null}
         {activeTab.kind === "browser" ? (
           <BrowserPreview browser={browser} content={previewContent} />
         ) : null}
@@ -1283,8 +1333,8 @@ function WorkspaceShell({
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false)
   const [projectRailCollapsed, setProjectRailCollapsed] = useState(false)
   const [tabs, setTabs] = useState<WorkspaceTab[]>(initialWorkspaceTabs)
-  const [activeTabId, setActiveTabId] = useState("chat")
-  const browserTabNumber = useRef(1)
+  const [activeTabId, setActiveTabId] = useState<string | null>(null)
+  const browserTabNumber = useRef(0)
   const projectRailRef = useRef<PanelImperativeHandle>(null)
   const projectLayout = useDefaultLayout({
     id: "workspace-shell-navigation-v2",
@@ -1299,11 +1349,37 @@ function WorkspaceShell({
     const tab: WorkspaceTab = {
       id,
       kind: "browser",
-      label: `Browser ${browserTabNumber.current}`,
-      closable: true,
+      label:
+        browserTabNumber.current === 1
+          ? "Browser"
+          : `Browser ${browserTabNumber.current}`,
     }
     setTabs((current) => [...current, tab])
     setActiveTabId(id)
+  }
+
+  const openTool = (kind: WorkspaceTabKind) => {
+    const existing = tabs.find((tab) => tab.kind === kind)
+
+    if (existing) {
+      setActiveTabId(existing.id)
+      return
+    }
+
+    if (kind === "browser") {
+      addBrowserTab()
+      return
+    }
+
+    const labels = {
+      changes: "Changes",
+      checks: "Checks",
+      review: "Review",
+      terminal: "Terminal",
+    } satisfies Record<Exclude<WorkspaceTabKind, "browser">, string>
+    const tab: WorkspaceTab = { id: kind, kind, label: labels[kind] }
+    setTabs((current) => [...current, tab])
+    setActiveTabId(tab.id)
   }
 
   const closeTab = (tabId: string) => {
@@ -1312,30 +1388,14 @@ function WorkspaceShell({
       const next = current.filter((tab) => tab.id !== tabId)
 
       if (activeTabId === tabId) {
-        setActiveTabId(next[Math.max(0, index - 1)]?.id ?? "chat")
+        setActiveTabId(next[Math.max(0, index - 1)]?.id ?? null)
       }
 
       return next
     })
   }
 
-  const openTerminal = () => {
-    const terminal = tabs.find((tab) => tab.kind === "terminal")
-
-    if (terminal) {
-      setActiveTabId(terminal.id)
-      return
-    }
-
-    const tab: WorkspaceTab = {
-      id: "terminal-1",
-      kind: "terminal",
-      label: "Terminal",
-      closable: true,
-    }
-    setTabs((current) => [...current, tab])
-    setActiveTabId(tab.id)
-  }
+  const activeTab = tabs.find((tab) => tab.id === activeTabId)
 
   return (
     <TooltipProvider>
@@ -1377,7 +1437,11 @@ function WorkspaceShell({
             id="project-navigation-handle"
             withHandle
           />
-          <ResizablePanel id="workspace-area" minSize="480px">
+          <ResizablePanel
+            className="max-md:fixed! max-md:inset-1.5! max-md:w-auto! max-md:max-w-none! max-md:min-w-0! max-md:basis-auto!"
+            id="workspace-area"
+            minSize="480px"
+          >
             <main className="flex size-full min-w-0 flex-col">
               <WorkspaceTopbar
                 agentControllingBrowser={agentControllingBrowser}
@@ -1392,7 +1456,7 @@ function WorkspaceShell({
                   }
                   setMobileNavigationOpen(true)
                 }}
-                onOpenTerminal={openTerminal}
+                onOpenTerminal={() => openTool("terminal")}
                 projectName={projectName}
                 repositoryName={repositoryName}
                 workspaceName={workspaceName}
@@ -1419,28 +1483,59 @@ function WorkspaceShell({
                   />
                 </div>
               )}
-              <WorkspaceTabs
-                activeTabId={activeTabId}
-                browser={browser}
-                changedFileCount={changedFileCount}
-                changeSummary={changeSummary}
-                checks={checks}
-                entries={entries}
-                model={model}
-                onActivateTab={setActiveTabId}
-                onAddBrowser={addBrowserTab}
-                onCloseTab={closeTab}
-                onSubmitPrompt={onSubmitPrompt}
-                patch={patch}
-                previewContent={previewContent}
-                promptDisabled={promptDisabled}
-                promptError={promptError}
-                promptPending={promptPending}
-                restartPending={restartPending}
-                onRestartWorkspace={onRestartWorkspace}
-                workspaceError={workspaceError}
-                tabs={tabs}
-              />
+              <ResizablePanelGroup
+                className="relative min-h-0 flex-1"
+                id="workspace-content-panes"
+                orientation="horizontal"
+              >
+                <ResizablePanel id="workspace-chat" minSize="260px">
+                  <WorkspaceChat
+                    activeTab={activeTab}
+                    entries={entries}
+                    model={model}
+                    onOpenTool={openTool}
+                    onSubmitPrompt={onSubmitPrompt}
+                    promptDisabled={promptDisabled}
+                    promptError={promptError}
+                    promptPending={promptPending}
+                    restartPending={restartPending}
+                    onRestartWorkspace={onRestartWorkspace}
+                    workspaceError={workspaceError}
+                  />
+                </ResizablePanel>
+                {activeTab ? (
+                  <>
+                    <ResizableHandle
+                      aria-label="Resize workspace tool pane"
+                      className="hidden transition-colors hover:bg-[var(--sylph-coral)]/50 md:flex"
+                      id="workspace-tool-handle"
+                      withHandle
+                    />
+                    <ResizablePanel
+                      className="bg-background max-md:fixed! max-md:inset-x-1.5! max-md:top-[54px]! max-md:bottom-1.5! max-md:z-50 max-md:h-auto! max-md:w-auto! max-md:max-w-none! max-md:min-w-0! max-md:basis-auto!"
+                      defaultSize="50%"
+                      id="workspace-tools"
+                      maxSize="70%"
+                      minSize="260px"
+                    >
+                      <WorkspaceTabs
+                        activeTabId={activeTab.id}
+                        browser={browser}
+                        changedFileCount={changedFileCount}
+                        changeSummary={changeSummary}
+                        checks={checks}
+                        onActivateTab={setActiveTabId}
+                        onAddBrowser={addBrowserTab}
+                        onCloseTab={closeTab}
+                        onDismiss={() => setActiveTabId(null)}
+                        patch={patch}
+                        previewContent={previewContent}
+                        tabs={tabs}
+                      />
+                    </ResizablePanel>
+                  </>
+                ) : null}
+              </ResizablePanelGroup>
             </main>
           </ResizablePanel>
         </ResizablePanelGroup>
