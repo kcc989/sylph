@@ -22,6 +22,8 @@ import {
   Moon,
   PanelLeftClose,
   PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
   Paperclip,
   Play,
   Plus,
@@ -1078,73 +1080,59 @@ const workspaceTabIcon = {
   terminal: Terminal,
 } satisfies Record<WorkspaceTabKind, typeof MessageSquare>
 
-function WorkspaceToolLauncher({
-  activeTab,
-  onOpenTool,
+function WorkspaceToolToggle({
+  open,
+  onToggle,
 }: {
-  activeTab?: WorkspaceTab
-  onOpenTool: (kind: WorkspaceTabKind) => void
+  open: boolean
+  onToggle: () => void
 }) {
-  const tools = [
-    { kind: "browser", label: "Browser", icon: Globe2 },
-    { kind: "changes", label: "Changes", icon: Files },
-    { kind: "checks", label: "Checks", icon: ListChecks },
-    { kind: "review", label: "Review", icon: Check },
-  ] satisfies Array<{
-    kind: WorkspaceTabKind
-    label: string
-    icon: typeof Globe2
-  }>
-
   return (
-    <div className="ml-auto flex items-center gap-0.5">
-      {tools.map((tool) => {
-        const active = activeTab?.kind === tool.kind
-        const Icon = tool.icon
-        return (
-          <Tooltip key={tool.kind}>
-            <TooltipTrigger
-              aria-label={`Open ${tool.label} window`}
-              aria-pressed={active}
-              className={cn(
-                "grid size-8 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-                active && "bg-accent text-accent-foreground"
-              )}
-              onClick={() => onOpenTool(tool.kind)}
-            >
-              <Icon className="size-4" />
-            </TooltipTrigger>
-            <TooltipContent>{tool.label}</TooltipContent>
-          </Tooltip>
-        )
-      })}
-    </div>
+    <Tooltip>
+      <TooltipTrigger
+        aria-controls="workspace-tools"
+        aria-expanded={open}
+        aria-label={open ? "Hide tool sidebar" : "Open tool sidebar"}
+        className={cn(
+          "ml-auto grid size-8 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+          open && "bg-accent text-accent-foreground"
+        )}
+        onClick={onToggle}
+      >
+        {open ? (
+          <PanelRightClose className="size-4" />
+        ) : (
+          <PanelRightOpen className="size-4" />
+        )}
+      </TooltipTrigger>
+      <TooltipContent>{open ? "Hide tools" : "Open tools"}</TooltipContent>
+    </Tooltip>
   )
 }
 
 function WorkspaceChat({
-  activeTab,
   entries,
   model,
-  onOpenTool,
+  onToggleTools,
   onSubmitPrompt,
   onRestartWorkspace,
   promptDisabled,
   promptError,
   promptPending,
   restartPending,
+  toolPaneOpen,
   workspaceError,
 }: {
-  activeTab?: WorkspaceTab
   entries: ThreadEntry[]
   model?: string | null
-  onOpenTool: (kind: WorkspaceTabKind) => void
+  onToggleTools: () => void
   onSubmitPrompt?: (text: string) => Promise<void>
   onRestartWorkspace?: () => Promise<void>
   promptDisabled?: boolean
   promptError?: string | null
   promptPending?: boolean
   restartPending?: boolean
+  toolPaneOpen: boolean
   workspaceError?: string | null
 }) {
   return (
@@ -1159,7 +1147,7 @@ function WorkspaceChat({
         >
           {model ?? "OpenCode v2"}
         </Badge>
-        <WorkspaceToolLauncher activeTab={activeTab} onOpenTool={onOpenTool} />
+        <WorkspaceToolToggle open={toolPaneOpen} onToggle={onToggleTools} />
       </header>
       <AgentThread
         entries={entries}
@@ -1182,29 +1170,38 @@ function WorkspaceTabs({
   changeSummary,
   checks,
   onActivateTab,
-  onAddBrowser,
   onCloseTab,
   onDismiss,
+  onOpenTool,
   patch,
   previewContent,
   tabs,
 }: {
-  activeTabId: string
+  activeTabId: string | null
   browser: BrowserState
   changedFileCount?: number
   changeSummary?: string
   checks: CheckItem[]
   onActivateTab: (tabId: string) => void
-  onAddBrowser: () => void
   onCloseTab: (tabId: string) => void
   onDismiss: () => void
+  onOpenTool: (kind: WorkspaceTabKind) => void
   patch?: string
   previewContent?: ReactNode
   tabs: WorkspaceTab[]
 }) {
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0]
-
-  if (!activeTab) return null
+  const tools = [
+    { kind: "browser", label: "New browser tab", icon: Globe2 },
+    { kind: "changes", label: "Changes", icon: Files },
+    { kind: "checks", label: "Checks", icon: ListChecks },
+    { kind: "review", label: "Review", icon: Check },
+    { kind: "terminal", label: "Terminal", icon: Terminal },
+  ] satisfies Array<{
+    kind: WorkspaceTabKind
+    label: string
+    icon: typeof Globe2
+  }>
 
   return (
     <div className="flex size-full min-h-0 flex-col bg-background">
@@ -1229,7 +1226,7 @@ function WorkspaceTabs({
                   <span className="absolute inset-x-0 top-0 h-px bg-[var(--sylph-coral)]" />
                 ) : null}
                 <button
-                  aria-controls={`workspace-panel-${tab.id}`}
+                  aria-controls="workspace-tool-panel"
                   aria-selected={active}
                   className={cn(
                     "flex h-full items-center gap-2 px-3 text-xs text-muted-foreground transition-colors hover:bg-white/[.035] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset",
@@ -1260,45 +1257,63 @@ function WorkspaceTabs({
               </div>
             )
           })}
-          <Button
-            aria-label="New browser tab"
-            className="m-1 shrink-0"
-            onClick={onAddBrowser}
-            size="icon-xs"
-            variant="ghost"
-          >
-            <Plus />
-          </Button>
         </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            aria-label="Open tool tab"
+            className="m-1 grid size-6 shrink-0 place-items-center rounded-[4px] text-muted-foreground hover:bg-white/[.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          >
+            <Plus className="size-3.5" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-44">
+            {tools.map(({ kind, label, icon: Icon }) => (
+              <DropdownMenuItem key={kind} onClick={() => onOpenTool(kind)}>
+                <Icon /> {label}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
         <Button
-          aria-label="Return to Chat"
-          className="m-1 md:hidden"
+          aria-label="Close tool sidebar"
+          className="m-1"
           onClick={onDismiss}
           size="icon-xs"
           variant="ghost"
         >
-          <MessageSquare />
+          <PanelRightClose />
         </Button>
       </div>
       <div
-        aria-labelledby={`workspace-tab-${activeTab.id}`}
+        aria-label={activeTab ? undefined : "Tool sidebar"}
+        aria-labelledby={
+          activeTab ? `workspace-tab-${activeTab.id}` : undefined
+        }
         className="flex min-h-0 flex-1 flex-col"
-        id={`workspace-panel-${activeTab.id}`}
-        role="tabpanel"
+        id="workspace-tool-panel"
+        role={activeTab ? "tabpanel" : "region"}
       >
-        {activeTab.kind === "browser" ? (
+        {!activeTab ? (
+          <div className="grid size-full place-items-center px-6 text-center">
+            <p className="text-xs text-muted-foreground">
+              Open a tool from the + menu.
+            </p>
+          </div>
+        ) : null}
+        {activeTab?.kind === "browser" ? (
           <BrowserPreview browser={browser} content={previewContent} />
         ) : null}
-        {activeTab.kind === "changes" ? (
+        {activeTab?.kind === "changes" ? (
           <ReviewSurface
             changedFileCount={changedFileCount}
             changeSummary={changeSummary}
             patch={patch}
           />
         ) : null}
-        {activeTab.kind === "checks" ? <ChecksSurface checks={checks} /> : null}
-        {activeTab.kind === "review" ? <ReviewNotesSurface /> : null}
-        {activeTab.kind === "terminal" ? <TerminalSurface /> : null}
+        {activeTab?.kind === "checks" ? (
+          <ChecksSurface checks={checks} />
+        ) : null}
+        {activeTab?.kind === "review" ? <ReviewNotesSurface /> : null}
+        {activeTab?.kind === "terminal" ? <TerminalSurface /> : null}
       </div>
     </div>
   )
@@ -1337,6 +1352,7 @@ function WorkspaceShell({
   const [projectRailCollapsed, setProjectRailCollapsed] = useState(false)
   const [tabs, setTabs] = useState<WorkspaceTab[]>(initialWorkspaceTabs)
   const [activeTabId, setActiveTabId] = useState<string | null>(null)
+  const [toolPaneOpen, setToolPaneOpen] = useState(false)
   const browserTabNumber = useRef(0)
   const projectRailRef = useRef<PanelImperativeHandle>(null)
   const projectLayout = useDefaultLayout({
@@ -1359,18 +1375,20 @@ function WorkspaceShell({
     }
     setTabs((current) => [...current, tab])
     setActiveTabId(id)
+    setToolPaneOpen(true)
   }
 
   const openTool = (kind: WorkspaceTabKind) => {
+    if (kind === "browser") {
+      addBrowserTab()
+      return
+    }
+
     const existing = tabs.find((tab) => tab.kind === kind)
 
     if (existing) {
       setActiveTabId(existing.id)
-      return
-    }
-
-    if (kind === "browser") {
-      addBrowserTab()
+      setToolPaneOpen(true)
       return
     }
 
@@ -1383,6 +1401,7 @@ function WorkspaceShell({
     const tab: WorkspaceTab = { id: kind, kind, label: labels[kind] }
     setTabs((current) => [...current, tab])
     setActiveTabId(tab.id)
+    setToolPaneOpen(true)
   }
 
   const closeTab = (tabId: string) => {
@@ -1397,8 +1416,6 @@ function WorkspaceShell({
       return next
     })
   }
-
-  const activeTab = tabs.find((tab) => tab.id === activeTabId)
 
   return (
     <TooltipProvider>
@@ -1493,20 +1510,20 @@ function WorkspaceShell({
               >
                 <ResizablePanel id="workspace-chat" minSize="260px">
                   <WorkspaceChat
-                    activeTab={activeTab}
                     entries={entries}
                     model={model}
-                    onOpenTool={openTool}
+                    onToggleTools={() => setToolPaneOpen((open) => !open)}
                     onSubmitPrompt={onSubmitPrompt}
                     promptDisabled={promptDisabled}
                     promptError={promptError}
                     promptPending={promptPending}
                     restartPending={restartPending}
+                    toolPaneOpen={toolPaneOpen}
                     onRestartWorkspace={onRestartWorkspace}
                     workspaceError={workspaceError}
                   />
                 </ResizablePanel>
-                {activeTab ? (
+                {toolPaneOpen ? (
                   <>
                     <ResizableHandle
                       aria-label="Resize workspace tool pane"
@@ -1522,15 +1539,15 @@ function WorkspaceShell({
                       minSize="260px"
                     >
                       <WorkspaceTabs
-                        activeTabId={activeTab.id}
+                        activeTabId={activeTabId}
                         browser={browser}
                         changedFileCount={changedFileCount}
                         changeSummary={changeSummary}
                         checks={checks}
                         onActivateTab={setActiveTabId}
-                        onAddBrowser={addBrowserTab}
                         onCloseTab={closeTab}
-                        onDismiss={() => setActiveTabId(null)}
+                        onDismiss={() => setToolPaneOpen(false)}
+                        onOpenTool={openTool}
                         patch={patch}
                         previewContent={previewContent}
                         tabs={tabs}
