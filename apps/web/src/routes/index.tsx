@@ -12,6 +12,7 @@ import {
 import { cn } from "@workspace/ui/lib/utils"
 import {
   Boxes,
+  Blocks,
   Building2,
   ChevronRight,
   CircleAlert,
@@ -28,7 +29,6 @@ import {
   RefreshCw,
   Search,
   Settings2,
-  Sparkles,
   UserRound,
 } from "lucide-react"
 import { type ComponentProps, type FormEvent, useState } from "react"
@@ -78,7 +78,7 @@ function ProductRail() {
     { label: "Home", icon: House },
     { label: "Search", icon: Search },
     { label: "Projects", icon: Layers3 },
-    { label: "Skills", icon: Sparkles },
+    { label: "Skills", icon: Blocks },
   ]
 
   return (

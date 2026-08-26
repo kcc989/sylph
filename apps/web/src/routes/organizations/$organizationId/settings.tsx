@@ -6,6 +6,7 @@ import { Label } from "@workspace/ui/components/label"
 import {
   ArrowLeft,
   ArrowRight,
+  Bot,
   Building2,
   Check,
   ExternalLink,
@@ -13,7 +14,6 @@ import {
   LoaderCircle,
   Plus,
   RefreshCw,
-  Sparkles,
 } from "lucide-react"
 import { type FormEvent, useEffect, useState } from "react"
 
@@ -319,7 +319,7 @@ function OrganizationSettingsScreen() {
                       {pending ? (
                         <LoaderCircle className="animate-spin" />
                       ) : (
-                        <Sparkles />
+                        <Bot />
                       )}
                       Use ChatGPT subscription
                     </Button>

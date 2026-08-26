@@ -2,11 +2,11 @@ import { createFileRoute, Link } from "@tanstack/react-router"
 import { Button } from "@workspace/ui/components/button"
 import {
   ArrowLeft,
+  Bot,
   FolderGit2,
   GitBranch,
   Plus,
   Settings2,
-  Sparkles,
 } from "lucide-react"
 
 import { getWorkspaceCreationContext } from "@/lib/workspaces"
@@ -104,7 +104,7 @@ function ProjectSettingsScreen() {
           </div>
           <div className="grid gap-4 border-b py-6 sm:grid-cols-[180px_1fr]">
             <div className="flex items-center gap-2 text-xs font-medium">
-              <Sparkles className="size-3.5 text-[var(--sylph-coral)]" />
+              <Bot className="size-3.5 text-[var(--sylph-coral)]" />
               OpenCode
             </div>
             <div>

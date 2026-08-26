@@ -6,12 +6,12 @@ import { Label } from "@workspace/ui/components/label"
 import {
   ArrowLeft,
   ArrowRight,
+  Bot,
   FolderGit2,
   KeyRound,
   LoaderCircle,
   Plus,
   ShieldCheck,
-  Sparkles,
 } from "lucide-react"
 import { type FormEvent, useState } from "react"
 
@@ -114,7 +114,7 @@ function NewWorkspaceScreen() {
               </p>
             </div>
             <div className="flex gap-3">
-              <Sparkles className="mt-0.5 size-4 shrink-0 text-[var(--sylph-coral)]" />
+              <Bot className="mt-0.5 size-4 shrink-0 text-[var(--sylph-coral)]" />
               <p className="leading-5">
                 OpenCode starts in a new session with the selected model and
                 isolated working files.

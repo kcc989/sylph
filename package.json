@@ -13,7 +13,7 @@
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
     "typecheck": "turbo typecheck && tsc --noEmit",
-    "test": "turbo test",
+    "test": "bun test tools/oxlint/anti-slop/tests && turbo test",
     "deploy": "alchemy deploy",
     "destroy": "alchemy destroy",
     "prepare": "lefthook install"

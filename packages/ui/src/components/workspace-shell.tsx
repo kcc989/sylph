@@ -4,6 +4,8 @@ import {
   Activity,
   ArrowUp,
   Bell,
+  Blocks,
+  Bot,
   Check,
   ChevronDown,
   ChevronRight,
@@ -27,7 +29,6 @@ import {
   RefreshCw,
   Search,
   Settings2,
-  Sparkles,
   Smartphone,
   Terminal,
   AtSign,
@@ -269,7 +270,7 @@ function UtilityRail() {
     { label: "Home", icon: House },
     { label: "Search", icon: Search },
     { label: "Files", icon: Files },
-    { label: "Skills", icon: Sparkles },
+    { label: "Skills", icon: Blocks },
   ]
 
   return (
@@ -619,7 +620,7 @@ function AgentThread({
                   )}
                 >
                   {entry.kind === "user" && <UserRound className="size-3" />}
-                  {entry.kind === "agent" && <Sparkles className="size-3" />}
+                  {entry.kind === "agent" && <Bot className="size-3" />}
                   {entry.kind === "tool" && <Wrench className="size-3" />}
                   {entry.kind === "result" && <Check className="size-3" />}
                 </span>
@@ -769,7 +770,7 @@ function PromptComposer({
             <Terminal />
           </Button>
           <Button size="xs" variant="ghost">
-            <Sparkles /> Skills
+            <Blocks /> Skills
           </Button>
           <Button className="ml-auto" size="xs" variant="ghost">
             Agent <ChevronDown />
