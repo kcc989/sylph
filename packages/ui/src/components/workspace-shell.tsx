@@ -3,7 +3,6 @@
 import {
   Activity,
   ArrowUp,
-  Bot,
   Bell,
   Check,
   ChevronDown,
@@ -14,7 +13,9 @@ import {
   Globe2,
   House,
   LoaderCircle,
+  ListChecks,
   Maximize2,
+  MessageSquare,
   Monitor,
   MoreHorizontal,
   Moon,
@@ -33,23 +34,12 @@ import {
   Wrench,
   X,
 } from "lucide-react"
-import { useState, type ReactNode } from "react"
+import { useRef, useState, type ReactNode } from "react"
 
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import { CodeReview } from "@workspace/ui/components/code-review"
-import {
-  ResizableHandle,
-  ResizablePanel,
-  ResizablePanelGroup,
-} from "@workspace/ui/components/resizable"
 import { ScrollArea } from "@workspace/ui/components/scroll-area"
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@workspace/ui/components/tabs"
 import { Textarea } from "@workspace/ui/components/textarea"
 import {
   Tooltip,
@@ -96,6 +86,21 @@ type CheckItem = {
   name: string
   detail: string
   status: "passed" | "running" | "failed"
+}
+
+type WorkspaceTabKind =
+  | "chat"
+  | "browser"
+  | "changes"
+  | "checks"
+  | "review"
+  | "terminal"
+
+type WorkspaceTab = {
+  id: string
+  kind: WorkspaceTabKind
+  label: string
+  closable: boolean
 }
 
 type WorkspaceShellProps = {
@@ -197,14 +202,14 @@ const fallbackEntries: ThreadEntry[] = [
   {
     id: "request",
     kind: "user",
-    body: "Make the workspace preview persistent and let the agent verify the responsive states.",
+    body: "Keep the workspace focused on chat and open a browser only when preview work begins.",
     meta: "You · 10:24",
   },
   {
     id: "inspect",
     kind: "tool",
     title: "Plan",
-    body: "Tighten the browser-first workspace without losing the thread.",
+    body: "Move chat, browser, changes, checks, and terminal into one peer tab model.",
     meta: "4 steps",
     details: [
       "Audit the workspace shell and preview route",
@@ -216,8 +221,8 @@ const fallbackEntries: ThreadEntry[] = [
   {
     id: "result",
     kind: "result",
-    title: "Preview shell implemented",
-    body: "The browser stays visible while the thread grows. Changes and checks now share the review surface below it.",
+    title: "Workspace tabs implemented",
+    body: "Chat opens first. Browser and review tools stay one click away without shrinking the active work surface.",
     meta: "2m 18s",
     artifact: {
       label: "Preview updated",
@@ -436,6 +441,7 @@ function WorkspaceTopbar({
   repositoryName,
   workspaceName,
   onOpenNavigation,
+  onOpenTerminal,
 }: {
   agentControllingBrowser: boolean
   browser: BrowserState
@@ -445,6 +451,7 @@ function WorkspaceTopbar({
   repositoryName: string
   workspaceName: string
   onOpenNavigation: () => void
+  onOpenTerminal: () => void
 }) {
   const passedChecks = checks.filter(
     (check) => check.status === "passed"
@@ -501,7 +508,7 @@ function WorkspaceTopbar({
             </span>
           )}
         </div>
-        <Button size="sm" variant="ghost">
+        <Button size="sm" variant="ghost" onClick={onOpenTerminal}>
           <Terminal /> Terminal
         </Button>
         <Button size="sm" variant="outline">
@@ -521,14 +528,12 @@ function WorkspaceTopbar({
 
 function AgentThread({
   entries,
-  model,
   onSubmitPrompt,
   promptDisabled,
   promptError,
   promptPending,
 }: {
   entries: ThreadEntry[]
-  model?: string | null
   onSubmitPrompt?: (text: string) => Promise<void>
   promptDisabled?: boolean
   promptError?: string | null
@@ -536,17 +541,6 @@ function AgentThread({
 }) {
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-background">
-      <div className="flex h-10 shrink-0 items-center gap-2 border-b px-3">
-        <Bot className="size-3.5 text-[#ef9b7e]" />
-        <span className="text-xs font-medium">Agent thread</span>
-        <span className="text-[10px] text-muted-foreground">Working tree</span>
-        <Badge
-          className="ml-auto rounded-[4px] px-1.5 font-mono text-[9px]"
-          variant="outline"
-        >
-          {model ?? "OpenCode v2"}
-        </Badge>
-      </div>
       <ScrollArea className="min-h-0 flex-1">
         <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-7">
           {entries.map((entry) => (
@@ -868,58 +862,36 @@ function CheckList({ checks }: { checks: CheckItem[] }) {
 
 function ReviewSurface({
   patch,
-  checks,
   changeSummary = "No changes",
   changedFileCount = 0,
 }: {
   patch?: string
-  checks: CheckItem[]
   changeSummary?: string
   changedFileCount?: number
 }) {
   return (
-    <Tabs className="size-full gap-0" defaultValue="changes">
-      <div className="flex h-9 shrink-0 items-center border-y bg-[#171614] px-2">
-        <TabsList className="h-8 gap-0 p-0" variant="line">
-          <TabsTrigger className="h-8 px-2 text-xs" value="changes">
-            Changes{" "}
-            <span className="font-mono text-[9px] text-emerald-400">
-              {changeSummary}
-            </span>
-          </TabsTrigger>
-          <TabsTrigger className="h-8 px-2 text-xs" value="checks">
-            Checks{" "}
-            <span className="size-1.5 rounded-full bg-[var(--sylph-live)]" />
-          </TabsTrigger>
-          <TabsTrigger className="h-8 px-2 text-xs" value="review">
-            Review
-          </TabsTrigger>
-        </TabsList>
-        <span className="ml-auto hidden font-mono text-[9px] text-muted-foreground sm:inline">
+    <section className="flex size-full min-h-0 flex-col bg-[var(--sylph-ink)]">
+      <header className="flex h-10 shrink-0 items-center gap-2 border-b bg-[#171614] px-3">
+        <Files className="size-3.5 text-[#ef9b7e]" />
+        <span className="text-xs font-medium">Working tree</span>
+        <span className="font-mono text-[9px] text-emerald-400">
+          {changeSummary}
+        </span>
+        <span className="ml-auto font-mono text-[9px] text-muted-foreground">
           {changedFileCount} {changedFileCount === 1 ? "file" : "files"}
         </span>
-      </div>
-      <TabsContent className="min-h-0 overflow-hidden" value="changes">
+      </header>
+      <div className="min-h-0 flex-1 overflow-hidden">
         {patch ? (
           <CodeReview className="h-full" patch={patch} />
         ) : (
-          <div className="grid min-h-36 place-items-center px-6 text-center">
+          <div className="grid h-full place-items-center px-6 text-center">
             <p className="text-xs text-muted-foreground">
               The working tree has no changes.
             </p>
           </div>
         )}
-      </TabsContent>
-      <TabsContent className="min-h-0 overflow-auto" value="checks">
-        <CheckList checks={checks} />
-      </TabsContent>
-      <TabsContent className="min-h-0 overflow-auto" value="review">
-        <div className="grid min-h-36 place-items-center px-6 text-center">
-          <p className="text-xs text-muted-foreground">
-            Review the selected lines, then hand the change to your editor.
-          </p>
-        </div>
-      </TabsContent>
+      </div>
       <footer className="flex h-9 shrink-0 items-center border-t px-3 text-[10px] text-muted-foreground">
         <span>
           {changedFileCount} {changedFileCount === 1 ? "file" : "files"} changed
@@ -928,75 +900,216 @@ function ReviewSurface({
           Open in editor
         </Button>
       </footer>
-    </Tabs>
+    </section>
   )
 }
 
-function MobileWorkspaceSurface({
+function ChecksSurface({ checks }: { checks: CheckItem[] }) {
+  return (
+    <section className="size-full overflow-auto bg-background">
+      <div className="mx-auto w-full max-w-4xl py-3">
+        <CheckList checks={checks} />
+      </div>
+    </section>
+  )
+}
+
+function ReviewNotesSurface() {
+  return (
+    <section className="grid size-full place-items-center bg-background px-6 text-center">
+      <div className="max-w-sm">
+        <Check className="mx-auto mb-3 size-5 text-muted-foreground" />
+        <h2 className="text-sm font-medium">No review notes yet</h2>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+          Select changed lines to leave notes or hand the change to your editor.
+        </p>
+      </div>
+    </section>
+  )
+}
+
+function TerminalSurface() {
+  return (
+    <section className="flex size-full flex-col bg-[var(--sylph-ink)] font-mono text-[11px]">
+      <header className="flex h-10 shrink-0 items-center gap-2 border-b px-3 text-muted-foreground">
+        <Terminal className="size-3.5" />
+        Cloudflare CI terminal
+      </header>
+      <div className="flex min-h-0 flex-1 items-start gap-2 p-4 text-muted-foreground">
+        <span className="text-[var(--sylph-coral)]">$</span>
+        <span>The terminal will attach when a Cloudflare CI run starts.</span>
+        <span className="mt-0.5 h-3.5 w-1.5 animate-pulse bg-foreground/70 motion-reduce:animate-none" />
+      </div>
+    </section>
+  )
+}
+
+const initialWorkspaceTabs: WorkspaceTab[] = [
+  { id: "chat", kind: "chat", label: "Chat", closable: false },
+  { id: "browser-1", kind: "browser", label: "Browser", closable: true },
+  { id: "changes", kind: "changes", label: "Changes", closable: true },
+  { id: "checks", kind: "checks", label: "Checks", closable: true },
+  { id: "review", kind: "review", label: "Review", closable: true },
+]
+
+const workspaceTabIcon = {
+  chat: MessageSquare,
+  browser: Globe2,
+  changes: Files,
+  checks: ListChecks,
+  review: Check,
+  terminal: Terminal,
+} satisfies Record<WorkspaceTabKind, typeof MessageSquare>
+
+function WorkspaceTabs({
+  activeTabId,
   browser,
   changedFileCount,
   changeSummary,
   checks,
   entries,
   model,
+  onActivateTab,
+  onAddBrowser,
+  onCloseTab,
   onSubmitPrompt,
   patch,
   previewContent,
   promptDisabled,
   promptError,
   promptPending,
+  tabs,
 }: {
+  activeTabId: string
   browser: BrowserState
   changedFileCount?: number
   changeSummary?: string
   checks: CheckItem[]
   entries: ThreadEntry[]
   model?: string | null
+  onActivateTab: (tabId: string) => void
+  onAddBrowser: () => void
+  onCloseTab: (tabId: string) => void
   onSubmitPrompt?: (text: string) => Promise<void>
   patch?: string
   previewContent?: ReactNode
   promptDisabled?: boolean
   promptError?: string | null
   promptPending?: boolean
+  tabs: WorkspaceTab[]
 }) {
+  const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0]
+
+  if (!activeTab) return null
+
   return (
-    <Tabs className="min-h-0 flex-1 gap-0 md:hidden" defaultValue="agent">
-      <TabsList
-        className="grid h-10 w-full shrink-0 grid-cols-3 rounded-none border-b bg-[#171614] p-0"
-        variant="line"
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex h-10 shrink-0 items-stretch border-b bg-[#171614]">
+        <div
+          aria-label="Workspace tabs"
+          className="flex min-w-0 flex-1 items-stretch overflow-x-auto"
+          role="tablist"
+        >
+          {tabs.map((tab) => {
+            const Icon = workspaceTabIcon[tab.kind]
+            const active = tab.id === activeTab.id
+            return (
+              <div
+                className={cn(
+                  "group/tab relative flex shrink-0 items-center border-r border-white/[.07]",
+                  active && "bg-background"
+                )}
+                key={tab.id}
+              >
+                {active ? (
+                  <span className="absolute inset-x-0 top-0 h-px bg-[var(--sylph-coral)]" />
+                ) : null}
+                <button
+                  aria-controls={`workspace-panel-${tab.id}`}
+                  aria-selected={active}
+                  className={cn(
+                    "flex h-full items-center gap-2 px-3 text-xs text-muted-foreground transition-colors hover:bg-white/[.035] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset",
+                    active && "text-foreground"
+                  )}
+                  id={`workspace-tab-${tab.id}`}
+                  onClick={() => onActivateTab(tab.id)}
+                  role="tab"
+                  type="button"
+                >
+                  <Icon
+                    className={cn(
+                      "size-3.5",
+                      active && tab.kind === "chat" && "text-[#ef9b7e]"
+                    )}
+                  />
+                  {tab.label}
+                  {tab.kind === "browser" && browser.status === "live" ? (
+                    <span
+                      aria-label="live"
+                      className="size-1.5 rounded-full bg-[var(--sylph-live)]"
+                    />
+                  ) : null}
+                </button>
+                {tab.closable ? (
+                  <button
+                    aria-label={`Close ${tab.label} tab`}
+                    className="mr-1 grid size-6 place-items-center rounded-[4px] text-muted-foreground/60 opacity-60 transition-opacity hover:bg-white/[.06] hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                    onClick={() => onCloseTab(tab.id)}
+                    type="button"
+                  >
+                    <X className="size-3" />
+                  </button>
+                ) : null}
+              </div>
+            )
+          })}
+          <Button
+            aria-label="New browser tab"
+            className="m-1 shrink-0"
+            onClick={onAddBrowser}
+            size="icon-xs"
+            variant="ghost"
+          >
+            <Plus />
+          </Button>
+        </div>
+        <Badge
+          className="m-1.5 hidden shrink-0 rounded-[4px] px-1.5 font-mono text-[9px] sm:inline-flex"
+          variant="outline"
+        >
+          {model ?? "OpenCode v2"}
+        </Badge>
+      </div>
+      <div
+        aria-labelledby={`workspace-tab-${activeTab.id}`}
+        className="min-h-0 flex-1"
+        id={`workspace-panel-${activeTab.id}`}
+        role="tabpanel"
       >
-        <TabsTrigger className="h-10 text-xs" value="agent">
-          Agent
-        </TabsTrigger>
-        <TabsTrigger className="h-10 text-xs" value="preview">
-          Preview
-        </TabsTrigger>
-        <TabsTrigger className="h-10 text-xs" value="review">
-          Review
-        </TabsTrigger>
-      </TabsList>
-      <TabsContent className="min-h-0" value="agent">
-        <AgentThread
-          entries={entries}
-          model={model}
-          onSubmitPrompt={onSubmitPrompt}
-          promptDisabled={promptDisabled}
-          promptError={promptError}
-          promptPending={promptPending}
-        />
-      </TabsContent>
-      <TabsContent className="min-h-0" value="preview">
-        <BrowserPreview browser={browser} content={previewContent} />
-      </TabsContent>
-      <TabsContent className="min-h-0" value="review">
-        <ReviewSurface
-          changedFileCount={changedFileCount}
-          changeSummary={changeSummary}
-          checks={checks}
-          patch={patch}
-        />
-      </TabsContent>
-    </Tabs>
+        {activeTab.kind === "chat" ? (
+          <AgentThread
+            entries={entries}
+            onSubmitPrompt={onSubmitPrompt}
+            promptDisabled={promptDisabled}
+            promptError={promptError}
+            promptPending={promptPending}
+          />
+        ) : null}
+        {activeTab.kind === "browser" ? (
+          <BrowserPreview browser={browser} content={previewContent} />
+        ) : null}
+        {activeTab.kind === "changes" ? (
+          <ReviewSurface
+            changedFileCount={changedFileCount}
+            changeSummary={changeSummary}
+            patch={patch}
+          />
+        ) : null}
+        {activeTab.kind === "checks" ? <ChecksSurface checks={checks} /> : null}
+        {activeTab.kind === "review" ? <ReviewNotesSurface /> : null}
+        {activeTab.kind === "terminal" ? <TerminalSurface /> : null}
+      </div>
+    </div>
   )
 }
 
@@ -1027,6 +1140,53 @@ function WorkspaceShell({
   promptPending = false,
 }: WorkspaceShellProps) {
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false)
+  const [tabs, setTabs] = useState<WorkspaceTab[]>(initialWorkspaceTabs)
+  const [activeTabId, setActiveTabId] = useState("chat")
+  const browserTabNumber = useRef(1)
+
+  const addBrowserTab = () => {
+    browserTabNumber.current += 1
+    const id = `browser-${browserTabNumber.current}`
+    const tab: WorkspaceTab = {
+      id,
+      kind: "browser",
+      label: `Browser ${browserTabNumber.current}`,
+      closable: true,
+    }
+    setTabs((current) => [...current, tab])
+    setActiveTabId(id)
+  }
+
+  const closeTab = (tabId: string) => {
+    setTabs((current) => {
+      const index = current.findIndex((tab) => tab.id === tabId)
+      const next = current.filter((tab) => tab.id !== tabId)
+
+      if (activeTabId === tabId) {
+        setActiveTabId(next[Math.max(0, index - 1)]?.id ?? "chat")
+      }
+
+      return next
+    })
+  }
+
+  const openTerminal = () => {
+    const terminal = tabs.find((tab) => tab.kind === "terminal")
+
+    if (terminal) {
+      setActiveTabId(terminal.id)
+      return
+    }
+
+    const tab: WorkspaceTab = {
+      id: "terminal-1",
+      kind: "terminal",
+      label: "Terminal",
+      closable: true,
+    }
+    setTabs((current) => [...current, tab])
+    setActiveTabId(tab.id)
+  }
 
   return (
     <TooltipProvider>
@@ -1049,6 +1209,7 @@ function WorkspaceShell({
             checks={checks}
             demo={demo}
             onOpenNavigation={() => setMobileNavigationOpen(true)}
+            onOpenTerminal={openTerminal}
             projectName={projectName}
             repositoryName={repositoryName}
             workspaceName={workspaceName}
@@ -1075,54 +1236,25 @@ function WorkspaceShell({
               />
             </div>
           )}
-          <MobileWorkspaceSurface
+          <WorkspaceTabs
+            activeTabId={activeTabId}
             browser={browser}
             changedFileCount={changedFileCount}
             changeSummary={changeSummary}
             checks={checks}
             entries={entries}
             model={model}
+            onActivateTab={setActiveTabId}
+            onAddBrowser={addBrowserTab}
+            onCloseTab={closeTab}
             onSubmitPrompt={onSubmitPrompt}
             patch={patch}
             previewContent={previewContent}
             promptDisabled={promptDisabled}
             promptError={promptError}
             promptPending={promptPending}
+            tabs={tabs}
           />
-          <div className="hidden min-h-0 flex-1 md:block">
-            <ResizablePanelGroup className="min-h-0" orientation="horizontal">
-              <ResizablePanel defaultSize="54%" minSize="34%">
-                <AgentThread
-                  entries={entries}
-                  model={model}
-                  onSubmitPrompt={onSubmitPrompt}
-                  promptDisabled={promptDisabled}
-                  promptError={promptError}
-                  promptPending={promptPending}
-                />
-              </ResizablePanel>
-              <ResizableHandle />
-              <ResizablePanel defaultSize="46%" minSize="30%">
-                <ResizablePanelGroup orientation="vertical">
-                  <ResizablePanel defaultSize="56%" minSize="28%">
-                    <BrowserPreview
-                      browser={browser}
-                      content={previewContent}
-                    />
-                  </ResizablePanel>
-                  <ResizableHandle />
-                  <ResizablePanel defaultSize="44%" minSize="22%">
-                    <ReviewSurface
-                      changedFileCount={changedFileCount}
-                      changeSummary={changeSummary}
-                      checks={checks}
-                      patch={patch}
-                    />
-                  </ResizablePanel>
-                </ResizablePanelGroup>
-              </ResizablePanel>
-            </ResizablePanelGroup>
-          </div>
         </main>
       </div>
     </TooltipProvider>
@@ -1135,6 +1267,7 @@ export {
   CheckList,
   ProjectRail,
   ReviewSurface,
+  WorkspaceTabs,
   WorkspaceShell,
   WorkspaceTopbar,
   fallbackChecks,
@@ -1148,4 +1281,6 @@ export type {
   ThreadEntry,
   WorkspaceItem,
   WorkspaceShellProps,
+  WorkspaceTab,
+  WorkspaceTabKind,
 }

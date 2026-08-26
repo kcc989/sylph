@@ -38,7 +38,7 @@ Users work remotely in a Workspace belonging to a Project. They converse with co
 
 The product name is Sylph. The interface should meet the density, keyboard fluency, remote-workspace utility, embedded browser capability, and IDE-like preview quality associated with Conductor, bb, and Diffs without copying their visual identity or bb's local-host architecture.
 
-The primary app shell should stay close to Conductor's familiar dense IDE structure while developing a visibly distinct Sylph identity. The persistent left rail groups each Project as a parent with its Workspaces nested directly beneath it; it must not split Projects and Workspaces into separate navigation sections. Distinction should come from Sylph's browser-first composition, typography, color, active-Workspace geometry, and state language rather than a decorative physical metaphor.
+The primary app shell should stay close to Conductor's familiar dense IDE structure while developing a visibly distinct Sylph identity. The persistent left rail groups each Project as a parent with its Workspaces nested directly beneath it; it must not split Projects and Workspaces into separate navigation sections. Chat, Browser, Changes, Checks, Review, and Terminal are peer work tabs, with Chat active by default and multiple tool tabs allowed per Chat. Distinction should come from Sylph's tabbed composition, typography, color, active-Workspace geometry, and state language rather than a decorative physical metaphor.
 
 ## Evidence on Hand
 

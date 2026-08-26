@@ -6,7 +6,6 @@ import {
   ProjectRail,
   ReviewSurface,
   WorkspaceShell,
-  fallbackChecks,
   fallbackProjects,
 } from "@workspace/ui/components/workspace-shell"
 
@@ -68,7 +67,7 @@ const meta = {
 export default meta
 type Story = StoryObj<typeof meta>
 
-export const PersistentPreview: Story = {}
+export const TabbedWorkspace: Story = {}
 
 export const WaitingForAgent: Story = {
   args: {
@@ -137,7 +136,6 @@ export const ReviewWithPierreDiffs: Story = {
       <ReviewSurface
         changedFileCount={4}
         changeSummary="+286 −41"
-        checks={fallbackChecks}
         patch={defaultPatch}
       />
     </div>
