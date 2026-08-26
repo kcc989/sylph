@@ -1,6 +1,9 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router"
 import { useServerFn } from "@tanstack/react-start"
-import type { OpenCodeSubscriptionModel } from "@workspace/domain"
+import type {
+  ConnectionScope,
+  OpenCodeSubscriptionModel,
+} from "@workspace/domain"
 import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
@@ -94,7 +97,13 @@ function OrganizationSettingsScreen() {
   const startSubscription = useServerFn(startOpenCodeSubscription)
   const subscriptionStatus = useServerFn(getOpenCodeSubscriptionStatus)
   const cancelSubscription = useServerFn(cancelOpenCodeSubscription)
-  const connections = setup?.connections ?? []
+  const [scope, setScope] = useState<ConnectionScope>(
+    setup?.canManageOrganization ? "organization" : "user"
+  )
+  const connections =
+    scope === "organization"
+      ? (setup?.organizationConnections ?? [])
+      : (setup?.personalConnections ?? [])
   const [flow, setFlow] = useState<SetupFlow>("list")
   const [apiKey, setApiKey] = useState("")
   const [apiModelId, setApiModelId] = useState(
@@ -130,6 +139,7 @@ function OrganizationSettingsScreen() {
         const result = await subscriptionStatus({
           data: {
             organizationId,
+            scope,
             attemptId: attempt.attemptId,
             modelId: subscriptionModelId,
           },
@@ -177,6 +187,7 @@ function OrganizationSettingsScreen() {
     flow,
     organizationId,
     router,
+    scope,
     subscriptionModelId,
     subscriptionStatus,
   ])
@@ -217,6 +228,7 @@ function OrganizationSettingsScreen() {
       await saveSetup({
         data: {
           organizationId,
+          scope,
           providerId: "opencode",
           modelId: apiModelId,
           apiKey,
@@ -240,7 +252,7 @@ function OrganizationSettingsScreen() {
     setError(null)
     try {
       const nextAttempt = await startSubscription({
-        data: { organizationId, modelId: subscriptionModelId },
+        data: { organizationId, scope, modelId: subscriptionModelId },
       })
       setAttempt(nextAttempt)
       setFlow("subscription")
@@ -265,6 +277,7 @@ function OrganizationSettingsScreen() {
       await cancelSubscription({
         data: {
           organizationId,
+          scope,
           attemptId: currentAttempt.attemptId,
           modelId: subscriptionModelId,
         },
@@ -282,7 +295,9 @@ function OrganizationSettingsScreen() {
     setPendingProviderId(providerId)
     setError(null)
     try {
-      await setDefaultConnection({ data: { organizationId, providerId } })
+      await setDefaultConnection({
+        data: { organizationId, scope, providerId },
+      })
       await router.invalidate()
     } catch (cause) {
       setError(
@@ -337,12 +352,14 @@ function OrganizationSettingsScreen() {
         <section className="flex items-start justify-between gap-6 border-b pb-6">
           <div>
             <h1 className="text-xl font-semibold tracking-[-0.03em]">
-              AI providers
+              AI connections
             </h1>
             <p className="mt-1.5 max-w-[65ch] text-sm leading-6 text-muted-foreground">
-              Connections are shared across every Project and Workspace in{" "}
-              {organization.name}. The default connection starts new and
-              restarted Workspaces.
+              {scope === "organization"
+                ? `Shared connections are available to everyone in ${organization.name}.`
+                : "Personal connections are used for Workspaces you create."}{" "}
+              Your personal default takes precedence over the Organization
+              default.
             </p>
           </div>
           {flow === "list" ? (
@@ -356,13 +373,54 @@ function OrganizationSettingsScreen() {
           )}
         </section>
 
+        <div
+          className="flex h-11 items-end gap-1 border-b"
+          role="tablist"
+          aria-label="Connection scope"
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={scope === "user"}
+            className="relative h-11 px-3 text-xs font-medium text-muted-foreground hover:text-foreground aria-selected:text-foreground"
+            onClick={() => {
+              setScope("user")
+              returnToList()
+            }}
+          >
+            Personal
+            {scope === "user" ? (
+              <span className="absolute inset-x-2 bottom-0 h-px bg-primary" />
+            ) : null}
+          </button>
+          {setup?.canManageOrganization ? (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={scope === "organization"}
+              className="relative h-11 px-3 text-xs font-medium text-muted-foreground hover:text-foreground aria-selected:text-foreground"
+              onClick={() => {
+                setScope("organization")
+                returnToList()
+              }}
+            >
+              Organization
+              {scope === "organization" ? (
+                <span className="absolute inset-x-2 bottom-0 h-px bg-primary" />
+              ) : null}
+            </button>
+          ) : null}
+        </div>
+
         {flow === "list" ? (
           <section aria-label="Connected AI providers">
             {connections.length === 0 ? (
               <div className="border-b py-8">
                 <p className="text-sm font-medium">No providers connected</p>
                 <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  Add a provider before creating a Project or Workspace.
+                  {scope === "organization"
+                    ? "Add a provider for everyone in this Organization."
+                    : "Add a provider for your own Workspace activity."}
                 </p>
               </div>
             ) : (
@@ -551,8 +609,8 @@ function OrganizationSettingsScreen() {
           <section className="py-6">
             <h2 className="text-sm font-medium">Connect OpenCode Zen</h2>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              Add an Organization API key and choose the model this connection
-              uses by default.
+              Add {scope === "organization" ? "an Organization" : "your"} API
+              key and choose the default model.
             </p>
             <form
               className="mt-5 grid max-w-lg gap-5"
@@ -560,7 +618,10 @@ function OrganizationSettingsScreen() {
             >
               {flow === "key" ? (
                 <div className="grid gap-2">
-                  <Label htmlFor="api-key">Organization API key</Label>
+                  <Label htmlFor="api-key">
+                    {scope === "organization" ? "Organization" : "Personal"}
+                    {" API key"}
+                  </Label>
                   <Input
                     id="api-key"
                     type="password"
@@ -611,7 +672,48 @@ function OrganizationSettingsScreen() {
             </form>
           </section>
         )}
+
+        {flow === "list" ? (
+          <section className="mt-10 border-t pt-6" aria-labelledby="members">
+            <div className="flex items-baseline justify-between gap-4">
+              <div>
+                <h2 id="members" className="text-sm font-medium">
+                  Members
+                </h2>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  Admins manage shared connections. Users manage their own.
+                </p>
+              </div>
+              <span className="text-xs text-muted-foreground">
+                {setup?.members.length ?? 0}
+              </span>
+            </div>
+            <div className="mt-4 divide-y border-y">
+              {setup?.members.map((member) => (
+                <div
+                  key={member.id}
+                  className="flex min-w-0 items-center gap-4 py-3"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xs font-medium">
+                      {member.name}
+                    </p>
+                    <p className="mt-0.5 truncate text-[10px] text-muted-foreground">
+                      {member.email}
+                    </p>
+                  </div>
+                  <span className="text-xs text-muted-foreground">
+                    {isOrganizationAdminRole(member.role) ? "Admin" : "User"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null}
       </div>
     </main>
   )
 }
+
+const isOrganizationAdminRole = (role: string) =>
+  role === "owner" || role === "admin"

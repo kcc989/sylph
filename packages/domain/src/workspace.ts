@@ -83,10 +83,14 @@ export const OpenCodeCredential = Schema.Union([
 ])
 export type OpenCodeCredential = typeof OpenCodeCredential.Type
 
+export const ConnectionScope = Schema.Literals(["organization", "user"])
+export type ConnectionScope = typeof ConnectionScope.Type
+
 export class OpenCodeKeySetupInput extends Schema.Class<OpenCodeKeySetupInput>(
   "@sylph/domain/OpenCodeKeySetupInput"
 )({
   organizationId: OrganizationId,
+  scope: ConnectionScope,
   providerId: Schema.NonEmptyString,
   modelId: Schema.NonEmptyString,
   apiKey: Schema.NonEmptyString,
@@ -96,6 +100,7 @@ export class SetDefaultOpenCodeConnectionInput extends Schema.Class<SetDefaultOp
   "@sylph/domain/SetDefaultOpenCodeConnectionInput"
 )({
   organizationId: OrganizationId,
+  scope: ConnectionScope,
   providerId: Schema.NonEmptyString,
 }) {}
 
@@ -110,6 +115,7 @@ export class OpenCodeSubscriptionStartInput extends Schema.Class<OpenCodeSubscri
   "@sylph/domain/OpenCodeSubscriptionStartInput"
 )({
   organizationId: OrganizationId,
+  scope: ConnectionScope,
   modelId: OpenCodeSubscriptionModel,
 }) {}
 
@@ -117,6 +123,7 @@ export class OpenCodeSubscriptionStatusInput extends Schema.Class<OpenCodeSubscr
   "@sylph/domain/OpenCodeSubscriptionStatusInput"
 )({
   organizationId: OrganizationId,
+  scope: ConnectionScope,
   attemptId: Schema.NonEmptyString,
   modelId: OpenCodeSubscriptionModel,
 }) {}

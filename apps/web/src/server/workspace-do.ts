@@ -116,7 +116,7 @@ const seedFiles = (projectName: string) => [
 
 const subscriptionProviderId = "openai"
 const subscriptionMethodId = "chatgpt-headless"
-const subscriptionCredentialLabel = "Sylph Organization connection"
+const subscriptionCredentialLabel = "Sylph connection"
 
 export class WorkspaceDO extends DurableObject<Cloudflare.Env> {
   readonly #database
@@ -398,7 +398,7 @@ export class WorkspaceDO extends DurableObject<Cloudflare.Env> {
       )
     } catch {
       throw new Error(
-        `OpenCode could not connect to ${input.providerId}. Replace the Organization connection and try again.`
+        `The AI provider could not connect to ${input.providerId}. Reconnect it and try again.`
       )
     }
 

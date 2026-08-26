@@ -1,4 +1,5 @@
 import {
+  type ConnectionScope,
   decodeCreateWorkspaceInputPromise,
   decodeCreateProjectInputPromise,
   decodeMagicLinkRequest,
@@ -27,7 +28,7 @@ import { createServerFn } from "@tanstack/react-start"
 import { getRequest } from "@tanstack/react-start/server"
 import { env } from "cloudflare:workers"
 import { and, desc, eq } from "drizzle-orm"
-import { drizzle } from "drizzle-orm/d1"
+import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1"
 
 import { createRequestAuth } from "@/server/auth.server"
 import {
@@ -46,7 +47,7 @@ const subscriptionProviderId = "openai"
 
 const organizationMembership = async (organizationId: string, userId: string) =>
   drizzle(env.DB, { schema })
-    .select({ id: schema.member.id })
+    .select({ id: schema.member.id, role: schema.member.role })
     .from(schema.member)
     .where(
       and(
@@ -55,6 +56,64 @@ const organizationMembership = async (organizationId: string, userId: string) =>
       )
     )
     .get()
+
+const isOrganizationAdmin = (role: string) =>
+  role === "owner" || role === "admin"
+
+const connectionAccess = async (
+  organizationId: string,
+  userId: string,
+  scope: ConnectionScope
+) => {
+  const membership = await organizationMembership(organizationId, userId)
+
+  if (!membership) {
+    throw new Error("You are not a member of this Organization")
+  }
+
+  if (scope === "organization" && !isOrganizationAdmin(membership.role)) {
+    throw new Error("Only Organization admins can manage shared AI connections")
+  }
+
+  return membership
+}
+
+const connectionRuntimeName = (
+  organizationId: string,
+  userId: string,
+  scope: ConnectionScope
+) =>
+  scope === "organization"
+    ? `opencode-setup-organization-${organizationId}`
+    : `opencode-setup-user-${userId}`
+
+const effectiveConnection = async (
+  database: DrizzleD1Database<typeof schema>,
+  organizationId: string,
+  userId: string
+) => {
+  const personal = await database
+    .select()
+    .from(schema.userOpenCodeConnection)
+    .where(eq(schema.userOpenCodeConnection.userId, userId))
+    .orderBy(
+      desc(schema.userOpenCodeConnection.isDefault),
+      desc(schema.userOpenCodeConnection.updatedAt)
+    )
+    .get()
+
+  if (personal) return personal
+
+  return database
+    .select()
+    .from(schema.openCodeConnection)
+    .where(eq(schema.openCodeConnection.organizationId, organizationId))
+    .orderBy(
+      desc(schema.openCodeConnection.isDefault),
+      desc(schema.openCodeConnection.updatedAt)
+    )
+    .get()
+}
 
 const connectionCredential = async (connection: {
   authMethod: string
@@ -183,20 +242,14 @@ export const getOpenCodeSetup = createServerFn({ method: "GET" })
     if (!session) return null
 
     const database = drizzle(env.DB, { schema })
-    const membership = await database
-      .select({ id: schema.member.id })
-      .from(schema.member)
-      .where(
-        and(
-          eq(schema.member.organizationId, data.organizationId),
-          eq(schema.member.userId, session.user.id)
-        )
-      )
-      .get()
+    const membership = await organizationMembership(
+      data.organizationId,
+      session.user.id
+    )
 
     if (!membership) return null
 
-    const connections = await database
+    const organizationConnections = await database
       .select({
         providerId: schema.openCodeConnection.providerId,
         modelId: schema.openCodeConnection.modelId,
@@ -210,13 +263,44 @@ export const getOpenCodeSetup = createServerFn({ method: "GET" })
         desc(schema.openCodeConnection.updatedAt)
       )
 
-    const defaultConnection = connections[0]
+    const personalConnections = await database
+      .select({
+        providerId: schema.userOpenCodeConnection.providerId,
+        modelId: schema.userOpenCodeConnection.modelId,
+        authMethod: schema.userOpenCodeConnection.authMethod,
+        isDefault: schema.userOpenCodeConnection.isDefault,
+      })
+      .from(schema.userOpenCodeConnection)
+      .where(eq(schema.userOpenCodeConnection.userId, session.user.id))
+      .orderBy(
+        desc(schema.userOpenCodeConnection.isDefault),
+        desc(schema.userOpenCodeConnection.updatedAt)
+      )
+
+    const members = await database
+      .select({
+        id: schema.member.id,
+        name: schema.user.name,
+        email: schema.user.email,
+        role: schema.member.role,
+      })
+      .from(schema.member)
+      .innerJoin(schema.user, eq(schema.member.userId, schema.user.id))
+      .where(eq(schema.member.organizationId, data.organizationId))
+      .orderBy(schema.user.name)
+
+    const defaultConnection =
+      personalConnections[0] ?? organizationConnections[0]
 
     return {
       providerId: defaultConnection?.providerId ?? null,
       modelId: defaultConnection?.modelId ?? null,
       authMethod: defaultConnection?.authMethod ?? null,
-      connections,
+      role: membership.role,
+      canManageOrganization: isOrganizationAdmin(membership.role),
+      organizationConnections,
+      personalConnections,
+      members,
     }
   })
 
@@ -227,34 +311,50 @@ export const setDefaultOpenCodeConnection = createServerFn({ method: "POST" })
 
     if (!session) throw new Error("Sign in before choosing a default provider")
 
-    const membership = await organizationMembership(
-      data.organizationId,
-      session.user.id
-    )
-
-    if (!membership) {
-      throw new Error("You cannot configure providers for this Organization")
-    }
+    await connectionAccess(data.organizationId, session.user.id, data.scope)
 
     const database = drizzle(env.DB, { schema })
-    const connection = await database
-      .select({ providerId: schema.openCodeConnection.providerId })
-      .from(schema.openCodeConnection)
-      .where(
-        and(
-          eq(schema.openCodeConnection.organizationId, data.organizationId),
-          eq(schema.openCodeConnection.providerId, data.providerId)
-        )
-      )
-      .get()
+    const connection =
+      data.scope === "organization"
+        ? await database
+            .select({ providerId: schema.openCodeConnection.providerId })
+            .from(schema.openCodeConnection)
+            .where(
+              and(
+                eq(
+                  schema.openCodeConnection.organizationId,
+                  data.organizationId
+                ),
+                eq(schema.openCodeConnection.providerId, data.providerId)
+              )
+            )
+            .get()
+        : await database
+            .select({ providerId: schema.userOpenCodeConnection.providerId })
+            .from(schema.userOpenCodeConnection)
+            .where(
+              and(
+                eq(schema.userOpenCodeConnection.userId, session.user.id),
+                eq(schema.userOpenCodeConnection.providerId, data.providerId)
+              )
+            )
+            .get()
 
     if (!connection) throw new Error("This Provider connection does not exist")
 
-    await env.DB.prepare(
-      "UPDATE open_code_connection SET is_default = CASE WHEN provider_id = ? THEN 1 ELSE 0 END, updated_at = CASE WHEN provider_id = ? THEN unixepoch() ELSE updated_at END WHERE organization_id = ?"
-    )
-      .bind(data.providerId, data.providerId, data.organizationId)
-      .run()
+    if (data.scope === "organization") {
+      await env.DB.prepare(
+        "UPDATE open_code_connection SET is_default = CASE WHEN provider_id = ? THEN 1 ELSE 0 END, updated_at = CASE WHEN provider_id = ? THEN unixepoch() ELSE updated_at END WHERE organization_id = ?"
+      )
+        .bind(data.providerId, data.providerId, data.organizationId)
+        .run()
+    } else {
+      await env.DB.prepare(
+        "UPDATE user_open_code_connection SET is_default = CASE WHEN provider_id = ? THEN 1 ELSE 0 END, updated_at = CASE WHEN provider_id = ? THEN unixepoch() ELSE updated_at END WHERE user_id = ?"
+      )
+        .bind(data.providerId, data.providerId, session.user.id)
+        .run()
+    }
 
     return { providerId: data.providerId }
   })
@@ -294,22 +394,11 @@ export const getWorkspaceCreationContext = createServerFn({ method: "GET" })
 
     if (!project) return null
 
-    const setup = await database
-      .select({
-        providerId: schema.openCodeConnection.providerId,
-        modelId: schema.openCodeConnection.modelId,
-        authMethod: schema.openCodeConnection.authMethod,
-        isDefault: schema.openCodeConnection.isDefault,
-      })
-      .from(schema.openCodeConnection)
-      .where(
-        eq(schema.openCodeConnection.organizationId, project.organizationId)
-      )
-      .orderBy(
-        desc(schema.openCodeConnection.isDefault),
-        desc(schema.openCodeConnection.updatedAt)
-      )
-      .get()
+    const setup = await effectiveConnection(
+      database,
+      project.organizationId,
+      session.user.id
+    )
 
     return {
       project,
@@ -325,17 +414,12 @@ export const saveOpenCodeSetup = createServerFn({ method: "POST" })
     if (!session) throw new Error("Sign in before connecting OpenCode")
 
     const database = drizzle(env.DB, { schema })
-    const membership = await organizationMembership(
-      data.organizationId,
-      session.user.id
-    )
-
-    if (!membership) {
-      throw new Error("You cannot configure OpenCode for this Organization")
-    }
+    await connectionAccess(data.organizationId, session.user.id, data.scope)
 
     const validator = env.WORKSPACES.get(
-      env.WORKSPACES.idFromName(`opencode-setup-${data.organizationId}`)
+      env.WORKSPACES.idFromName(
+        connectionRuntimeName(data.organizationId, session.user.id, data.scope)
+      )
     )
     const validation = await validator.fetch("https://workspace/connect/key", {
       method: "POST",
@@ -350,40 +434,77 @@ export const saveOpenCodeSetup = createServerFn({ method: "POST" })
       env.CREDENTIAL_ENCRYPTION_KEY
     )
     const now = new Date()
-    const existingConnection = await database
-      .select({ providerId: schema.openCodeConnection.providerId })
-      .from(schema.openCodeConnection)
-      .where(eq(schema.openCodeConnection.organizationId, data.organizationId))
-      .get()
+    if (data.scope === "organization") {
+      const existingConnection = await database
+        .select({ providerId: schema.openCodeConnection.providerId })
+        .from(schema.openCodeConnection)
+        .where(
+          eq(schema.openCodeConnection.organizationId, data.organizationId)
+        )
+        .get()
 
-    await database
-      .insert(schema.openCodeConnection)
-      .values({
-        organizationId: data.organizationId,
-        configuredByUserId: session.user.id,
-        providerId: data.providerId,
-        modelId: data.modelId,
-        authMethod: "api-key",
-        isDefault: !existingConnection,
-        encryptedCredential: credential.encrypted,
-        encryptionIv: credential.iv,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoUpdate({
-        target: [
-          schema.openCodeConnection.organizationId,
-          schema.openCodeConnection.providerId,
-        ],
-        set: {
+      await database
+        .insert(schema.openCodeConnection)
+        .values({
+          organizationId: data.organizationId,
           configuredByUserId: session.user.id,
+          providerId: data.providerId,
           modelId: data.modelId,
           authMethod: "api-key",
+          isDefault: !existingConnection,
           encryptedCredential: credential.encrypted,
           encryptionIv: credential.iv,
+          createdAt: now,
           updatedAt: now,
-        },
-      })
+        })
+        .onConflictDoUpdate({
+          target: [
+            schema.openCodeConnection.organizationId,
+            schema.openCodeConnection.providerId,
+          ],
+          set: {
+            configuredByUserId: session.user.id,
+            modelId: data.modelId,
+            authMethod: "api-key",
+            encryptedCredential: credential.encrypted,
+            encryptionIv: credential.iv,
+            updatedAt: now,
+          },
+        })
+    } else {
+      const existingConnection = await database
+        .select({ providerId: schema.userOpenCodeConnection.providerId })
+        .from(schema.userOpenCodeConnection)
+        .where(eq(schema.userOpenCodeConnection.userId, session.user.id))
+        .get()
+
+      await database
+        .insert(schema.userOpenCodeConnection)
+        .values({
+          userId: session.user.id,
+          providerId: data.providerId,
+          modelId: data.modelId,
+          authMethod: "api-key",
+          isDefault: !existingConnection,
+          encryptedCredential: credential.encrypted,
+          encryptionIv: credential.iv,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoUpdate({
+          target: [
+            schema.userOpenCodeConnection.userId,
+            schema.userOpenCodeConnection.providerId,
+          ],
+          set: {
+            modelId: data.modelId,
+            authMethod: "api-key",
+            encryptedCredential: credential.encrypted,
+            encryptionIv: credential.iv,
+            updatedAt: now,
+          },
+        })
+    }
 
     return { providerId: data.providerId, modelId: data.modelId }
   })
@@ -395,17 +516,12 @@ export const startOpenCodeSubscription = createServerFn({ method: "POST" })
 
     if (!session) throw new Error("Sign in before connecting OpenCode")
 
-    const membership = await organizationMembership(
-      data.organizationId,
-      session.user.id
-    )
-
-    if (!membership) {
-      throw new Error("You cannot configure OpenCode for this Organization")
-    }
+    await connectionAccess(data.organizationId, session.user.id, data.scope)
 
     const runtime = env.WORKSPACES.get(
-      env.WORKSPACES.idFromName(`opencode-setup-${data.organizationId}`)
+      env.WORKSPACES.idFromName(
+        connectionRuntimeName(data.organizationId, session.user.id, data.scope)
+      )
     )
     const response = await runtime.fetch("https://workspace/oauth/start", {
       method: "POST",
@@ -434,17 +550,12 @@ export const getOpenCodeSubscriptionStatus = createServerFn({ method: "POST" })
 
     if (!session) throw new Error("Sign in before connecting OpenCode")
 
-    const membership = await organizationMembership(
-      data.organizationId,
-      session.user.id
-    )
-
-    if (!membership) {
-      throw new Error("You cannot configure OpenCode for this Organization")
-    }
+    await connectionAccess(data.organizationId, session.user.id, data.scope)
 
     const runtime = env.WORKSPACES.get(
-      env.WORKSPACES.idFromName(`opencode-setup-${data.organizationId}`)
+      env.WORKSPACES.idFromName(
+        connectionRuntimeName(data.organizationId, session.user.id, data.scope)
+      )
     )
     const response = await runtime.fetch("https://workspace/oauth/status", {
       method: "POST",
@@ -477,40 +588,77 @@ export const getOpenCodeSubscriptionStatus = createServerFn({ method: "POST" })
     )
     const now = new Date()
     const database = drizzle(env.DB, { schema })
-    const existingConnection = await database
-      .select({ providerId: schema.openCodeConnection.providerId })
-      .from(schema.openCodeConnection)
-      .where(eq(schema.openCodeConnection.organizationId, data.organizationId))
-      .get()
+    if (data.scope === "organization") {
+      const existingConnection = await database
+        .select({ providerId: schema.openCodeConnection.providerId })
+        .from(schema.openCodeConnection)
+        .where(
+          eq(schema.openCodeConnection.organizationId, data.organizationId)
+        )
+        .get()
 
-    await database
-      .insert(schema.openCodeConnection)
-      .values({
-        organizationId: data.organizationId,
-        configuredByUserId: session.user.id,
-        providerId: subscriptionProviderId,
-        modelId: data.modelId,
-        authMethod: "chatgpt-subscription",
-        isDefault: !existingConnection,
-        encryptedCredential: encrypted.encrypted,
-        encryptionIv: encrypted.iv,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoUpdate({
-        target: [
-          schema.openCodeConnection.organizationId,
-          schema.openCodeConnection.providerId,
-        ],
-        set: {
+      await database
+        .insert(schema.openCodeConnection)
+        .values({
+          organizationId: data.organizationId,
           configuredByUserId: session.user.id,
+          providerId: subscriptionProviderId,
           modelId: data.modelId,
           authMethod: "chatgpt-subscription",
+          isDefault: !existingConnection,
           encryptedCredential: encrypted.encrypted,
           encryptionIv: encrypted.iv,
+          createdAt: now,
           updatedAt: now,
-        },
-      })
+        })
+        .onConflictDoUpdate({
+          target: [
+            schema.openCodeConnection.organizationId,
+            schema.openCodeConnection.providerId,
+          ],
+          set: {
+            configuredByUserId: session.user.id,
+            modelId: data.modelId,
+            authMethod: "chatgpt-subscription",
+            encryptedCredential: encrypted.encrypted,
+            encryptionIv: encrypted.iv,
+            updatedAt: now,
+          },
+        })
+    } else {
+      const existingConnection = await database
+        .select({ providerId: schema.userOpenCodeConnection.providerId })
+        .from(schema.userOpenCodeConnection)
+        .where(eq(schema.userOpenCodeConnection.userId, session.user.id))
+        .get()
+
+      await database
+        .insert(schema.userOpenCodeConnection)
+        .values({
+          userId: session.user.id,
+          providerId: subscriptionProviderId,
+          modelId: data.modelId,
+          authMethod: "chatgpt-subscription",
+          isDefault: !existingConnection,
+          encryptedCredential: encrypted.encrypted,
+          encryptionIv: encrypted.iv,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoUpdate({
+          target: [
+            schema.userOpenCodeConnection.userId,
+            schema.userOpenCodeConnection.providerId,
+          ],
+          set: {
+            modelId: data.modelId,
+            authMethod: "chatgpt-subscription",
+            encryptedCredential: encrypted.encrypted,
+            encryptionIv: encrypted.iv,
+            updatedAt: now,
+          },
+        })
+    }
 
     return { status: "complete" as const, message: undefined }
   })
@@ -522,17 +670,12 @@ export const cancelOpenCodeSubscription = createServerFn({ method: "POST" })
 
     if (!session) throw new Error("Sign in before connecting OpenCode")
 
-    const membership = await organizationMembership(
-      data.organizationId,
-      session.user.id
-    )
-
-    if (!membership) {
-      throw new Error("You cannot configure OpenCode for this Organization")
-    }
+    await connectionAccess(data.organizationId, session.user.id, data.scope)
 
     const runtime = env.WORKSPACES.get(
-      env.WORKSPACES.idFromName(`opencode-setup-${data.organizationId}`)
+      env.WORKSPACES.idFromName(
+        connectionRuntimeName(data.organizationId, session.user.id, data.scope)
+      )
     )
     const response = await runtime.fetch("https://workspace/oauth/cancel", {
       method: "POST",
@@ -573,19 +716,15 @@ export const createProject = createServerFn({ method: "POST" })
       throw new Error("You are not a member of this organization")
     }
 
-    const connection = await database
-      .select()
-      .from(schema.openCodeConnection)
-      .where(eq(schema.openCodeConnection.organizationId, data.organizationId))
-      .orderBy(
-        desc(schema.openCodeConnection.isDefault),
-        desc(schema.openCodeConnection.updatedAt)
-      )
-      .get()
+    const connection = await effectiveConnection(
+      database,
+      data.organizationId,
+      session.user.id
+    )
 
     if (!connection) {
       throw new Error(
-        "Connect an AI provider for this Organization before creating a Project"
+        "Add a personal or Organization AI connection before creating a Project"
       )
     }
 
@@ -738,21 +877,15 @@ export const createWorkspace = createServerFn({ method: "POST" })
       throw new Error("This Project does not exist or you cannot access it")
     }
 
-    const connection = await database
-      .select()
-      .from(schema.openCodeConnection)
-      .where(
-        eq(schema.openCodeConnection.organizationId, project.organizationId)
-      )
-      .orderBy(
-        desc(schema.openCodeConnection.isDefault),
-        desc(schema.openCodeConnection.updatedAt)
-      )
-      .get()
+    const connection = await effectiveConnection(
+      database,
+      project.organizationId,
+      session.user.id
+    )
 
     if (!connection) {
       throw new Error(
-        "Connect an AI provider for this Organization before creating a Workspace"
+        "Add a personal or Organization AI connection before creating a Workspace"
       )
     }
 
@@ -914,6 +1047,7 @@ export const restartWorkspace = createServerFn({ method: "POST" })
         projectId: schema.workspace.projectId,
         projectName: schema.project.name,
         organizationId: schema.workspace.organizationId,
+        ownerUserId: schema.workspace.ownerUserId,
         repositoryName: schema.workspace.workspaceArtifactRepo,
       })
       .from(schema.workspace)
@@ -935,21 +1069,15 @@ export const restartWorkspace = createServerFn({ method: "POST" })
       throw new Error("This Workspace does not exist or you cannot access it")
     }
 
-    const connection = await database
-      .select()
-      .from(schema.openCodeConnection)
-      .where(
-        eq(schema.openCodeConnection.organizationId, workspace.organizationId)
-      )
-      .orderBy(
-        desc(schema.openCodeConnection.isDefault),
-        desc(schema.openCodeConnection.updatedAt)
-      )
-      .get()
+    const connection = await effectiveConnection(
+      database,
+      workspace.organizationId,
+      workspace.ownerUserId
+    )
 
     if (!connection) {
       throw new Error(
-        "Reconnect an AI provider for this Organization before restarting this Workspace"
+        "The Workspace owner needs a personal or Organization AI connection before this Workspace can restart"
       )
     }
 

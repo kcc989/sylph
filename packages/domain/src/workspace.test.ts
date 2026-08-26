@@ -48,6 +48,7 @@ describe("Project and runtime inputs", () => {
     const project = await Effect.runPromise(
       decodeCreateProjectInput({
         organizationId: "organization-1",
+        scope: "organization",
         name: "Weather desk",
       })
     )
@@ -84,6 +85,7 @@ describe("Project and runtime inputs", () => {
     await expect(
       decodeOpenCodeKeySetupInputPromise({
         organizationId: "organization-1",
+        scope: "user",
         providerId: "opencode",
         modelId: "gpt-5.2-codex",
         apiKey: "",
@@ -94,17 +96,20 @@ describe("Project and runtime inputs", () => {
   test("scopes OpenCode setup to an Organization", async () => {
     const setup = await decodeOpenCodeKeySetupInputPromise({
       organizationId: "organization-1",
+      scope: "user",
       providerId: "opencode",
       modelId: "nemotron-3.5-lightning-free",
       apiKey: "secret",
     })
 
     expect(setup.organizationId).toBe(OrganizationId.make("organization-1"))
+    expect(setup.scope).toBe("user")
   })
 
   test("scopes a default Provider connection to an Organization", async () => {
     const input = await decodeSetDefaultOpenCodeConnectionInputPromise({
       organizationId: "organization-1",
+      scope: "organization",
       providerId: "openai",
     })
 
@@ -115,6 +120,7 @@ describe("Project and runtime inputs", () => {
   test("accepts the default Codex subscription model", async () => {
     const start = await decodeOpenCodeSubscriptionStartInputPromise({
       organizationId: "organization-1",
+      scope: "user",
       modelId: "gpt-5.6-sol",
     })
 
@@ -124,6 +130,7 @@ describe("Project and runtime inputs", () => {
   test("decodes a Codex subscription status request", async () => {
     const status = await decodeOpenCodeSubscriptionStatusInputPromise({
       organizationId: "organization-1",
+      scope: "user",
       attemptId: "attempt-1",
       modelId: "gpt-5.6-terra",
     })
@@ -136,6 +143,7 @@ describe("Project and runtime inputs", () => {
     await expect(
       decodeOpenCodeSubscriptionStartInputPromise({
         organizationId: "organization-1",
+        scope: "user",
         modelId: "gpt-5.5",
       })
     ).rejects.toBeDefined()

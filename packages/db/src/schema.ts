@@ -245,3 +245,26 @@ export const openCodeConnection = sqliteTable(
     index("open_code_connection_organization_id_idx").on(table.organizationId),
   ]
 )
+
+export const userOpenCodeConnection = sqliteTable(
+  "user_open_code_connection",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    providerId: text("provider_id").notNull(),
+    modelId: text("model_id").notNull(),
+    authMethod: text("auth_method").notNull(),
+    isDefault: integer("is_default", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    encryptedCredential: text("encrypted_credential").notNull(),
+    encryptionIv: text("encryption_iv").notNull(),
+    createdAt: timestamp("created_at"),
+    updatedAt: timestamp("updated_at"),
+  },
+  (table) => [
+    primaryKey({ columns: [table.userId, table.providerId] }),
+    index("user_open_code_connection_user_id_idx").on(table.userId),
+  ]
+)
