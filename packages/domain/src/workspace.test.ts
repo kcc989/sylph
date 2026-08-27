@@ -56,6 +56,20 @@ describe("Project and runtime inputs", () => {
     expect(project.name).toBe("Weather desk")
   })
 
+  test("decodes a Project imported from a GitHub branch", async () => {
+    const project = await Effect.runPromise(
+      decodeCreateProjectInput({
+        organizationId: "organization-1",
+        name: "Sylph",
+        sourceRepositoryUrl: "https://github.com/kcc989/Sylph",
+        sourceBranch: "main",
+      })
+    )
+
+    expect(project.sourceRepositoryUrl).toBe("https://github.com/kcc989/Sylph")
+    expect(project.sourceBranch).toBe("main")
+  })
+
   test("rejects an empty workspace file path", async () => {
     await expect(
       decodeWorkspaceWriteFile({ path: "", content: "hello" })
