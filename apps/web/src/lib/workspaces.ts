@@ -2,6 +2,8 @@ import {
   type ConnectionScope,
   decodeCreateWorkspaceInputPromise,
   decodeCreateProjectInputPromise,
+  decodeGitHubApiRepositoryJsonPromise,
+  decodeGitHubRepositoryLookupInputPromise,
   decodeMagicLinkRequest,
   decodeOpenCodeCredentialPromise,
   decodeOpenCodeKeySetupInputPromise,
@@ -17,12 +19,15 @@ import {
   decodeWorkspaceRuntimeHealth,
   encodeWorkspaceRuntimeHealth,
   InitializeWorkspaceRuntime,
+  GitHubRepositoryInfo,
   OpenCodeSubscriptionStatus,
   OrganizationId,
   ProjectId,
   WorkspaceId,
   WorkspaceRuntimeHealth,
+  parseGitHubRepositoryUrl,
 } from "@workspace/domain"
+import { Effect } from "effect"
 import { schema } from "@workspace/db"
 import { createServerFn } from "@tanstack/react-start"
 import { getRequest } from "@tanstack/react-start/server"
@@ -730,6 +735,65 @@ export const cancelOpenCodeSubscription = createServerFn({ method: "POST" })
     if (!response.ok) throw new Error(await response.text())
   })
 
+export const lookupGitHubRepository = createServerFn({ method: "POST" })
+  .validator((input) => decodeGitHubRepositoryLookupInputPromise(input))
+  .handler(async ({ data }) => {
+    const { session } = await currentSession(getRequest())
+
+    if (!session) throw new Error("Sign in before importing a repository")
+
+    const membership = await organizationMembership(
+      data.organizationId,
+      session.user.id
+    )
+
+    if (!membership) {
+      throw new Error("You are not a member of this Organization")
+    }
+
+    const location = await Effect.runPromise(parseGitHubRepositoryUrl(data.url))
+    const response = await fetch(
+      `https://api.github.com/repos/${location.owner}/${location.name}`,
+      {
+        headers: {
+          Accept: "application/vnd.github+json",
+          "User-Agent": "Sylph",
+          "X-GitHub-Api-Version": "2022-11-28",
+        },
+      }
+    )
+
+    if (response.status === 404) {
+      throw new Error(
+        "Repository not found. Private repositories need a GitHub connection."
+      )
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        "GitHub could not load this repository. Try again shortly."
+      )
+    }
+
+    const repository = await decodeGitHubApiRepositoryJsonPromise(
+      await response.text()
+    )
+
+    return new GitHubRepositoryInfo({
+      owner: repository.owner.login,
+      name: repository.name,
+      fullName: repository.full_name,
+      description: repository.description,
+      visibility: repository.private ? "private" : "public",
+      defaultBranch: repository.default_branch,
+      stars: repository.stargazers_count,
+      language: repository.language,
+      updatedAt: repository.updated_at,
+      url: repository.html_url,
+      ownerAvatarUrl: repository.owner.avatar_url,
+    })
+  })
+
 export const createProject = createServerFn({ method: "POST" })
   .validator((input) => decodeCreateProjectInputPromise(input))
   .handler(async ({ data }) => {
@@ -774,6 +838,19 @@ export const createProject = createServerFn({ method: "POST" })
 
     const credential = await connectionCredential(connection)
 
+    if (!data.sourceRepositoryUrl && data.sourceBranch) {
+      throw new Error("A source branch requires a GitHub Repository URL")
+    }
+
+    const sourceRepository = data.sourceRepositoryUrl
+      ? await Effect.runPromise(
+          parseGitHubRepositoryUrl(data.sourceRepositoryUrl)
+        )
+      : undefined
+    const sourceRepositoryUrl = sourceRepository
+      ? `https://github.com/${sourceRepository.owner}/${sourceRepository.name}`
+      : undefined
+
     const projectSlug = normalizeName(data.name)
     const requestedRepositoryName = projectSlug
 
@@ -782,10 +859,21 @@ export const createProject = createServerFn({ method: "POST" })
     }
 
     const repositoryName = `${membership.organizationSlug}-${requestedRepositoryName}`
-    const artifact = await env.REPOS.create(repositoryName, {
-      description: `${data.name} created by Sylph`,
-      setDefaultBranch: "main",
-    })
+    const artifact = sourceRepositoryUrl
+      ? await env.REPOS.import({
+          source: {
+            url: sourceRepositoryUrl,
+            branch: data.sourceBranch,
+          },
+          target: {
+            name: repositoryName,
+            opts: { description: `${data.name} imported by Sylph` },
+          },
+        })
+      : await env.REPOS.create(repositoryName, {
+          description: `${data.name} created by Sylph`,
+          setDefaultBranch: "main",
+        })
     const projectId = ProjectId.make(crypto.randomUUID())
     const workspaceId = WorkspaceId.make(crypto.randomUUID())
     const workspaceRepositoryName = `${repositoryName.slice(0, 44)}-${workspaceId.replaceAll("-", "").slice(0, 12)}`
@@ -809,6 +897,8 @@ export const createProject = createServerFn({ method: "POST" })
       artifactRepo: artifact.name,
       artifactRemote: artifact.remote,
       defaultBranch: artifact.defaultBranch,
+      importOriginUrl: sourceRepositoryUrl,
+      importOriginBranch: data.sourceBranch,
       createdAt: now,
       updatedAt: now,
     })

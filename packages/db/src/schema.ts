@@ -181,6 +181,8 @@ export const project = sqliteTable(
     artifactRepo: text("artifact_repo").notNull(),
     artifactRemote: text("artifact_remote").notNull(),
     defaultBranch: text("default_branch").notNull().default("main"),
+    importOriginUrl: text("import_origin_url"),
+    importOriginBranch: text("import_origin_branch"),
     createdAt: timestamp("created_at"),
     updatedAt: timestamp("updated_at"),
   },

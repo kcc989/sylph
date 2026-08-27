@@ -28,6 +28,8 @@ export class CreateProjectInput extends Schema.Class<CreateProjectInput>(
 )({
   organizationId: OrganizationId,
   name: Schema.NonEmptyString,
+  sourceRepositoryUrl: Schema.optional(Schema.NonEmptyString),
+  sourceBranch: Schema.optional(Schema.NonEmptyString),
 }) {}
 
 export class CreateWorkspaceInput extends Schema.Class<CreateWorkspaceInput>(
