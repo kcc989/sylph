@@ -253,7 +253,7 @@ Changes, Checks, and Review are independent peer tabs. Code renders with Pierre 
 
 ### Do:
 
-- **Do** preserve the Organization → Project → nested Workspace hierarchy, with the contained Repository visible as metadata, and keep it persistent on desktop.
+- **Do** preserve the Project → nested Workspace hierarchy, with the contained Repository visible as metadata, and keep it persistent on desktop.
 - **Do** open Chat by default and keep Browser, Changes, Checks, Review, and Terminal as peer work tabs.
 - **Do** use coral as a narrow selection/action cue and aqua as a labeled live-state cue.
 - **Do** keep app chrome compact, keyboard-visible, and structured by fine separators.

@@ -6,7 +6,7 @@ import {
   type ThreadEntry,
   WorkspaceShell,
 } from "@workspace/ui/components/workspace-shell"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import { validateOnboardingSearch } from "@/lib/onboarding"
 import {
@@ -19,17 +19,18 @@ import {
 } from "@/lib/workspaces"
 
 export const Route = createFileRoute(
-  "/organizations/$organizationSlug/projects/$projectSlug/workspaces/$workspaceId"
+  "/projects/$projectSlug/workspaces/$workspaceId"
 )({
   validateSearch: validateOnboardingSearch,
+  staleTime: 30_000,
   loader: async ({ params }) => {
-    const dashboard = await getDashboard()
-    const result = await getWorkspace({
-      data: { workspaceId: params.workspaceId },
-    })
-    const matches =
-      result?.workspace.projectSlug === params.projectSlug &&
-      result.workspace.organizationSlug === params.organizationSlug
+    const [dashboard, result] = await Promise.all([
+      getDashboard(),
+      getWorkspace({
+        data: { workspaceId: params.workspaceId },
+      }),
+    ])
+    const matches = result?.workspace.projectSlug === params.projectSlug
     return { dashboard, result: matches ? result : null }
   },
   component: WorkspaceScreen,
@@ -51,6 +52,31 @@ function WorkspaceScreen() {
   const [acceptKey, setAcceptKey] = useState(() => crypto.randomUUID())
   const [restartPending, setRestartPending] = useState(false)
   const [promptError, setPromptError] = useState<string | null>(null)
+  const [selectedModel, setSelectedModel] = useState(
+    result?.selectedModel ?? null
+  )
+  const modelSelectionChanged = useRef(false)
+  const modelSelectionWorkspaceId = useRef(workspaceId)
+  const [modelNotice, setModelNotice] = useState(result?.modelNotice ?? null)
+
+  useEffect(() => {
+    const workspaceChanged = modelSelectionWorkspaceId.current !== workspaceId
+
+    if (workspaceChanged) {
+      modelSelectionWorkspaceId.current = workspaceId
+      modelSelectionChanged.current = false
+    }
+
+    if (workspaceChanged || !modelSelectionChanged.current) {
+      setSelectedModel(result?.selectedModel ?? null)
+      setModelNotice(result?.modelNotice ?? null)
+    }
+  }, [
+    result?.modelNotice,
+    result?.selectedModel?.modelId,
+    result?.selectedModel?.providerId,
+    workspaceId,
+  ])
 
   useEffect(() => {
     if (
@@ -169,7 +195,14 @@ function WorkspaceScreen() {
           ? "Make one small, useful improvement to this starter project. Explain the change, write the files, and leave it ready for review."
           : undefined
       }
-      model={runtime.model}
+      models={result.models}
+      selectedModel={selectedModel}
+      modelNotice={modelNotice}
+      onModelChange={(model) => {
+        modelSelectionChanged.current = true
+        setSelectedModel(model)
+        setModelNotice(null)
+      }}
       onAccept={
         result.versionControl.branch.length > 0 &&
         workspace.status !== "merging" &&
@@ -214,12 +247,15 @@ function WorkspaceScreen() {
           setCheckpointPending(false)
         }
       }}
-      onSubmitPrompt={async (text) => {
+      onSubmitPrompt={async (text, model) => {
         setPromptPending(true)
         setPromptError(null)
 
         try {
-          await prompt({ data: { workspaceId, text } })
+          const response = await prompt({ data: { workspaceId, text, model } })
+          modelSelectionChanged.current = false
+          setSelectedModel(response.selectedModel)
+          setModelNotice(response.modelNotice)
           await router.invalidate()
         } catch (cause) {
           setPromptError(
@@ -235,14 +271,14 @@ function WorkspaceScreen() {
         id: project.id,
         name: project.name,
         repositoryName: project.repositoryName,
-        newWorkspaceHref: `/organizations/${encodeURIComponent(project.organizationSlug)}/projects/${encodeURIComponent(project.slug)}/workspaces/new`,
-        settingsHref: `/organizations/${encodeURIComponent(project.organizationSlug)}/projects/${encodeURIComponent(project.slug)}/settings`,
+        newWorkspaceHref: `/projects/${encodeURIComponent(project.slug)}/workspaces/new`,
+        settingsHref: `/projects/${encodeURIComponent(project.slug)}/settings`,
         workspaces: dashboard.workspaces
           .filter((item) => item.projectId === project.id)
           .map((item) => ({
             id: item.id,
             name: item.title,
-            href: `/organizations/${encodeURIComponent(project.organizationSlug)}/projects/${encodeURIComponent(project.slug)}/workspaces/${encodeURIComponent(item.id)}`,
+            href: `/projects/${encodeURIComponent(project.slug)}/workspaces/${encodeURIComponent(item.id)}`,
             branch: project.defaultBranch,
             status:
               item.status === "error"

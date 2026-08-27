@@ -1,6 +1,7 @@
 "use client"
 
 import { Button } from "@workspace/ui/components/button"
+import { cn } from "@workspace/ui/lib/utils"
 import { Check, ChevronRight, Circle, X } from "lucide-react"
 import { useEffect, useState } from "react"
 
@@ -8,15 +9,16 @@ import { getOnboardingState, type OnboardingStatus } from "@/lib/onboarding"
 
 type OnboardingGuideProps = {
   force?: boolean
+  focused?: boolean
   hasPersonalProvider: boolean
-  organizations: ReadonlyArray<{ id: string; slug: string }>
+  organizations: ReadonlyArray<{ id: string }>
   projects: ReadonlyArray<{
     id: string
     organizationId: string
-    organizationSlug: string
     slug: string
   }>
   providerOrganizationIds: ReadonlyArray<string>
+  onVisibilityChange?: (visible: boolean) => void
   userId: string
   workspaces: ReadonlyArray<{ id: string; projectId: string }>
 }
@@ -36,10 +38,12 @@ const StepIcon = ({ status }: { status: OnboardingStatus }) =>
 
 export function OnboardingGuide({
   force = false,
+  focused = false,
   hasPersonalProvider,
   organizations,
   projects,
   providerOrganizationIds,
+  onVisibilityChange,
   userId,
   workspaces,
 }: OnboardingGuideProps) {
@@ -55,48 +59,46 @@ export function OnboardingGuide({
   useEffect(() => {
     if (force) {
       setVisible(true)
+      onVisibilityChange?.(true)
       return
     }
 
     try {
-      setVisible(
+      const nextVisible =
         window.localStorage.getItem(storageKey(userId)) !== "dismissed"
-      )
+      setVisible(nextVisible)
+      onVisibilityChange?.(nextVisible)
     } catch {
       setVisible(true)
+      onVisibilityChange?.(true)
     }
-  }, [force, userId])
+  }, [force, onVisibilityChange, userId])
 
   if (!visible) return null
 
-  const organization = state.organization
   const project = state.project
   const workspace = state.workspace
   const workspaceHref =
-    organization && project && workspace
-      ? `/organizations/${encodeURIComponent(project.organizationSlug)}/projects/${encodeURIComponent(project.slug)}/workspaces/${encodeURIComponent(workspace.id)}?onboarding=1`
+    project && workspace
+      ? `/projects/${encodeURIComponent(project.slug)}/workspaces/${encodeURIComponent(workspace.id)}?onboarding=1`
       : null
   const steps = [
     {
-      title: "Create an Organization",
-      body: "Give Repositories, Workspaces, and shared connections a home.",
-      href: "/organizations/new?onboarding=1",
-      action: "Create Organization",
+      title: "Claim the Installation",
+      body: "Create the default Organization and establish its first Admin.",
+      href: "/setup?onboarding=1",
+      action: "Claim Installation",
     },
     {
       title: "Connect an OpenCode provider",
       body: "Choose a Codex subscription or an OpenCode Zen API key.",
-      href: organization
-        ? `/organizations/${encodeURIComponent(organization.slug)}/settings?onboarding=1`
-        : null,
+      href: state.organization ? "/admin?onboarding=1" : null,
       action: "Connect provider",
     },
     {
       title: "Create your first Workspace",
       body: "Create a Project and Sylph will open its first durable Workspace.",
-      href: organization
-        ? `/organizations/${encodeURIComponent(organization.slug)}/projects/new?onboarding=1`
-        : null,
+      href: state.organization ? "/projects/new?onboarding=1" : null,
       action: "Create Workspace",
     },
     {
@@ -114,10 +116,14 @@ export function OnboardingGuide({
       return
     }
     setVisible(false)
+    onVisibilityChange?.(false)
   }
 
   return (
-    <section className="mb-9 border-y" aria-labelledby="onboarding-title">
+    <section
+      className={cn("border-y", !focused && "mb-9")}
+      aria-labelledby="onboarding-title"
+    >
       <header className="flex items-start gap-5 border-b py-5">
         <div className="min-w-0 flex-1">
           <h2

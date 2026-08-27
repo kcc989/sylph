@@ -10,17 +10,18 @@ import {
   CircleDot,
   Code2,
   LoaderCircle,
+  LogOut,
   Mail,
   MoreHorizontal,
   Plus,
   RefreshCw,
 } from "lucide-react"
-import { type ComponentProps, type FormEvent, useState } from "react"
+import { type ComponentProps, type FormEvent, useEffect, useState } from "react"
 
 import { authClient } from "@/lib/auth-client"
 import { AppShell, SylphMark } from "@/components/app-shell"
 import { OnboardingGuide } from "@/components/onboarding-guide"
-import { validateOnboardingSearch } from "@/lib/onboarding"
+import { getOnboardingState, validateOnboardingSearch } from "@/lib/onboarding"
 import {
   getDashboard,
   getLatestMagicLink,
@@ -43,6 +44,19 @@ function HomeScreen() {
   const [restartingId, setRestartingId] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [magicLink, setMagicLink] = useState<string | null>(null)
+  const onboardingState = getOnboardingState({
+    organizations: dashboard.organizations,
+    projects: dashboard.projects,
+    workspaces: dashboard.workspaces,
+    providerOrganizationIds: dashboard.providerOrganizationIds,
+    hasPersonalProvider: dashboard.hasPersonalProvider,
+  })
+  const needsOnboarding = onboardingState.completedCount < 3
+  const [onboardingVisible, setOnboardingVisible] = useState(needsOnboarding)
+
+  useEffect(() => {
+    if (!needsOnboarding) setOnboardingVisible(false)
+  }, [needsOnboarding])
 
   const handleMagicLink = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -118,31 +132,41 @@ function HomeScreen() {
               Sign in to your workspaces
             </h2>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Continue with GitHub or use a magic link.
+              Authenticate with a method configured by this Installation.
             </p>
-            <form className="mt-8 grid gap-4" onSubmit={handleMagicLink}>
-              <Field
-                label="Email"
-                name="email"
-                type="email"
-                placeholder="you@example.com"
-              />
-              <Button type="submit" disabled={pending}>
-                {pending ? <LoaderCircle className="animate-spin" /> : <Mail />}
-                Send magic link
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() =>
-                  authClient.signIn.social({
-                    provider: "github",
-                    callbackURL: "/",
-                  })
-                }
-              >
-                <Code2 /> Continue with GitHub
-              </Button>
+            <div className="mt-8 grid gap-4">
+              {dashboard.authentication.testMagicLinks ? (
+                <form className="grid gap-4" onSubmit={handleMagicLink}>
+                  <Field
+                    label="Email"
+                    name="email"
+                    type="email"
+                    placeholder="you@example.com"
+                  />
+                  <Button type="submit" disabled={pending}>
+                    {pending ? (
+                      <LoaderCircle className="animate-spin" />
+                    ) : (
+                      <Mail />
+                    )}
+                    Send test magic link
+                  </Button>
+                </form>
+              ) : null}
+              {dashboard.authentication.github ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() =>
+                    authClient.signIn.social({
+                      provider: "github",
+                      callbackURL: "/",
+                    })
+                  }
+                >
+                  <Code2 /> Continue with GitHub
+                </Button>
+              ) : null}
               {magicLink ? (
                 <a
                   href={magicLink}
@@ -151,7 +175,14 @@ function HomeScreen() {
                   Open local test magic link
                 </a>
               ) : null}
-            </form>
+              {!dashboard.authentication.github &&
+              !dashboard.authentication.testMagicLinks ? (
+                <p className="border-y py-4 text-sm leading-6 text-muted-foreground">
+                  Authentication is not configured. Finish the Installation
+                  setup and redeploy Sylph.
+                </p>
+              ) : null}
+            </div>
           </div>
         </section>
         {message ? <StatusToast message={message} /> : null}
@@ -161,18 +192,88 @@ function HomeScreen() {
 
   const firstOrganization = dashboard.organizations[0]
 
+  if (!firstOrganization) {
+    return (
+      <main className="relative grid min-h-svh place-items-center bg-background px-6 py-20">
+        <div className="absolute top-6 left-6 flex items-center gap-2.5">
+          <div className="grid size-8 place-items-center rounded-[7px] bg-[#f0a087] text-[#241613]">
+            <SylphMark className="size-4" />
+          </div>
+          <span className="text-sm font-semibold">Sylph</span>
+        </div>
+        <section className="w-full max-w-lg border-y py-8">
+          <h1 className="text-2xl font-semibold tracking-[-0.03em]">
+            {dashboard.installation.claimed
+              ? "You need an invitation"
+              : "Claim this Installation"}
+          </h1>
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">
+            {dashboard.installation.claimed
+              ? "An Admin must invite your email address before you can access Projects and Workspaces."
+              : "The first operator creates the default Organization and becomes its Admin using the claim secret generated during deployment."}
+          </p>
+          {dashboard.installation.claimed ? (
+            <Button
+              type="button"
+              className="mt-6"
+              variant="outline"
+              onClick={async () => {
+                await authClient.signOut()
+                await router.invalidate()
+              }}
+            >
+              <LogOut /> Return to sign in
+            </Button>
+          ) : (
+            <Button
+              nativeButton={false}
+              className="mt-6"
+              render={<Link to="/setup" />}
+            >
+              Claim Installation <ChevronRight />
+            </Button>
+          )}
+        </section>
+      </main>
+    )
+  }
+
+  const onboardingGuide = (
+    <OnboardingGuide
+      force={onboarding}
+      focused={needsOnboarding && onboardingVisible}
+      hasPersonalProvider={dashboard.hasPersonalProvider}
+      organizations={dashboard.organizations}
+      projects={dashboard.projects}
+      providerOrganizationIds={dashboard.providerOrganizationIds}
+      onVisibilityChange={setOnboardingVisible}
+      userId={dashboard.user.id}
+      workspaces={dashboard.workspaces}
+    />
+  )
+
+  if (needsOnboarding && onboardingVisible) {
+    return (
+      <main className="flex min-h-svh flex-col bg-background text-foreground">
+        <header className="flex h-12 shrink-0 items-center gap-2.5 border-b px-4 sm:px-6">
+          <div className="grid size-7 place-items-center rounded-[6px] border border-white/10 bg-primary text-primary-foreground">
+            <SylphMark className="size-4" />
+          </div>
+          <span className="text-sm font-semibold">Sylph</span>
+          <span className="text-muted-foreground">/</span>
+          <span className="text-xs text-muted-foreground">Getting started</span>
+        </header>
+        <div className="mx-auto flex w-full max-w-3xl flex-1 items-start px-5 py-12 sm:items-center sm:px-8 sm:py-16">
+          {onboardingGuide}
+        </div>
+      </main>
+    )
+  }
+
   return (
     <AppShell active="home" dashboard={dashboard} topbar="Projects">
       <div className="mx-auto max-w-5xl px-4 py-8 sm:px-8 sm:py-12">
-        <OnboardingGuide
-          force={onboarding}
-          hasPersonalProvider={dashboard.hasPersonalProvider}
-          organizations={dashboard.organizations}
-          projects={dashboard.projects}
-          providerOrganizationIds={dashboard.providerOrganizationIds}
-          userId={dashboard.user.id}
-          workspaces={dashboard.workspaces}
-        />
+        {onboardingGuide}
         <div className="flex items-center justify-between gap-5 border-b pb-7">
           <h1 className="text-3xl font-semibold tracking-[-0.03em]">
             Projects
@@ -181,11 +282,9 @@ function HomeScreen() {
             nativeButton={false}
             render={
               firstOrganization ? (
-                <a
-                  href={`/organizations/${encodeURIComponent(firstOrganization.slug)}/projects/new`}
-                />
+                <a href="/projects/new" />
               ) : (
-                <Link to="/organizations/new" />
+                <Link to="/setup" />
               )
             }
           >
@@ -199,7 +298,7 @@ function HomeScreen() {
               const workspaces = dashboard.workspaces.filter(
                 (workspace) => workspace.projectId === project.id
               )
-              const basePath = `/organizations/${encodeURIComponent(project.organizationSlug)}/projects/${encodeURIComponent(project.slug)}`
+              const basePath = `/projects/${encodeURIComponent(project.slug)}`
 
               return (
                 <section key={project.id} className="py-5">

@@ -25,16 +25,11 @@ import {
   lookupGitHubRepository,
 } from "@/lib/workspaces"
 
-export const Route = createFileRoute(
-  "/organizations/$organizationSlug/projects/new"
-)({
+export const Route = createFileRoute("/projects/new")({
   validateSearch: validateOnboardingSearch,
-  loader: async ({ params }) => {
+  loader: async () => {
     const dashboard = await getDashboard()
-    const organization =
-      dashboard.organizations.find(
-        (candidate) => candidate.slug === params.organizationSlug
-      ) ?? null
+    const organization = dashboard.organizations[0] ?? null
     const setup = organization
       ? await getOpenCodeSetup({ data: { organizationId: organization.id } })
       : null
@@ -67,9 +62,9 @@ function NewProjectScreen() {
           <Button
             nativeButton={false}
             className="mt-5"
-            render={<Link to="/organizations" />}
+            render={<Link to="/" />}
           >
-            Return to Organizations
+            Return to Projects
           </Button>
         </div>
       </main>
@@ -119,9 +114,8 @@ function NewProjectScreen() {
         },
       })
       await navigate({
-        to: "/organizations/$organizationSlug/projects/$projectSlug/workspaces/$workspaceId",
+        to: "/projects/$projectSlug/workspaces/$workspaceId",
         params: {
-          organizationSlug: result.organizationSlug,
           projectSlug: result.projectSlug,
           workspaceId: result.id,
         },
@@ -140,19 +134,14 @@ function NewProjectScreen() {
   const needsSetup = !setup?.providerId
 
   return (
-    <AppShell
-      active="home"
-      dashboard={dashboard}
-      organizationSlug={organization.slug}
-      topbar="New project"
-    >
+    <AppShell active="home" dashboard={dashboard} topbar="New project">
       <main className="px-5 py-10">
         <div className="mx-auto w-full max-w-xl">
           <Link
-            to="/organizations"
+            to="/"
             className="mb-5 inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
           >
-            <ArrowLeft className="size-4" /> Organizations
+            <ArrowLeft className="size-4" /> Projects
           </Link>
           {needsSetup ? (
             <section className="border-y py-8">
@@ -166,13 +155,7 @@ function NewProjectScreen() {
               <Button
                 nativeButton={false}
                 className="mt-6"
-                render={
-                  <Link
-                    to="/organizations/$organizationSlug/settings"
-                    params={{ organizationSlug: organization.slug }}
-                    search={{ onboarding }}
-                  />
-                }
+                render={<Link to="/admin" search={{ onboarding }} />}
               >
                 Open Organization settings <ArrowRight />
               </Button>
@@ -198,13 +181,7 @@ function NewProjectScreen() {
                     nativeButton={false}
                     variant="ghost"
                     size="sm"
-                    render={
-                      <Link
-                        to="/organizations/$organizationSlug/settings"
-                        params={{ organizationSlug: organization.slug }}
-                        search={{ onboarding }}
-                      />
-                    }
+                    render={<Link to="/admin" search={{ onboarding }} />}
                   >
                     Change
                   </Button>

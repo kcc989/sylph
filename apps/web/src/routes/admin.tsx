@@ -1,23 +1,26 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router"
 import { useServerFn } from "@tanstack/react-start"
-import type {
-  ConnectionScope,
-  OpenCodeSubscriptionModel,
-} from "@workspace/domain"
+import type { ConnectionScope } from "@workspace/domain"
 import { Button } from "@workspace/ui/components/button"
+import {
+  decodeModelOption,
+  encodeModelOption,
+} from "@workspace/ui/lib/model-option"
 import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
 import {
   ArrowRight,
-  Check,
+  Copy,
   ExternalLink,
   LoaderCircle,
+  MailPlus,
   Plus,
   RefreshCw,
 } from "lucide-react"
 import { type FormEvent, useEffect, useState } from "react"
 
 import { AppShell } from "@/components/app-shell"
+import { authClient } from "@/lib/auth-client"
 import { validateOnboardingSearch } from "@/lib/onboarding"
 import {
   cancelOpenCodeSubscription,
@@ -25,20 +28,15 @@ import {
   getOpenCodeSubscriptionStatus,
   getOpenCodeSetup,
   saveOpenCodeSetup,
-  setDefaultOpenCodeConnection,
+  setDefaultModel,
   startOpenCodeSubscription,
 } from "@/lib/workspaces"
 
-export const Route = createFileRoute(
-  "/organizations/$organizationSlug/settings"
-)({
+export const Route = createFileRoute("/admin")({
   validateSearch: validateOnboardingSearch,
-  loader: async ({ params }) => {
+  loader: async () => {
     const dashboard = await getDashboard()
-    const organization =
-      dashboard.organizations.find(
-        (candidate) => candidate.slug === params.organizationSlug
-      ) ?? null
+    const organization = dashboard.organizations[0] ?? null
     const setup = organization
       ? await getOpenCodeSetup({ data: { organizationId: organization.id } })
       : null
@@ -52,33 +50,6 @@ export const Route = createFileRoute(
   component: OrganizationSettingsScreen,
 })
 
-const subscriptionModels: ReadonlyArray<{
-  id: OpenCodeSubscriptionModel
-  name: string
-  description: string
-}> = [
-  {
-    id: "gpt-5.6-sol",
-    name: "GPT-5.6 Sol",
-    description: "Highest capability for complex coding work",
-  },
-  {
-    id: "gpt-5.6-terra",
-    name: "GPT-5.6 Terra",
-    description: "Balanced intelligence, speed, and cost",
-  },
-  {
-    id: "gpt-5.6-luna",
-    name: "GPT-5.6 Luna",
-    description: "Fast and economical for everyday tasks",
-  },
-]
-
-const isSubscriptionModel = (
-  modelId: string | null | undefined
-): modelId is OpenCodeSubscriptionModel =>
-  subscriptionModels.some((model) => model.id === modelId)
-
 const providerName = (providerId: string) =>
   providerId === "openai"
     ? "OpenAI"
@@ -89,7 +60,7 @@ const providerName = (providerId: string) =>
 const authMethodName = (authMethod: string) =>
   authMethod === "chatgpt-subscription" ? "Codex subscription" : "API key"
 
-type SetupFlow = "list" | "choose" | "openai" | "subscription" | "key" | "model"
+type SetupFlow = "list" | "choose" | "openai" | "subscription" | "key"
 
 function OrganizationSettingsScreen() {
   const { dashboard, organization, setup } = Route.useLoaderData()
@@ -97,7 +68,7 @@ function OrganizationSettingsScreen() {
   const organizationId = organization?.id ?? ""
   const router = useRouter()
   const saveSetup = useServerFn(saveOpenCodeSetup)
-  const setDefaultConnection = useServerFn(setDefaultOpenCodeConnection)
+  const saveDefaultModel = useServerFn(setDefaultModel)
   const startSubscription = useServerFn(startOpenCodeSubscription)
   const subscriptionStatus = useServerFn(getOpenCodeSubscriptionStatus)
   const cancelSubscription = useServerFn(cancelOpenCodeSubscription)
@@ -110,23 +81,12 @@ function OrganizationSettingsScreen() {
       : (setup?.personalConnections ?? [])
   const [flow, setFlow] = useState<SetupFlow>("list")
   const [apiKey, setApiKey] = useState("")
-  const [apiModelId, setApiModelId] = useState(
-    connections.find((connection) => connection.providerId === "opencode")
-      ?.modelId ?? "nemotron-3.5-lightning-free"
-  )
-  const [subscriptionModelId, setSubscriptionModelId] = useState(
-    (() => {
-      const modelId = connections.find(
-        (connection) => connection.providerId === "openai"
-      )?.modelId
-      return isSubscriptionModel(modelId) ? modelId : "gpt-5.6-sol"
-    })()
-  )
   const [pending, setPending] = useState(false)
-  const [pendingProviderId, setPendingProviderId] = useState<string | null>(
-    null
-  )
+  const [defaultPending, setDefaultPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [invitePending, setInvitePending] = useState(false)
+  const [inviteError, setInviteError] = useState<string | null>(null)
+  const [invitationUrl, setInvitationUrl] = useState<string | null>(null)
   const [attempt, setAttempt] = useState<{
     attemptId: string
     url: string
@@ -145,7 +105,6 @@ function OrganizationSettingsScreen() {
             organizationId,
             scope,
             attemptId: attempt.attemptId,
-            modelId: subscriptionModelId,
           },
         })
 
@@ -156,9 +115,7 @@ function OrganizationSettingsScreen() {
           setAttempt(null)
           await router.invalidate()
           if (onboarding && organization) {
-            window.location.assign(
-              `/organizations/${encodeURIComponent(organization.slug)}/projects/new?onboarding=1`
-            )
+            window.location.assign("/projects/new?onboarding=1")
           }
           return
         }
@@ -199,21 +156,20 @@ function OrganizationSettingsScreen() {
     organization,
     router,
     scope,
-    subscriptionModelId,
     subscriptionStatus,
   ])
 
-  if (!organization) {
+  if (!organization || !dashboard.installation.canAdminister) {
     return (
       <main className="grid min-h-svh place-items-center bg-background px-5 text-foreground">
         <div className="text-center">
-          <h1 className="text-lg font-semibold">Organization unavailable</h1>
+          <h1 className="text-lg font-semibold">Administration unavailable</h1>
           <Button
             nativeButton={false}
             className="mt-5"
-            render={<Link to="/organizations" />}
+            render={<Link to="/" />}
           >
-            Return to Organizations
+            Return to Projects
           </Button>
         </div>
       </main>
@@ -228,11 +184,6 @@ function OrganizationSettingsScreen() {
 
   const handleApiSetup = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (flow === "key") {
-      setFlow("model")
-      return
-    }
-
     setPending(true)
     setError(null)
     try {
@@ -241,16 +192,13 @@ function OrganizationSettingsScreen() {
           organizationId,
           scope,
           providerId: "opencode",
-          modelId: apiModelId,
           apiKey,
         },
       })
       returnToList()
       await router.invalidate()
       if (onboarding) {
-        window.location.assign(
-          `/organizations/${encodeURIComponent(organization.slug)}/projects/new?onboarding=1`
-        )
+        window.location.assign("/projects/new?onboarding=1")
       }
     } catch (cause) {
       setError(
@@ -268,7 +216,7 @@ function OrganizationSettingsScreen() {
     setError(null)
     try {
       const nextAttempt = await startSubscription({
-        data: { organizationId, scope, modelId: subscriptionModelId },
+        data: { organizationId, scope },
       })
       setAttempt(nextAttempt)
       setFlow("subscription")
@@ -295,7 +243,6 @@ function OrganizationSettingsScreen() {
           organizationId,
           scope,
           attemptId: currentAttempt.attemptId,
-          modelId: subscriptionModelId,
         },
       })
     } catch (cause) {
@@ -307,42 +254,51 @@ function OrganizationSettingsScreen() {
     }
   }
 
-  const handleDefault = async (providerId: string) => {
-    setPendingProviderId(providerId)
-    setError(null)
-    try {
-      await setDefaultConnection({
-        data: { organizationId, scope, providerId },
-      })
-      await router.invalidate()
-    } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "Could not change the default provider"
-      )
-    } finally {
-      setPendingProviderId(null)
-    }
-  }
-
-  const reconnect = (providerId: string, modelId: string) => {
+  const reconnect = (providerId: string) => {
     setError(null)
     if (providerId === "openai") {
-      if (isSubscriptionModel(modelId)) setSubscriptionModelId(modelId)
       setFlow("openai")
       return
     }
-    setApiModelId(modelId)
     setFlow("key")
+  }
+
+  const handleInvite = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setInvitePending(true)
+    setInviteError(null)
+    setInvitationUrl(null)
+    const form = new FormData(event.currentTarget)
+    const result = await authClient.organization.inviteMember({
+      email: String(form.get("email")),
+      role: "member",
+      organizationId,
+    })
+
+    if (result.error) {
+      setInviteError(
+        result.error.message ?? "The invitation could not be created"
+      )
+      setInvitePending(false)
+      return
+    }
+
+    setInvitationUrl(
+      new URL(
+        `/invite/${encodeURIComponent(result.data.id)}`,
+        window.location.origin
+      ).toString()
+    )
+    event.currentTarget.reset()
+    setInvitePending(false)
+    await router.invalidate()
   }
 
   return (
     <AppShell
-      active="organizations"
+      active="admin"
       dashboard={dashboard}
-      organizationSlug={organization.slug}
-      topbar={`${organization.name} settings`}
+      topbar="Installation administration"
     >
       <div className="mx-auto w-full max-w-3xl px-5 py-8 sm:px-8 sm:py-10">
         <Button
@@ -350,9 +306,7 @@ function OrganizationSettingsScreen() {
           className="mb-6"
           size="sm"
           render={
-            <a
-              href={`/organizations/${encodeURIComponent(organization.slug)}/projects/new${onboarding ? "?onboarding=1" : ""}`}
-            />
+            <a href={`/projects/new${onboarding ? "?onboarding=1" : ""}`} />
           }
         >
           <Plus />{" "}
@@ -446,39 +400,23 @@ function OrganizationSettingsScreen() {
                       <h2 className="text-sm font-medium">
                         {providerName(connection.providerId)}
                       </h2>
-                      {connection.isDefault ? (
-                        <span className="inline-flex items-center gap-1 rounded-[4px] border px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                          <Check className="size-3" /> Default
-                        </span>
-                      ) : null}
                     </div>
-                    <p className="mt-1 pl-3.5 font-mono text-[10px] text-muted-foreground">
-                      {connection.providerId}/{connection.modelId}
+                    <p className="mt-1 pl-3.5 text-[10px] text-muted-foreground">
+                      {connection.availableModelCount}{" "}
+                      {connection.availableModelCount === 1
+                        ? "model"
+                        : "models"}{" "}
+                      available
                     </p>
                     <p className="mt-0.5 pl-3.5 text-[10px] text-muted-foreground">
                       {authMethodName(connection.authMethod)}
                     </p>
                   </div>
                   <div className="flex items-center gap-2 pl-3.5 sm:pl-0">
-                    {!connection.isDefault ? (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled={pendingProviderId === connection.providerId}
-                        onClick={() => handleDefault(connection.providerId)}
-                      >
-                        {pendingProviderId === connection.providerId ? (
-                          <LoaderCircle className="animate-spin" />
-                        ) : null}{" "}
-                        Make default
-                      </Button>
-                    ) : null}
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() =>
-                        reconnect(connection.providerId, connection.modelId)
-                      }
+                      onClick={() => reconnect(connection.providerId)}
                     >
                       Reconnect
                     </Button>
@@ -490,6 +428,60 @@ function OrganizationSettingsScreen() {
               <p role="alert" className="mt-4 text-sm text-destructive">
                 {error}
               </p>
+            ) : null}
+            {scope === "organization" && setup?.organizationModels.length ? (
+              <div className="mt-6 grid max-w-lg gap-2">
+                <Label htmlFor="organization-default-model">
+                  Organization default model
+                </Label>
+                <p className="text-xs leading-5 text-muted-foreground">
+                  Used when a member has not chosen a personal default.
+                </p>
+                <select
+                  id="organization-default-model"
+                  className="h-10 rounded-[8px] border bg-background px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                  disabled={defaultPending}
+                  value={
+                    setup.organizationDefault
+                      ? encodeModelOption(setup.organizationDefault)
+                      : ""
+                  }
+                  onChange={async (event) => {
+                    const model = decodeModelOption(event.target.value)
+                    if (!model) return
+                    setDefaultPending(true)
+                    setError(null)
+                    try {
+                      await saveDefaultModel({
+                        data: {
+                          organizationId,
+                          scope: "organization",
+                          providerId: model.providerId,
+                          modelId: model.modelId,
+                        },
+                      })
+                      await router.invalidate()
+                    } catch (cause) {
+                      setError(
+                        cause instanceof Error
+                          ? cause.message
+                          : "Could not save the Organization default model"
+                      )
+                    } finally {
+                      setDefaultPending(false)
+                    }
+                  }}
+                >
+                  {setup.organizationModels.map((model) => (
+                    <option
+                      key={`${model.providerId}/${model.modelId}`}
+                      value={encodeModelOption(model)}
+                    >
+                      {model.providerName} · {model.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
             ) : null}
           </section>
         ) : flow === "choose" ? (
@@ -530,42 +522,9 @@ function OrganizationSettingsScreen() {
           <section className="py-6">
             <h2 className="text-sm font-medium">Connect OpenAI</h2>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              Choose the default model for this connection, then authorize your
-              Codex subscription.
+              Authorize your Codex subscription. Sylph will discover the models
+              available to this connection.
             </p>
-            <fieldset className="mt-5 grid gap-1.5">
-              <legend className="mb-2 text-xs font-medium">
-                Default model
-              </legend>
-              {subscriptionModels.map((model, index) => (
-                <label
-                  key={model.id}
-                  className="flex cursor-pointer items-center gap-3 rounded-[8px] border px-3 py-2.5 transition-colors hover:bg-sidebar/55 has-checked:border-[#ef9b7e]/70 has-checked:bg-[#ef9b7e]/6"
-                >
-                  <input
-                    type="radio"
-                    name="subscription-model"
-                    value={model.id}
-                    checked={subscriptionModelId === model.id}
-                    onChange={() => setSubscriptionModelId(model.id)}
-                    className="size-3.5 accent-[#ef9b7e]"
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-center gap-2 text-xs font-medium">
-                      {model.name}
-                      {index === 0 ? (
-                        <span className="font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
-                          Default
-                        </span>
-                      ) : null}
-                    </span>
-                    <span className="mt-0.5 block text-[10px] leading-4 text-muted-foreground">
-                      {model.description}
-                    </span>
-                  </span>
-                </label>
-              ))}
-            </fieldset>
             {error ? (
               <p role="alert" className="mt-4 text-sm text-destructive">
                 {error}
@@ -621,47 +580,28 @@ function OrganizationSettingsScreen() {
             <h2 className="text-sm font-medium">Connect OpenCode Zen</h2>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
               Add {scope === "organization" ? "an Organization" : "your"} API
-              key and choose the default model.
+              key. Sylph will discover the models available to this connection.
             </p>
             <form
               className="mt-5 grid max-w-lg gap-5"
               onSubmit={handleApiSetup}
             >
-              {flow === "key" ? (
-                <div className="grid gap-2">
-                  <Label htmlFor="api-key">
-                    {scope === "organization" ? "Organization" : "Personal"}
-                    {" API key"}
-                  </Label>
-                  <Input
-                    id="api-key"
-                    type="password"
-                    value={apiKey}
-                    onChange={(event) => setApiKey(event.target.value)}
-                    autoComplete="off"
-                    placeholder="opk_…"
-                    autoFocus
-                    required
-                  />
-                </div>
-              ) : (
-                <div className="grid gap-2">
-                  <Label htmlFor="model-id">Default model</Label>
-                  <div className="flex rounded-[8px] border bg-sidebar/45 px-3 focus-within:ring-2 focus-within:ring-ring/50">
-                    <span className="self-center font-mono text-xs text-muted-foreground">
-                      opencode/
-                    </span>
-                    <Input
-                      id="model-id"
-                      value={apiModelId}
-                      onChange={(event) => setApiModelId(event.target.value)}
-                      className="border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
-                      autoFocus
-                      required
-                    />
-                  </div>
-                </div>
-              )}
+              <div className="grid gap-2">
+                <Label htmlFor="api-key">
+                  {scope === "organization" ? "Organization" : "Personal"}
+                  {" API key"}
+                </Label>
+                <Input
+                  id="api-key"
+                  type="password"
+                  value={apiKey}
+                  onChange={(event) => setApiKey(event.target.value)}
+                  autoComplete="off"
+                  placeholder="opk_…"
+                  autoFocus
+                  required
+                />
+              </div>
               {error ? (
                 <p role="alert" className="text-sm text-destructive">
                   {error}
@@ -671,13 +611,13 @@ function OrganizationSettingsScreen() {
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => setFlow(flow === "model" ? "key" : "choose")}
+                  onClick={() => setFlow("choose")}
                 >
                   Back
                 </Button>
                 <Button type="submit" disabled={pending}>
                   {pending ? <LoaderCircle className="animate-spin" /> : null}
-                  {flow === "model" ? "Connect provider" : "Continue"}
+                  Connect provider
                 </Button>
               </div>
             </form>
@@ -699,6 +639,67 @@ function OrganizationSettingsScreen() {
                 {setup?.members.length ?? 0}
               </span>
             </div>
+            <form
+              className="mt-5 grid gap-3 border-y py-5 sm:grid-cols-[minmax(0,1fr)_auto]"
+              onSubmit={handleInvite}
+            >
+              <div className="grid gap-2">
+                <Label htmlFor="invite-email">Invite by email</Label>
+                <Input
+                  id="invite-email"
+                  name="email"
+                  type="email"
+                  placeholder="teammate@example.com"
+                  required
+                />
+              </div>
+              <Button
+                className="self-end"
+                type="submit"
+                disabled={invitePending}
+              >
+                {invitePending ? (
+                  <LoaderCircle className="animate-spin" />
+                ) : (
+                  <MailPlus />
+                )}
+                Create invitation
+              </Button>
+              {inviteError ? (
+                <p
+                  role="alert"
+                  className="text-sm text-destructive sm:col-span-2"
+                >
+                  {inviteError}
+                </p>
+              ) : null}
+              {invitationUrl ? (
+                <div className="grid gap-2 sm:col-span-2">
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    Send this private link to the invited address. It expires in
+                    48 hours.
+                  </p>
+                  <div className="flex min-w-0 items-center gap-2">
+                    <Input
+                      readOnly
+                      value={invitationUrl}
+                      className="font-mono text-[10px]"
+                    />
+                    <Button
+                      type="button"
+                      size="icon-sm"
+                      variant="outline"
+                      aria-label="Copy invitation link"
+                      onClick={() =>
+                        navigator.clipboard.writeText(invitationUrl)
+                      }
+                    >
+                      <Copy />
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+            </form>
             <div className="mt-4 divide-y border-y">
               {setup?.members.map((member) => (
                 <div
@@ -719,6 +720,44 @@ function OrganizationSettingsScreen() {
                 </div>
               ))}
             </div>
+            {setup?.invitations.some(
+              (invitation) => invitation.status === "pending"
+            ) ? (
+              <div className="mt-8">
+                <h3 className="text-sm font-medium">Pending invitations</h3>
+                <div className="mt-3 divide-y border-y">
+                  {setup.invitations
+                    .filter((invitation) => invitation.status === "pending")
+                    .map((invitation) => (
+                      <div
+                        key={invitation.id}
+                        className="flex items-center gap-4 py-3 text-xs"
+                      >
+                        <span className="min-w-0 flex-1 truncate">
+                          {invitation.email}
+                        </span>
+                        <span className="text-muted-foreground">User</span>
+                        <Button
+                          type="button"
+                          size="icon-sm"
+                          variant="ghost"
+                          aria-label={`Copy invitation link for ${invitation.email}`}
+                          onClick={() =>
+                            navigator.clipboard.writeText(
+                              new URL(
+                                `/invite/${encodeURIComponent(invitation.id)}`,
+                                window.location.origin
+                              ).toString()
+                            )
+                          }
+                        >
+                          <Copy />
+                        </Button>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            ) : null}
           </section>
         ) : null}
       </div>

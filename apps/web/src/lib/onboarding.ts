@@ -13,13 +13,11 @@ export const validateOnboardingSearch = (
 
 type Organization = {
   id: string
-  slug: string
 }
 
 type Project = {
   id: string
   organizationId: string
-  organizationSlug: string
   slug: string
 }
 

@@ -141,6 +141,9 @@ export const decodeWorkspaceCheckpointResult = Schema.decodeUnknownPromise(
 export const decodeWorkspaceCheckpointList = Schema.decodeUnknownPromise(
   WorkspaceCheckpointList
 )
+export const encodeWorkspaceCheckpointList = Schema.encodePromise(
+  WorkspaceCheckpointList
+)
 export const decodePrepareProjectRepositoryInputPromise =
   Schema.decodeUnknownPromise(PrepareProjectRepositoryInput)
 export const decodePrepareProjectRepositoryResultPromise =

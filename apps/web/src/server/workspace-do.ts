@@ -7,7 +7,8 @@ import {
   decodeOpenCodeSubscriptionStatusInputPromise,
   decodePrepareProjectRepositoryInputPromise,
   decodeWorkspaceCheckpointInputPromise,
-  decodeWorkspacePromptInputPromise,
+  decodeWorkspaceRuntimePromptInputPromise,
+  OpenCodeConnectionResult,
   PrepareProjectRepositoryResult,
   type InitializeWorkspaceRuntime,
   type OpenCodeCredential,
@@ -22,6 +23,8 @@ import { sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { createWorkspacePlugin } from "./workspace-plugin"
 import { WorkspaceFilesystem } from "./workspace-filesystem"
 import { WorkspaceGit } from "./workspace-git"
+import { createOpenCodeWithStorageBootstrap } from "./opencode-storage-bootstrap"
+import { workspaceRuntimeStatus } from "./workspace-runtime-status"
 
 const appWorkspaceState = sqliteTable("app_workspace_state", {
   workspaceId: text("workspace_id").primaryKey(),
@@ -117,38 +120,27 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       this.#filesystem
     )
     this.#opencode = context.blockConcurrencyWhile(async () => {
-      const hasAppWorkspaceState =
-        context.storage.sql
-          .exec<{ name: string }>(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'app_workspace_state'"
-          )
-          .toArray().length > 0
-      const hasOpenCodeSchema =
-        context.storage.sql
-          .exec<{ name: string }>(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('migration', 'session_v2')"
-          )
-          .toArray().length > 0
-
-      if (hasAppWorkspaceState && !hasOpenCodeSchema) {
-        context.storage.sql.exec("DROP TABLE app_workspace_state")
-      }
+      const opencode = await createOpenCodeWithStorageBootstrap(
+        context.storage,
+        () =>
+          OpenCodeWorkerd.create({
+            storage: context.storage,
+            log: {
+              level: "error",
+              emit: ({ message, cause }) =>
+                console.error("OpenCode runtime error", message, cause),
+            },
+            config: {
+              default_agent: "build",
+            },
+            plugins: [
+              createWorkspacePlugin(this.#filesystem, this.#workspaceGit),
+            ],
+          })
+      )
 
       this.#filesystem.initialize()
       this.#workspaceGit.initialize()
-
-      const opencode = await OpenCodeWorkerd.create({
-        storage: context.storage,
-        log: {
-          level: "error",
-          emit: ({ message, cause }) =>
-            console.error("OpenCode runtime error", message, cause),
-        },
-        config: {
-          default_agent: "build",
-        },
-        plugins: [createWorkspacePlugin(this.#filesystem, this.#workspaceGit)],
-      })
 
       this.#database.run(sql`
         CREATE TABLE IF NOT EXISTS app_workspace_state (
@@ -222,21 +214,9 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           )
         }
 
-        const models = await opencode.model.list()
-        const modelAvailable = models.data.some(
-          (model) =>
-            model.providerID === input.providerId &&
-            model.modelID === input.modelId &&
-            model.enabled
+        return Response.json(
+          await this.#connectionResult(opencode, input.providerId)
         )
-
-        if (!modelAvailable) {
-          throw new Error(
-            `OpenCode model ${input.providerId}/${input.modelId} is not available. Choose a model enabled for this provider.`
-          )
-        }
-
-        return new Response(null, { status: 204 })
       }
 
       if (request.method === "POST" && url.pathname === "/oauth/start") {
@@ -295,7 +275,11 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           throw new Error("OpenCode returned the wrong credential type")
         }
 
-        return Response.json({ ...result.data, credential })
+        const catalog = await this.#connectionResult(
+          opencode,
+          subscriptionProviderId
+        )
+        return Response.json({ ...result.data, credential, ...catalog })
       }
 
       if (request.method === "POST" && url.pathname === "/oauth/cancel") {
@@ -333,13 +317,15 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
 
       if (request.method === "GET" && url.pathname === "/vcs") {
         return Response.json({
-          vcs: await this.#workspaceGit.versionControl(),
+          vcs: await this.#workspaceGit.versionControl(
+            url.searchParams.get("refresh") === "1"
+          ),
           checkpoints: this.#workspaceGit.checkpoints(),
         })
       }
 
       if (request.method === "POST" && url.pathname === "/prompt") {
-        const input = await decodeWorkspacePromptInputPromise(
+        const input = await decodeWorkspaceRuntimePromptInputPromise(
           await request.json()
         )
         const state = this.#database.select().from(appWorkspaceState).get()
@@ -354,6 +340,33 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
             status: 409,
           })
         }
+
+        try {
+          await this.#installCredential(
+            opencode,
+            input.model.providerId,
+            input.credential
+          )
+          await opencode.sessions.switchModel({
+            sessionID: state.sessionId,
+            model: {
+              providerID: input.model.providerId,
+              id: input.model.modelId,
+            },
+          })
+        } catch {
+          throw new Error(
+            `OpenCode could not use ${input.model.providerId}/${input.model.modelId}. Choose another available model.`
+          )
+        }
+
+        this.#database
+          .update(appWorkspaceState)
+          .set({
+            providerId: input.model.providerId,
+            modelId: input.model.modelId,
+          })
+          .run()
 
         await opencode.sessions.prompt({
           sessionID: state.sessionId,
@@ -535,6 +548,42 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     )
   }
 
+  async #connectionResult(
+    opencode: OpenCodeWorkerd.Interface,
+    providerId: string
+  ) {
+    const [listed, preferred] = await Promise.all([
+      opencode.model.list(),
+      opencode.model.default(),
+    ])
+    const models = listed.data
+      .filter(
+        (model) =>
+          model.providerID === providerId &&
+          model.enabled &&
+          model.status !== "deprecated"
+      )
+      .map((model) => ({
+        providerId: model.providerID,
+        modelId: model.modelID,
+        name: model.name,
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name))
+
+    if (!models.length) {
+      throw new Error(`${providerId} connected but exposed no usable models`)
+    }
+
+    return new OpenCodeConnectionResult({
+      models,
+      recommendedModelId:
+        preferred.data?.providerID === providerId &&
+        models.some((model) => model.modelId === preferred.data?.modelID)
+          ? preferred.data.modelID
+          : (models[0]?.modelId ?? null),
+    })
+  }
+
   async #waitForIntegration(
     opencode: OpenCodeWorkerd.Interface,
     providerId: string
@@ -581,7 +630,10 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     return {
       workspaceId: state.workspaceId,
       sessionId: AgentSessionId.make(state.sessionId),
-      status: active[state.sessionId] ? "running" : "ready",
+      status: workspaceRuntimeStatus(
+        Boolean(active[state.sessionId]),
+        messages.data
+      ),
       model:
         state.providerId && state.modelId
           ? `${state.providerId}/${state.modelId}`

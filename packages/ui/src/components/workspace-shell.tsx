@@ -6,7 +6,6 @@ import {
   Bell,
   Blocks,
   Check,
-  ChevronDown,
   ChevronRight,
   CircleAlert,
   Files,
@@ -49,6 +48,10 @@ import remarkGfm from "remark-gfm"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import { CodeReview } from "@workspace/ui/components/code-review"
+import {
+  decodeModelOption,
+  encodeModelOption,
+} from "@workspace/ui/lib/model-option"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -137,6 +140,14 @@ type CheckItem = {
   status: "passed" | "running" | "failed"
 }
 
+export type ComposerModel = {
+  providerId: string
+  modelId: string
+  name: string
+  providerName: string
+  scope: "personal" | "organization"
+}
+
 type WorkspaceTabKind = "browser" | "changes" | "checks" | "review" | "terminal"
 
 type WorkspaceTab = {
@@ -167,7 +178,9 @@ type WorkspaceShellProps = {
   agentControllingBrowser?: boolean
   demo?: boolean
   className?: string
-  model?: string | null
+  models?: ReadonlyArray<ComposerModel>
+  selectedModel?: { providerId: string; modelId: string } | null
+  modelNotice?: string | null
   initialPrompt?: string
   promptDisabled?: boolean
   promptError?: string | null
@@ -177,7 +190,11 @@ type WorkspaceShellProps = {
   restartPending?: boolean
   onAccept?: () => Promise<void>
   onCheckpoint?: () => Promise<void>
-  onSubmitPrompt?: (text: string) => Promise<void>
+  onSubmitPrompt?: (
+    text: string,
+    model: { providerId: string; modelId: string }
+  ) => Promise<void>
+  onModelChange?: (model: { providerId: string; modelId: string }) => void
   onRestartWorkspace?: () => Promise<void>
   workspaceError?: string | null
 }
@@ -668,16 +685,27 @@ function AgentThread({
   restartPending,
   onRestartWorkspace,
   workspaceError,
+  models,
+  selectedModel,
+  modelNotice,
+  onModelChange,
 }: {
   entries: ThreadEntry[]
   initialPrompt?: string
-  onSubmitPrompt?: (text: string) => Promise<void>
+  onSubmitPrompt?: (
+    text: string,
+    model: { providerId: string; modelId: string }
+  ) => Promise<void>
   promptDisabled?: boolean
   promptError?: string | null
   promptPending?: boolean
   restartPending?: boolean
   onRestartWorkspace?: () => Promise<void>
   workspaceError?: string | null
+  models: ReadonlyArray<ComposerModel>
+  selectedModel?: { providerId: string; modelId: string } | null
+  modelNotice?: string | null
+  onModelChange?: (model: { providerId: string; modelId: string }) => void
 }) {
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-background">
@@ -799,6 +827,10 @@ function AgentThread({
         initialPrompt={initialPrompt}
         onSubmit={onSubmitPrompt}
         pending={promptPending}
+        models={models}
+        selectedModel={selectedModel}
+        modelNotice={modelNotice}
+        onModelChange={onModelChange}
       />
     </section>
   )
@@ -810,20 +842,31 @@ function PromptComposer({
   initialPrompt = "",
   onSubmit,
   pending = false,
+  models,
+  selectedModel,
+  modelNotice,
+  onModelChange,
 }: {
   disabled?: boolean
   error?: string | null
   initialPrompt?: string
-  onSubmit?: (text: string) => Promise<void>
+  onSubmit?: (
+    text: string,
+    model: { providerId: string; modelId: string }
+  ) => Promise<void>
   pending?: boolean
+  models: ReadonlyArray<ComposerModel>
+  selectedModel?: { providerId: string; modelId: string } | null
+  modelNotice?: string | null
+  onModelChange?: (model: { providerId: string; modelId: string }) => void
 }) {
   const [text, setText] = useState(initialPrompt)
 
   const submit = async () => {
     const prompt = text.trim()
 
-    if (!prompt || disabled || pending || !onSubmit) return
-    await onSubmit(prompt)
+    if (!prompt || disabled || pending || !onSubmit || !selectedModel) return
+    await onSubmit(prompt, selectedModel)
     setText("")
   }
 
@@ -859,6 +902,11 @@ function PromptComposer({
             {error}
           </p>
         ) : null}
+        {modelNotice ? (
+          <p className="px-3 pb-2 text-[11px] text-amber-200/80">
+            {modelNotice}
+          </p>
+        ) : null}
         <div className="flex h-9 items-center gap-1 border-t border-white/[.07] px-2">
           <Button aria-label="Attach file" size="icon-xs" variant="ghost">
             <Paperclip />
@@ -872,14 +920,33 @@ function PromptComposer({
           <Button size="xs" variant="ghost">
             <Blocks /> Skills
           </Button>
-          <Button className="ml-auto" size="xs" variant="ghost">
-            Agent <ChevronDown />
-          </Button>
+          <label className="ml-auto flex min-w-0 items-center gap-1 text-[10px] text-muted-foreground">
+            <span className="sr-only">Model</span>
+            <select
+              aria-label="Model for next turn"
+              className="max-w-52 truncate rounded-[4px] border border-white/[.1] bg-transparent px-2 py-1 text-[10px] text-foreground outline-none focus:border-[#ef9b7e]/60"
+              disabled={disabled || pending || models.length === 0}
+              value={selectedModel ? encodeModelOption(selectedModel) : ""}
+              onChange={(event) => {
+                const model = decodeModelOption(event.target.value)
+                if (model) onModelChange?.(model)
+              }}
+            >
+              {models.map((option) => (
+                <option
+                  key={`${option.providerId}/${option.modelId}/${option.scope}`}
+                  value={encodeModelOption(option)}
+                >
+                  {option.name}
+                </option>
+              ))}
+            </select>
+          </label>
           <span className="text-[10px] text-muted-foreground">⌘ ↵</span>
           <Button
             aria-label="Send message"
             className="bg-[#ef9b7e] text-[#241613] hover:bg-[#f4af98]"
-            disabled={disabled || pending || !text.trim()}
+            disabled={disabled || pending || !text.trim() || !selectedModel}
             size="icon-sm"
             type="submit"
           >
@@ -1191,7 +1258,6 @@ function WorkspaceToolToggle({
 function WorkspaceChat({
   entries,
   initialPrompt,
-  model,
   onToggleTools,
   onSubmitPrompt,
   onRestartWorkspace,
@@ -1201,12 +1267,18 @@ function WorkspaceChat({
   restartPending,
   toolPaneOpen,
   workspaceError,
+  models,
+  selectedModel,
+  modelNotice,
+  onModelChange,
 }: {
   entries: ThreadEntry[]
   initialPrompt?: string
-  model?: string | null
   onToggleTools: () => void
-  onSubmitPrompt?: (text: string) => Promise<void>
+  onSubmitPrompt?: (
+    text: string,
+    model: { providerId: string; modelId: string }
+  ) => Promise<void>
   onRestartWorkspace?: () => Promise<void>
   promptDisabled?: boolean
   promptError?: string | null
@@ -1214,19 +1286,17 @@ function WorkspaceChat({
   restartPending?: boolean
   toolPaneOpen: boolean
   workspaceError?: string | null
+  models: ReadonlyArray<ComposerModel>
+  selectedModel?: { providerId: string; modelId: string } | null
+  modelNotice?: string | null
+  onModelChange?: (model: { providerId: string; modelId: string }) => void
 }) {
   return (
     <section
       aria-label="Workspace conversation"
       className="flex size-full min-w-0 flex-col bg-background"
     >
-      <header className="flex h-10 shrink-0 items-center gap-2 border-b px-3">
-        <Badge
-          className="hidden rounded-[4px] px-1.5 font-mono text-[9px] sm:inline-flex"
-          variant="outline"
-        >
-          {model ?? "OpenCode v2"}
-        </Badge>
+      <header className="flex h-10 shrink-0 items-center border-b px-3">
         <WorkspaceToolToggle open={toolPaneOpen} onToggle={onToggleTools} />
       </header>
       <AgentThread
@@ -1239,6 +1309,10 @@ function WorkspaceChat({
         restartPending={restartPending}
         onRestartWorkspace={onRestartWorkspace}
         workspaceError={workspaceError}
+        models={models}
+        selectedModel={selectedModel}
+        modelNotice={modelNotice}
+        onModelChange={onModelChange}
       />
     </section>
   )
@@ -1424,7 +1498,10 @@ function WorkspaceShell({
   agentControllingBrowser = false,
   demo = false,
   className,
-  model,
+  models = [],
+  selectedModel,
+  modelNotice,
+  onModelChange,
   initialPrompt,
   onSubmitPrompt,
   promptDisabled = false,
@@ -1610,7 +1687,10 @@ function WorkspaceShell({
                   <WorkspaceChat
                     entries={entries}
                     initialPrompt={initialPrompt}
-                    model={model}
+                    models={models}
+                    selectedModel={selectedModel}
+                    modelNotice={modelNotice}
+                    onModelChange={onModelChange}
                     onToggleTools={() => setToolPaneOpen((open) => !open)}
                     onSubmitPrompt={onSubmitPrompt}
                     promptDisabled={promptDisabled}

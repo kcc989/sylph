@@ -34,6 +34,17 @@ export interface ArtifactRepositoryMetadata {
   readonly defaultBranch: string
 }
 
+const ArtifactRepositoryMetadataSchema = Schema.Struct({
+  id: Schema.NonEmptyString,
+  name: Schema.NonEmptyString,
+  remote: Schema.NonEmptyString,
+  defaultBranch: Schema.NonEmptyString,
+})
+
+interface ArtifactRepositoryHandle extends ArtifactRepositoryMetadata {
+  readonly info?: () => Promise<ArtifactRepositoryMetadata>
+}
+
 interface CreateProjectRepository {
   readonly name: string
   readonly description: string
@@ -100,12 +111,13 @@ const repositoryError = (operation: string, cause: unknown) => {
   })
 }
 
-const metadata = (repository: ArtifactRepositoryMetadata) => ({
-  id: repository.id,
-  name: repository.name,
-  remote: repository.remote,
-  defaultBranch: repository.defaultBranch,
-})
+export const resolveArtifactRepositoryMetadata = async (
+  repository: ArtifactRepositoryHandle
+) => {
+  const metadata = repository.info ? await repository.info() : repository
+
+  return Schema.decodeUnknownPromise(ArtifactRepositoryMetadataSchema)(metadata)
+}
 
 export const makeArtifactRepositoryService = (
   binding: Artifacts
@@ -118,7 +130,7 @@ export const makeArtifactRepositoryService = (
         let lastError: ArtifactRepositoryError | undefined
         for (let attempt = 0; attempt < 6; attempt += 1) {
           try {
-            return metadata(await binding.get(name))
+            return resolveArtifactRepositoryMetadata(await binding.get(name))
           } catch (cause) {
             lastError = repositoryError("inspect", cause)
             if (!lastError.retryable) throw lastError
@@ -144,7 +156,7 @@ export const makeArtifactRepositoryService = (
       function* (input: CreateProjectRepository) {
         return yield* Effect.tryPromise({
           try: async () =>
-            metadata(
+            Schema.decodeUnknownPromise(ArtifactRepositoryMetadataSchema)(
               await binding.create(input.name, {
                 description: input.description,
                 setDefaultBranch: input.defaultBranch,
@@ -158,7 +170,7 @@ export const makeArtifactRepositoryService = (
       function* (input: ImportProjectRepository) {
         return yield* Effect.tryPromise({
           try: async () =>
-            metadata(
+            Schema.decodeUnknownPromise(ArtifactRepositoryMetadataSchema)(
               await binding.import({
                 source: {
                   url: input.sourceUrl,
@@ -183,7 +195,7 @@ export const makeArtifactRepositoryService = (
         })
         return yield* Effect.tryPromise({
           try: async () =>
-            metadata(
+            Schema.decodeUnknownPromise(ArtifactRepositoryMetadataSchema)(
               await source.fork(input.name, {
                 description: input.description,
                 defaultBranchOnly: true,

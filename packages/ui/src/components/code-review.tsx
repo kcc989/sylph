@@ -21,28 +21,39 @@ type CodeReviewProps = {
   split?: boolean
 }
 
+const splitFilePatches = (patch: string) =>
+  patch
+    .split(/(?=^diff --git )/m)
+    .map((filePatch) => filePatch.trim())
+    .filter(Boolean)
+
 function CodeReview({ patch, className, split }: CodeReviewProps) {
+  const filePatches = splitFilePatches(patch)
+
   return (
     <div
       aria-label="Code changes"
       className={cn("min-w-0 overflow-auto bg-[#11100f]", className)}
       tabIndex={0}
     >
-      <PatchDiff
-        patch={patch}
-        disableWorkerPool
-        options={{
-          themeType: "dark",
-          theme: "github-dark-default",
-          diffStyle: split ? "split" : "unified",
-          diffIndicators: "bars",
-          hunkSeparators: "line-info-basic",
-          overflow: "wrap",
-          stickyHeader: true,
-        }}
-      />
+      {filePatches.map((filePatch) => (
+        <PatchDiff
+          key={filePatch}
+          patch={filePatch}
+          disableWorkerPool
+          options={{
+            themeType: "dark",
+            theme: "github-dark-default",
+            diffStyle: split ? "split" : "unified",
+            diffIndicators: "bars",
+            hunkSeparators: "line-info-basic",
+            overflow: "wrap",
+            stickyHeader: true,
+          }}
+        />
+      ))}
     </div>
   )
 }
 
-export { CodeReview, defaultPatch }
+export { CodeReview, defaultPatch, splitFilePatches }

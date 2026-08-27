@@ -34,7 +34,7 @@ interface WorkspaceGitState {
 interface CheckpointRow {
   [key: string]: SqlStorageValue
   id: string
-  commit: string
+  commitId: string
   message: string
   createdAt: number
   status: string
@@ -65,6 +65,9 @@ const artifactAuth = (plaintext: string) => () => ({
   username: "x",
   password: tokenSecret(plaintext),
 })
+
+export const isRepositoryMetadata = (file: string) =>
+  file === ".git" || file.startsWith(".git/")
 
 export class WorkspaceGit {
   readonly #storage: WorkspaceStorage
@@ -230,11 +233,11 @@ export class WorkspaceGit {
     return GitCommitId.make(forkHead)
   }
 
-  async versionControl(projectHead?: string) {
+  async versionControl(refreshProjectHead = false) {
     const state = this.#requiredState()
-    const latestProjectHead =
-      projectHead ??
-      (await this.#readProjectHead(state).catch(() => state.projectHead))
+    const latestProjectHead = refreshProjectHead
+      ? await this.#readProjectHead(state).catch(() => state.projectHead)
+      : state.projectHead
     if (latestProjectHead !== state.projectHead) {
       this.#storage.sql.exec(
         "UPDATE app_workspace_vcs SET project_head = ? WHERE singleton = 1",
@@ -277,8 +280,8 @@ export class WorkspaceGit {
     )
 
     if (existing) {
-      if (remoteHead === existing.commit) {
-        this.#completeCheckpoint(existing.id, existing.commit)
+      if (remoteHead === existing.commitId) {
+        this.#completeCheckpoint(existing.id, existing.commitId)
         return new WorkspaceCheckpointResult({
           checkpoint: this.#checkpointValue({
             ...existing,
@@ -292,7 +295,7 @@ export class WorkspaceGit {
         throw new Error("Workspace fork changed outside Sylph")
       }
       await this.#push(state, token.plaintext)
-      this.#completeCheckpoint(existing.id, existing.commit)
+      this.#completeCheckpoint(existing.id, existing.commitId)
       return new WorkspaceCheckpointResult({
         checkpoint: this.#checkpointValue({ ...existing, status: "complete" }),
         replayed: true,
@@ -308,7 +311,10 @@ export class WorkspaceGit {
       dir: directory,
       ref: state.forkHead,
     })
-    const changed = matrix.filter(([, head, worktree]) => head !== worktree)
+    const changed = matrix.filter(
+      ([filepath, head, worktree]) =>
+        !isRepositoryMetadata(filepath) && head !== worktree
+    )
     if (!changed.length) throw new Error("The Working copy has no changes")
     for (const [filepath, , worktree] of changed) {
       if (worktree === 0) {
@@ -347,7 +353,7 @@ export class WorkspaceGit {
   checkpoints() {
     return this.#storage.sql
       .exec<CheckpointRow>(
-        "SELECT id, commit_id AS commit, message, created_at AS createdAt, status FROM app_workspace_checkpoint WHERE status = 'complete' ORDER BY created_at DESC"
+        "SELECT id, commit_id AS commitId, message, created_at AS createdAt, status FROM app_workspace_checkpoint WHERE status = 'complete' ORDER BY created_at DESC"
       )
       .toArray()
       .map((row) => this.#checkpointValue(row))
@@ -364,7 +370,7 @@ export class WorkspaceGit {
       dir: directory,
       trees,
       map: async (file, entries) => {
-        if (file === ".") return
+        if (file === "." || isRepositoryMetadata(file)) return
         const [before, after] = entries
         const beforeType = before ? await before.type() : null
         const afterType = after ? await after.type() : null
@@ -453,7 +459,7 @@ export class WorkspaceGit {
   #checkpoint(id: string) {
     return this.#storage.sql
       .exec<CheckpointRow>(
-        "SELECT id, commit_id AS commit, message, created_at AS createdAt, status FROM app_workspace_checkpoint WHERE id = ?",
+        "SELECT id, commit_id AS commitId, message, created_at AS createdAt, status FROM app_workspace_checkpoint WHERE id = ?",
         id
       )
       .toArray()[0]
@@ -462,7 +468,7 @@ export class WorkspaceGit {
   #checkpointValue(row: CheckpointRow) {
     return new WorkspaceCheckpoint({
       id: row.id,
-      commit: GitCommitId.make(row.commit),
+      commit: GitCommitId.make(row.commitId),
       message: row.message,
       createdAt: row.createdAt,
     })

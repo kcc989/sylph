@@ -165,6 +165,18 @@ export const invitation = sqliteTable(
   ]
 )
 
+export const installation = sqliteTable("installation", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id").references(() => organization.id, {
+    onDelete: "restrict",
+  }),
+  claimedByUserId: text("claimed_by_user_id").references(() => user.id, {
+    onDelete: "restrict",
+  }),
+  claimedAt: integer("claimed_at", { mode: "timestamp" }),
+  createdAt: timestamp("created_at"),
+})
+
 export const project = sqliteTable(
   "project",
   {
@@ -263,11 +275,7 @@ export const openCodeConnection = sqliteTable(
       .notNull()
       .references(() => user.id, { onDelete: "restrict" }),
     providerId: text("provider_id").notNull(),
-    modelId: text("model_id").notNull(),
     authMethod: text("auth_method").notNull(),
-    isDefault: integer("is_default", { mode: "boolean" })
-      .notNull()
-      .default(false),
     encryptedCredential: text("encrypted_credential").notNull(),
     encryptionIv: text("encryption_iv").notNull(),
     createdAt: timestamp("created_at"),
@@ -286,11 +294,7 @@ export const userOpenCodeConnection = sqliteTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     providerId: text("provider_id").notNull(),
-    modelId: text("model_id").notNull(),
     authMethod: text("auth_method").notNull(),
-    isDefault: integer("is_default", { mode: "boolean" })
-      .notNull()
-      .default(false),
     encryptedCredential: text("encrypted_credential").notNull(),
     encryptionIv: text("encryption_iv").notNull(),
     createdAt: timestamp("created_at"),
@@ -301,3 +305,67 @@ export const userOpenCodeConnection = sqliteTable(
     index("user_open_code_connection_user_id_idx").on(table.userId),
   ]
 )
+
+export const organizationProviderModel = sqliteTable(
+  "organization_provider_model",
+  {
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    providerId: text("provider_id").notNull(),
+    modelId: text("model_id").notNull(),
+    name: text("name").notNull(),
+    discoveredAt: timestamp("discovered_at"),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.organizationId, table.providerId, table.modelId],
+    }),
+    index("organization_provider_model_organization_id_idx").on(
+      table.organizationId
+    ),
+  ]
+)
+
+export const userProviderModel = sqliteTable(
+  "user_provider_model",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    providerId: text("provider_id").notNull(),
+    modelId: text("model_id").notNull(),
+    name: text("name").notNull(),
+    discoveredAt: timestamp("discovered_at"),
+  },
+  (table) => [
+    primaryKey({ columns: [table.userId, table.providerId, table.modelId] }),
+    index("user_provider_model_user_id_idx").on(table.userId),
+  ]
+)
+
+export const organizationModelPreference = sqliteTable(
+  "organization_model_preference",
+  {
+    organizationId: text("organization_id")
+      .primaryKey()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    providerId: text("provider_id").notNull(),
+    modelId: text("model_id").notNull(),
+    configuredByUserId: text("configured_by_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at"),
+    updatedAt: timestamp("updated_at"),
+  }
+)
+
+export const userModelPreference = sqliteTable("user_model_preference", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  providerId: text("provider_id").notNull(),
+  modelId: text("model_id").notNull(),
+  createdAt: timestamp("created_at"),
+  updatedAt: timestamp("updated_at"),
+})

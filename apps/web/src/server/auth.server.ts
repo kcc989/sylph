@@ -4,6 +4,8 @@ import { betterAuth } from "better-auth/minimal"
 import { magicLink, organization } from "better-auth/plugins"
 import { drizzle } from "drizzle-orm/d1"
 
+import { canProvisionInstallationAccount } from "@/server/auth-access"
+
 export const createAuth = (
   database: D1Database,
   baseURL: string,
@@ -20,13 +22,24 @@ export const createAuth = (
       provider: "sqlite",
       schema,
     }),
-    socialProviders: {
-      github: {
-        clientId: githubClientId,
-        clientSecret: githubClientSecret,
-        scope: ["user:email"],
+    databaseHooks: {
+      user: {
+        create: {
+          before: async (user) =>
+            canProvisionInstallationAccount(database, user.email),
+        },
       },
     },
+    socialProviders:
+      githubClientId && githubClientSecret
+        ? {
+            github: {
+              clientId: githubClientId,
+              clientSecret: githubClientSecret,
+              scope: ["user:email"],
+            },
+          }
+        : {},
     plugins: [
       magicLink({
         sendMagicLink: async ({ email, url }) => {
@@ -38,7 +51,10 @@ export const createAuth = (
         },
         storeToken: "hashed",
       }),
-      organization(),
+      organization({
+        allowUserToCreateOrganization: false,
+        disableOrganizationDeletion: true,
+      }),
     ],
   })
 }

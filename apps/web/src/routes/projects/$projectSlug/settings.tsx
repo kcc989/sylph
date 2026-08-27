@@ -5,15 +5,11 @@ import { Bot, FolderGit2, GitBranch, Plus, Settings2 } from "lucide-react"
 import { AppShell } from "@/components/app-shell"
 import { getDashboard, getWorkspaceCreationContext } from "@/lib/workspaces"
 
-export const Route = createFileRoute(
-  "/organizations/$organizationSlug/projects/$projectSlug/settings"
-)({
+export const Route = createFileRoute("/projects/$projectSlug/settings")({
   loader: async ({ params }) => {
     const dashboard = await getDashboard()
     const project = dashboard.projects.find(
-      (candidate) =>
-        candidate.slug === params.projectSlug &&
-        candidate.organizationSlug === params.organizationSlug
+      (candidate) => candidate.slug === params.projectSlug
     )
     const context = project
       ? await getWorkspaceCreationContext({ data: { projectId: project.id } })
@@ -24,7 +20,7 @@ export const Route = createFileRoute(
 })
 
 function ProjectSettingsScreen() {
-  const { projectSlug, organizationSlug } = Route.useParams()
+  const { projectSlug } = Route.useParams()
   const { context, dashboard } = Route.useLoaderData()
 
   if (!context) {
@@ -45,12 +41,7 @@ function ProjectSettingsScreen() {
   }
 
   return (
-    <AppShell
-      active="home"
-      dashboard={dashboard}
-      organizationSlug={organizationSlug}
-      topbar={context.project.name}
-    >
+    <AppShell active="home" dashboard={dashboard} topbar={context.project.name}>
       <div className="mx-auto max-w-3xl px-5 py-10 sm:px-8 sm:py-14">
         <Button
           nativeButton={false}
@@ -58,7 +49,7 @@ function ProjectSettingsScreen() {
           size="sm"
           render={
             <a
-              href={`/organizations/${encodeURIComponent(organizationSlug)}/projects/${encodeURIComponent(projectSlug)}/workspaces/new`}
+              href={`/projects/${encodeURIComponent(projectSlug)}/workspaces/new`}
             />
           }
         >
@@ -116,7 +107,7 @@ function ProjectSettingsScreen() {
                 Organization.
               </p>
               <a
-                href={`/organizations/${encodeURIComponent(context.project.organizationSlug)}/settings`}
+                href="/admin"
                 className="mt-2 inline-flex text-xs font-medium text-primary hover:underline"
               >
                 Organization provider settings

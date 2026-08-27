@@ -11,7 +11,7 @@ CREATE TABLE repository_operation (
   workspace_id TEXT NOT NULL REFERENCES workspace (id) ON DELETE CASCADE,
   kind TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending',
-  commit TEXT,
+  "commit" TEXT,
   error_summary TEXT,
   created_at INTEGER NOT NULL DEFAULT (unixepoch()),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch())

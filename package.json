@@ -1,6 +1,8 @@
 {
   "name": "sylph",
   "version": "0.0.1",
+  "license": "Apache-2.0",
+  "repository": "https://github.com/kcc989/sylph",
   "type": "module",
   "private": true,
   "scripts": {
@@ -8,7 +10,7 @@
     "storybook": "bun --cwd packages/ui storybook",
     "build:storybook": "bun --cwd packages/ui build-storybook",
     "dev": "turbo dev",
-    "dev:cloudflare": "alchemy dev",
+    "dev:cloudflare": "bash scripts/prepare-workerd.sh && alchemy dev",
     "lint": "oxlint . --deny-warnings",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
@@ -16,6 +18,7 @@
     "test": "bun test tools/oxlint/anti-slop/tests && turbo test",
     "deploy": "alchemy deploy",
     "destroy": "alchemy destroy",
+    "postinstall": "bash scripts/prepare-workerd.sh",
     "prepare": "lefthook install"
   },
   "devDependencies": {

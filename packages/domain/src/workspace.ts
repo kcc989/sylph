@@ -51,6 +51,14 @@ export class OrganizationRequestInput extends Schema.Class<OrganizationRequestIn
   organizationId: OrganizationId,
 }) {}
 
+export class InstallationClaimInput extends Schema.Class<InstallationClaimInput>(
+  "@sylph/domain/InstallationClaimInput"
+)({
+  claimSecret: Schema.NonEmptyString,
+  confirmedEmail: Schema.NonEmptyString,
+  organizationName: Schema.NonEmptyString,
+}) {}
+
 export const OpenCodeAuthMethod = Schema.Literals([
   "api-key",
   "chatgpt-subscription",
@@ -88,37 +96,51 @@ export type OpenCodeCredential = typeof OpenCodeCredential.Type
 export const ConnectionScope = Schema.Literals(["organization", "user"])
 export type ConnectionScope = typeof ConnectionScope.Type
 
+export class ModelSelection extends Schema.Class<ModelSelection>(
+  "@sylph/domain/ModelSelection"
+)({
+  providerId: Schema.NonEmptyString,
+  modelId: Schema.NonEmptyString,
+}) {}
+
+export class ProviderModel extends Schema.Class<ProviderModel>(
+  "@sylph/domain/ProviderModel"
+)({
+  providerId: Schema.NonEmptyString,
+  modelId: Schema.NonEmptyString,
+  name: Schema.NonEmptyString,
+}) {}
+
+export class OpenCodeConnectionResult extends Schema.Class<OpenCodeConnectionResult>(
+  "@sylph/domain/OpenCodeConnectionResult"
+)({
+  models: Schema.Array(ProviderModel),
+  recommendedModelId: Schema.NullOr(Schema.NonEmptyString),
+}) {}
+
 export class OpenCodeKeySetupInput extends Schema.Class<OpenCodeKeySetupInput>(
   "@sylph/domain/OpenCodeKeySetupInput"
 )({
   organizationId: OrganizationId,
   scope: ConnectionScope,
   providerId: Schema.NonEmptyString,
-  modelId: Schema.NonEmptyString,
   apiKey: Schema.NonEmptyString,
 }) {}
 
-export class SetDefaultOpenCodeConnectionInput extends Schema.Class<SetDefaultOpenCodeConnectionInput>(
-  "@sylph/domain/SetDefaultOpenCodeConnectionInput"
+export class SetDefaultModelInput extends Schema.Class<SetDefaultModelInput>(
+  "@sylph/domain/SetDefaultModelInput"
 )({
   organizationId: OrganizationId,
   scope: ConnectionScope,
   providerId: Schema.NonEmptyString,
+  modelId: Schema.NonEmptyString,
 }) {}
-
-export const OpenCodeSubscriptionModel = Schema.Literals([
-  "gpt-5.6-sol",
-  "gpt-5.6-terra",
-  "gpt-5.6-luna",
-])
-export type OpenCodeSubscriptionModel = typeof OpenCodeSubscriptionModel.Type
 
 export class OpenCodeSubscriptionStartInput extends Schema.Class<OpenCodeSubscriptionStartInput>(
   "@sylph/domain/OpenCodeSubscriptionStartInput"
 )({
   organizationId: OrganizationId,
   scope: ConnectionScope,
-  modelId: OpenCodeSubscriptionModel,
 }) {}
 
 export class OpenCodeSubscriptionStatusInput extends Schema.Class<OpenCodeSubscriptionStatusInput>(
@@ -127,7 +149,6 @@ export class OpenCodeSubscriptionStatusInput extends Schema.Class<OpenCodeSubscr
   organizationId: OrganizationId,
   scope: ConnectionScope,
   attemptId: Schema.NonEmptyString,
-  modelId: OpenCodeSubscriptionModel,
 }) {}
 
 export class OpenCodeSubscriptionAttempt extends Schema.Class<OpenCodeSubscriptionAttempt>(
@@ -152,6 +173,8 @@ export class OpenCodeSubscriptionRuntimeStatus extends Schema.Class<OpenCodeSubs
   status: Schema.Literals(["pending", "complete", "failed", "expired"]),
   message: Schema.optional(Schema.String),
   credential: Schema.optional(OpenCodeCredential),
+  models: Schema.optional(Schema.Array(ProviderModel)),
+  recommendedModelId: Schema.optional(Schema.NullOr(Schema.NonEmptyString)),
 }) {}
 
 export class InitializeWorkspaceRuntime extends Schema.Class<InitializeWorkspaceRuntime>(
@@ -177,6 +200,16 @@ export class WorkspacePromptInput extends Schema.Class<WorkspacePromptInput>(
 )({
   workspaceId: WorkspaceId,
   text: Schema.NonEmptyString,
+  model: Schema.optional(ModelSelection),
+}) {}
+
+export class WorkspaceRuntimePromptInput extends Schema.Class<WorkspaceRuntimePromptInput>(
+  "@sylph/domain/WorkspaceRuntimePromptInput"
+)({
+  workspaceId: WorkspaceId,
+  text: Schema.NonEmptyString,
+  model: ModelSelection,
+  credential: OpenCodeCredential,
 }) {}
 
 export class WorkspaceRequestInput extends Schema.Class<WorkspaceRequestInput>(
@@ -284,12 +317,16 @@ export const decodeProjectRequestInputPromise =
 export const decodeOrganizationRequestInputPromise =
   Schema.decodeUnknownPromise(OrganizationRequestInput)
 
+export const decodeInstallationClaimInputPromise = Schema.decodeUnknownPromise(
+  InstallationClaimInput
+)
+
 export const decodeOpenCodeKeySetupInputPromise = Schema.decodeUnknownPromise(
   OpenCodeKeySetupInput
 )
 
-export const decodeSetDefaultOpenCodeConnectionInputPromise =
-  Schema.decodeUnknownPromise(SetDefaultOpenCodeConnectionInput)
+export const decodeSetDefaultModelInputPromise =
+  Schema.decodeUnknownPromise(SetDefaultModelInput)
 
 export const decodeOpenCodeSubscriptionStartInputPromise =
   Schema.decodeUnknownPromise(OpenCodeSubscriptionStartInput)
@@ -299,6 +336,9 @@ export const decodeOpenCodeSubscriptionStatusInputPromise =
 
 export const decodeOpenCodeCredentialPromise =
   Schema.decodeUnknownPromise(OpenCodeCredential)
+
+export const decodeOpenCodeConnectionResultPromise =
+  Schema.decodeUnknownPromise(OpenCodeConnectionResult)
 
 export const decodeOpenCodeSubscriptionAttemptPromise =
   Schema.decodeUnknownPromise(OpenCodeSubscriptionAttempt)
@@ -312,6 +352,9 @@ export const decodeInitializeWorkspaceRuntime = Schema.decodeUnknownPromise(
 
 export const decodeWorkspacePromptInputPromise =
   Schema.decodeUnknownPromise(WorkspacePromptInput)
+
+export const decodeWorkspaceRuntimePromptInputPromise =
+  Schema.decodeUnknownPromise(WorkspaceRuntimePromptInput)
 
 export const decodeWorkspaceRequestInputPromise = Schema.decodeUnknownPromise(
   WorkspaceRequestInput

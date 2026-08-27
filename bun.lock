@@ -104,6 +104,7 @@
         "@storybook/react-vite": "^10.5.10",
         "@tailwindcss/vite": "^4",
         "@turbo/gen": "^2.9.15",
+        "@types/bun": "1.4.0",
         "@types/node": "^22",
         "@types/react": "^19",
         "@types/react-dom": "^19",

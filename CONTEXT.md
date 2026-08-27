@@ -1,14 +1,23 @@
 # Sylph
 
-Sylph gives a user durable coding workspaces for projects inside an organization.
+Sylph gives people durable coding workspaces for Projects inside an Installation.
 
 ## Language
 
+**Installation**:
+A deployed Sylph system operated as one security and data boundary. An Installation contains one Organization.
+
+**Installation claim**:
+The one-time act that creates the Installation's Organization and makes an authenticated claimant with a verified, explicitly confirmed email its first Admin.
+
 **Organization**:
-A membership boundary that owns Projects and is identified to people by a unique slug. Its members are Admins or Users.
+A membership boundary that owns Projects inside an Installation. Its members are Admins or Users.
 
 **Admin**:
-An Organization member who can manage shared settings and Organization connections.
+An Organization member who can invite Users and manage shared settings and Provider connections.
+
+**Invitation**:
+An Admin-issued authorization for one email address to become a User. After the Installation is claimed, a new User can exist only when a current Invitation authorizes their email address.
 
 **User**:
 An Organization member who can work in its Projects and manage their own personal connections.
@@ -41,5 +50,15 @@ The latest Checkpoint commit in a Workspace fork.
 The commit in the Project Repository containing accepted Workspace work.
 
 **Provider connection**:
-An authentication method and default model for one AI provider. An Organization connection is shared with its members; a Personal connection belongs to one User.
+Authorization for one AI provider together with the models currently available through it. An Organization connection is shared with its members; a Personal connection belongs to one User.
 _Avoid_: OpenCode connection
+
+**Model preference**:
+A preferred Provider model chosen for an Organization or a User. A User preference overrides the Organization preference without changing either Provider connection.
+_Avoid_: Default Provider
+
+**Conversation**:
+The durable sequence of user and agent turns inside a Workspace. A Conversation may select a model independently of its User and Organization preferences.
+
+**Conversation model selection**:
+The model used for the next agent turn in one Conversation. It overrides User and Organization preferences without changing them or rewriting earlier turns.
