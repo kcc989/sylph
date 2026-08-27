@@ -10,15 +10,25 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as OrganizationsIndexRouteImport } from './routes/organizations/index'
 import { Route as OrganizationsNewRouteImport } from './routes/organizations/new'
-import { Route as WorkspacesWorkspaceIdRouteImport } from './routes/workspaces/$workspaceId'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
-import { Route as OrganizationsOrganizationIdRepositoriesNewRouteImport } from './routes/organizations/$organizationId/repositories/new'
+import { Route as OrganizationsOrganizationSlugIndexRouteImport } from './routes/organizations/$organizationSlug/index'
+import { Route as OrganizationsOrganizationSlugSettingsRouteImport } from './routes/organizations/$organizationSlug/settings'
+import { Route as OrganizationsOrganizationSlugProjectsNewRouteImport } from './routes/organizations/$organizationSlug/projects/new'
+import { Route as OrganizationsOrganizationSlugProjectsProjectSlugSettingsRouteImport } from './routes/organizations/$organizationSlug/projects/$projectSlug/settings'
+import { Route as OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesWorkspaceIdRouteImport } from './routes/organizations/$organizationSlug/projects/$projectSlug/workspaces/$workspaceId'
+import { Route as OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesNewRouteImport } from './routes/organizations/$organizationSlug/projects/$projectSlug/workspaces/new'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OrganizationsIndexRoute = OrganizationsIndexRouteImport.update({
@@ -31,82 +41,146 @@ const OrganizationsNewRoute = OrganizationsNewRouteImport.update({
   path: '/organizations/new',
   getParentRoute: () => rootRouteImport,
 } as any)
-const WorkspacesWorkspaceIdRoute = WorkspacesWorkspaceIdRouteImport.update({
-  id: '/workspaces/$workspaceId',
-  path: '/workspaces/$workspaceId',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
-const OrganizationsOrganizationIdRepositoriesNewRoute =
-  OrganizationsOrganizationIdRepositoriesNewRouteImport.update({
-    id: '/organizations/$organizationId/repositories/new',
-    path: '/organizations/$organizationId/repositories/new',
+const OrganizationsOrganizationSlugIndexRoute =
+  OrganizationsOrganizationSlugIndexRouteImport.update({
+    id: '/organizations/$organizationSlug/',
+    path: '/organizations/$organizationSlug/',
     getParentRoute: () => rootRouteImport,
   } as any)
+const OrganizationsOrganizationSlugSettingsRoute =
+  OrganizationsOrganizationSlugSettingsRouteImport.update({
+    id: '/organizations/$organizationSlug/settings',
+    path: '/organizations/$organizationSlug/settings',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const OrganizationsOrganizationSlugProjectsNewRoute =
+  OrganizationsOrganizationSlugProjectsNewRouteImport.update({
+    id: '/organizations/$organizationSlug/projects/new',
+    path: '/organizations/$organizationSlug/projects/new',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const OrganizationsOrganizationSlugProjectsProjectSlugSettingsRoute =
+  OrganizationsOrganizationSlugProjectsProjectSlugSettingsRouteImport.update({
+    id: '/organizations/$organizationSlug/projects/$projectSlug/settings',
+    path: '/organizations/$organizationSlug/projects/$projectSlug/settings',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesWorkspaceIdRoute =
+  OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesWorkspaceIdRouteImport.update(
+    {
+      id: '/organizations/$organizationSlug/projects/$projectSlug/workspaces/$workspaceId',
+      path: '/organizations/$organizationSlug/projects/$projectSlug/workspaces/$workspaceId',
+      getParentRoute: () => rootRouteImport,
+    } as any,
+  )
+const OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesNewRoute =
+  OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesNewRouteImport.update(
+    {
+      id: '/organizations/$organizationSlug/projects/$projectSlug/workspaces/new',
+      path: '/organizations/$organizationSlug/projects/$projectSlug/workspaces/new',
+      getParentRoute: () => rootRouteImport,
+    } as any,
+  )
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/settings': typeof SettingsRoute
   '/organizations/new': typeof OrganizationsNewRoute
-  '/workspaces/$workspaceId': typeof WorkspacesWorkspaceIdRoute
   '/organizations/': typeof OrganizationsIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
-  '/organizations/$organizationId/repositories/new': typeof OrganizationsOrganizationIdRepositoriesNewRoute
+  '/organizations/$organizationSlug/settings': typeof OrganizationsOrganizationSlugSettingsRoute
+  '/organizations/$organizationSlug/': typeof OrganizationsOrganizationSlugIndexRoute
+  '/organizations/$organizationSlug/projects/new': typeof OrganizationsOrganizationSlugProjectsNewRoute
+  '/organizations/$organizationSlug/projects/$projectSlug/settings': typeof OrganizationsOrganizationSlugProjectsProjectSlugSettingsRoute
+  '/organizations/$organizationSlug/projects/$projectSlug/workspaces/$workspaceId': typeof OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesWorkspaceIdRoute
+  '/organizations/$organizationSlug/projects/$projectSlug/workspaces/new': typeof OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesNewRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/settings': typeof SettingsRoute
   '/organizations/new': typeof OrganizationsNewRoute
-  '/workspaces/$workspaceId': typeof WorkspacesWorkspaceIdRoute
   '/organizations': typeof OrganizationsIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
-  '/organizations/$organizationId/repositories/new': typeof OrganizationsOrganizationIdRepositoriesNewRoute
+  '/organizations/$organizationSlug/settings': typeof OrganizationsOrganizationSlugSettingsRoute
+  '/organizations/$organizationSlug': typeof OrganizationsOrganizationSlugIndexRoute
+  '/organizations/$organizationSlug/projects/new': typeof OrganizationsOrganizationSlugProjectsNewRoute
+  '/organizations/$organizationSlug/projects/$projectSlug/settings': typeof OrganizationsOrganizationSlugProjectsProjectSlugSettingsRoute
+  '/organizations/$organizationSlug/projects/$projectSlug/workspaces/$workspaceId': typeof OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesWorkspaceIdRoute
+  '/organizations/$organizationSlug/projects/$projectSlug/workspaces/new': typeof OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesNewRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/settings': typeof SettingsRoute
   '/organizations/new': typeof OrganizationsNewRoute
-  '/workspaces/$workspaceId': typeof WorkspacesWorkspaceIdRoute
   '/organizations/': typeof OrganizationsIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
-  '/organizations/$organizationId/repositories/new': typeof OrganizationsOrganizationIdRepositoriesNewRoute
+  '/organizations/$organizationSlug/settings': typeof OrganizationsOrganizationSlugSettingsRoute
+  '/organizations/$organizationSlug/': typeof OrganizationsOrganizationSlugIndexRoute
+  '/organizations/$organizationSlug/projects/new': typeof OrganizationsOrganizationSlugProjectsNewRoute
+  '/organizations/$organizationSlug/projects/$projectSlug/settings': typeof OrganizationsOrganizationSlugProjectsProjectSlugSettingsRoute
+  '/organizations/$organizationSlug/projects/$projectSlug/workspaces/$workspaceId': typeof OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesWorkspaceIdRoute
+  '/organizations/$organizationSlug/projects/$projectSlug/workspaces/new': typeof OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesNewRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/settings'
     | '/organizations/new'
-    | '/workspaces/$workspaceId'
     | '/organizations/'
     | '/api/auth/$'
-    | '/organizations/$organizationId/repositories/new'
+    | '/organizations/$organizationSlug/settings'
+    | '/organizations/$organizationSlug/'
+    | '/organizations/$organizationSlug/projects/new'
+    | '/organizations/$organizationSlug/projects/$projectSlug/settings'
+    | '/organizations/$organizationSlug/projects/$projectSlug/workspaces/$workspaceId'
+    | '/organizations/$organizationSlug/projects/$projectSlug/workspaces/new'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/settings'
     | '/organizations/new'
-    | '/workspaces/$workspaceId'
     | '/organizations'
     | '/api/auth/$'
-    | '/organizations/$organizationId/repositories/new'
+    | '/organizations/$organizationSlug/settings'
+    | '/organizations/$organizationSlug'
+    | '/organizations/$organizationSlug/projects/new'
+    | '/organizations/$organizationSlug/projects/$projectSlug/settings'
+    | '/organizations/$organizationSlug/projects/$projectSlug/workspaces/$workspaceId'
+    | '/organizations/$organizationSlug/projects/$projectSlug/workspaces/new'
   id:
     | '__root__'
     | '/'
+    | '/settings'
     | '/organizations/new'
-    | '/workspaces/$workspaceId'
     | '/organizations/'
     | '/api/auth/$'
-    | '/organizations/$organizationId/repositories/new'
+    | '/organizations/$organizationSlug/settings'
+    | '/organizations/$organizationSlug/'
+    | '/organizations/$organizationSlug/projects/new'
+    | '/organizations/$organizationSlug/projects/$projectSlug/settings'
+    | '/organizations/$organizationSlug/projects/$projectSlug/workspaces/$workspaceId'
+    | '/organizations/$organizationSlug/projects/$projectSlug/workspaces/new'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  SettingsRoute: typeof SettingsRoute
   OrganizationsNewRoute: typeof OrganizationsNewRoute
-  WorkspacesWorkspaceIdRoute: typeof WorkspacesWorkspaceIdRoute
   OrganizationsIndexRoute: typeof OrganizationsIndexRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
-  OrganizationsOrganizationIdRepositoriesNewRoute: typeof OrganizationsOrganizationIdRepositoriesNewRoute
+  OrganizationsOrganizationSlugSettingsRoute: typeof OrganizationsOrganizationSlugSettingsRoute
+  OrganizationsOrganizationSlugIndexRoute: typeof OrganizationsOrganizationSlugIndexRoute
+  OrganizationsOrganizationSlugProjectsNewRoute: typeof OrganizationsOrganizationSlugProjectsNewRoute
+  OrganizationsOrganizationSlugProjectsProjectSlugSettingsRoute: typeof OrganizationsOrganizationSlugProjectsProjectSlugSettingsRoute
+  OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesWorkspaceIdRoute: typeof OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesWorkspaceIdRoute
+  OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesNewRoute: typeof OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesNewRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -116,6 +190,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/organizations/': {
@@ -132,13 +213,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OrganizationsNewRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/workspaces/$workspaceId': {
-      id: '/workspaces/$workspaceId'
-      path: '/workspaces/$workspaceId'
-      fullPath: '/workspaces/$workspaceId'
-      preLoaderRoute: typeof WorkspacesWorkspaceIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -146,11 +220,46 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/organizations/$organizationId/repositories/new': {
-      id: '/organizations/$organizationId/repositories/new'
-      path: '/organizations/$organizationId/repositories/new'
-      fullPath: '/organizations/$organizationId/repositories/new'
-      preLoaderRoute: typeof OrganizationsOrganizationIdRepositoriesNewRouteImport
+    '/organizations/$organizationSlug/': {
+      id: '/organizations/$organizationSlug/'
+      path: '/organizations/$organizationSlug'
+      fullPath: '/organizations/$organizationSlug/'
+      preLoaderRoute: typeof OrganizationsOrganizationSlugIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/organizations/$organizationSlug/settings': {
+      id: '/organizations/$organizationSlug/settings'
+      path: '/organizations/$organizationSlug/settings'
+      fullPath: '/organizations/$organizationSlug/settings'
+      preLoaderRoute: typeof OrganizationsOrganizationSlugSettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/organizations/$organizationSlug/projects/new': {
+      id: '/organizations/$organizationSlug/projects/new'
+      path: '/organizations/$organizationSlug/projects/new'
+      fullPath: '/organizations/$organizationSlug/projects/new'
+      preLoaderRoute: typeof OrganizationsOrganizationSlugProjectsNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/organizations/$organizationSlug/projects/$projectSlug/settings': {
+      id: '/organizations/$organizationSlug/projects/$projectSlug/settings'
+      path: '/organizations/$organizationSlug/projects/$projectSlug/settings'
+      fullPath: '/organizations/$organizationSlug/projects/$projectSlug/settings'
+      preLoaderRoute: typeof OrganizationsOrganizationSlugProjectsProjectSlugSettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/organizations/$organizationSlug/projects/$projectSlug/workspaces/$workspaceId': {
+      id: '/organizations/$organizationSlug/projects/$projectSlug/workspaces/$workspaceId'
+      path: '/organizations/$organizationSlug/projects/$projectSlug/workspaces/$workspaceId'
+      fullPath: '/organizations/$organizationSlug/projects/$projectSlug/workspaces/$workspaceId'
+      preLoaderRoute: typeof OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesWorkspaceIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/organizations/$organizationSlug/projects/$projectSlug/workspaces/new': {
+      id: '/organizations/$organizationSlug/projects/$projectSlug/workspaces/new'
+      path: '/organizations/$organizationSlug/projects/$projectSlug/workspaces/new'
+      fullPath: '/organizations/$organizationSlug/projects/$projectSlug/workspaces/new'
+      preLoaderRoute: typeof OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesNewRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -158,12 +267,22 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  SettingsRoute: SettingsRoute,
   OrganizationsNewRoute: OrganizationsNewRoute,
-  WorkspacesWorkspaceIdRoute: WorkspacesWorkspaceIdRoute,
   OrganizationsIndexRoute: OrganizationsIndexRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
-  OrganizationsOrganizationIdRepositoriesNewRoute:
-    OrganizationsOrganizationIdRepositoriesNewRoute,
+  OrganizationsOrganizationSlugSettingsRoute:
+    OrganizationsOrganizationSlugSettingsRoute,
+  OrganizationsOrganizationSlugIndexRoute:
+    OrganizationsOrganizationSlugIndexRoute,
+  OrganizationsOrganizationSlugProjectsNewRoute:
+    OrganizationsOrganizationSlugProjectsNewRoute,
+  OrganizationsOrganizationSlugProjectsProjectSlugSettingsRoute:
+    OrganizationsOrganizationSlugProjectsProjectSlugSettingsRoute,
+  OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesWorkspaceIdRoute:
+    OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesWorkspaceIdRoute,
+  OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesNewRoute:
+    OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesNewRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

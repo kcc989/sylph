@@ -3,53 +3,70 @@
 import {
   Activity,
   ArrowUp,
-  Bot,
   Bell,
+  Blocks,
   Check,
   ChevronDown,
   ChevronRight,
+  CircleAlert,
   Files,
-  FolderGit2,
   GitBranch,
   Globe2,
   House,
   LoaderCircle,
+  ListChecks,
   Maximize2,
+  MessageSquare,
   Monitor,
   MoreHorizontal,
   Moon,
   PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
   Paperclip,
   Play,
   Plus,
   RefreshCw,
   Search,
   Settings2,
-  Sparkles,
   Smartphone,
   Terminal,
   AtSign,
   UserRound,
-  Wrench,
   X,
 } from "lucide-react"
-import { useState, type ReactNode } from "react"
+import ReactMarkdown from "react-markdown"
+import { useRef, useState, type ReactNode } from "react"
+import {
+  useDefaultLayout,
+  type PanelImperativeHandle,
+} from "react-resizable-panels"
+import remarkGfm from "remark-gfm"
 
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import { CodeReview } from "@workspace/ui/components/code-review"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@workspace/ui/components/dropdown-menu"
+import {
+  MessageScroller,
+  MessageScrollerButton,
+  MessageScrollerContent,
+  MessageScrollerItem,
+  MessageScrollerProvider,
+  MessageScrollerViewport,
+} from "@workspace/ui/components/message-scroller"
 import {
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
 } from "@workspace/ui/components/resizable"
 import { ScrollArea } from "@workspace/ui/components/scroll-area"
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@workspace/ui/components/tabs"
 import { Textarea } from "@workspace/ui/components/textarea"
 import {
   Tooltip,
@@ -61,17 +78,38 @@ import { cn } from "@workspace/ui/lib/utils"
 
 type WorkspaceStatus = "running" | "waiting" | "ready" | "error"
 
+const workspacePanelStorage = {
+  getItem: (name: string) => {
+    try {
+      return window.localStorage.getItem(name)
+    } catch {
+      return null
+    }
+  },
+  setItem: (name: string, value: string) => {
+    try {
+      window.localStorage.setItem(name, value)
+    } catch {
+      return
+    }
+  },
+}
+
 type WorkspaceItem = {
   id: string
   name: string
+  href?: string
   branch: string
   status: WorkspaceStatus
   changes?: string
 }
 
-type RepositoryGroup = {
+type ProjectGroup = {
   id: string
   name: string
+  repositoryName: string
+  newWorkspaceHref?: string
+  settingsHref?: string
   workspaces: WorkspaceItem[]
 }
 
@@ -97,11 +135,20 @@ type CheckItem = {
   status: "passed" | "running" | "failed"
 }
 
+type WorkspaceTabKind = "browser" | "changes" | "checks" | "review" | "terminal"
+
+type WorkspaceTab = {
+  id: string
+  kind: WorkspaceTabKind
+  label: string
+}
+
 type WorkspaceShellProps = {
   organization?: string
+  projectName: string
   repositoryName: string
   workspaceName: string
-  repositories?: RepositoryGroup[]
+  projects?: ProjectGroup[]
   entries?: ThreadEntry[]
   browser?: BrowserState
   checks?: CheckItem[]
@@ -112,6 +159,14 @@ type WorkspaceShellProps = {
   agentControllingBrowser?: boolean
   demo?: boolean
   className?: string
+  model?: string | null
+  promptDisabled?: boolean
+  promptError?: string | null
+  promptPending?: boolean
+  restartPending?: boolean
+  onSubmitPrompt?: (text: string) => Promise<void>
+  onRestartWorkspace?: () => Promise<void>
+  workspaceError?: string | null
 }
 
 function SylphMark({ className }: { className?: string }) {
@@ -142,10 +197,11 @@ function SylphMark({ className }: { className?: string }) {
   )
 }
 
-const fallbackRepositories: RepositoryGroup[] = [
+const fallbackProjects: ProjectGroup[] = [
   {
     id: "sylph",
-    name: "sylph",
+    name: "Sylph",
+    repositoryName: "sylph",
     workspaces: [
       {
         id: "preview",
@@ -171,7 +227,8 @@ const fallbackRepositories: RepositoryGroup[] = [
   },
   {
     id: "open-relic",
-    name: "open-relic",
+    name: "Open Relic",
+    repositoryName: "open-relic",
     workspaces: [
       {
         id: "artifact",
@@ -188,18 +245,18 @@ const fallbackEntries: ThreadEntry[] = [
   {
     id: "request",
     kind: "user",
-    body: "Make the workspace preview persistent and let the agent verify the responsive states.",
+    body: "Keep the workspace focused on chat and open a browser only when preview work begins.",
     meta: "You · 10:24",
   },
   {
     id: "inspect",
     kind: "tool",
     title: "Plan",
-    body: "Tighten the browser-first workspace without losing the thread.",
+    body: "Move chat, browser, changes, checks, and terminal into one peer tab model.",
     meta: "4 steps",
     details: [
       "Audit the workspace shell and preview route",
-      "Keep Repository → Workspace hierarchy persistent",
+      "Keep Project → Workspace hierarchy persistent",
       "Verify the browser at mobile and desktop widths",
       "Run typecheck, accessibility, and build checks",
     ],
@@ -207,8 +264,8 @@ const fallbackEntries: ThreadEntry[] = [
   {
     id: "result",
     kind: "result",
-    title: "Preview shell implemented",
-    body: "The browser stays visible while the thread grows. Changes and checks now share the review surface below it.",
+    title: "Workspace tabs implemented",
+    body: "Chat opens first. Browser and review tools stay one click away without shrinking the active work surface.",
     meta: "2m 18s",
     artifact: {
       label: "Preview updated",
@@ -231,11 +288,10 @@ const fallbackChecks: CheckItem[] = [
 ]
 
 const statusStyles = {
-  running:
-    "bg-[var(--sylph-live)] shadow-[0_0_0_3px_color-mix(in_oklch,var(--sylph-live)_14%,transparent)]",
-  waiting: "bg-amber-400",
-  ready: "bg-muted-foreground/45",
-  error: "bg-destructive",
+  running: "text-[var(--sylph-live)]",
+  waiting: "text-amber-400",
+  ready: "text-muted-foreground",
+  error: "text-destructive",
 } satisfies Record<WorkspaceStatus, string>
 
 function UtilityRail() {
@@ -243,7 +299,7 @@ function UtilityRail() {
     { label: "Home", icon: House },
     { label: "Search", icon: Search },
     { label: "Files", icon: Files },
-    { label: "Skills", icon: Sparkles },
+    { label: "Skills", icon: Blocks },
   ]
 
   return (
@@ -292,27 +348,27 @@ function UtilityRail() {
   )
 }
 
-function RepositoryRail({
+function ProjectRail({
   organization,
-  repositories,
+  projects,
   workspaceName,
   mobile,
   onClose,
 }: {
   organization: string
-  repositories: RepositoryGroup[]
+  projects: ProjectGroup[]
   workspaceName: string
   mobile?: boolean
   onClose?: () => void
 }) {
   return (
     <aside
-      aria-label="Repository and workspace navigation"
+      aria-label="Project and workspace navigation"
       aria-modal={mobile || undefined}
       role={mobile ? "dialog" : undefined}
       className={cn(
-        "w-[268px] shrink-0 flex-col border-r bg-sidebar",
-        mobile ? "flex" : "hidden md:flex"
+        "h-full shrink-0 flex-col bg-sidebar",
+        mobile ? "flex w-[268px] border-r" : "hidden w-full md:flex"
       )}
     >
       <header className="flex h-12 items-center gap-2 border-b px-3">
@@ -333,74 +389,108 @@ function RepositoryRail({
       </header>
       <div className="flex h-10 items-center justify-between px-3">
         <span className="text-[10px] font-semibold tracking-[0.14em] text-muted-foreground uppercase">
-          Repositories
+          Projects
         </span>
-        <Button aria-label="Add repository" size="icon-xs" variant="ghost">
+        <Button aria-label="Add project" size="icon-xs" variant="ghost">
           <Plus />
         </Button>
       </div>
       <ScrollArea className="min-h-0 flex-1 px-2 pb-3">
-        <div className="grid gap-2">
-          {repositories.map((repository) => (
-            <section key={repository.id}>
-              <div className="flex h-8 items-center gap-2 px-2 text-xs font-semibold text-foreground/85">
-                <ChevronDown className="size-3.5 text-muted-foreground" />
-                <FolderGit2 className="size-3.5 text-[#ef9b7e]" />
-                <span className="truncate">{repository.name}</span>
+        <div className="grid gap-3">
+          {projects.map((project) => (
+            <section key={project.id}>
+              <div className="flex h-9 items-center gap-2 px-2 text-xs font-semibold text-foreground/85">
+                <span className="min-w-0 flex-1 truncate">{project.name}</span>
                 <Button
-                  aria-label={`New workspace in ${repository.name}`}
-                  className="ml-auto"
+                  aria-label={`New workspace in ${project.name}`}
+                  disabled={!project.newWorkspaceHref}
+                  nativeButton={!project.newWorkspaceHref}
+                  render={
+                    project.newWorkspaceHref ? (
+                      <a href={project.newWorkspaceHref} />
+                    ) : undefined
+                  }
                   size="icon-xs"
                   variant="ghost"
                 >
                   <Plus />
                 </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    aria-label={`Open ${project.name} menu`}
+                    className="grid size-6 place-items-center rounded-[4px] text-muted-foreground hover:bg-white/[.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                  >
+                    <MoreHorizontal className="size-3.5" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-44">
+                    <DropdownMenuItem
+                      disabled={!project.newWorkspaceHref}
+                      onClick={() => {
+                        if (project.newWorkspaceHref) {
+                          window.location.assign(project.newWorkspaceHref)
+                        }
+                      }}
+                    >
+                      <Plus /> New Workspace
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      disabled={!project.settingsHref}
+                      onClick={() => {
+                        if (project.settingsHref) {
+                          window.location.assign(project.settingsHref)
+                        }
+                      }}
+                    >
+                      <Settings2 /> Project settings
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
-              <div className="ml-[17px] border-l border-white/[.07] pl-1.5">
-                {repository.workspaces.map((workspace) => {
+              <div className="grid gap-0.5 pr-1 pl-2">
+                {project.workspaces.map((workspace) => {
                   const active = workspace.name === workspaceName
+                  const label =
+                    workspace.name === project.name
+                      ? workspace.branch
+                      : workspace.name
                   return (
-                    <button
+                    <a
                       key={workspace.id}
-                      type="button"
+                      href={workspace.href}
                       aria-current={active ? "page" : undefined}
                       className={cn(
-                        "group relative mb-0.5 grid w-full grid-cols-[12px_minmax(0,1fr)] gap-x-2 rounded-[5px] px-2 py-1.5 text-left transition-colors hover:bg-white/[.045] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                        "group flex h-8 w-full items-center gap-2 rounded-[5px] px-2 text-left transition-colors hover:bg-white/[.045] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
                         active && "bg-white/[.065]"
                       )}
                     >
-                      {active && (
-                        <span className="absolute inset-y-1 left-0 w-px bg-[var(--sylph-coral)]" />
+                      <span
+                        className={cn(
+                          "min-w-0 flex-1 truncate text-xs",
+                          active
+                            ? "font-medium text-foreground"
+                            : "text-muted-foreground group-hover:text-foreground/80"
+                        )}
+                      >
+                        {label}
+                      </span>
+                      {workspace.changes && (
+                        <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
+                          {workspace.changes}
+                        </span>
                       )}
                       <span
-                        aria-label={`${workspace.status} workspace`}
+                        role="status"
                         className={cn(
-                          "mt-1 size-1.5 rounded-full",
+                          "grid size-3.5 shrink-0 place-items-center",
                           statusStyles[workspace.status]
                         )}
-                      />
-                      <span className="min-w-0">
-                        <span
-                          className={cn(
-                            "block truncate text-xs",
-                            active
-                              ? "font-medium text-foreground"
-                              : "text-muted-foreground group-hover:text-foreground/80"
-                          )}
-                        >
-                          {workspace.name}
-                        </span>
-                        <span className="mt-0.5 flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                          <GitBranch className="size-2.5" />
-                          <span className="truncate">{workspace.branch}</span>
-                          {workspace.changes && (
-                            <span className="ml-auto whitespace-nowrap tabular-nums">
-                              {workspace.changes}
-                            </span>
-                          )}
+                      >
+                        <span className="size-1.5 rounded-full bg-current" />
+                        <span className="sr-only">
+                          Workspace status: {workspace.status}
                         </span>
                       </span>
-                    </button>
+                    </a>
                   )
                 })}
               </div>
@@ -421,17 +511,23 @@ function WorkspaceTopbar({
   browser,
   checks,
   demo,
+  projectName,
   repositoryName,
   workspaceName,
+  navigationCollapsed,
   onOpenNavigation,
+  onOpenTerminal,
 }: {
   agentControllingBrowser: boolean
   browser: BrowserState
   checks: CheckItem[]
   demo: boolean
+  projectName: string
   repositoryName: string
   workspaceName: string
+  navigationCollapsed: boolean
   onOpenNavigation: () => void
+  onOpenTerminal: () => void
 }) {
   const passedChecks = checks.filter(
     (check) => check.status === "passed"
@@ -440,21 +536,25 @@ function WorkspaceTopbar({
   return (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b bg-background px-3">
       <Button
-        className="md:hidden"
-        aria-label="Open navigation"
+        className={cn(navigationCollapsed ? "md:inline-flex" : "md:hidden")}
+        aria-label={
+          navigationCollapsed ? "Expand project navigation" : "Open navigation"
+        }
         size="icon-sm"
         variant="ghost"
         onClick={onOpenNavigation}
       >
-        <Files />
+        {navigationCollapsed ? <PanelLeftOpen /> : <Files />}
       </Button>
-      <FolderGit2 className="size-4 text-[#ef9b7e]" />
       <span className="hidden text-xs text-muted-foreground sm:inline">
-        {repositoryName}
+        {projectName}
       </span>
       <ChevronRight className="hidden size-3 text-muted-foreground/50 sm:block" />
       <span className="min-w-0 truncate text-xs font-medium">
         {workspaceName}
+      </span>
+      <span className="hidden font-mono text-[9px] text-muted-foreground lg:inline">
+        {repositoryName}
       </span>
       {demo && (
         <Badge className="rounded-[4px] px-1.5 text-[9px]" variant="outline">
@@ -485,7 +585,7 @@ function WorkspaceTopbar({
             </span>
           )}
         </div>
-        <Button size="sm" variant="ghost">
+        <Button size="sm" variant="ghost" onClick={onOpenTerminal}>
           <Terminal /> Terminal
         </Button>
         <Button size="sm" variant="outline">
@@ -503,110 +603,210 @@ function WorkspaceTopbar({
   )
 }
 
-function AgentThread({ entries }: { entries: ThreadEntry[] }) {
+function ResponseMarkdown({ children }: { children: string }) {
+  return (
+    <div className="min-w-0 text-[13px] leading-5 text-foreground/80 [&_a]:font-medium [&_a]:text-[#ef9b7e] [&_a]:underline [&_a]:decoration-[#ef9b7e]/40 [&_a]:underline-offset-2 [&_blockquote]:my-3 [&_blockquote]:border-l [&_blockquote]:border-white/15 [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_code]:rounded-[4px] [&_code]:bg-white/[.07] [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[12px] [&_code]:text-foreground/90 [&_h1]:mt-5 [&_h1]:mb-2 [&_h1]:text-base [&_h1]:font-semibold [&_h1]:tracking-[-0.02em] [&_h2]:mt-4 [&_h2]:mb-2 [&_h2]:text-sm [&_h2]:font-semibold [&_h3]:mt-3 [&_h3]:mb-1.5 [&_h3]:text-[13px] [&_h3]:font-semibold [&_hr]:my-4 [&_hr]:border-white/10 [&_li]:pl-0.5 [&_ol]:my-2 [&_ol]:grid [&_ol]:list-decimal [&_ol]:gap-1 [&_ol]:pl-5 [&_p+p]:mt-3 [&_pre]:my-3 [&_pre]:overflow-x-auto [&_pre]:border [&_pre]:border-white/[.08] [&_pre]:bg-black/25 [&_pre]:p-3 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_table]:my-3 [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto [&_td]:border-b [&_td]:border-white/[.07] [&_td]:px-2 [&_td]:py-1.5 [&_th]:border-b [&_th]:border-white/15 [&_th]:px-2 [&_th]:py-1.5 [&_th]:text-left [&_th]:font-medium [&_ul]:my-2 [&_ul]:grid [&_ul]:list-disc [&_ul]:gap-1 [&_ul]:pl-5 [&>:first-child]:mt-0 [&>:last-child]:mb-0">
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{children}</ReactMarkdown>
+    </div>
+  )
+}
+
+function AgentThread({
+  entries,
+  onSubmitPrompt,
+  promptDisabled,
+  promptError,
+  promptPending,
+  restartPending,
+  onRestartWorkspace,
+  workspaceError,
+}: {
+  entries: ThreadEntry[]
+  onSubmitPrompt?: (text: string) => Promise<void>
+  promptDisabled?: boolean
+  promptError?: string | null
+  promptPending?: boolean
+  restartPending?: boolean
+  onRestartWorkspace?: () => Promise<void>
+  workspaceError?: string | null
+}) {
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-background">
-      <div className="flex h-10 shrink-0 items-center gap-2 border-b px-3">
-        <Bot className="size-3.5 text-[#ef9b7e]" />
-        <span className="text-xs font-medium">Agent thread</span>
-        <span className="text-[10px] text-muted-foreground">Working tree</span>
-        <Badge
-          className="ml-auto rounded-[4px] px-1.5 font-mono text-[9px]"
-          variant="outline"
-        >
-          5.6 Sol
-        </Badge>
-      </div>
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-7">
-          {entries.map((entry) => (
-            <article
-              key={entry.id}
-              className={cn(
-                "border-b border-white/[.06] py-4 first:pt-0 last:border-b-0",
-                entry.kind === "tool" && "font-mono text-[12px]"
-              )}
-            >
-              <div className="flex items-start gap-3">
-                <span
+      <MessageScrollerProvider autoScroll defaultScrollPosition="end">
+        <MessageScroller className="min-h-0 flex-1">
+          <MessageScrollerViewport>
+            <MessageScrollerContent className="mx-auto w-full max-w-3xl justify-end px-4 py-5 sm:px-7">
+              {entries.map((entry) => (
+                <MessageScrollerItem
+                  key={entry.id}
+                  messageId={entry.id}
                   className={cn(
-                    "mt-0.5 grid size-5 shrink-0 place-items-center rounded-[4px] border",
-                    entry.kind === "user" && "border-white/10 bg-white/[.04]",
-                    entry.kind === "agent" &&
-                      "border-[#ef9b7e]/30 bg-[#ef9b7e]/10 text-[#f2a68d]",
-                    entry.kind === "tool" &&
-                      "border-white/10 bg-black/20 text-muted-foreground",
-                    entry.kind === "result" &&
-                      "border-emerald-400/20 bg-emerald-400/[.08] text-emerald-300"
+                    "py-2 first:pt-0 last:pb-4",
+                    entry.kind === "user" && "flex justify-end",
+                    entry.kind === "tool" && "font-mono"
                   )}
                 >
-                  {entry.kind === "user" && <UserRound className="size-3" />}
-                  {entry.kind === "agent" && <Sparkles className="size-3" />}
-                  {entry.kind === "tool" && <Wrench className="size-3" />}
-                  {entry.kind === "result" && <Check className="size-3" />}
-                </span>
-                <div className="min-w-0 flex-1">
-                  {(entry.title || entry.meta) && (
-                    <div className="mb-1.5 flex items-center gap-2">
-                      {entry.title && (
-                        <h3 className="text-xs font-medium text-foreground/90">
-                          {entry.title}
-                        </h3>
-                      )}
-                      {entry.meta && (
-                        <span className="text-[10px] text-muted-foreground">
-                          {entry.meta}
+                  <article
+                    className={cn(
+                      "min-w-0",
+                      entry.kind === "user"
+                        ? "max-w-[85%] rounded-[18px] rounded-br-[6px] bg-white/[.07] px-4 py-2.5"
+                        : "w-full"
+                    )}
+                  >
+                    {(entry.title || entry.meta) && (
+                      <div
+                        className={cn(
+                          "mb-1.5 flex items-center gap-2",
+                          entry.kind === "user" && "hidden",
+                          entry.kind === "agent" && !entry.title && "hidden"
+                        )}
+                      >
+                        {entry.title && (
+                          <h3 className="text-xs font-medium text-foreground/90">
+                            {entry.title}
+                          </h3>
+                        )}
+                        {entry.meta && (
+                          <span className="text-[10px] text-muted-foreground">
+                            {entry.meta}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {entry.kind === "agent" || entry.kind === "result" ? (
+                      <ResponseMarkdown>{entry.body}</ResponseMarkdown>
+                    ) : (
+                      <p
+                        className={cn(
+                          "text-[13px] leading-5 whitespace-pre-wrap",
+                          entry.kind === "user"
+                            ? "text-foreground"
+                            : "text-foreground/80"
+                        )}
+                      >
+                        {entry.body}
+                      </p>
+                    )}
+                    {entry.details && (
+                      <ul className="mt-3 grid gap-1.5">
+                        {entry.details.map((detail) => (
+                          <li
+                            key={detail}
+                            className="flex items-center gap-2 text-[12px] text-muted-foreground"
+                          >
+                            <Check className="size-3 text-foreground/70" />
+                            {detail}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {entry.artifact && (
+                      <div className="mt-3 flex items-center gap-2 border border-white/[.09] bg-white/[.025] px-2.5 py-2">
+                        <Activity className="size-3.5 text-[#ef9b7e]" />
+                        <span className="text-[11px] font-medium">
+                          {entry.artifact.label}
                         </span>
-                      )}
-                    </div>
-                  )}
-                  <p className="text-[13px] leading-5 text-foreground/80">
-                    {entry.body}
-                  </p>
-                  {entry.details && (
-                    <ul className="mt-3 grid gap-1.5">
-                      {entry.details.map((detail) => (
-                        <li
-                          key={detail}
-                          className="flex items-center gap-2 text-[12px] text-muted-foreground"
-                        >
-                          <Check className="size-3 text-foreground/70" />
-                          {detail}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  {entry.artifact && (
-                    <div className="mt-3 flex items-center gap-2 border border-white/[.09] bg-white/[.025] px-2.5 py-2">
-                      <Activity className="size-3.5 text-[#ef9b7e]" />
-                      <span className="text-[11px] font-medium">
-                        {entry.artifact.label}
-                      </span>
-                      <span className="ml-auto truncate font-mono text-[9px] text-muted-foreground">
-                        {entry.artifact.detail}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </article>
-          ))}
+                        <span className="ml-auto truncate font-mono text-[9px] text-muted-foreground">
+                          {entry.artifact.detail}
+                        </span>
+                      </div>
+                    )}
+                  </article>
+                </MessageScrollerItem>
+              ))}
+            </MessageScrollerContent>
+          </MessageScrollerViewport>
+          <MessageScrollerButton />
+        </MessageScroller>
+      </MessageScrollerProvider>
+      {workspaceError ? (
+        <div className="mx-auto mb-3 flex w-[calc(100%-1.5rem)] max-w-3xl items-center gap-3 border border-destructive/25 bg-destructive/[.06] px-3 py-2.5">
+          <CircleAlert className="size-4 shrink-0 text-destructive" />
+          <p className="min-w-0 flex-1 text-[11px] text-foreground/80">
+            {workspaceError}
+          </p>
+          {onRestartWorkspace ? (
+            <Button
+              size="sm"
+              type="button"
+              variant="outline"
+              disabled={restartPending}
+              onClick={onRestartWorkspace}
+            >
+              {restartPending ? (
+                <LoaderCircle className="animate-spin" />
+              ) : (
+                <RefreshCw />
+              )}
+              Restart
+            </Button>
+          ) : null}
         </div>
-      </ScrollArea>
-      <PromptComposer />
+      ) : null}
+      <PromptComposer
+        disabled={promptDisabled}
+        error={promptError}
+        onSubmit={onSubmitPrompt}
+        pending={promptPending}
+      />
     </section>
   )
 }
 
-function PromptComposer() {
+function PromptComposer({
+  disabled = false,
+  error,
+  onSubmit,
+  pending = false,
+}: {
+  disabled?: boolean
+  error?: string | null
+  onSubmit?: (text: string) => Promise<void>
+  pending?: boolean
+}) {
+  const [text, setText] = useState("")
+
+  const submit = async () => {
+    const prompt = text.trim()
+
+    if (!prompt || disabled || pending || !onSubmit) return
+    await onSubmit(prompt)
+    setText("")
+  }
+
   return (
     <div className="shrink-0 p-3 pt-0">
-      <div className="mx-auto max-w-3xl border border-white/[.12] bg-[#1c1a18] shadow-[0_16px_45px_rgba(0,0,0,.24)] focus-within:border-[#ef9b7e]/45">
+      <form
+        className="mx-auto max-w-3xl border border-white/[.12] bg-[#1c1a18] shadow-[0_16px_45px_rgba(0,0,0,.24)] focus-within:border-[#ef9b7e]/45"
+        onSubmit={async (event) => {
+          event.preventDefault()
+          await submit()
+        }}
+      >
         <Textarea
           aria-label="Message the agent"
           className="min-h-20 resize-none border-0 bg-transparent px-3 py-2.5 text-[13px] shadow-none focus-visible:ring-0"
-          placeholder="Ask to make changes, @mention files, or run /commands"
+          disabled={disabled || pending}
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          onKeyDown={async (event) => {
+            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+              event.preventDefault()
+              await submit()
+            }
+          }}
+          placeholder={
+            disabled
+              ? "OpenCode is still provisioning this Workspace"
+              : "Ask OpenCode to create or change the Project"
+          }
         />
+        {error ? (
+          <p role="alert" className="px-3 pb-2 text-[11px] text-destructive">
+            {error}
+          </p>
+        ) : null}
         <div className="flex h-9 items-center gap-1 border-t border-white/[.07] px-2">
           <Button aria-label="Attach file" size="icon-xs" variant="ghost">
             <Paperclip />
@@ -618,7 +818,7 @@ function PromptComposer() {
             <Terminal />
           </Button>
           <Button size="xs" variant="ghost">
-            <Sparkles /> Skills
+            <Blocks /> Skills
           </Button>
           <Button className="ml-auto" size="xs" variant="ghost">
             Agent <ChevronDown />
@@ -627,12 +827,14 @@ function PromptComposer() {
           <Button
             aria-label="Send message"
             className="bg-[#ef9b7e] text-[#241613] hover:bg-[#f4af98]"
+            disabled={disabled || pending || !text.trim()}
             size="icon-sm"
+            type="submit"
           >
-            <ArrowUp />
+            {pending ? <LoaderCircle className="animate-spin" /> : <ArrowUp />}
           </Button>
         </div>
-      </div>
+      </form>
     </div>
   )
 }
@@ -787,58 +989,36 @@ function CheckList({ checks }: { checks: CheckItem[] }) {
 
 function ReviewSurface({
   patch,
-  checks,
   changeSummary = "No changes",
   changedFileCount = 0,
 }: {
   patch?: string
-  checks: CheckItem[]
   changeSummary?: string
   changedFileCount?: number
 }) {
   return (
-    <Tabs className="size-full gap-0" defaultValue="changes">
-      <div className="flex h-9 shrink-0 items-center border-y bg-[#171614] px-2">
-        <TabsList className="h-8 gap-0 p-0" variant="line">
-          <TabsTrigger className="h-8 px-2 text-xs" value="changes">
-            Changes{" "}
-            <span className="font-mono text-[9px] text-emerald-400">
-              {changeSummary}
-            </span>
-          </TabsTrigger>
-          <TabsTrigger className="h-8 px-2 text-xs" value="checks">
-            Checks{" "}
-            <span className="size-1.5 rounded-full bg-[var(--sylph-live)]" />
-          </TabsTrigger>
-          <TabsTrigger className="h-8 px-2 text-xs" value="review">
-            Review
-          </TabsTrigger>
-        </TabsList>
-        <span className="ml-auto hidden font-mono text-[9px] text-muted-foreground sm:inline">
+    <section className="flex size-full min-h-0 flex-col bg-[var(--sylph-ink)]">
+      <header className="flex h-10 shrink-0 items-center gap-2 border-b bg-[#171614] px-3">
+        <Files className="size-3.5 text-[#ef9b7e]" />
+        <span className="text-xs font-medium">Working tree</span>
+        <span className="font-mono text-[9px] text-emerald-400">
+          {changeSummary}
+        </span>
+        <span className="ml-auto font-mono text-[9px] text-muted-foreground">
           {changedFileCount} {changedFileCount === 1 ? "file" : "files"}
         </span>
-      </div>
-      <TabsContent className="min-h-0 overflow-hidden" value="changes">
+      </header>
+      <div className="min-h-0 flex-1 overflow-hidden">
         {patch ? (
           <CodeReview className="h-full" patch={patch} />
         ) : (
-          <div className="grid min-h-36 place-items-center px-6 text-center">
+          <div className="grid h-full place-items-center px-6 text-center">
             <p className="text-xs text-muted-foreground">
               The working tree has no changes.
             </p>
           </div>
         )}
-      </TabsContent>
-      <TabsContent className="min-h-0 overflow-auto" value="checks">
-        <CheckList checks={checks} />
-      </TabsContent>
-      <TabsContent className="min-h-0 overflow-auto" value="review">
-        <div className="grid min-h-36 place-items-center px-6 text-center">
-          <p className="text-xs text-muted-foreground">
-            Review the selected lines, then hand the change to your editor.
-          </p>
-        </div>
-      </TabsContent>
+      </div>
       <footer className="flex h-9 shrink-0 items-center border-t px-3 text-[10px] text-muted-foreground">
         <span>
           {changedFileCount} {changedFileCount === 1 ? "file" : "files"} changed
@@ -847,66 +1027,305 @@ function ReviewSurface({
           Open in editor
         </Button>
       </footer>
-    </Tabs>
+    </section>
   )
 }
 
-function MobileWorkspaceSurface({
+function ChecksSurface({ checks }: { checks: CheckItem[] }) {
+  return (
+    <section className="size-full overflow-auto bg-background">
+      <div className="mx-auto w-full max-w-4xl py-3">
+        <CheckList checks={checks} />
+      </div>
+    </section>
+  )
+}
+
+function ReviewNotesSurface() {
+  return (
+    <section className="grid size-full place-items-center bg-background px-6 text-center">
+      <div className="max-w-sm">
+        <Check className="mx-auto mb-3 size-5 text-muted-foreground" />
+        <h2 className="text-sm font-medium">No review notes yet</h2>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+          Select changed lines to leave notes or hand the change to your editor.
+        </p>
+      </div>
+    </section>
+  )
+}
+
+function TerminalSurface() {
+  return (
+    <section className="flex size-full flex-col bg-[var(--sylph-ink)] font-mono text-[11px]">
+      <header className="flex h-10 shrink-0 items-center gap-2 border-b px-3 text-muted-foreground">
+        <Terminal className="size-3.5" />
+        Cloudflare CI terminal
+      </header>
+      <div className="flex min-h-0 flex-1 items-start gap-2 p-4 text-muted-foreground">
+        <span className="text-[var(--sylph-coral)]">$</span>
+        <span>The terminal will attach when a Cloudflare CI run starts.</span>
+        <span className="mt-0.5 h-3.5 w-1.5 animate-pulse bg-foreground/70 motion-reduce:animate-none" />
+      </div>
+    </section>
+  )
+}
+
+const initialWorkspaceTabs: WorkspaceTab[] = []
+
+const workspaceTabIcon = {
+  browser: Globe2,
+  changes: Files,
+  checks: ListChecks,
+  review: Check,
+  terminal: Terminal,
+} satisfies Record<WorkspaceTabKind, typeof MessageSquare>
+
+function WorkspaceToolToggle({
+  open,
+  onToggle,
+}: {
+  open: boolean
+  onToggle: () => void
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        aria-controls="workspace-tools"
+        aria-expanded={open}
+        aria-label={open ? "Hide tool sidebar" : "Open tool sidebar"}
+        className={cn(
+          "ml-auto grid size-8 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+          open && "bg-accent text-accent-foreground"
+        )}
+        onClick={onToggle}
+      >
+        {open ? (
+          <PanelRightClose className="size-4" />
+        ) : (
+          <PanelRightOpen className="size-4" />
+        )}
+      </TooltipTrigger>
+      <TooltipContent>{open ? "Hide tools" : "Open tools"}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+function WorkspaceChat({
+  entries,
+  model,
+  onToggleTools,
+  onSubmitPrompt,
+  onRestartWorkspace,
+  promptDisabled,
+  promptError,
+  promptPending,
+  restartPending,
+  toolPaneOpen,
+  workspaceError,
+}: {
+  entries: ThreadEntry[]
+  model?: string | null
+  onToggleTools: () => void
+  onSubmitPrompt?: (text: string) => Promise<void>
+  onRestartWorkspace?: () => Promise<void>
+  promptDisabled?: boolean
+  promptError?: string | null
+  promptPending?: boolean
+  restartPending?: boolean
+  toolPaneOpen: boolean
+  workspaceError?: string | null
+}) {
+  return (
+    <section
+      aria-label="Workspace conversation"
+      className="flex size-full min-w-0 flex-col bg-background"
+    >
+      <header className="flex h-10 shrink-0 items-center gap-2 border-b px-3">
+        <Badge
+          className="hidden rounded-[4px] px-1.5 font-mono text-[9px] sm:inline-flex"
+          variant="outline"
+        >
+          {model ?? "OpenCode v2"}
+        </Badge>
+        <WorkspaceToolToggle open={toolPaneOpen} onToggle={onToggleTools} />
+      </header>
+      <AgentThread
+        entries={entries}
+        onSubmitPrompt={onSubmitPrompt}
+        promptDisabled={promptDisabled}
+        promptError={promptError}
+        promptPending={promptPending}
+        restartPending={restartPending}
+        onRestartWorkspace={onRestartWorkspace}
+        workspaceError={workspaceError}
+      />
+    </section>
+  )
+}
+
+function WorkspaceTabs({
+  activeTabId,
   browser,
   changedFileCount,
   changeSummary,
   checks,
-  entries,
+  onActivateTab,
+  onCloseTab,
+  onDismiss,
+  onOpenTool,
   patch,
   previewContent,
+  tabs,
 }: {
+  activeTabId: string | null
   browser: BrowserState
   changedFileCount?: number
   changeSummary?: string
   checks: CheckItem[]
-  entries: ThreadEntry[]
+  onActivateTab: (tabId: string) => void
+  onCloseTab: (tabId: string) => void
+  onDismiss: () => void
+  onOpenTool: (kind: WorkspaceTabKind) => void
   patch?: string
   previewContent?: ReactNode
+  tabs: WorkspaceTab[]
 }) {
+  const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0]
+  const tools = [
+    { kind: "browser", label: "New browser tab", icon: Globe2 },
+    { kind: "changes", label: "Changes", icon: Files },
+    { kind: "checks", label: "Checks", icon: ListChecks },
+    { kind: "review", label: "Review", icon: Check },
+    { kind: "terminal", label: "Terminal", icon: Terminal },
+  ] satisfies Array<{
+    kind: WorkspaceTabKind
+    label: string
+    icon: typeof Globe2
+  }>
+
   return (
-    <Tabs className="min-h-0 flex-1 gap-0 md:hidden" defaultValue="agent">
-      <TabsList
-        className="grid h-10 w-full shrink-0 grid-cols-3 rounded-none border-b bg-[#171614] p-0"
-        variant="line"
+    <div className="flex size-full min-h-0 flex-col bg-background">
+      <div className="flex h-10 shrink-0 items-stretch border-b bg-[#171614]">
+        <div
+          aria-label="Workspace tool windows"
+          className="flex min-w-0 flex-1 items-stretch overflow-x-auto"
+          role="tablist"
+        >
+          {tabs.map((tab) => {
+            const Icon = workspaceTabIcon[tab.kind]
+            const active = tab.id === activeTab.id
+            return (
+              <div
+                className={cn(
+                  "group/tab relative flex shrink-0 items-center border-r border-white/[.07]",
+                  active && "bg-background"
+                )}
+                key={tab.id}
+              >
+                {active ? (
+                  <span className="absolute inset-x-0 top-0 h-px bg-[var(--sylph-coral)]" />
+                ) : null}
+                <button
+                  aria-controls="workspace-tool-panel"
+                  aria-selected={active}
+                  className={cn(
+                    "flex h-full items-center gap-2 px-3 text-xs text-muted-foreground transition-colors hover:bg-white/[.035] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset",
+                    active && "text-foreground"
+                  )}
+                  id={`workspace-tab-${tab.id}`}
+                  onClick={() => onActivateTab(tab.id)}
+                  role="tab"
+                  type="button"
+                >
+                  <Icon className="size-3.5" />
+                  {tab.label}
+                  {tab.kind === "browser" && browser.status === "live" ? (
+                    <span
+                      aria-label="live"
+                      className="size-1.5 rounded-full bg-[var(--sylph-live)]"
+                    />
+                  ) : null}
+                </button>
+                <button
+                  aria-label={`Close ${tab.label} window`}
+                  className="mr-1 grid size-6 place-items-center rounded-[4px] text-muted-foreground/60 opacity-60 transition-opacity hover:bg-white/[.06] hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                  onClick={() => onCloseTab(tab.id)}
+                  type="button"
+                >
+                  <X className="size-3" />
+                </button>
+              </div>
+            )
+          })}
+        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            aria-label="Open tool tab"
+            className="m-1 grid size-6 shrink-0 place-items-center rounded-[4px] text-muted-foreground hover:bg-white/[.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          >
+            <Plus className="size-3.5" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-44">
+            {tools.map(({ kind, label, icon: Icon }) => (
+              <DropdownMenuItem key={kind} onClick={() => onOpenTool(kind)}>
+                <Icon /> {label}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <Button
+          aria-label="Close tool sidebar"
+          className="m-1"
+          onClick={onDismiss}
+          size="icon-xs"
+          variant="ghost"
+        >
+          <PanelRightClose />
+        </Button>
+      </div>
+      <div
+        aria-label={activeTab ? undefined : "Tool sidebar"}
+        aria-labelledby={
+          activeTab ? `workspace-tab-${activeTab.id}` : undefined
+        }
+        className="flex min-h-0 flex-1 flex-col"
+        id="workspace-tool-panel"
+        role={activeTab ? "tabpanel" : "region"}
       >
-        <TabsTrigger className="h-10 text-xs" value="agent">
-          Agent
-        </TabsTrigger>
-        <TabsTrigger className="h-10 text-xs" value="preview">
-          Preview
-        </TabsTrigger>
-        <TabsTrigger className="h-10 text-xs" value="review">
-          Review
-        </TabsTrigger>
-      </TabsList>
-      <TabsContent className="min-h-0" value="agent">
-        <AgentThread entries={entries} />
-      </TabsContent>
-      <TabsContent className="min-h-0" value="preview">
-        <BrowserPreview browser={browser} content={previewContent} />
-      </TabsContent>
-      <TabsContent className="min-h-0" value="review">
-        <ReviewSurface
-          changedFileCount={changedFileCount}
-          changeSummary={changeSummary}
-          checks={checks}
-          patch={patch}
-        />
-      </TabsContent>
-    </Tabs>
+        {!activeTab ? (
+          <div className="grid size-full place-items-center px-6 text-center">
+            <p className="text-xs text-muted-foreground">
+              Open a tool from the + menu.
+            </p>
+          </div>
+        ) : null}
+        {activeTab?.kind === "browser" ? (
+          <BrowserPreview browser={browser} content={previewContent} />
+        ) : null}
+        {activeTab?.kind === "changes" ? (
+          <ReviewSurface
+            changedFileCount={changedFileCount}
+            changeSummary={changeSummary}
+            patch={patch}
+          />
+        ) : null}
+        {activeTab?.kind === "checks" ? (
+          <ChecksSurface checks={checks} />
+        ) : null}
+        {activeTab?.kind === "review" ? <ReviewNotesSurface /> : null}
+        {activeTab?.kind === "terminal" ? <TerminalSurface /> : null}
+      </div>
+    </div>
   )
 }
 
 function WorkspaceShell({
   organization = "Casey’s workspace",
+  projectName,
   repositoryName,
   workspaceName,
-  repositories = fallbackRepositories,
+  projects = fallbackProjects,
   entries = fallbackEntries,
   browser = {
     url: "http://127.0.0.1:3000/workspaces/preview",
@@ -921,8 +1340,83 @@ function WorkspaceShell({
   agentControllingBrowser = false,
   demo = false,
   className,
+  model,
+  onSubmitPrompt,
+  promptDisabled = false,
+  promptError,
+  promptPending = false,
+  restartPending = false,
+  onRestartWorkspace,
+  workspaceError,
 }: WorkspaceShellProps) {
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false)
+  const [projectRailCollapsed, setProjectRailCollapsed] = useState(false)
+  const [tabs, setTabs] = useState<WorkspaceTab[]>(initialWorkspaceTabs)
+  const [activeTabId, setActiveTabId] = useState<string | null>(null)
+  const [toolPaneOpen, setToolPaneOpen] = useState(false)
+  const browserTabNumber = useRef(0)
+  const projectRailRef = useRef<PanelImperativeHandle>(null)
+  const projectLayout = useDefaultLayout({
+    id: "workspace-shell-navigation-v2",
+    onlySaveAfterUserInteractions: true,
+    panelIds: ["project-navigation", "workspace-area"],
+    storage: workspacePanelStorage,
+  })
+
+  const addBrowserTab = () => {
+    browserTabNumber.current += 1
+    const id = `browser-${browserTabNumber.current}`
+    const tab: WorkspaceTab = {
+      id,
+      kind: "browser",
+      label:
+        browserTabNumber.current === 1
+          ? "Browser"
+          : `Browser ${browserTabNumber.current}`,
+    }
+    setTabs((current) => [...current, tab])
+    setActiveTabId(id)
+    setToolPaneOpen(true)
+  }
+
+  const openTool = (kind: WorkspaceTabKind) => {
+    if (kind === "browser") {
+      addBrowserTab()
+      return
+    }
+
+    const existing = tabs.find((tab) => tab.kind === kind)
+
+    if (existing) {
+      setActiveTabId(existing.id)
+      setToolPaneOpen(true)
+      return
+    }
+
+    const labels = {
+      changes: "Changes",
+      checks: "Checks",
+      review: "Review",
+      terminal: "Terminal",
+    } satisfies Record<Exclude<WorkspaceTabKind, "browser">, string>
+    const tab: WorkspaceTab = { id: kind, kind, label: labels[kind] }
+    setTabs((current) => [...current, tab])
+    setActiveTabId(tab.id)
+    setToolPaneOpen(true)
+  }
+
+  const closeTab = (tabId: string) => {
+    setTabs((current) => {
+      const index = current.findIndex((tab) => tab.id === tabId)
+      const next = current.filter((tab) => tab.id !== tabId)
+
+      if (activeTabId === tabId) {
+        setActiveTabId(next[Math.max(0, index - 1)]?.id ?? null)
+      }
+
+      return next
+    })
+  }
 
   return (
     <TooltipProvider>
@@ -933,80 +1427,139 @@ function WorkspaceShell({
         )}
       >
         <UtilityRail />
-        <RepositoryRail
-          organization={organization}
-          repositories={repositories}
-          workspaceName={workspaceName}
-        />
-        <main className="flex min-w-0 flex-1 flex-col">
-          <WorkspaceTopbar
-            agentControllingBrowser={agentControllingBrowser}
-            browser={browser}
-            checks={checks}
-            demo={demo}
-            onOpenNavigation={() => setMobileNavigationOpen(true)}
-            repositoryName={repositoryName}
-            workspaceName={workspaceName}
+        <ResizablePanelGroup
+          className="min-w-0 flex-1 max-md:[&>#project-navigation]:hidden max-md:[&>#project-navigation-handle]:hidden"
+          defaultLayout={projectLayout.defaultLayout}
+          id="workspace-shell-navigation"
+          onLayoutChanged={projectLayout.onLayoutChanged}
+          orientation="horizontal"
+        >
+          <ResizablePanel
+            collapsedSize={0}
+            collapsible
+            defaultSize="268px"
+            groupResizeBehavior="preserve-pixel-size"
+            id="project-navigation"
+            maxSize="420px"
+            minSize="220px"
+            onResize={({ inPixels }) => setProjectRailCollapsed(inPixels === 0)}
+            panelRef={projectRailRef}
+          >
+            <ProjectRail
+              onClose={() => projectRailRef.current?.collapse()}
+              organization={organization}
+              projects={projects}
+              workspaceName={workspaceName}
+            />
+          </ResizablePanel>
+          <ResizableHandle
+            aria-label="Resize project navigation"
+            className="hidden transition-colors hover:bg-[var(--sylph-coral)]/50 md:flex"
+            id="project-navigation-handle"
+            withHandle
           />
-          {mobileNavigationOpen && (
-            <div
-              className="absolute inset-0 z-50 flex bg-black/60 md:hidden"
-              onKeyDown={(event) => {
-                if (event.key === "Escape") setMobileNavigationOpen(false)
-              }}
-            >
-              <RepositoryRail
-                mobile
-                onClose={() => setMobileNavigationOpen(false)}
-                organization={organization}
-                repositories={repositories}
+          <ResizablePanel
+            className="max-md:fixed! max-md:inset-1.5! max-md:w-auto! max-md:max-w-none! max-md:min-w-0! max-md:basis-auto!"
+            id="workspace-area"
+            minSize="480px"
+          >
+            <main className="flex size-full min-w-0 flex-col">
+              <WorkspaceTopbar
+                agentControllingBrowser={agentControllingBrowser}
+                browser={browser}
+                checks={checks}
+                demo={demo}
+                navigationCollapsed={projectRailCollapsed}
+                onOpenNavigation={() => {
+                  if (projectRailCollapsed) {
+                    projectRailRef.current?.expand()
+                    return
+                  }
+                  setMobileNavigationOpen(true)
+                }}
+                onOpenTerminal={() => openTool("terminal")}
+                projectName={projectName}
+                repositoryName={repositoryName}
                 workspaceName={workspaceName}
               />
-              <button
-                aria-label="Dismiss navigation"
-                className="min-w-0 flex-1"
-                type="button"
-                onClick={() => setMobileNavigationOpen(false)}
-              />
-            </div>
-          )}
-          <MobileWorkspaceSurface
-            browser={browser}
-            changedFileCount={changedFileCount}
-            changeSummary={changeSummary}
-            checks={checks}
-            entries={entries}
-            patch={patch}
-            previewContent={previewContent}
-          />
-          <div className="hidden min-h-0 flex-1 md:block">
-            <ResizablePanelGroup className="min-h-0" orientation="horizontal">
-              <ResizablePanel defaultSize="54%" minSize="34%">
-                <AgentThread entries={entries} />
-              </ResizablePanel>
-              <ResizableHandle />
-              <ResizablePanel defaultSize="46%" minSize="30%">
-                <ResizablePanelGroup orientation="vertical">
-                  <ResizablePanel defaultSize="56%" minSize="28%">
-                    <BrowserPreview
-                      browser={browser}
-                      content={previewContent}
+              {mobileNavigationOpen && (
+                <div
+                  className="absolute inset-0 z-50 flex bg-black/60 md:hidden"
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") setMobileNavigationOpen(false)
+                  }}
+                >
+                  <ProjectRail
+                    mobile
+                    onClose={() => setMobileNavigationOpen(false)}
+                    organization={organization}
+                    projects={projects}
+                    workspaceName={workspaceName}
+                  />
+                  <button
+                    aria-label="Dismiss navigation"
+                    className="min-w-0 flex-1"
+                    type="button"
+                    onClick={() => setMobileNavigationOpen(false)}
+                  />
+                </div>
+              )}
+              <ResizablePanelGroup
+                className="relative min-h-0 flex-1"
+                id="workspace-content-panes"
+                orientation="horizontal"
+              >
+                <ResizablePanel id="workspace-chat" minSize="260px">
+                  <WorkspaceChat
+                    entries={entries}
+                    model={model}
+                    onToggleTools={() => setToolPaneOpen((open) => !open)}
+                    onSubmitPrompt={onSubmitPrompt}
+                    promptDisabled={promptDisabled}
+                    promptError={promptError}
+                    promptPending={promptPending}
+                    restartPending={restartPending}
+                    toolPaneOpen={toolPaneOpen}
+                    onRestartWorkspace={onRestartWorkspace}
+                    workspaceError={workspaceError}
+                  />
+                </ResizablePanel>
+                {toolPaneOpen ? (
+                  <>
+                    <ResizableHandle
+                      aria-label="Resize workspace tool pane"
+                      className="hidden transition-colors hover:bg-[var(--sylph-coral)]/50 md:flex"
+                      id="workspace-tool-handle"
+                      withHandle
                     />
-                  </ResizablePanel>
-                  <ResizableHandle />
-                  <ResizablePanel defaultSize="44%" minSize="22%">
-                    <ReviewSurface
-                      changedFileCount={changedFileCount}
-                      changeSummary={changeSummary}
-                      checks={checks}
-                      patch={patch}
-                    />
-                  </ResizablePanel>
-                </ResizablePanelGroup>
-              </ResizablePanel>
-            </ResizablePanelGroup>
-          </div>
-        </main>
+                    <ResizablePanel
+                      className="bg-background max-md:fixed! max-md:inset-x-1.5! max-md:top-[54px]! max-md:bottom-1.5! max-md:z-50 max-md:h-auto! max-md:w-auto! max-md:max-w-none! max-md:min-w-0! max-md:basis-auto!"
+                      defaultSize="50%"
+                      id="workspace-tools"
+                      maxSize="70%"
+                      minSize="260px"
+                    >
+                      <WorkspaceTabs
+                        activeTabId={activeTabId}
+                        browser={browser}
+                        changedFileCount={changedFileCount}
+                        changeSummary={changeSummary}
+                        checks={checks}
+                        onActivateTab={setActiveTabId}
+                        onCloseTab={closeTab}
+                        onDismiss={() => setToolPaneOpen(false)}
+                        onOpenTool={openTool}
+                        patch={patch}
+                        previewContent={previewContent}
+                        tabs={tabs}
+                      />
+                    </ResizablePanel>
+                  </>
+                ) : null}
+              </ResizablePanelGroup>
+            </main>
+          </ResizablePanel>
+        </ResizablePanelGroup>
       </div>
     </TooltipProvider>
   )
@@ -1016,19 +1569,22 @@ export {
   AgentThread,
   BrowserPreview,
   CheckList,
-  RepositoryRail,
+  ProjectRail,
   ReviewSurface,
+  WorkspaceTabs,
   WorkspaceShell,
   WorkspaceTopbar,
   fallbackChecks,
   fallbackEntries,
-  fallbackRepositories,
+  fallbackProjects,
 }
 export type {
   BrowserState,
   CheckItem,
-  RepositoryGroup,
+  ProjectGroup,
   ThreadEntry,
   WorkspaceItem,
   WorkspaceShellProps,
+  WorkspaceTab,
+  WorkspaceTabKind,
 }

@@ -1,6 +1,6 @@
 ---
 name: Sylph
-description: A dense, browser-first workspace for directing agents and inspecting proof in context.
+description: A dense, tabbed workspace for directing agents and opening proof in context.
 colors:
   canvas: "oklch(0.145 0.008 52)"
   utility-ink: "oklch(0.125 0.008 48)"
@@ -100,18 +100,18 @@ components:
 
 **Creative North Star: "The Thread-First Workshop"**
 
-Sylph is a dense, dark engineering workspace in which agent intent, a running product, and proof remain visible together. Its visual world is calm and workmanlike: warm soft-black planes, warm near-white text, fine separators, compact controls, and a small number of precise state signals. The agent thread is the narrative center, while the persistent browser and review surface make verification part of the work rather than a destination after it.
+Sylph is a dense, dark engineering workspace in which agent intent, a running product, and proof remain one tab away. Its visual world is calm and workmanlike: warm soft-black planes, warm near-white text, fine separators, compact controls, and a small number of precise state signals. Chat is the default narrative center. Browser, Changes, Checks, Review, and Terminal are peer work surfaces rather than nested inspectors.
 
-The system is familiar enough for sustained IDE use without becoming a file-editor-first IDE or a generic dashboard. Repository hierarchy anchors orientation, the active Workspace is cut into that hierarchy with a coral hairline, and live browser state is reserved for aqua. Dense chrome gives way to more generous transcript measure so the interface feels deliberate rather than cramped.
+The system is familiar enough for sustained IDE use without becoming a file-editor-first IDE or a generic dashboard. Project hierarchy anchors orientation, the active Workspace is cut into that hierarchy with a coral hairline, and live browser state is reserved for aqua. Dense chrome gives way to more generous transcript measure so the interface feels deliberate rather than cramped.
 
 **Key Characteristics:**
 
 - Warm, tonal dark planes separated by hairlines rather than card chrome
 - Compact sans-serif interface text with monospace reserved for machine output
 - Coral for selection and agent action; aqua only for live state
-- Persistent thread, browser, changes, and checks within one Workspace
+- Peer Chat, Browser, Changes, Checks, Review, and Terminal tabs within one Workspace
 - Nearly square geometry with clipped 4–9px corners
-- Explicit mobile modes instead of a compressed desktop split
+- One responsive, horizontally scrollable tab model across desktop and mobile
 
 ## Colors
 
@@ -168,19 +168,19 @@ The palette is a warm-black working environment punctuated by one selection colo
 
 ## Layout
 
-The Workspace fills the viewport and maintains stable left-side orientation. On desktop, a 48px utility rail precedes a 268px Repository rail. Repositories are the parents and Workspaces are nested directly beneath them; they are never separated into independent navigation sections. A 48px top bar establishes Repository → Workspace context above the operating surface.
+The Workspace fills the viewport and maintains stable left-side orientation. On desktop, a 48px utility rail precedes a 268px Project rail. Projects are the parents and Workspaces are nested directly beneath them; each Project also names its contained Repository. Projects and Workspaces are never separated into independent navigation sections. A 48px top bar establishes Project → Workspace context above the operating surface.
 
-At the `md` breakpoint, the operating surface becomes a resizable split: the agent thread begins at 54% and the proof region at 46%. The proof region divides vertically into a browser beginning at 56% and review at 44%. Panel minimums preserve usable targets rather than allowing a pane to collapse into noise. The thread body centers within a 48rem maximum measure, with 16px mobile and 28px wider horizontal insets.
+The operating surface uses one full-height peer tab model. Chat opens first and occupies the complete work area. Browser, Changes, Checks, Review, and Terminal replace that area when selected; secondary work never compresses Chat into a permanent split. A compact tab strip sits directly beneath the Workspace top bar. New Browser tabs can be added, tool tabs can be closed, and the Terminal action activates an existing terminal or opens one. The thread body centers within a 48rem maximum measure, with 16px mobile and 28px wider horizontal insets.
 
-Below `md`, the utility and Repository rails leave the canvas. Navigation opens as a modal rail, and Agent, Preview, and Review become three explicit full-height modes. The desktop split must not be squeezed onto a narrow viewport. The shell uses the small viewport height and keeps a 620px minimum height for the complete desktop composition.
+Below `md`, the utility and Project rails leave the canvas and navigation opens as a modal rail. The work tab strip remains in place and scrolls horizontally, preserving the same mental model and focus order at every width. The shell uses the small viewport height and keeps a 620px minimum height for the complete composition.
 
 Spacing follows a compact 4/6/8/12/16/24/28px rhythm. Structural toolbars are 36–48px tall; controls are 24–32px. Separators and resizable handles align panels into a single continuous workspace rather than a collection of cards.
 
 ### Named Rules
 
-**The Stable-Orientation Rule.** Repository and nested Workspace identity remain on the left while the active work changes to their right.
+**The Stable-Orientation Rule.** Project and nested Workspace identity remain on the left while the active work changes to their right.
 
-**The Proof-Stays-Present Rule.** On desktop, browser proof remains beside the thread and review remains directly below it.
+**The Peer-Surface Rule.** Chat, Browser, Changes, Checks, Review, and Terminal share one level of hierarchy. None is permanently nested inside another.
 
 ## Elevation & Depth
 
@@ -235,7 +235,7 @@ Borders are fine and quiet. Active navigation is not boxed; it combines a shallo
 
 ### Navigation
 
-The utility rail is icon-led and fixed at 48px. The adjacent Repository rail is a textual hierarchy with stronger Repository parents and denser Workspace children. An active Workspace combines a shallow warm field, a coral hairline, stronger text, and an `aria-current` state. Branch and change metadata remain secondary and monospace where numeric.
+The utility rail is icon-led and fixed at 48px. The adjacent Project rail is a textual hierarchy with stronger Project parents, contained Repository metadata, and denser Workspace children. An active Workspace combines a shallow warm field, a coral hairline, stronger text, and an `aria-current` state. Branch and change metadata remain secondary and monospace where numeric.
 
 ### Agent Thread
 
@@ -243,27 +243,27 @@ Messages form one continuous transcript divided by quiet hairlines, not bubbles.
 
 ### Browser Preview
 
-Browser chrome is a compact 40px toolbar with refresh, an editable monospace URL, test, expand, and viewport controls. The viewport is first-class and occupies the upper proof region. Mobile simulation constrains content to 390px within the available preview rather than replacing the Workspace with a device frame.
+Browser chrome is a compact 40px toolbar with refresh, an editable monospace URL, test, expand, and viewport controls. A Browser opens as a full work tab only when selected; Chat remains the default. Mobile simulation constrains content to 390px within the available preview rather than replacing the Workspace with a device frame. Multiple Browser tabs may coexist for separate preview targets.
 
 ### Review Surface
 
-Changes and Checks share a line-tab surface beneath the browser. Active tabs use a fine underline rather than a filled capsule. Code renders with Pierre Diffs in a dark GitHub-derived theme; checks are concise rows with icon, text status, and mono detail.
+Changes, Checks, and Review are independent peer tabs. Code renders with Pierre Diffs in a dark GitHub-derived theme; checks are concise rows with icon, text status, and mono detail. Opening any review tool gives it the full operating surface instead of a nested sidebar.
 
 ## Do's and Don'ts
 
 ### Do:
 
-- **Do** preserve the Organization → Repository → nested Workspace hierarchy and keep it persistent on desktop.
-- **Do** make the browser persistent beside the thread and keep Changes and Checks directly beneath it.
+- **Do** preserve the Organization → Project → nested Workspace hierarchy, with the contained Repository visible as metadata, and keep it persistent on desktop.
+- **Do** open Chat by default and keep Browser, Changes, Checks, Review, and Terminal as peer work tabs.
 - **Do** use coral as a narrow selection/action cue and aqua as a labeled live-state cue.
 - **Do** keep app chrome compact, keyboard-visible, and structured by fine separators.
-- **Do** switch narrow screens to explicit Agent, Preview, and Review modes.
+- **Do** preserve the same horizontally scrollable work tab model on narrow screens.
 - **Do** use monospace only for URLs, branches, timings, counts, diffs, and other machine output.
 
 ### Don't:
 
 - **Don't** turn the Workspace into a file-editor-first IDE or a grid of equal-weight dashboard cards.
-- **Don't** split Repositories and Workspaces into separate navigation sections.
+- **Don't** split Projects and Workspaces into separate navigation sections.
 - **Don't** use decorative gradients, glassmorphism, neon, or a physical cockpit metaphor.
 - **Don't** introduce oversized titles, floating card stacks, or pill-shaped chrome.
 - **Don't** hide browser proof behind a desktop tab or reduce it to a thumbnail.
