@@ -7,11 +7,13 @@ import { ArrowLeft, ArrowRight, LoaderCircle } from "lucide-react"
 import { type FormEvent, useState } from "react"
 
 import { AppShell } from "@/components/app-shell"
+import { validateOnboardingSearch } from "@/lib/onboarding"
 import { createProject, getDashboard, getOpenCodeSetup } from "@/lib/workspaces"
 
 export const Route = createFileRoute(
   "/organizations/$organizationSlug/projects/new"
 )({
+  validateSearch: validateOnboardingSearch,
   loader: async ({ params }) => {
     const dashboard = await getDashboard()
     const organization =
@@ -29,6 +31,7 @@ export const Route = createFileRoute(
 
 function NewProjectScreen() {
   const navigate = useNavigate()
+  const { onboarding } = Route.useSearch()
   const { dashboard, organization, setup } = Route.useLoaderData()
   const create = useServerFn(createProject)
   const [pending, setPending] = useState(false)
@@ -73,6 +76,7 @@ function NewProjectScreen() {
           projectSlug: result.projectSlug,
           workspaceId: result.id,
         },
+        search: { onboarding },
       })
     } catch (cause) {
       setError(
@@ -117,6 +121,7 @@ function NewProjectScreen() {
                   <Link
                     to="/organizations/$organizationSlug/settings"
                     params={{ organizationSlug: organization.slug }}
+                    search={{ onboarding }}
                   />
                 }
               >
@@ -148,6 +153,7 @@ function NewProjectScreen() {
                       <Link
                         to="/organizations/$organizationSlug/settings"
                         params={{ organizationSlug: organization.slug }}
+                        search={{ onboarding }}
                       />
                     }
                   >

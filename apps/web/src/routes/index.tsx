@@ -19,6 +19,8 @@ import { type ComponentProps, type FormEvent, useState } from "react"
 
 import { authClient } from "@/lib/auth-client"
 import { AppShell, SylphMark } from "@/components/app-shell"
+import { OnboardingGuide } from "@/components/onboarding-guide"
+import { validateOnboardingSearch } from "@/lib/onboarding"
 import {
   getDashboard,
   getLatestMagicLink,
@@ -26,12 +28,14 @@ import {
 } from "@/lib/workspaces"
 
 export const Route = createFileRoute("/")({
+  validateSearch: validateOnboardingSearch,
   loader: () => getDashboard(),
   component: HomeScreen,
 })
 
 function HomeScreen() {
   const dashboard = Route.useLoaderData()
+  const { onboarding } = Route.useSearch()
   const router = useRouter()
   const loadLatestMagicLink = useServerFn(getLatestMagicLink)
   const restart = useServerFn(restartWorkspace)
@@ -160,6 +164,15 @@ function HomeScreen() {
   return (
     <AppShell active="home" dashboard={dashboard} topbar="Projects">
       <div className="mx-auto max-w-5xl px-4 py-8 sm:px-8 sm:py-12">
+        <OnboardingGuide
+          force={onboarding}
+          hasPersonalProvider={dashboard.hasPersonalProvider}
+          organizations={dashboard.organizations}
+          projects={dashboard.projects}
+          providerOrganizationIds={dashboard.providerOrganizationIds}
+          userId={dashboard.user.id}
+          workspaces={dashboard.workspaces}
+        />
         <div className="flex items-center justify-between gap-5 border-b pb-7">
           <h1 className="text-3xl font-semibold tracking-[-0.03em]">
             Projects
