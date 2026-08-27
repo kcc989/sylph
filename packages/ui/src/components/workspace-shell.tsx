@@ -11,6 +11,8 @@ import {
   CircleAlert,
   Files,
   GitBranch,
+  GitCommit,
+  GitMerge,
   Globe2,
   House,
   LoaderCircle,
@@ -155,6 +157,12 @@ type WorkspaceShellProps = {
   patch?: string
   changeSummary?: string
   changedFileCount?: number
+  checkpointHistory?: ReadonlyArray<{
+    id: string
+    commit: string
+    message: string
+    createdAt: number
+  }>
   previewContent?: ReactNode
   agentControllingBrowser?: boolean
   demo?: boolean
@@ -164,7 +172,11 @@ type WorkspaceShellProps = {
   promptDisabled?: boolean
   promptError?: string | null
   promptPending?: boolean
+  checkpointPending?: boolean
+  acceptPending?: boolean
   restartPending?: boolean
+  onAccept?: () => Promise<void>
+  onCheckpoint?: () => Promise<void>
   onSubmitPrompt?: (text: string) => Promise<void>
   onRestartWorkspace?: () => Promise<void>
   workspaceError?: string | null
@@ -518,6 +530,12 @@ function WorkspaceTopbar({
   navigationCollapsed,
   onOpenNavigation,
   onOpenTerminal,
+  onCheckpoint,
+  checkpointDisabled,
+  checkpointPending,
+  onAccept,
+  acceptDisabled,
+  acceptPending,
 }: {
   agentControllingBrowser: boolean
   browser: BrowserState
@@ -529,6 +547,12 @@ function WorkspaceTopbar({
   navigationCollapsed: boolean
   onOpenNavigation: () => void
   onOpenTerminal: () => void
+  onCheckpoint?: () => Promise<void>
+  checkpointDisabled: boolean
+  checkpointPending: boolean
+  onAccept?: () => Promise<void>
+  acceptDisabled: boolean
+  acceptPending: boolean
 }) {
   const passedChecks = checks.filter(
     (check) => check.status === "passed"
@@ -592,10 +616,27 @@ function WorkspaceTopbar({
         <Button
           size="sm"
           variant="outline"
-          disabled
-          title="Available after a reviewable checkpoint"
+          disabled={checkpointDisabled || checkpointPending}
+          onClick={() => void onCheckpoint?.()}
         >
-          <GitBranch /> Create PR
+          {checkpointPending ? (
+            <LoaderCircle className="animate-spin motion-reduce:animate-none" />
+          ) : (
+            <GitBranch />
+          )}
+          Checkpoint
+        </Button>
+        <Button
+          size="sm"
+          disabled={acceptDisabled || acceptPending}
+          onClick={() => void onAccept?.()}
+        >
+          {acceptPending ? (
+            <LoaderCircle className="animate-spin motion-reduce:animate-none" />
+          ) : (
+            <GitMerge />
+          )}
+          Accept
         </Button>
         <Button
           aria-label="More workspace actions"
@@ -1002,10 +1043,17 @@ function ReviewSurface({
   patch,
   changeSummary = "No changes",
   changedFileCount = 0,
+  checkpointHistory = [],
 }: {
   patch?: string
   changeSummary?: string
   changedFileCount?: number
+  checkpointHistory?: ReadonlyArray<{
+    id: string
+    commit: string
+    message: string
+    createdAt: number
+  }>
 }) {
   return (
     <section className="flex size-full min-h-0 flex-col bg-[var(--sylph-ink)]">
@@ -1030,6 +1078,24 @@ function ReviewSurface({
           </div>
         )}
       </div>
+      {checkpointHistory.length ? (
+        <div className="max-h-28 shrink-0 overflow-auto border-t bg-[#171614]">
+          {checkpointHistory.map((checkpoint) => (
+            <div
+              className="flex items-center gap-2 border-b border-white/[.05] px-3 py-1.5 text-[10px] last:border-b-0"
+              key={checkpoint.id}
+            >
+              <GitCommit className="size-3 text-[#ef9b7e]" />
+              <span className="min-w-0 flex-1 truncate text-foreground/80">
+                {checkpoint.message}
+              </span>
+              <span className="font-mono text-muted-foreground">
+                {checkpoint.commit.slice(0, 7)}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
       <footer className="flex h-9 shrink-0 items-center border-t px-3 text-[10px] text-muted-foreground">
         <span>
           {changedFileCount} {changedFileCount === 1 ? "file" : "files"} changed
@@ -1182,6 +1248,7 @@ function WorkspaceTabs({
   activeTabId,
   browser,
   changedFileCount,
+  checkpointHistory,
   changeSummary,
   checks,
   onActivateTab,
@@ -1195,6 +1262,7 @@ function WorkspaceTabs({
   activeTabId: string | null
   browser: BrowserState
   changedFileCount?: number
+  checkpointHistory?: WorkspaceShellProps["checkpointHistory"]
   changeSummary?: string
   checks: CheckItem[]
   onActivateTab: (tabId: string) => void
@@ -1321,6 +1389,7 @@ function WorkspaceTabs({
           <ReviewSurface
             changedFileCount={changedFileCount}
             changeSummary={changeSummary}
+            checkpointHistory={checkpointHistory}
             patch={patch}
           />
         ) : null}
@@ -1350,6 +1419,7 @@ function WorkspaceShell({
   patch,
   changeSummary = "No changes",
   changedFileCount = 0,
+  checkpointHistory = [],
   previewContent,
   agentControllingBrowser = false,
   demo = false,
@@ -1360,7 +1430,11 @@ function WorkspaceShell({
   promptDisabled = false,
   promptError,
   promptPending = false,
+  checkpointPending = false,
+  acceptPending = false,
   restartPending = false,
+  onCheckpoint,
+  onAccept,
   onRestartWorkspace,
   workspaceError,
 }: WorkspaceShellProps) {
@@ -1493,6 +1567,14 @@ function WorkspaceShell({
                   setMobileNavigationOpen(true)
                 }}
                 onOpenTerminal={() => openTool("terminal")}
+                onCheckpoint={onCheckpoint}
+                checkpointDisabled={changedFileCount === 0}
+                checkpointPending={checkpointPending}
+                onAccept={onAccept}
+                acceptDisabled={
+                  changedFileCount > 0 || !onAccept || checkpointPending
+                }
+                acceptPending={acceptPending}
                 projectName={projectName}
                 repositoryName={repositoryName}
                 workspaceName={workspaceName}
@@ -1560,6 +1642,7 @@ function WorkspaceShell({
                         browser={browser}
                         changedFileCount={changedFileCount}
                         changeSummary={changeSummary}
+                        checkpointHistory={checkpointHistory}
                         checks={checks}
                         onActivateTab={setActiveTabId}
                         onCloseTab={closeTab}

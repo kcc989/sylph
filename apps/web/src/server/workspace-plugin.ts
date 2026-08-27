@@ -1,31 +1,28 @@
 import {
+  decodeWorkspaceDeleteFile,
   decodeWorkspaceFilePath,
   decodeWorkspaceListFiles,
   decodeWorkspaceWriteFile,
+  WorkspaceDeleteFileJsonSchema,
   WorkspaceFilePathJsonSchema,
   WorkspaceListFilesJsonSchema,
   WorkspaceWriteFileJsonSchema,
 } from "@workspace/domain"
 import { Plugin } from "@opencode-ai/plugin"
 
-const normalizeWorkspacePath = (value: string) => {
-  const path = value.trim().replaceAll("\\", "/").replace(/^\.\//, "")
-  const segments = path.split("/")
+import {
+  WorkspaceFilesystem,
+  normalizeWorkspacePath,
+} from "./workspace-filesystem"
+import { WorkspaceGit } from "./workspace-git"
 
-  if (
-    !path ||
-    path.startsWith("/") ||
-    segments.some((segment) => !segment || segment === "." || segment === "..")
-  ) {
-    throw new Error("Use a relative file path inside the workspace")
-  }
-
-  return path
-}
-
-export const createWorkspacePlugin = (storage: DurableObjectStorage) =>
+export const createWorkspacePlugin = (
+  filesystem: WorkspaceFilesystem,
+  workspaceGit: WorkspaceGit
+) =>
   Plugin.define({
     id: "sylph-workspace",
+    vcs: { id: "sylph", markers: [".git"] },
     async setup(context) {
       const toolRegistration = await context.tool.transform((draft) => {
         draft.add({
@@ -38,17 +35,12 @@ export const createWorkspacePlugin = (storage: DurableObjectStorage) =>
             const prefix = directory
               ? `${normalizeWorkspacePath(directory).replace(/\/$/, "")}/`
               : ""
-            const rows = storage.sql
-              .exec<{ path: string }>(
-                "SELECT path FROM app_workspace_file WHERE path LIKE ? ORDER BY path",
-                `${prefix}%`
-              )
-              .toArray()
+            const rows = filesystem
+              .listWorkingFiles()
+              .filter((path) => path.startsWith(prefix))
 
             return {
-              content: rows.length
-                ? rows.map((row) => row.path).join("\n")
-                : "No files found.",
+              content: rows.length ? rows.join("\n") : "No files found.",
             }
           },
         })
@@ -60,18 +52,13 @@ export const createWorkspacePlugin = (storage: DurableObjectStorage) =>
           async execute(input) {
             const decoded = await decodeWorkspaceFilePath(input)
             const path = normalizeWorkspacePath(decoded.path)
-            const row = storage.sql
-              .exec<{ content: string }>(
-                "SELECT content FROM app_workspace_file WHERE path = ?",
-                path
-              )
-              .one()
-
-            if (!row) {
-              throw new Error(`File not found: ${path}`)
+            const content = await filesystem.readFile(path, "utf8")
+            return {
+              content:
+                content instanceof Uint8Array
+                  ? new TextDecoder().decode(content)
+                  : content,
             }
-
-            return { content: row.content }
           },
         })
         draft.add({
@@ -82,20 +69,54 @@ export const createWorkspacePlugin = (storage: DurableObjectStorage) =>
           async execute(input) {
             const decoded = await decodeWorkspaceWriteFile(input)
             const path = normalizeWorkspacePath(decoded.path)
-            storage.sql.exec(
-              `INSERT INTO app_workspace_file (path, content, updated_at)
-               VALUES (?, ?, ?)
-               ON CONFLICT(path) DO UPDATE SET
-                 content = excluded.content,
-                 updated_at = excluded.updated_at`,
-              path,
-              decoded.content,
-              Date.now()
-            )
+            await filesystem.writeFile(path, decoded.content)
 
             return { content: `Wrote ${path}` }
           },
         })
+        draft.add({
+          name: "workspace_delete_file",
+          description: "Delete a file from the durable Sylph Workspace.",
+          input: WorkspaceDeleteFileJsonSchema,
+          async execute(input) {
+            const decoded = await decodeWorkspaceDeleteFile(input)
+            const path = normalizeWorkspacePath(decoded.path)
+            await filesystem.unlink(path)
+            return { content: `Deleted ${path}` }
+          },
+        })
+      })
+      const vcsRegistration = await context.vcs.transform((draft) => {
+        draft.add({
+          id: "sylph",
+          name: "Sylph Workspace fork",
+          async info() {
+            const vcs = await workspaceGit.versionControl()
+            return {
+              branch: { current: vcs.currentRef, default: vcs.defaultRef },
+            }
+          },
+          async branches() {
+            const vcs = await workspaceGit.versionControl()
+            return [vcs.defaultRef]
+          },
+          async status() {
+            const vcs = await workspaceGit.versionControl()
+            return vcs.working.map(
+              ({ file, status, additions, deletions }) => ({
+                file,
+                status,
+                additions,
+                deletions,
+              })
+            )
+          },
+          async diff(input) {
+            const vcs = await workspaceGit.versionControl()
+            return input.mode === "working" ? vcs.working : vcs.branch
+          },
+        })
+        draft.default.set("sylph")
       })
       const sessionRegistration = await context.session.hook(
         "context",
@@ -110,6 +131,7 @@ export const createWorkspacePlugin = (storage: DurableObjectStorage) =>
       return async () => {
         await Promise.all([
           toolRegistration.dispose(),
+          vcsRegistration.dispose(),
           sessionRegistration.dispose(),
         ])
       }

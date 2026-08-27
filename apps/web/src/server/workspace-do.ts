@@ -5,7 +5,10 @@ import {
   decodeOpenCodeKeySetupInputPromise,
   decodeOpenCodeSubscriptionStartInputPromise,
   decodeOpenCodeSubscriptionStatusInputPromise,
+  decodePrepareProjectRepositoryInputPromise,
+  decodeWorkspaceCheckpointInputPromise,
   decodeWorkspacePromptInputPromise,
+  PrepareProjectRepositoryResult,
   type InitializeWorkspaceRuntime,
   type OpenCodeCredential,
   type WorkspaceRuntimeMessage,
@@ -17,6 +20,8 @@ import { drizzle } from "drizzle-orm/durable-sqlite"
 import { sqliteTable, text } from "drizzle-orm/sqlite-core"
 
 import { createWorkspacePlugin } from "./workspace-plugin"
+import { WorkspaceFilesystem } from "./workspace-filesystem"
+import { WorkspaceGit } from "./workspace-git"
 
 const appWorkspaceState = sqliteTable("app_workspace_state", {
   workspaceId: text("workspace_id").primaryKey(),
@@ -88,43 +93,29 @@ const runtimeMessages = (
     return result
   }, [])
 
-const seedFiles = (projectName: string) => [
-  {
-    path: "README.md",
-    content: `# ${projectName}\n\nBuilt in a durable Sylph workspace.\n`,
-  },
-  {
-    path: "package.json",
-    content: `${JSON.stringify(
-      {
-        name: projectName.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-        private: true,
-        type: "module",
-        scripts: { check: "tsc --noEmit" },
-        devDependencies: { typescript: "^6" },
-      },
-      null,
-      2
-    )}\n`,
-  },
-  {
-    path: "src/index.ts",
-    content:
-      'export default {\n  fetch: () => new Response("Hello from Sylph")\n}\n',
-  },
-]
-
 const subscriptionProviderId = "openai"
 const subscriptionMethodId = "chatgpt-headless"
 const subscriptionCredentialLabel = "Sylph connection"
 
-export class WorkspaceDO extends DurableObject<Cloudflare.Env> {
+interface WorkspaceBindings extends Cloudflare.Env {
+  REPOS: Artifacts
+}
+
+export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   readonly #database
   readonly #opencode
+  readonly #filesystem
+  readonly #workspaceGit
 
-  constructor(context: DurableObjectState, bindings: Cloudflare.Env) {
+  constructor(context: DurableObjectState, bindings: WorkspaceBindings) {
     super(context, bindings)
     this.#database = drizzle(context.storage, { schema: { appWorkspaceState } })
+    this.#filesystem = new WorkspaceFilesystem(context.storage)
+    this.#workspaceGit = new WorkspaceGit(
+      context.storage,
+      bindings.REPOS,
+      this.#filesystem
+    )
     this.#opencode = context.blockConcurrencyWhile(async () => {
       const hasAppWorkspaceState =
         context.storage.sql
@@ -143,6 +134,9 @@ export class WorkspaceDO extends DurableObject<Cloudflare.Env> {
         context.storage.sql.exec("DROP TABLE app_workspace_state")
       }
 
+      this.#filesystem.initialize()
+      this.#workspaceGit.initialize()
+
       const opencode = await OpenCodeWorkerd.create({
         storage: context.storage,
         log: {
@@ -153,7 +147,7 @@ export class WorkspaceDO extends DurableObject<Cloudflare.Env> {
         config: {
           default_agent: "build",
         },
-        plugins: [createWorkspacePlugin(context.storage)],
+        plugins: [createWorkspacePlugin(this.#filesystem, this.#workspaceGit)],
       })
 
       this.#database.run(sql`
@@ -169,14 +163,6 @@ export class WorkspaceDO extends DurableObject<Cloudflare.Env> {
           session_id TEXT
         )
       `)
-      this.#database.run(sql`
-        CREATE TABLE IF NOT EXISTS app_workspace_file (
-          path TEXT PRIMARY KEY NOT NULL,
-          content TEXT NOT NULL,
-          updated_at INTEGER NOT NULL
-        )
-      `)
-
       const columns = context.storage.sql
         .exec<{ name: string }>("PRAGMA table_info(app_workspace_state)")
         .toArray()
@@ -211,6 +197,14 @@ export class WorkspaceDO extends DurableObject<Cloudflare.Env> {
     try {
       const opencode = await this.#opencode
       const url = new URL(request.url)
+
+      if (request.method === "POST" && url.pathname === "/prepare-project") {
+        const input = await decodePrepareProjectRepositoryInputPromise(
+          await request.json()
+        )
+        const head = await this.#workspaceGit.prepareProject(input)
+        return Response.json(new PrepareProjectRepositoryResult({ head }))
+      }
 
       if (request.method === "POST" && url.pathname === "/connect/key") {
         const input = await decodeOpenCodeKeySetupInputPromise(
@@ -325,6 +319,25 @@ export class WorkspaceDO extends DurableObject<Cloudflare.Env> {
         return Response.json(await this.#snapshot(opencode))
       }
 
+      if (request.method === "POST" && url.pathname === "/checkpoint") {
+        const input = await decodeWorkspaceCheckpointInputPromise(
+          await request.json()
+        )
+        return Response.json(
+          await this.#workspaceGit.checkpoint({
+            idempotencyKey: input.idempotencyKey,
+            message: input.message,
+          })
+        )
+      }
+
+      if (request.method === "GET" && url.pathname === "/vcs") {
+        return Response.json({
+          vcs: await this.#workspaceGit.versionControl(),
+          checkpoints: this.#workspaceGit.checkpoints(),
+        })
+      }
+
       if (request.method === "POST" && url.pathname === "/prompt") {
         const input = await decodeWorkspacePromptInputPromise(
           await request.json()
@@ -373,9 +386,28 @@ export class WorkspaceDO extends DurableObject<Cloudflare.Env> {
   ) {
     const existing = this.#database.select().from(appWorkspaceState).get()
 
+    await this.#workspaceGit.hydrate({
+      repositoryName: input.repositoryName,
+      repositoryRemote: input.repositoryRemote,
+      projectRepositoryName: input.projectRepositoryName,
+      projectRepositoryRemote: input.projectRepositoryRemote,
+      defaultRef: input.defaultRef,
+      baseCommit: input.baseCommit,
+    })
+
     this.#database
       .insert(appWorkspaceState)
-      .values({ ...input, sessionId: existing?.sessionId })
+      .values({
+        workspaceId: input.workspaceId,
+        organizationId: input.organizationId,
+        projectId: input.projectId,
+        projectName: input.projectName,
+        repositoryName: input.repositoryName,
+        repositoryRemote: input.repositoryRemote,
+        providerId: input.providerId,
+        modelId: input.modelId,
+        sessionId: existing?.sessionId,
+      })
       .onConflictDoUpdate({
         target: appWorkspaceState.workspaceId,
         set: {
@@ -400,23 +432,6 @@ export class WorkspaceDO extends DurableObject<Cloudflare.Env> {
       throw new Error(
         `The AI provider could not connect to ${input.providerId}. Reconnect it and try again.`
       )
-    }
-
-    const fileCount = this.ctx.storage.sql
-      .exec<{ count: number }>(
-        "SELECT COUNT(*) AS count FROM app_workspace_file"
-      )
-      .toArray()[0]?.count
-
-    if (!fileCount) {
-      for (const file of seedFiles(input.projectName)) {
-        this.ctx.storage.sql.exec(
-          "INSERT INTO app_workspace_file (path, content, updated_at) VALUES (?, ?, ?)",
-          file.path,
-          file.content,
-          Date.now()
-        )
-      }
     }
 
     let sessionId = existing?.sessionId
@@ -561,12 +576,7 @@ export class WorkspaceDO extends DurableObject<Cloudflare.Env> {
         order: "asc",
       }),
     ])
-    const files = this.ctx.storage.sql
-      .exec<{ path: string }>(
-        "SELECT path FROM app_workspace_file ORDER BY path"
-      )
-      .toArray()
-      .map((file) => file.path)
+    const files = this.#filesystem.listWorkingFiles()
 
     return {
       workspaceId: state.workspaceId,

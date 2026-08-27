@@ -10,6 +10,8 @@ import { useEffect, useState } from "react"
 
 import { validateOnboardingSearch } from "@/lib/onboarding"
 import {
+  acceptWorkspace,
+  checkpointWorkspace,
   getDashboard,
   getWorkspace,
   promptWorkspace,
@@ -39,13 +41,24 @@ function WorkspaceScreen() {
   const { dashboard, result } = Route.useLoaderData()
   const router = useRouter()
   const prompt = useServerFn(promptWorkspace)
+  const checkpoint = useServerFn(checkpointWorkspace)
+  const accept = useServerFn(acceptWorkspace)
   const restart = useServerFn(restartWorkspace)
   const [promptPending, setPromptPending] = useState(false)
+  const [checkpointPending, setCheckpointPending] = useState(false)
+  const [acceptPending, setAcceptPending] = useState(false)
+  const [checkpointKey, setCheckpointKey] = useState(() => crypto.randomUUID())
+  const [acceptKey, setAcceptKey] = useState(() => crypto.randomUUID())
   const [restartPending, setRestartPending] = useState(false)
   const [promptError, setPromptError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!result || result.runtime.status !== "running") return
+    if (
+      !result ||
+      (result.runtime.status !== "running" &&
+        result.workspace.status !== "merging")
+    )
+      return
     const poll = window.setInterval(() => router.invalidate(), 1_500)
     return () => window.clearInterval(poll)
   }, [result, router])
@@ -70,6 +83,15 @@ function WorkspaceScreen() {
   }
 
   const { runtime, workspace } = result
+  const workingChanges = result.versionControl.working
+  const additions = workingChanges.reduce(
+    (total, change) => total + change.additions,
+    0
+  )
+  const deletions = workingChanges.reduce(
+    (total, change) => total + change.deletions,
+    0
+  )
   const entries: ThreadEntry[] =
     runtime.status === "error"
       ? [
@@ -114,8 +136,14 @@ function WorkspaceScreen() {
         title: "A preview will appear after the first checkpoint.",
         status: "loading",
       }}
-      changedFileCount={0}
-      changeSummary="No checkpoint diff"
+      changedFileCount={workingChanges.length}
+      checkpointHistory={result.checkpoints}
+      changeSummary={
+        workingChanges.length ? `+${additions} −${deletions}` : "No changes"
+      }
+      patch={workingChanges.map((change) => change.patch).join("\n")}
+      checkpointPending={checkpointPending}
+      acceptPending={acceptPending}
       checks={[
         {
           name: "Assistant",
@@ -127,6 +155,13 @@ function WorkspaceScreen() {
           detail: `${runtime.files.length} files`,
           status: "passed",
         },
+        {
+          name: "Project baseline",
+          detail: result.versionControl.projectChanged
+            ? "Project Repository changed"
+            : result.versionControl.baseCommit.slice(0, 7),
+          status: result.versionControl.projectChanged ? "failed" : "passed",
+        },
       ]}
       entries={entries}
       initialPrompt={
@@ -135,6 +170,50 @@ function WorkspaceScreen() {
           : undefined
       }
       model={runtime.model}
+      onAccept={
+        result.versionControl.branch.length > 0 &&
+        workspace.status !== "merging" &&
+        workspace.status !== "archived"
+          ? async () => {
+              setAcceptPending(true)
+              setPromptError(null)
+              try {
+                await accept({
+                  data: { workspaceId, idempotencyKey: acceptKey },
+                })
+                setAcceptKey(crypto.randomUUID())
+                await router.invalidate()
+              } catch (cause) {
+                setPromptError(
+                  cause instanceof Error ? cause.message : "Accept failed"
+                )
+              } finally {
+                setAcceptPending(false)
+              }
+            }
+          : undefined
+      }
+      onCheckpoint={async () => {
+        setCheckpointPending(true)
+        setPromptError(null)
+        try {
+          await checkpoint({
+            data: {
+              workspaceId,
+              idempotencyKey: checkpointKey,
+              message: "Checkpoint Workspace changes",
+            },
+          })
+          setCheckpointKey(crypto.randomUUID())
+          await router.invalidate()
+        } catch (cause) {
+          setPromptError(
+            cause instanceof Error ? cause.message : "Checkpoint failed"
+          )
+        } finally {
+          setCheckpointPending(false)
+        }
+      }}
       onSubmitPrompt={async (text) => {
         setPromptPending(true)
         setPromptError(null)
