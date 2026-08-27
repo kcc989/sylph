@@ -1,5 +1,6 @@
 import {
   type ConnectionScope,
+  decodeWorkspaceAcceptInputPromise,
   decodeCreateWorkspaceInputPromise,
   decodeCreateProjectInputPromise,
   decodeGitHubApiRepositoryJsonPromise,
@@ -12,11 +13,16 @@ import {
   decodeOpenCodeSubscriptionStartInputPromise,
   decodeOpenCodeSubscriptionStatusInputPromise,
   decodeOrganizationRequestInputPromise,
+  decodePrepareProjectRepositoryResultPromise,
   decodeProjectRequestInputPromise,
   decodeSetDefaultOpenCodeConnectionInputPromise,
+  decodeWorkspaceCheckpointInputPromise,
+  decodeWorkspaceCheckpointList,
+  decodeWorkspaceCheckpointResult,
   decodeWorkspacePromptInputPromise,
   decodeWorkspaceRequestInputPromise,
   decodeWorkspaceRuntimeHealth,
+  decodeWorkspaceVersionControl,
   encodeWorkspaceRuntimeHealth,
   InitializeWorkspaceRuntime,
   GitHubRepositoryInfo,
@@ -36,6 +42,7 @@ import { and, desc, eq } from "drizzle-orm"
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1"
 
 import { createRequestAuth } from "@/server/auth.server"
+import { makeArtifactRepositoryService } from "@/server/artifact-repository-service"
 import {
   decryptCredential,
   encryptCredential,
@@ -148,6 +155,25 @@ const initializeWorkspaceRuntime = async (
   })
 
   if (!response.ok) throw new Error(await response.text())
+}
+
+const prepareProjectRepository = async (
+  workspaceId: string,
+  input: {
+    repositoryName: string
+    repositoryRemote: string
+    defaultRef: string
+    projectName: string
+  }
+) => {
+  const runtime = env.WORKSPACES.get(env.WORKSPACES.idFromName(workspaceId))
+  const response = await runtime.fetch("https://workspace/prepare-project", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  })
+  if (!response.ok) throw new Error(await response.text())
+  return decodePrepareProjectRepositoryResultPromise(await response.json())
 }
 
 const currentSession = async (request: Request) => {
@@ -858,32 +884,40 @@ export const createProject = createServerFn({ method: "POST" })
       throw new Error("Project name needs a letter or number")
     }
 
-    const repositoryName = `${membership.organizationSlug}-${requestedRepositoryName}`
-    const artifact = sourceRepositoryUrl
-      ? await env.REPOS.import({
-          source: {
-            url: sourceRepositoryUrl,
-            branch: data.sourceBranch,
-          },
-          target: {
-            name: repositoryName,
-            opts: { description: `${data.name} imported by Sylph` },
-          },
-        })
-      : await env.REPOS.create(repositoryName, {
-          description: `${data.name} created by Sylph`,
-          setDefaultBranch: "main",
-        })
     const projectId = ProjectId.make(crypto.randomUUID())
     const workspaceId = WorkspaceId.make(crypto.randomUUID())
+    const repositoryName = `${membership.organizationSlug}-${requestedRepositoryName.slice(0, 28)}-${projectId.replaceAll("-", "").slice(0, 12)}`
+    const artifacts = makeArtifactRepositoryService(env.REPOS)
+    const createdArtifact = await Effect.runPromise(
+      sourceRepositoryUrl
+        ? artifacts.importProject({
+            name: repositoryName,
+            description: `${data.name} imported by Sylph`,
+            sourceUrl: sourceRepositoryUrl,
+            sourceBranch: data.sourceBranch,
+          })
+        : artifacts.createProject({
+            name: repositoryName,
+            description: `${data.name} created by Sylph`,
+            defaultBranch: "main",
+          })
+    )
+    const artifact = await Effect.runPromise(
+      artifacts.inspect(createdArtifact.name)
+    )
     const workspaceRepositoryName = `${repositoryName.slice(0, 44)}-${workspaceId.replaceAll("-", "").slice(0, 12)}`
-    const baseRepository = await env.REPOS.get(artifact.name)
-    const workspaceArtifact = await baseRepository.fork(
-      workspaceRepositoryName,
-      {
+    const prepared = await prepareProjectRepository(workspaceId, {
+      repositoryName: artifact.name,
+      repositoryRemote: artifact.remote,
+      defaultRef: artifact.defaultBranch,
+      projectName: data.name,
+    })
+    const workspaceArtifact = await Effect.runPromise(
+      artifacts.forkWorkspace({
+        sourceName: artifact.name,
+        name: workspaceRepositoryName,
         description: `Workspace for ${data.name}`,
-        defaultBranchOnly: true,
-      }
+      })
     )
     const now = new Date()
 
@@ -914,6 +948,10 @@ export const createProject = createServerFn({ method: "POST" })
         repositoryMode: "fork",
         baseArtifactRepo: artifact.name,
         workspaceArtifactRepo: workspaceArtifact.name,
+        baseCommit: prepared.head,
+        forkHead: prepared.head,
+        syncStatus: "hydrating",
+        mergeStatus: "unreviewed",
         createdAt: now,
         updatedAt: now,
       })
@@ -934,6 +972,10 @@ export const createProject = createServerFn({ method: "POST" })
           projectName: data.name,
           repositoryName: workspaceArtifact.name,
           repositoryRemote: workspaceArtifact.remote,
+          projectRepositoryName: artifact.name,
+          projectRepositoryRemote: artifact.remote,
+          defaultRef: artifact.defaultBranch,
+          baseCommit: prepared.head,
           providerId: connection.providerId,
           modelId: connection.modelId,
           credential,
@@ -966,7 +1008,12 @@ export const createProject = createServerFn({ method: "POST" })
 
     await database
       .update(schema.workspace)
-      .set({ status: "ready", errorSummary: null, updatedAt: new Date() })
+      .set({
+        status: "ready",
+        syncStatus: "ready",
+        errorSummary: null,
+        updatedAt: new Date(),
+      })
       .where(eq(schema.workspace.id, workspaceId))
 
     return {
@@ -999,6 +1046,8 @@ export const createWorkspace = createServerFn({ method: "POST" })
         name: schema.project.name,
         organizationId: schema.project.organizationId,
         repositoryName: schema.project.artifactRepo,
+        repositoryRemote: schema.project.artifactRemote,
+        defaultRef: schema.project.defaultBranch,
       })
       .from(schema.project)
       .innerJoin(
@@ -1030,13 +1079,19 @@ export const createWorkspace = createServerFn({ method: "POST" })
     const credential = await connectionCredential(connection)
     const workspaceId = WorkspaceId.make(crypto.randomUUID())
     const workspaceRepositoryName = `${project.repositoryName.slice(0, 44)}-${workspaceId.replaceAll("-", "").slice(0, 12)}`
-    const baseRepository = await env.REPOS.get(project.repositoryName)
-    const workspaceRepository = await baseRepository.fork(
-      workspaceRepositoryName,
-      {
+    const artifacts = makeArtifactRepositoryService(env.REPOS)
+    const prepared = await prepareProjectRepository(workspaceId, {
+      repositoryName: project.repositoryName,
+      repositoryRemote: project.repositoryRemote,
+      defaultRef: project.defaultRef,
+      projectName: project.name,
+    })
+    const workspaceRepository = await Effect.runPromise(
+      artifacts.forkWorkspace({
+        sourceName: project.repositoryName,
+        name: workspaceRepositoryName,
         description: `Workspace for ${project.name}: ${title}`,
-        defaultBranchOnly: true,
-      }
+      })
     )
     const now = new Date()
 
@@ -1050,6 +1105,10 @@ export const createWorkspace = createServerFn({ method: "POST" })
       repositoryMode: "fork",
       baseArtifactRepo: project.repositoryName,
       workspaceArtifactRepo: workspaceRepository.name,
+      baseCommit: prepared.head,
+      forkHead: prepared.head,
+      syncStatus: "hydrating",
+      mergeStatus: "unreviewed",
       createdAt: now,
       updatedAt: now,
     })
@@ -1064,6 +1123,10 @@ export const createWorkspace = createServerFn({ method: "POST" })
           projectName: project.name,
           repositoryName: workspaceRepository.name,
           repositoryRemote: workspaceRepository.remote,
+          projectRepositoryName: project.repositoryName,
+          projectRepositoryRemote: project.repositoryRemote,
+          defaultRef: project.defaultRef,
+          baseCommit: prepared.head,
           providerId: connection.providerId,
           modelId: connection.modelId,
           credential,
@@ -1083,7 +1146,12 @@ export const createWorkspace = createServerFn({ method: "POST" })
 
     await database
       .update(schema.workspace)
-      .set({ status: "ready", errorSummary: null, updatedAt: new Date() })
+      .set({
+        status: "ready",
+        syncStatus: "ready",
+        errorSummary: null,
+        updatedAt: new Date(),
+      })
       .where(eq(schema.workspace.id, workspaceId))
 
     return { id: workspaceId, status: "ready" as const, errorSummary: null }
@@ -1141,23 +1209,45 @@ export const getWorkspace = createServerFn({ method: "GET" })
     const runtime = env.WORKSPACES.get(
       env.WORKSPACES.idFromName(data.workspaceId)
     )
-    const response = await runtime.fetch("https://workspace/snapshot")
+    const [response, vcsResponse] = await Promise.all([
+      runtime.fetch("https://workspace/snapshot"),
+      runtime.fetch("https://workspace/vcs"),
+    ])
 
     if (!response.ok) {
       throw new Error(await response.text())
+    }
+    if (!vcsResponse.ok) {
+      throw new Error(await vcsResponse.text())
     }
 
     const runtimeSnapshot = await decodeWorkspaceRuntimeHealth(
       await response.json()
     )
+    const vcsPayload = await vcsResponse.json<{
+      vcs: unknown
+      checkpoints: unknown
+    }>()
+    const versionControl = await decodeWorkspaceVersionControl(vcsPayload.vcs)
+    const checkpoints = await decodeWorkspaceCheckpointList(
+      vcsPayload.checkpoints
+    )
 
-    const status =
+    const runtimeStatus =
       (workspace.status === "error" || workspace.errorSummary) &&
       runtimeSnapshot.status === "provisioning"
         ? "error"
         : runtimeSnapshot.status
+    const status =
+      workspace.status === "merging" || workspace.status === "archived"
+        ? workspace.status
+        : runtimeStatus
 
-    if (workspace.status !== status) {
+    if (
+      workspace.status !== status &&
+      workspace.status !== "merging" &&
+      workspace.status !== "archived"
+    ) {
       await drizzle(env.DB, { schema })
         .update(schema.workspace)
         .set({ status, updatedAt: new Date() })
@@ -1167,8 +1257,13 @@ export const getWorkspace = createServerFn({ method: "GET" })
     return {
       workspace: { ...workspace, status },
       runtime: await encodeWorkspaceRuntimeHealth(
-        new WorkspaceRuntimeHealth({ ...runtimeSnapshot, status })
+        new WorkspaceRuntimeHealth({
+          ...runtimeSnapshot,
+          status: runtimeStatus,
+        })
       ),
+      versionControl,
+      checkpoints,
     }
   })
 
@@ -1189,6 +1284,10 @@ export const restartWorkspace = createServerFn({ method: "POST" })
         organizationId: schema.workspace.organizationId,
         ownerUserId: schema.workspace.ownerUserId,
         repositoryName: schema.workspace.workspaceArtifactRepo,
+        projectRepositoryName: schema.project.artifactRepo,
+        projectRepositoryRemote: schema.project.artifactRemote,
+        defaultRef: schema.project.defaultBranch,
+        baseCommit: schema.workspace.baseCommit,
       })
       .from(schema.workspace)
       .innerJoin(
@@ -1222,7 +1321,13 @@ export const restartWorkspace = createServerFn({ method: "POST" })
     }
 
     const credential = await connectionCredential(connection)
-    const repository = await env.REPOS.get(workspace.repositoryName)
+    const repository = await Effect.runPromise(
+      makeArtifactRepositoryService(env.REPOS).inspect(workspace.repositoryName)
+    )
+
+    if (!workspace.baseCommit) {
+      throw new Error("This Workspace predates Artifact-backed version control")
+    }
 
     await database
       .update(schema.workspace)
@@ -1243,6 +1348,10 @@ export const restartWorkspace = createServerFn({ method: "POST" })
           projectName: workspace.projectName,
           repositoryName: workspace.repositoryName,
           repositoryRemote: repository.remote,
+          projectRepositoryName: workspace.projectRepositoryName,
+          projectRepositoryRemote: workspace.projectRepositoryRemote,
+          defaultRef: workspace.defaultRef,
+          baseCommit: workspace.baseCommit,
           providerId: connection.providerId,
           modelId: connection.modelId,
           credential,
@@ -1317,4 +1426,174 @@ export const promptWorkspace = createServerFn({ method: "POST" })
     return encodeWorkspaceRuntimeHealth(
       await decodeWorkspaceRuntimeHealth(await response.json())
     )
+  })
+
+export const checkpointWorkspace = createServerFn({ method: "POST" })
+  .validator((input) => decodeWorkspaceCheckpointInputPromise(input))
+  .handler(async ({ data }) => {
+    const { session } = await currentSession(getRequest())
+    if (!session) throw new Error("Sign in before creating a Checkpoint")
+
+    const database = drizzle(env.DB, { schema })
+    const workspace = await database
+      .select({ id: schema.workspace.id })
+      .from(schema.workspace)
+      .innerJoin(
+        schema.member,
+        and(
+          eq(schema.member.organizationId, schema.workspace.organizationId),
+          eq(schema.member.userId, session.user.id)
+        )
+      )
+      .where(eq(schema.workspace.id, data.workspaceId))
+      .get()
+    if (!workspace) {
+      throw new Error("This Workspace does not exist or you cannot access it")
+    }
+
+    const runtime = env.WORKSPACES.get(
+      env.WORKSPACES.idFromName(data.workspaceId)
+    )
+    const snapshotResponse = await runtime.fetch("https://workspace/snapshot")
+    if (!snapshotResponse.ok) throw new Error(await snapshotResponse.text())
+    const snapshot = await decodeWorkspaceRuntimeHealth(
+      await snapshotResponse.json()
+    )
+    if (!snapshot.opencode.healthy || snapshot.status === "running") {
+      throw new Error(
+        "Wait for the Workspace checks to pass before checkpointing"
+      )
+    }
+    const response = await runtime.fetch("https://workspace/checkpoint", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(data),
+    })
+    if (!response.ok) throw new Error(await response.text())
+    const result = await decodeWorkspaceCheckpointResult(await response.json())
+    await database
+      .update(schema.workspace)
+      .set({
+        forkHead: result.checkpoint.commit,
+        syncStatus: "ready",
+        mergeStatus: "ready",
+        latestCheckpointAt: new Date(result.checkpoint.createdAt),
+        errorSummary: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.workspace.id, data.workspaceId))
+    return result
+  })
+
+export const acceptWorkspace = createServerFn({ method: "POST" })
+  .validator((input) => decodeWorkspaceAcceptInputPromise(input))
+  .handler(async ({ data }) => {
+    const { session } = await currentSession(getRequest())
+    if (!session) throw new Error("Sign in before accepting Workspace work")
+
+    const database = drizzle(env.DB, { schema })
+    const workspace = await database
+      .select({
+        id: schema.workspace.id,
+        status: schema.workspace.status,
+        mergeStatus: schema.workspace.mergeStatus,
+        projectRepositoryName: schema.project.artifactRepo,
+        projectRepositoryRemote: schema.project.artifactRemote,
+        workspaceRepositoryName: schema.workspace.workspaceArtifactRepo,
+        defaultRef: schema.project.defaultBranch,
+        baseCommit: schema.workspace.baseCommit,
+        forkHead: schema.workspace.forkHead,
+      })
+      .from(schema.workspace)
+      .innerJoin(
+        schema.project,
+        eq(schema.workspace.projectId, schema.project.id)
+      )
+      .innerJoin(
+        schema.member,
+        and(
+          eq(schema.member.organizationId, schema.workspace.organizationId),
+          eq(schema.member.userId, session.user.id)
+        )
+      )
+      .where(eq(schema.workspace.id, data.workspaceId))
+      .get()
+    if (!workspace) {
+      throw new Error("This Workspace does not exist or you cannot access it")
+    }
+    if (!workspace.baseCommit || !workspace.forkHead) {
+      throw new Error("Create a Checkpoint before accepting this Workspace")
+    }
+    if (workspace.mergeStatus !== "ready") {
+      throw new Error("This Workspace is not ready to merge")
+    }
+
+    const runtime = env.WORKSPACES.get(
+      env.WORKSPACES.idFromName(data.workspaceId)
+    )
+    const [snapshotResponse, vcsResponse] = await Promise.all([
+      runtime.fetch("https://workspace/snapshot"),
+      runtime.fetch("https://workspace/vcs"),
+    ])
+    if (!snapshotResponse.ok) throw new Error(await snapshotResponse.text())
+    if (!vcsResponse.ok) throw new Error(await vcsResponse.text())
+    const snapshot = await decodeWorkspaceRuntimeHealth(
+      await snapshotResponse.json()
+    )
+    const vcsPayload = await vcsResponse.json<{ vcs: unknown }>()
+    const versionControl = await decodeWorkspaceVersionControl(vcsPayload.vcs)
+    if (
+      !snapshot.opencode.healthy ||
+      snapshot.status === "running" ||
+      versionControl.working.length
+    ) {
+      throw new Error("Checkpoint all changes and pass checks before accepting")
+    }
+
+    const operationId = `${data.workspaceId}-${data.idempotencyKey}`
+    const existing = await database
+      .select({ status: schema.repositoryOperation.status })
+      .from(schema.repositoryOperation)
+      .where(eq(schema.repositoryOperation.id, operationId))
+      .get()
+    if (!existing) {
+      await database.insert(schema.repositoryOperation).values({
+        id: operationId,
+        workspaceId: data.workspaceId,
+        kind: "merge",
+        status: "pending",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+    }
+    const params = {
+      operationId,
+      workspaceId: data.workspaceId,
+      projectRepositoryName: workspace.projectRepositoryName,
+      projectRepositoryRemote: workspace.projectRepositoryRemote,
+      workspaceRepositoryName: workspace.workspaceRepositoryName,
+      workspaceRepositoryRemote: (
+        await Effect.runPromise(
+          makeArtifactRepositoryService(env.REPOS).inspect(
+            workspace.workspaceRepositoryName
+          )
+        )
+      ).remote,
+      defaultRef: workspace.defaultRef,
+      baseCommit: workspace.baseCommit,
+      forkHead: workspace.forkHead,
+    }
+    const instance = existing
+      ? await env.MERGES.get(operationId)
+      : await env.MERGES.create({ id: operationId, params })
+    await database
+      .update(schema.workspace)
+      .set({
+        status: "merging",
+        mergeStatus: "merging",
+        errorSummary: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.workspace.id, data.workspaceId))
+    return { operationId: instance.id, status: "merging" as const }
   })

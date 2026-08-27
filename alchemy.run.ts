@@ -1,6 +1,7 @@
 import * as Alchemy from "alchemy"
 import * as Cloudflare from "alchemy/Cloudflare"
 import type { WorkspaceDO } from "./apps/web/src/server/workspace-do"
+import type { WorkspaceMergeInput } from "./apps/web/src/server/workspace-merge"
 import * as Config from "effect/Config"
 import * as Effect from "effect/Effect"
 
@@ -25,6 +26,9 @@ export class Website extends Cloudflare.Website.Vite<Website>()("Website", {
     GITHUB_CLIENT_SECRET: Config.redacted("GITHUB_CLIENT_SECRET"),
     CREDENTIAL_ENCRYPTION_KEY: Config.redacted("CREDENTIAL_ENCRYPTION_KEY"),
     REPOS: Repositories,
+    MERGES: Cloudflare.Workflow<WorkspaceMergeInput>("WorkspaceMerge", {
+      className: "WorkspaceMerge",
+    }),
     WORKSPACES: Workspaces,
   },
   memo: {
