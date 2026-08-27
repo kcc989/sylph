@@ -7,15 +7,18 @@ import { type FormEvent, useState } from "react"
 
 import { authClient } from "@/lib/auth-client"
 import { AppShell } from "@/components/app-shell"
+import { validateOnboardingSearch } from "@/lib/onboarding"
 import { getDashboard } from "@/lib/workspaces"
 
 export const Route = createFileRoute("/organizations/new")({
+  validateSearch: validateOnboardingSearch,
   loader: () => getDashboard(),
   component: NewOrganizationScreen,
 })
 
 function NewOrganizationScreen() {
   const dashboard = Route.useLoaderData()
+  const { onboarding } = Route.useSearch()
   const [pending, setPending] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
 
@@ -48,8 +51,11 @@ function NewOrganizationScreen() {
       return
     }
 
+    const organizationPath = `/organizations/${encodeURIComponent(result.data.slug)}`
     window.location.assign(
-      `/organizations/${encodeURIComponent(result.data.slug)}/projects/new`
+      onboarding
+        ? `${organizationPath}/settings?onboarding=1`
+        : `${organizationPath}/projects/new`
     )
   }
 

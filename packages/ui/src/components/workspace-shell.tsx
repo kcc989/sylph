@@ -160,6 +160,7 @@ type WorkspaceShellProps = {
   demo?: boolean
   className?: string
   model?: string | null
+  initialPrompt?: string
   promptDisabled?: boolean
   promptError?: string | null
   promptPending?: boolean
@@ -588,7 +589,12 @@ function WorkspaceTopbar({
         <Button size="sm" variant="ghost" onClick={onOpenTerminal}>
           <Terminal /> Terminal
         </Button>
-        <Button size="sm" variant="outline">
+        <Button
+          size="sm"
+          variant="outline"
+          disabled
+          title="Available after a reviewable checkpoint"
+        >
           <GitBranch /> Create PR
         </Button>
         <Button
@@ -613,6 +619,7 @@ function ResponseMarkdown({ children }: { children: string }) {
 
 function AgentThread({
   entries,
+  initialPrompt,
   onSubmitPrompt,
   promptDisabled,
   promptError,
@@ -622,6 +629,7 @@ function AgentThread({
   workspaceError,
 }: {
   entries: ThreadEntry[]
+  initialPrompt?: string
   onSubmitPrompt?: (text: string) => Promise<void>
   promptDisabled?: boolean
   promptError?: string | null
@@ -747,6 +755,7 @@ function AgentThread({
       <PromptComposer
         disabled={promptDisabled}
         error={promptError}
+        initialPrompt={initialPrompt}
         onSubmit={onSubmitPrompt}
         pending={promptPending}
       />
@@ -757,15 +766,17 @@ function AgentThread({
 function PromptComposer({
   disabled = false,
   error,
+  initialPrompt = "",
   onSubmit,
   pending = false,
 }: {
   disabled?: boolean
   error?: string | null
+  initialPrompt?: string
   onSubmit?: (text: string) => Promise<void>
   pending?: boolean
 }) {
-  const [text, setText] = useState("")
+  const [text, setText] = useState(initialPrompt)
 
   const submit = async () => {
     const prompt = text.trim()
@@ -1113,6 +1124,7 @@ function WorkspaceToolToggle({
 
 function WorkspaceChat({
   entries,
+  initialPrompt,
   model,
   onToggleTools,
   onSubmitPrompt,
@@ -1125,6 +1137,7 @@ function WorkspaceChat({
   workspaceError,
 }: {
   entries: ThreadEntry[]
+  initialPrompt?: string
   model?: string | null
   onToggleTools: () => void
   onSubmitPrompt?: (text: string) => Promise<void>
@@ -1152,6 +1165,7 @@ function WorkspaceChat({
       </header>
       <AgentThread
         entries={entries}
+        initialPrompt={initialPrompt}
         onSubmitPrompt={onSubmitPrompt}
         promptDisabled={promptDisabled}
         promptError={promptError}
@@ -1341,6 +1355,7 @@ function WorkspaceShell({
   demo = false,
   className,
   model,
+  initialPrompt,
   onSubmitPrompt,
   promptDisabled = false,
   promptError,
@@ -1512,6 +1527,7 @@ function WorkspaceShell({
                 <ResizablePanel id="workspace-chat" minSize="260px">
                   <WorkspaceChat
                     entries={entries}
+                    initialPrompt={initialPrompt}
                     model={model}
                     onToggleTools={() => setToolPaneOpen((open) => !open)}
                     onSubmitPrompt={onSubmitPrompt}

@@ -18,6 +18,7 @@ import {
 import { type FormEvent, useEffect, useState } from "react"
 
 import { AppShell } from "@/components/app-shell"
+import { validateOnboardingSearch } from "@/lib/onboarding"
 import {
   cancelOpenCodeSubscription,
   getDashboard,
@@ -31,6 +32,7 @@ import {
 export const Route = createFileRoute(
   "/organizations/$organizationSlug/settings"
 )({
+  validateSearch: validateOnboardingSearch,
   loader: async ({ params }) => {
     const dashboard = await getDashboard()
     const organization =
@@ -91,6 +93,7 @@ type SetupFlow = "list" | "choose" | "openai" | "subscription" | "key" | "model"
 
 function OrganizationSettingsScreen() {
   const { dashboard, organization, setup } = Route.useLoaderData()
+  const { onboarding } = Route.useSearch()
   const organizationId = organization?.id ?? ""
   const router = useRouter()
   const saveSetup = useServerFn(saveOpenCodeSetup)
@@ -152,6 +155,11 @@ function OrganizationSettingsScreen() {
           setFlow("list")
           setAttempt(null)
           await router.invalidate()
+          if (onboarding && organization) {
+            window.location.assign(
+              `/organizations/${encodeURIComponent(organization.slug)}/projects/new?onboarding=1`
+            )
+          }
           return
         }
 
@@ -187,6 +195,8 @@ function OrganizationSettingsScreen() {
     attempt,
     flow,
     organizationId,
+    onboarding,
+    organization,
     router,
     scope,
     subscriptionModelId,
@@ -237,6 +247,11 @@ function OrganizationSettingsScreen() {
       })
       returnToList()
       await router.invalidate()
+      if (onboarding) {
+        window.location.assign(
+          `/organizations/${encodeURIComponent(organization.slug)}/projects/new?onboarding=1`
+        )
+      }
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -336,11 +351,14 @@ function OrganizationSettingsScreen() {
           size="sm"
           render={
             <a
-              href={`/organizations/${encodeURIComponent(organization.slug)}/projects/new`}
+              href={`/organizations/${encodeURIComponent(organization.slug)}/projects/new${onboarding ? "?onboarding=1" : ""}`}
             />
           }
         >
-          <Plus /> New Project
+          <Plus />{" "}
+          {onboarding && setup?.providerId
+            ? "Continue to Project"
+            : "New Project"}
         </Button>
         <section className="flex items-start justify-between gap-6 border-b pb-6">
           <div>

@@ -16,6 +16,7 @@ import {
   Blocks,
   CircleAlert,
   CircleDot,
+  CircleHelp,
   House,
   LogOut,
   MoreHorizontal,
@@ -166,6 +167,15 @@ function ProductRail({ active }: { active: AppShellProps["active"] }) {
         )}
       </nav>
       <div className="mt-auto grid gap-1">
+        <Button
+          nativeButton={false}
+          aria-label="Getting started"
+          size="icon-sm"
+          variant="ghost"
+          render={<a href="/?onboarding=1" />}
+        >
+          <CircleHelp />
+        </Button>
         <Button
           nativeButton={false}
           aria-label="User settings"

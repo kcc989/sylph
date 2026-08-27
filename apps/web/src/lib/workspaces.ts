@@ -170,7 +170,14 @@ export const getDashboard = createServerFn({ method: "GET" }).handler(
     const { auth, session } = await currentSession(request)
 
     if (!session) {
-      return { user: null, organizations: [], projects: [], workspaces: [] }
+      return {
+        user: null,
+        organizations: [],
+        projects: [],
+        workspaces: [],
+        providerOrganizationIds: [],
+        hasPersonalProvider: false,
+      }
     }
 
     const organizations = await auth.api.listOrganizations({
@@ -232,11 +239,35 @@ export const getDashboard = createServerFn({ method: "GET" }).handler(
         eq(schema.organization.id, schema.workspace.organizationId)
       )
       .orderBy(desc(schema.workspace.createdAt))
+    const organizationConnections = await database
+      .select({ organizationId: schema.openCodeConnection.organizationId })
+      .from(schema.openCodeConnection)
+      .innerJoin(
+        schema.member,
+        and(
+          eq(
+            schema.member.organizationId,
+            schema.openCodeConnection.organizationId
+          ),
+          eq(schema.member.userId, session.user.id)
+        )
+      )
+    const personalConnection = await database
+      .select({ providerId: schema.userOpenCodeConnection.providerId })
+      .from(schema.userOpenCodeConnection)
+      .where(eq(schema.userOpenCodeConnection.userId, session.user.id))
+      .get()
 
     return {
       user: session.user,
       organizations,
       projects,
+      providerOrganizationIds: [
+        ...new Set(
+          organizationConnections.map((connection) => connection.organizationId)
+        ),
+      ],
+      hasPersonalProvider: Boolean(personalConnection),
       workspaces: workspaces.map((workspace) =>
         workspace.errorSummary && workspace.status === "provisioning"
           ? { ...workspace, status: "error" }

@@ -8,6 +8,7 @@ import {
 } from "@workspace/ui/components/workspace-shell"
 import { useEffect, useState } from "react"
 
+import { validateOnboardingSearch } from "@/lib/onboarding"
 import {
   getDashboard,
   getWorkspace,
@@ -18,6 +19,7 @@ import {
 export const Route = createFileRoute(
   "/organizations/$organizationSlug/projects/$projectSlug/workspaces/$workspaceId"
 )({
+  validateSearch: validateOnboardingSearch,
   loader: async ({ params }) => {
     const dashboard = await getDashboard()
     const result = await getWorkspace({
@@ -33,6 +35,7 @@ export const Route = createFileRoute(
 
 function WorkspaceScreen() {
   const { workspaceId } = Route.useParams()
+  const { onboarding } = Route.useSearch()
   const { dashboard, result } = Route.useLoaderData()
   const router = useRouter()
   const prompt = useServerFn(promptWorkspace)
@@ -126,6 +129,11 @@ function WorkspaceScreen() {
         },
       ]}
       entries={entries}
+      initialPrompt={
+        onboarding && runtime.messages.length === 0
+          ? "Make one small, useful improvement to this starter project. Explain the change, write the files, and leave it ready for review."
+          : undefined
+      }
       model={runtime.model}
       onSubmitPrompt={async (text) => {
         setPromptPending(true)
