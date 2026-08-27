@@ -212,6 +212,13 @@ export const workspace = sqliteTable(
     repositoryMode: text("repository_mode").notNull().default("base"),
     baseArtifactRepo: text("base_artifact_repo").notNull(),
     workspaceArtifactRepo: text("workspace_artifact_repo").notNull(),
+    baseCommit: text("base_commit"),
+    forkHead: text("fork_head"),
+    acceptedCommit: text("accepted_commit"),
+    syncStatus: text("sync_status").notNull().default("pending"),
+    mergeStatus: text("merge_status").notNull().default("unreviewed"),
+    latestCheckpointAt: integer("latest_checkpoint_at", { mode: "timestamp" }),
+    archivedAt: integer("archived_at", { mode: "timestamp" }),
     errorSummary: text("error_summary"),
     createdAt: timestamp("created_at"),
     updatedAt: timestamp("updated_at"),
@@ -219,6 +226,30 @@ export const workspace = sqliteTable(
   (table) => [
     index("workspace_organization_id_idx").on(table.organizationId),
     index("workspace_project_id_idx").on(table.projectId),
+  ]
+)
+
+export const repositoryOperation = sqliteTable(
+  "repository_operation",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    status: text("status").notNull().default("pending"),
+    commit: text("commit"),
+    errorSummary: text("error_summary"),
+    createdAt: timestamp("created_at"),
+    updatedAt: timestamp("updated_at"),
+  },
+  (table) => [
+    uniqueIndex("repository_operation_workspace_kind_id_unique").on(
+      table.workspaceId,
+      table.kind,
+      table.id
+    ),
+    index("repository_operation_workspace_id_idx").on(table.workspaceId),
   ]
 )
 

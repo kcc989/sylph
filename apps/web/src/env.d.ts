@@ -1,4 +1,5 @@
 import type { WorkspaceDO } from "./server/workspace-do"
+import type { WorkspaceMergeInput } from "./server/workspace-merge"
 
 declare global {
   namespace Cloudflare {
@@ -9,6 +10,7 @@ declare global {
       GITHUB_CLIENT_SECRET: string
       CREDENTIAL_ENCRYPTION_KEY: string
       REPOS: Artifacts
+      MERGES: Workflow<WorkspaceMergeInput>
       WORKSPACES: DurableObjectNamespace<WorkspaceDO>
     }
   }

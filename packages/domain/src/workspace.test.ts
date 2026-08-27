@@ -13,6 +13,10 @@ import {
   decodeWorkspaceSummary,
   decodeWorkspaceWriteFile,
 } from "./workspace"
+import {
+  decodeWorkspaceCheckpointInputPromise,
+  decodeWorkspaceVersionControl,
+} from "./version-control"
 
 describe("WorkspaceSummary", () => {
   test("decodes a valid workspace summary", async () => {
@@ -171,6 +175,10 @@ describe("Project and runtime inputs", () => {
       projectName: "Weather desk",
       repositoryName: "weather-desk-workspace",
       repositoryRemote: "https://repositories.example/weather-desk-workspace",
+      projectRepositoryName: "weather-desk",
+      projectRepositoryRemote: "https://repositories.example/weather-desk",
+      defaultRef: "main",
+      baseCommit: "a".repeat(40),
       providerId: "openai",
       modelId: "gpt-5.6-sol",
       credential: {
@@ -183,5 +191,34 @@ describe("Project and runtime inputs", () => {
     })
 
     expect(runtime.credential.type).toBe("oauth")
+  })
+})
+
+describe("Artifact-backed Workspace version control", () => {
+  test("requires a valid commit identity in VCS state", async () => {
+    await expect(
+      decodeWorkspaceVersionControl({
+        defaultRef: "main",
+        currentRef: "main",
+        baseCommit: "not-a-commit",
+        forkHead: "a".repeat(40),
+        projectHead: "a".repeat(40),
+        projectChanged: false,
+        syncStatus: "ready",
+        mergeStatus: "unreviewed",
+        working: [],
+        branch: [],
+      })
+    ).rejects.toBeDefined()
+  })
+
+  test("decodes an idempotent Checkpoint request", async () => {
+    const input = await decodeWorkspaceCheckpointInputPromise({
+      workspaceId: "workspace-1",
+      idempotencyKey: "checkpoint-1",
+      message: "Save progress",
+    })
+
+    expect(input.idempotencyKey).toBe("checkpoint-1")
   })
 })
