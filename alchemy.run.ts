@@ -1,8 +1,10 @@
 import * as Alchemy from "alchemy"
 import * as Cloudflare from "alchemy/Cloudflare"
 import type { WorkspaceDO } from "./apps/web/src/server/workspace-do"
+import type { WorkspaceMergeInput } from "./apps/web/src/server/workspace-merge"
 import * as Config from "effect/Config"
 import * as Effect from "effect/Effect"
+import * as Redacted from "effect/Redacted"
 
 const Database = Cloudflare.D1.Database("Database", {
   migrations: "packages/db/migrations",
@@ -21,10 +23,21 @@ export class Website extends Cloudflare.Website.Vite<Website>()("Website", {
   env: {
     BETTER_AUTH_SECRET: Config.redacted("BETTER_AUTH_SECRET"),
     DB: Database,
-    GITHUB_CLIENT_ID: Config.string("GITHUB_CLIENT_ID"),
-    GITHUB_CLIENT_SECRET: Config.redacted("GITHUB_CLIENT_SECRET"),
     CREDENTIAL_ENCRYPTION_KEY: Config.redacted("CREDENTIAL_ENCRYPTION_KEY"),
+    INSTALLATION_CLAIM_SECRET: Config.redacted("INSTALLATION_CLAIM_SECRET"),
+    ALLOW_TEST_MAGIC_LINKS: Config.string("ALLOW_TEST_MAGIC_LINKS").pipe(
+      Config.withDefault("false")
+    ),
+    GITHUB_CLIENT_ID: Config.string("GITHUB_CLIENT_ID").pipe(
+      Config.withDefault("")
+    ),
+    GITHUB_CLIENT_SECRET: Config.redacted("GITHUB_CLIENT_SECRET").pipe(
+      Config.withDefault(Redacted.make(""))
+    ),
     REPOS: Repositories,
+    MERGES: Cloudflare.Workflow<WorkspaceMergeInput>("WorkspaceMerge", {
+      className: "WorkspaceMerge",
+    }),
     WORKSPACES: Workspaces,
   },
   memo: {

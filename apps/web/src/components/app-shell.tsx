@@ -13,7 +13,6 @@ import {
 } from "@workspace/ui/components/resizable"
 import { cn } from "@workspace/ui/lib/utils"
 import {
-  Blocks,
   CircleAlert,
   CircleDot,
   CircleHelp,
@@ -25,6 +24,7 @@ import {
   Plus,
   Search,
   Settings2,
+  ShieldCheck,
   UserRound,
 } from "lucide-react"
 import { type ReactNode, useEffect, useRef, useState } from "react"
@@ -46,7 +46,6 @@ type Project = {
   name: string
   slug: string
   organizationId: string
-  organizationSlug: string
 }
 
 type Workspace = {
@@ -57,16 +56,16 @@ type Workspace = {
 }
 
 type AppShellDashboard = {
+  installation: { canAdminister: boolean }
   organizations: ReadonlyArray<Organization>
   projects: ReadonlyArray<Project>
   workspaces: ReadonlyArray<Workspace>
 }
 
 type AppShellProps = {
-  active: "home" | "organizations" | "settings"
+  active: "home" | "admin" | "settings"
   children: ReactNode
   dashboard: AppShellDashboard
-  organizationSlug?: string
   topbar?: ReactNode
 }
 
@@ -115,17 +114,27 @@ export function SylphMark({ className }: { className?: string }) {
   )
 }
 
-function ProductRail({ active }: { active: AppShellProps["active"] }) {
+function ProductRail({
+  active,
+  canAdminister,
+}: {
+  active: AppShellProps["active"]
+  canAdminister: boolean
+}) {
   const router = useRouter()
   const tools = [
     { label: "Projects", icon: House, href: "/", selected: active === "home" },
     { label: "Search", icon: Search },
-    {
-      label: "Organizations",
-      icon: Blocks,
-      href: "/organizations",
-      selected: active === "organizations",
-    },
+    ...(canAdminister
+      ? [
+          {
+            label: "Administration",
+            icon: ShieldCheck,
+            href: "/admin",
+            selected: active === "admin",
+          },
+        ]
+      : []),
   ]
 
   return (
@@ -241,21 +250,13 @@ function ProjectNavigation({
   dashboard,
   mobile,
   onClose,
-  organizationSlug,
 }: {
   dashboard: AppShellDashboard
   mobile?: boolean
   onClose: () => void
-  organizationSlug?: string
 }) {
-  const organization = dashboard.organizations.find(
-    (candidate) => candidate.slug === organizationSlug
-  )
-  const projects = organization
-    ? dashboard.projects.filter(
-        (project) => project.organizationId === organization.id
-      )
-    : dashboard.projects
+  const organization = dashboard.organizations[0]
+  const projects = dashboard.projects
 
   return (
     <aside
@@ -286,7 +287,7 @@ function ProjectNavigation({
             const workspaces = dashboard.workspaces.filter(
               (workspace) => workspace.projectId === project.id
             )
-            const basePath = `/organizations/${encodeURIComponent(project.organizationSlug)}/projects/${encodeURIComponent(project.slug)}`
+            const basePath = `/projects/${encodeURIComponent(project.slug)}`
 
             return (
               <section key={project.id}>
@@ -353,36 +354,82 @@ export function AppShell({
   active,
   children,
   dashboard,
-  organizationSlug,
   topbar,
 }: AppShellProps) {
-  const [collapsed, setCollapsed] = useState(false)
+  const navigationInitiallyCollapsed = dashboard.projects.length === 0
+  const navigationVisibilityStorageKey = navigationInitiallyCollapsed
+    ? "sylph:project-navigation-hidden:onboarding-v1"
+    : "sylph:project-navigation-hidden:v1"
+  const [collapsed, setCollapsed] = useState(navigationInitiallyCollapsed)
   const [mobileOpen, setMobileOpen] = useState(false)
+  const hydratedVisibilityKeyRef = useRef<string | null>(null)
   const navigationRef = useRef<PanelImperativeHandle>(null)
   const navigationLayout = useDefaultLayout({
-    id: "workspace-shell-navigation-v3",
+    id: navigationInitiallyCollapsed
+      ? "workspace-shell-navigation-onboarding-v1"
+      : "workspace-shell-navigation-v3",
     onlySaveAfterUserInteractions: true,
     panelIds: ["project-navigation", "workspace-area"],
     storage: navigationStorage,
   })
 
   const collapse = () => {
+    navigationRef.current?.collapse()
     setCollapsed(true)
   }
 
   const expand = () => {
     navigationRef.current?.expand()
+    setCollapsed(false)
   }
 
   useEffect(() => {
-    if (collapsed && !navigationRef.current?.isCollapsed()) {
-      navigationRef.current?.collapse()
+    if (hydratedVisibilityKeyRef.current !== navigationVisibilityStorageKey) {
+      hydratedVisibilityKeyRef.current = navigationVisibilityStorageKey
+      const storedVisibility = navigationStorage.getItem(
+        navigationVisibilityStorageKey
+      )
+      const storedCollapsed =
+        storedVisibility === "true"
+          ? true
+          : storedVisibility === "false"
+            ? false
+            : navigationInitiallyCollapsed
+
+      navigationStorage.setItem(
+        navigationVisibilityStorageKey,
+        storedCollapsed ? "true" : "false"
+      )
+
+      if (storedCollapsed !== collapsed) {
+        setCollapsed(storedCollapsed)
+        return
+      }
     }
-  }, [collapsed])
+
+    navigationStorage.setItem(
+      navigationVisibilityStorageKey,
+      collapsed ? "true" : "false"
+    )
+
+    if (collapsed) {
+      if (!navigationRef.current?.isCollapsed()) {
+        navigationRef.current?.collapse()
+      }
+      return
+    }
+
+    if (navigationRef.current?.isCollapsed()) {
+      navigationRef.current.expand()
+    }
+  }, [collapsed, navigationInitiallyCollapsed, navigationVisibilityStorageKey])
 
   return (
     <div className="flex h-svh overflow-hidden bg-background text-foreground">
-      <ProductRail active={active} />
+      <ProductRail
+        active={active}
+        canAdminister={dashboard.installation.canAdminister}
+      />
       <ResizablePanelGroup
         className="min-w-0 flex-1 max-md:[&>#project-navigation]:hidden max-md:[&>#project-navigation-handle]:hidden"
         defaultLayout={navigationLayout.defaultLayout}
@@ -392,20 +439,16 @@ export function AppShell({
       >
         <ResizablePanel
           collapsedSize={0}
-          collapsible={collapsed}
-          defaultSize="268px"
+          collapsible
+          defaultSize={navigationInitiallyCollapsed ? 0 : "268px"}
           groupResizeBehavior="preserve-pixel-size"
           id="project-navigation"
           maxSize="420px"
           minSize="180px"
-          onResize={({ inPixels }) => setCollapsed(inPixels === 0)}
+          onResize={({ inPixels }) => setCollapsed(inPixels <= 1)}
           panelRef={navigationRef}
         >
-          <ProjectNavigation
-            dashboard={dashboard}
-            onClose={collapse}
-            organizationSlug={organizationSlug}
-          />
+          <ProjectNavigation dashboard={dashboard} onClose={collapse} />
         </ResizablePanel>
         <ResizableHandle
           aria-label="Resize project navigation"
@@ -449,7 +492,6 @@ export function AppShell({
             dashboard={dashboard}
             mobile
             onClose={() => setMobileOpen(false)}
-            organizationSlug={organizationSlug}
           />
           <button
             type="button"

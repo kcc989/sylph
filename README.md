@@ -2,15 +2,35 @@
 
 Cloud workspaces for coding agents.
 
+Sylph is an Apache-2.0 licensed, Cloudflare-native system for durable coding-agent workspaces. Operators deploy one Installation into their own Cloudflare account, claim its default Organization with their authenticated account, and invite other Users from the Admin surface.
+
+## Deploy an Installation
+
+Prerequisites:
+
+- Bun
+- A Cloudflare account with access to Durable Objects, D1, Workflows, and Cloudflare Artifacts
+- A GitHub account that can create an OAuth application
+
+Run the guided setup:
+
+```sh
+./scripts/setup.sh
+```
+
+The wizard connects Alchemy to Cloudflare, generates local secrets, deploys the initial stack, configures GitHub OAuth against the deployed URL, and opens `/setup`. Sign in there with the account that should become the first Admin, confirm the verified email address shown by Sylph, and enter `INSTALLATION_CLAIM_SECRET` from `.env`.
+
+Only the one-time Installation claim can create the Organization. After claiming, use `/admin` to configure a shared AI Provider connection and create invitation links for other Users. Invitees must authenticate with the exact email address that was invited. Once the Installation is claimed, Sylph does not create an authentication account unless a current pending invitation authorizes that email address.
+
 ## Product direction
 
 Build a web IDE for parallel coding-agent work on Cloudflare. The interface should borrow bb's dense, keyboard-first workspace and Conductor's task-focused parallelism. It should not reproduce bb's local-host architecture.
 
 Sylph is a Bun monorepo managed with Turborepo. The web app lives in `apps/web`. Shared database code lives in `packages/db`, and the shared design system lives in `packages/ui`. This keeps both packages available to a future `apps/desktop` client without coupling them to TanStack Start.
 
-## Run the workspace lab
+## Local development
 
-Copy `.env.example` to `.env` and provide a Better Auth secret plus a GitHub OAuth app's client ID and secret. Configure the OAuth app with this local callback URL:
+Copy `.env.example` to `.env` and provide the required secrets. Configure a GitHub OAuth app with this local callback URL:
 
 ```text
 http://localhost:1337/api/auth/callback/github
@@ -19,11 +39,11 @@ http://localhost:1337/api/auth/callback/github
 Then install and start the Cloudflare-backed TanStack Start app:
 
 ```sh
-bun install
-bun alchemy dev --stage dev
+bun install --frozen-lockfile
+bun run dev:cloudflare -- --stage dev
 ```
 
-The test app stores requested magic-link URLs in `magic_link_outbox` and exposes the latest link in the sign-in screen. This is a local development delivery seam, not a production mail transport. Replace it with an email provider and remove the test-link lookup before deploying publicly.
+When `ALLOW_TEST_MAGIC_LINKS=true`, local development stores requested magic-link URLs in `magic_link_outbox` and exposes the latest link in the sign-in screen. Production setup disables this seam and uses GitHub authentication.
 
 The core unit is a **workspace**:
 

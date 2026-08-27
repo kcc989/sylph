@@ -24,7 +24,9 @@ Users work remotely in a Workspace belonging to a Project. They converse with co
 
 ## Capabilities and Constraints
 
-- An Organization is the membership boundary that owns Projects.
+- An Installation is one deployed Sylph system and contains one Organization.
+- The Organization is created by the one-time Installation claim and owns Projects.
+- Only Admins can invite Users or manage shared Provider connections.
 - A Project contains one Repository, its canonical source history, and one or more Workspaces.
 - A Workspace is the durable place where a user and one or more agent sessions work on a Project's Repository. Product language must not call it an Environment or task.
 - A Workspace combines remote coding, file and diff inspection, agent sessions, skills integration, browser preview, and agent-driven browser testing.
@@ -38,13 +40,13 @@ Users work remotely in a Workspace belonging to a Project. They converse with co
 
 The product name is Sylph. The interface should meet the density, keyboard fluency, remote-workspace utility, embedded browser capability, and IDE-like preview quality associated with Conductor, bb, and Diffs without copying their visual identity or bb's local-host architecture.
 
-The primary app shell should stay close to Conductor's familiar dense IDE structure while developing a visibly distinct Sylph identity. The persistent left rail groups each Project as a parent with its Workspaces nested directly beneath it; it must not split Projects and Workspaces into separate navigation sections. Chat, Browser, Changes, Checks, Review, and Terminal are peer work tabs, with Chat active by default and multiple tool tabs allowed per Chat. Distinction should come from Sylph's tabbed composition, typography, color, active-Workspace geometry, and state language rather than a decorative physical metaphor.
+The primary app shell should stay close to Conductor's familiar dense IDE structure while developing a visibly distinct Sylph identity. The persistent left rail groups each Project as a parent with its Workspaces nested directly beneath it; Installation administration is a separate Admin-only surface rather than an Organization selector. Chat, Browser, Changes, Checks, Review, and Terminal are peer work tabs, with Chat active by default and multiple tool tabs allowed per Chat. Distinction should come from Sylph's tabbed composition, typography, color, active-Workspace geometry, and state language rather than a decorative physical metaphor.
 
 ## Evidence on Hand
 
 - `README.md` contains the current architecture and runtime boundaries.
-- `CONTEXT.md` defines Organization, Project, Repository, and Workspace language.
-- The current web app implements authentication, organizations, project creation, repository provisioning, workspace creation, agent chat, workspace files, and browser preview seams.
+- `CONTEXT.md` defines Installation, Organization, Project, Repository, and Workspace language.
+- The current web app implements authentication, Installation claim, invitations, project creation, repository provisioning, workspace creation, agent chat, workspace files, and browser preview seams.
 - No testimonials, customer logos, adoption metrics, or commercial claims are available and future surfaces must not fabricate them.
 
 ## Product Principles

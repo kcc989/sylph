@@ -1,23 +1,33 @@
 import {
   type ConnectionScope,
+  decodeWorkspaceAcceptInputPromise,
   decodeCreateWorkspaceInputPromise,
   decodeCreateProjectInputPromise,
   decodeGitHubApiRepositoryJsonPromise,
   decodeGitHubRepositoryLookupInputPromise,
+  decodeInstallationClaimInputPromise,
   decodeMagicLinkRequest,
   decodeOpenCodeCredentialPromise,
+  decodeOpenCodeConnectionResultPromise,
   decodeOpenCodeKeySetupInputPromise,
   decodeOpenCodeSubscriptionAttemptPromise,
   decodeOpenCodeSubscriptionRuntimeStatusPromise,
   decodeOpenCodeSubscriptionStartInputPromise,
   decodeOpenCodeSubscriptionStatusInputPromise,
   decodeOrganizationRequestInputPromise,
+  decodePrepareProjectRepositoryResultPromise,
   decodeProjectRequestInputPromise,
-  decodeSetDefaultOpenCodeConnectionInputPromise,
+  decodeSetDefaultModelInputPromise,
+  decodeWorkspaceCheckpointInputPromise,
+  decodeWorkspaceCheckpointList,
+  decodeWorkspaceCheckpointResult,
   decodeWorkspacePromptInputPromise,
   decodeWorkspaceRequestInputPromise,
   decodeWorkspaceRuntimeHealth,
+  decodeWorkspaceVersionControl,
+  encodeWorkspaceCheckpointList,
   encodeWorkspaceRuntimeHealth,
+  encodeWorkspaceVersionControl,
   InitializeWorkspaceRuntime,
   GitHubRepositoryInfo,
   OpenCodeSubscriptionStatus,
@@ -36,10 +46,22 @@ import { and, desc, eq } from "drizzle-orm"
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1"
 
 import { createRequestAuth } from "@/server/auth.server"
+import { assertInstallationClaimIdentity } from "@/lib/installation-claim"
+import { makeArtifactRepositoryService } from "@/server/artifact-repository-service"
 import {
   decryptCredential,
   encryptCredential,
 } from "@/server/credentials.server"
+import {
+  providerName,
+  resolveModelSelection,
+  type AvailableModel,
+  type SelectedModel,
+} from "@/lib/model-selection"
+import {
+  normalizeProviderModels,
+  selectInitialProviderModel,
+} from "@/lib/provider-models"
 
 const normalizeName = (value: string) =>
   value
@@ -49,6 +71,23 @@ const normalizeName = (value: string) =>
     .replace(/^-+|-+$/g, "")
 
 const subscriptionProviderId = "openai"
+const installationId = "default"
+const installationOrganizationId = "installation-organization"
+
+const secretsMatch = async (provided: string, expected: string) => {
+  const encoder = new TextEncoder()
+  const [providedDigest, expectedDigest] = await Promise.all([
+    crypto.subtle.digest("SHA-256", encoder.encode(provided)),
+    crypto.subtle.digest("SHA-256", encoder.encode(expected)),
+  ])
+  const left = new Uint8Array(providedDigest)
+  const right = new Uint8Array(expectedDigest)
+  let difference = 0
+  for (let index = 0; index < left.length; index += 1) {
+    difference |= left[index] ^ right[index]
+  }
+  return difference === 0
+}
 
 const organizationMembership = async (organizationId: string, userId: string) =>
   drizzle(env.DB, { schema })
@@ -64,6 +103,31 @@ const organizationMembership = async (organizationId: string, userId: string) =>
 
 const isOrganizationAdmin = (role: string) =>
   role === "owner" || role === "admin"
+
+const ensureInstallationOwner = async (
+  database: DrizzleD1Database<typeof schema>,
+  organizationId: string,
+  userId: string,
+  sessionId: string
+) => {
+  await database
+    .insert(schema.member)
+    .values({
+      id: crypto.randomUUID(),
+      organizationId,
+      userId,
+      role: "owner",
+    })
+    .onConflictDoUpdate({
+      target: [schema.member.organizationId, schema.member.userId],
+      set: { role: "owner" },
+    })
+  await env.DB.prepare(
+    "UPDATE session SET active_organization_id = ? WHERE id = ?"
+  )
+    .bind(organizationId, sessionId)
+    .run()
+}
 
 const connectionAccess = async (
   organizationId: string,
@@ -95,29 +159,133 @@ const connectionRuntimeName = (
 const effectiveConnection = async (
   database: DrizzleD1Database<typeof schema>,
   organizationId: string,
-  userId: string
+  userId: string,
+  conversation?: SelectedModel | null
 ) => {
-  const personal = await database
-    .select()
-    .from(schema.userOpenCodeConnection)
-    .where(eq(schema.userOpenCodeConnection.userId, userId))
-    .orderBy(
-      desc(schema.userOpenCodeConnection.isDefault),
-      desc(schema.userOpenCodeConnection.updatedAt)
+  const [
+    personalModels,
+    organizationModels,
+    personalPreference,
+    organizationPreference,
+  ] = await Promise.all([
+    database
+      .select({
+        providerId: schema.userProviderModel.providerId,
+        modelId: schema.userProviderModel.modelId,
+        name: schema.userProviderModel.name,
+      })
+      .from(schema.userProviderModel)
+      .where(eq(schema.userProviderModel.userId, userId)),
+    database
+      .select({
+        providerId: schema.organizationProviderModel.providerId,
+        modelId: schema.organizationProviderModel.modelId,
+        name: schema.organizationProviderModel.name,
+      })
+      .from(schema.organizationProviderModel)
+      .where(
+        eq(schema.organizationProviderModel.organizationId, organizationId)
+      ),
+    database
+      .select({
+        providerId: schema.userModelPreference.providerId,
+        modelId: schema.userModelPreference.modelId,
+      })
+      .from(schema.userModelPreference)
+      .where(eq(schema.userModelPreference.userId, userId))
+      .get(),
+    database
+      .select({
+        providerId: schema.organizationModelPreference.providerId,
+        modelId: schema.organizationModelPreference.modelId,
+      })
+      .from(schema.organizationModelPreference)
+      .where(
+        eq(schema.organizationModelPreference.organizationId, organizationId)
+      )
+      .get(),
+  ])
+
+  const personalKeys = new Set(
+    personalModels.map((model) => `${model.providerId}\u0000${model.modelId}`)
+  )
+  const models: AvailableModel[] = [
+    ...personalModels.map((model) => ({
+      ...model,
+      providerName: providerName(model.providerId),
+      scope: "personal" as const,
+    })),
+    ...organizationModels
+      .filter(
+        (model) =>
+          !personalKeys.has(`${model.providerId}\u0000${model.modelId}`)
+      )
+      .map((model) => ({
+        ...model,
+        providerName: providerName(model.providerId),
+        scope: "organization" as const,
+      })),
+  ].sort((left, right) =>
+    `${left.providerName}\u0000${left.name}`.localeCompare(
+      `${right.providerName}\u0000${right.name}`
     )
-    .get()
+  )
+  const resolution = resolveModelSelection({
+    models,
+    conversation,
+    personal: personalPreference,
+    organization: organizationPreference,
+  })
 
-  if (personal) return personal
+  if (!resolution.model) return null
 
-  return database
+  const personal =
+    resolution.model.scope === "personal"
+      ? await database
+          .select()
+          .from(schema.userOpenCodeConnection)
+          .where(
+            and(
+              eq(schema.userOpenCodeConnection.userId, userId),
+              eq(
+                schema.userOpenCodeConnection.providerId,
+                resolution.model.providerId
+              )
+            )
+          )
+          .get()
+      : null
+
+  if (personal) {
+    return {
+      ...personal,
+      modelId: resolution.model.modelId,
+      modelName: resolution.model.name,
+      models,
+      notice: resolution.notice,
+    }
+  }
+
+  const organization = await database
     .select()
     .from(schema.openCodeConnection)
-    .where(eq(schema.openCodeConnection.organizationId, organizationId))
-    .orderBy(
-      desc(schema.openCodeConnection.isDefault),
-      desc(schema.openCodeConnection.updatedAt)
+    .where(
+      and(
+        eq(schema.openCodeConnection.organizationId, organizationId),
+        eq(schema.openCodeConnection.providerId, resolution.model.providerId)
+      )
     )
     .get()
+
+  return organization
+    ? {
+        ...organization,
+        modelId: resolution.model.modelId,
+        modelName: resolution.model.name,
+        models,
+        notice: resolution.notice,
+      }
+    : null
 }
 
 const connectionCredential = async (connection: {
@@ -150,6 +318,128 @@ const initializeWorkspaceRuntime = async (
   if (!response.ok) throw new Error(await response.text())
 }
 
+const saveProviderModels = async ({
+  database,
+  organizationId,
+  userId,
+  scope,
+  providerId,
+  models,
+  recommendedModelId,
+}: {
+  database: DrizzleD1Database<typeof schema>
+  organizationId: string
+  userId: string
+  scope: ConnectionScope
+  providerId: string
+  models: ReadonlyArray<{ providerId: string; modelId: string; name: string }>
+  recommendedModelId: string | null
+}) => {
+  const providerModels = normalizeProviderModels(models, providerId)
+  const batches = Array.from(
+    { length: Math.ceil(providerModels.length / 20) },
+    (_, index) => providerModels.slice(index * 20, index * 20 + 20)
+  )
+
+  if (scope === "organization") {
+    await database
+      .delete(schema.organizationProviderModel)
+      .where(
+        and(
+          eq(schema.organizationProviderModel.organizationId, organizationId),
+          eq(schema.organizationProviderModel.providerId, providerId)
+        )
+      )
+    for (const batch of batches) {
+      await database.insert(schema.organizationProviderModel).values(
+        batch.map((model) => ({
+          organizationId,
+          providerId: model.providerId,
+          modelId: model.modelId,
+          name: model.name,
+        }))
+      )
+    }
+    const preference = await database
+      .select({ modelId: schema.organizationModelPreference.modelId })
+      .from(schema.organizationModelPreference)
+      .where(
+        eq(schema.organizationModelPreference.organizationId, organizationId)
+      )
+      .get()
+    const initial = selectInitialProviderModel(
+      providerModels,
+      providerId,
+      recommendedModelId
+    )
+    if (!preference && initial) {
+      await database.insert(schema.organizationModelPreference).values({
+        organizationId,
+        providerId: initial.providerId,
+        modelId: initial.modelId,
+        configuredByUserId: userId,
+      })
+    }
+    return providerModels.length
+  }
+
+  await database
+    .delete(schema.userProviderModel)
+    .where(
+      and(
+        eq(schema.userProviderModel.userId, userId),
+        eq(schema.userProviderModel.providerId, providerId)
+      )
+    )
+  for (const batch of batches) {
+    await database.insert(schema.userProviderModel).values(
+      batch.map((model) => ({
+        userId,
+        providerId: model.providerId,
+        modelId: model.modelId,
+        name: model.name,
+      }))
+    )
+  }
+  const preference = await database
+    .select({ modelId: schema.userModelPreference.modelId })
+    .from(schema.userModelPreference)
+    .where(eq(schema.userModelPreference.userId, userId))
+    .get()
+  const initial = selectInitialProviderModel(
+    providerModels,
+    providerId,
+    recommendedModelId
+  )
+  if (!preference && initial) {
+    await database.insert(schema.userModelPreference).values({
+      userId,
+      providerId: initial.providerId,
+      modelId: initial.modelId,
+    })
+  }
+  return providerModels.length
+}
+
+const prepareProjectRepository = async (
+  workspaceId: string,
+  input: {
+    repositoryName: string
+    repositoryRemote: string
+    defaultRef: string
+    projectName: string
+  }
+) => {
+  const runtime = env.WORKSPACES.get(env.WORKSPACES.idFromName(workspaceId))
+  const response = await runtime.fetch("https://workspace/prepare-project", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  })
+  if (!response.ok) throw new Error(await response.text())
+  return decodePrepareProjectRepositoryResultPromise(await response.json())
+}
+
 const currentSession = async (request: Request) => {
   const auth = createRequestAuth(request, env)
   const session = await auth.api.getSession({ headers: request.headers })
@@ -159,6 +449,8 @@ const currentSession = async (request: Request) => {
 export const getLatestMagicLink = createServerFn({ method: "POST" })
   .validator((input) => decodeMagicLinkRequest(input))
   .handler(async ({ data }) => {
+    if (env.ALLOW_TEST_MAGIC_LINKS !== "true") return null
+
     const latest = await drizzle(env.DB, { schema })
       .select({ url: schema.magicLinkOutbox.url })
       .from(schema.magicLinkOutbox)
@@ -169,6 +461,80 @@ export const getLatestMagicLink = createServerFn({ method: "POST" })
     return latest?.url ?? null
   })
 
+export const claimInstallation = createServerFn({ method: "POST" })
+  .validator((input) => decodeInstallationClaimInputPromise(input))
+  .handler(async ({ data }) => {
+    const { session } = await currentSession(getRequest())
+
+    if (!session) throw new Error("Sign in before claiming this Installation")
+    assertInstallationClaimIdentity(session.user, data.confirmedEmail)
+    if (
+      !(await secretsMatch(data.claimSecret, env.INSTALLATION_CLAIM_SECRET))
+    ) {
+      throw new Error("The Installation claim secret is invalid")
+    }
+
+    const existing = await env.DB.prepare(
+      "SELECT organization_id, claimed_by_user_id FROM installation WHERE id = ?"
+    )
+      .bind(installationId)
+      .first<{
+        organization_id: string | null
+        claimed_by_user_id: string | null
+      }>()
+
+    if (!existing) {
+      throw new Error("Installation storage has not been initialized")
+    }
+
+    const database = drizzle(env.DB, { schema })
+
+    if (existing.claimed_by_user_id) {
+      if (existing.claimed_by_user_id === session.user.id) {
+        const organizationId =
+          existing.organization_id ?? installationOrganizationId
+        await ensureInstallationOwner(
+          database,
+          organizationId,
+          session.user.id,
+          session.session.id
+        )
+        return {
+          organizationId,
+        }
+      }
+      throw new Error("This Installation has already been claimed")
+    }
+
+    await database
+      .insert(schema.organization)
+      .values({
+        id: installationOrganizationId,
+        name: data.organizationName.trim(),
+        slug: "sylph",
+      })
+      .onConflictDoNothing()
+
+    const claim = await env.DB.prepare(
+      "UPDATE installation SET organization_id = ?, claimed_by_user_id = ?, claimed_at = unixepoch() WHERE id = ? AND claimed_by_user_id IS NULL"
+    )
+      .bind(installationOrganizationId, session.user.id, installationId)
+      .run()
+
+    if (claim.meta.changes !== 1) {
+      throw new Error("This Installation was claimed by another user")
+    }
+
+    await ensureInstallationOwner(
+      database,
+      installationOrganizationId,
+      session.user.id,
+      session.session.id
+    )
+
+    return { organizationId: installationOrganizationId }
+  })
+
 export const getDashboard = createServerFn({ method: "GET" }).handler(
   async () => {
     const request = getRequest()
@@ -176,6 +542,15 @@ export const getDashboard = createServerFn({ method: "GET" }).handler(
 
     if (!session) {
       return {
+        authentication: {
+          github: Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET),
+          testMagicLinks: env.ALLOW_TEST_MAGIC_LINKS === "true",
+        },
+        installation: {
+          claimed: false,
+          role: null,
+          canAdminister: false,
+        },
         user: null,
         organizations: [],
         projects: [],
@@ -185,85 +560,126 @@ export const getDashboard = createServerFn({ method: "GET" }).handler(
       }
     }
 
-    const organizations = await auth.api.listOrganizations({
-      headers: request.headers,
-    })
     const database = drizzle(env.DB, { schema })
-    const projects = await database
-      .select({
-        id: schema.project.id,
-        name: schema.project.name,
-        slug: schema.project.slug,
-        organizationId: schema.project.organizationId,
-        organizationSlug: schema.organization.slug,
-        repositoryName: schema.project.artifactRepo,
-        defaultBranch: schema.project.defaultBranch,
-        createdAt: schema.project.createdAt,
-      })
-      .from(schema.project)
-      .innerJoin(
-        schema.member,
-        and(
-          eq(schema.member.organizationId, schema.project.organizationId),
-          eq(schema.member.userId, session.user.id)
+    const [
+      organizations,
+      installation,
+      installationMembership,
+      projects,
+      workspaces,
+      organizationConnections,
+      personalConnection,
+    ] = await Promise.all([
+      auth.api.listOrganizations({ headers: request.headers }),
+      database
+        .select({
+          organizationId: schema.installation.organizationId,
+          claimedByUserId: schema.installation.claimedByUserId,
+        })
+        .from(schema.installation)
+        .where(eq(schema.installation.id, installationId))
+        .get(),
+      database
+        .select({ role: schema.member.role })
+        .from(schema.member)
+        .innerJoin(
+          schema.installation,
+          eq(schema.installation.organizationId, schema.member.organizationId)
         )
-      )
-      .innerJoin(
-        schema.organization,
-        eq(schema.organization.id, schema.project.organizationId)
-      )
-      .orderBy(desc(schema.project.createdAt))
-    const workspaces = await database
-      .select({
-        id: schema.workspace.id,
-        projectId: schema.workspace.projectId,
-        projectName: schema.project.name,
-        projectSlug: schema.project.slug,
-        title: schema.workspace.title,
-        status: schema.workspace.status,
-        repositoryName: schema.workspace.workspaceArtifactRepo,
-        organizationId: schema.workspace.organizationId,
-        organizationSlug: schema.organization.slug,
-        errorSummary: schema.workspace.errorSummary,
-        createdAt: schema.workspace.createdAt,
-      })
-      .from(schema.workspace)
-      .innerJoin(
-        schema.project,
-        eq(schema.workspace.projectId, schema.project.id)
-      )
-      .innerJoin(
-        schema.member,
-        and(
-          eq(schema.member.organizationId, schema.workspace.organizationId),
-          eq(schema.member.userId, session.user.id)
+        .where(
+          and(
+            eq(schema.installation.id, installationId),
+            eq(schema.member.userId, session.user.id)
+          )
         )
-      )
-      .innerJoin(
-        schema.organization,
-        eq(schema.organization.id, schema.workspace.organizationId)
-      )
-      .orderBy(desc(schema.workspace.createdAt))
-    const organizationConnections = await database
-      .select({ organizationId: schema.openCodeConnection.organizationId })
-      .from(schema.openCodeConnection)
-      .innerJoin(
-        schema.member,
-        and(
-          eq(
-            schema.member.organizationId,
-            schema.openCodeConnection.organizationId
-          ),
-          eq(schema.member.userId, session.user.id)
+        .get(),
+      database
+        .select({
+          id: schema.project.id,
+          name: schema.project.name,
+          slug: schema.project.slug,
+          organizationId: schema.project.organizationId,
+          organizationSlug: schema.organization.slug,
+          repositoryName: schema.project.artifactRepo,
+          defaultBranch: schema.project.defaultBranch,
+          createdAt: schema.project.createdAt,
+        })
+        .from(schema.project)
+        .innerJoin(
+          schema.member,
+          and(
+            eq(schema.member.organizationId, schema.project.organizationId),
+            eq(schema.member.userId, session.user.id)
+          )
         )
-      )
-    const personalConnection = await database
-      .select({ providerId: schema.userOpenCodeConnection.providerId })
-      .from(schema.userOpenCodeConnection)
-      .where(eq(schema.userOpenCodeConnection.userId, session.user.id))
-      .get()
+        .innerJoin(
+          schema.organization,
+          eq(schema.organization.id, schema.project.organizationId)
+        )
+        .orderBy(desc(schema.project.createdAt)),
+      database
+        .select({
+          id: schema.workspace.id,
+          projectId: schema.workspace.projectId,
+          projectName: schema.project.name,
+          projectSlug: schema.project.slug,
+          title: schema.workspace.title,
+          status: schema.workspace.status,
+          repositoryName: schema.workspace.workspaceArtifactRepo,
+          organizationId: schema.workspace.organizationId,
+          organizationSlug: schema.organization.slug,
+          errorSummary: schema.workspace.errorSummary,
+          createdAt: schema.workspace.createdAt,
+        })
+        .from(schema.workspace)
+        .innerJoin(
+          schema.project,
+          eq(schema.workspace.projectId, schema.project.id)
+        )
+        .innerJoin(
+          schema.member,
+          and(
+            eq(schema.member.organizationId, schema.workspace.organizationId),
+            eq(schema.member.userId, session.user.id)
+          )
+        )
+        .innerJoin(
+          schema.organization,
+          eq(schema.organization.id, schema.workspace.organizationId)
+        )
+        .orderBy(desc(schema.workspace.createdAt)),
+      database
+        .select({ organizationId: schema.openCodeConnection.organizationId })
+        .from(schema.openCodeConnection)
+        .innerJoin(
+          schema.member,
+          and(
+            eq(
+              schema.member.organizationId,
+              schema.openCodeConnection.organizationId
+            ),
+            eq(schema.member.userId, session.user.id)
+          )
+        ),
+      database
+        .select({ providerId: schema.userOpenCodeConnection.providerId })
+        .from(schema.userOpenCodeConnection)
+        .where(eq(schema.userOpenCodeConnection.userId, session.user.id))
+        .get(),
+    ])
 
     return {
+      authentication: {
+        github: Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET),
+        testMagicLinks: env.ALLOW_TEST_MAGIC_LINKS === "true",
+      },
+      installation: {
+        claimed: Boolean(installation?.claimedByUserId),
+        role: installationMembership?.role ?? null,
+        canAdminister: installationMembership
+          ? isOrganizationAdmin(installationMembership.role)
+          : false,
+      },
       user: session.user,
       organizations,
       projects,
@@ -300,30 +716,66 @@ export const getOpenCodeSetup = createServerFn({ method: "GET" })
     const organizationConnections = await database
       .select({
         providerId: schema.openCodeConnection.providerId,
-        modelId: schema.openCodeConnection.modelId,
         authMethod: schema.openCodeConnection.authMethod,
-        isDefault: schema.openCodeConnection.isDefault,
       })
       .from(schema.openCodeConnection)
       .where(eq(schema.openCodeConnection.organizationId, data.organizationId))
-      .orderBy(
-        desc(schema.openCodeConnection.isDefault),
-        desc(schema.openCodeConnection.updatedAt)
-      )
+      .orderBy(schema.openCodeConnection.providerId)
 
     const personalConnections = await database
       .select({
         providerId: schema.userOpenCodeConnection.providerId,
-        modelId: schema.userOpenCodeConnection.modelId,
         authMethod: schema.userOpenCodeConnection.authMethod,
-        isDefault: schema.userOpenCodeConnection.isDefault,
       })
       .from(schema.userOpenCodeConnection)
       .where(eq(schema.userOpenCodeConnection.userId, session.user.id))
-      .orderBy(
-        desc(schema.userOpenCodeConnection.isDefault),
-        desc(schema.userOpenCodeConnection.updatedAt)
+      .orderBy(schema.userOpenCodeConnection.providerId)
+
+    const effective = await effectiveConnection(
+      database,
+      data.organizationId,
+      session.user.id
+    )
+
+    const organizationModelCounts = await database
+      .select({
+        providerId: schema.organizationProviderModel.providerId,
+        modelId: schema.organizationProviderModel.modelId,
+        name: schema.organizationProviderModel.name,
+      })
+      .from(schema.organizationProviderModel)
+      .where(
+        eq(schema.organizationProviderModel.organizationId, data.organizationId)
       )
+    const personalModelCounts = await database
+      .select({
+        providerId: schema.userProviderModel.providerId,
+        modelId: schema.userProviderModel.modelId,
+        name: schema.userProviderModel.name,
+      })
+      .from(schema.userProviderModel)
+      .where(eq(schema.userProviderModel.userId, session.user.id))
+    const organizationDefault = await database
+      .select({
+        providerId: schema.organizationModelPreference.providerId,
+        modelId: schema.organizationModelPreference.modelId,
+      })
+      .from(schema.organizationModelPreference)
+      .where(
+        eq(
+          schema.organizationModelPreference.organizationId,
+          data.organizationId
+        )
+      )
+      .get()
+    const personalDefault = await database
+      .select({
+        providerId: schema.userModelPreference.providerId,
+        modelId: schema.userModelPreference.modelId,
+      })
+      .from(schema.userModelPreference)
+      .where(eq(schema.userModelPreference.userId, session.user.id))
+      .get()
 
     const members = await database
       .select({
@@ -337,74 +789,154 @@ export const getOpenCodeSetup = createServerFn({ method: "GET" })
       .where(eq(schema.member.organizationId, data.organizationId))
       .orderBy(schema.user.name)
 
-    const defaultConnection =
-      personalConnections[0] ?? organizationConnections[0]
+    const invitations = isOrganizationAdmin(membership.role)
+      ? await database
+          .select({
+            id: schema.invitation.id,
+            email: schema.invitation.email,
+            role: schema.invitation.role,
+            status: schema.invitation.status,
+          })
+          .from(schema.invitation)
+          .where(eq(schema.invitation.organizationId, data.organizationId))
+          .orderBy(desc(schema.invitation.createdAt))
+      : []
 
     return {
-      providerId: defaultConnection?.providerId ?? null,
-      modelId: defaultConnection?.modelId ?? null,
-      authMethod: defaultConnection?.authMethod ?? null,
+      providerId: effective?.providerId ?? null,
+      modelId: effective?.modelId ?? null,
+      modelName: effective?.modelName ?? null,
+      models: effective?.models ?? [],
+      modelNotice: effective?.notice ?? null,
+      organizationDefault: organizationDefault ?? null,
+      personalDefault: personalDefault ?? null,
+      organizationModels: organizationModelCounts.map((model) => ({
+        ...model,
+        providerName: providerName(model.providerId),
+        scope: "organization" as const,
+      })),
+      authMethod: effective?.authMethod ?? null,
       role: membership.role,
       canManageOrganization: isOrganizationAdmin(membership.role),
-      organizationConnections,
-      personalConnections,
+      organizationConnections: organizationConnections.map((connection) => ({
+        ...connection,
+        availableModelCount: organizationModelCounts.filter(
+          (model) => model.providerId === connection.providerId
+        ).length,
+      })),
+      personalConnections: personalConnections.map((connection) => ({
+        ...connection,
+        availableModelCount: personalModelCounts.filter(
+          (model) => model.providerId === connection.providerId
+        ).length,
+      })),
       members,
+      invitations,
     }
   })
 
-export const setDefaultOpenCodeConnection = createServerFn({ method: "POST" })
-  .validator((input) => decodeSetDefaultOpenCodeConnectionInputPromise(input))
+export const setDefaultModel = createServerFn({ method: "POST" })
+  .validator((input) => decodeSetDefaultModelInputPromise(input))
   .handler(async ({ data }) => {
     const { session } = await currentSession(getRequest())
 
-    if (!session) throw new Error("Sign in before choosing a default provider")
+    if (!session) throw new Error("Sign in before choosing a default model")
 
     await connectionAccess(data.organizationId, session.user.id, data.scope)
 
     const database = drizzle(env.DB, { schema })
-    const connection =
+    const model =
       data.scope === "organization"
         ? await database
-            .select({ providerId: schema.openCodeConnection.providerId })
-            .from(schema.openCodeConnection)
+            .select({ modelId: schema.organizationProviderModel.modelId })
+            .from(schema.organizationProviderModel)
             .where(
               and(
                 eq(
-                  schema.openCodeConnection.organizationId,
+                  schema.organizationProviderModel.organizationId,
                   data.organizationId
                 ),
-                eq(schema.openCodeConnection.providerId, data.providerId)
+                eq(
+                  schema.organizationProviderModel.providerId,
+                  data.providerId
+                ),
+                eq(schema.organizationProviderModel.modelId, data.modelId)
               )
             )
             .get()
         : await database
-            .select({ providerId: schema.userOpenCodeConnection.providerId })
-            .from(schema.userOpenCodeConnection)
+            .select({ modelId: schema.userProviderModel.modelId })
+            .from(schema.userProviderModel)
             .where(
               and(
-                eq(schema.userOpenCodeConnection.userId, session.user.id),
-                eq(schema.userOpenCodeConnection.providerId, data.providerId)
+                eq(schema.userProviderModel.userId, session.user.id),
+                eq(schema.userProviderModel.providerId, data.providerId),
+                eq(schema.userProviderModel.modelId, data.modelId)
               )
             )
             .get()
 
-    if (!connection) throw new Error("This Provider connection does not exist")
+    const organizationModel =
+      data.scope === "user" && !model
+        ? await database
+            .select({ modelId: schema.organizationProviderModel.modelId })
+            .from(schema.organizationProviderModel)
+            .where(
+              and(
+                eq(
+                  schema.organizationProviderModel.organizationId,
+                  data.organizationId
+                ),
+                eq(
+                  schema.organizationProviderModel.providerId,
+                  data.providerId
+                ),
+                eq(schema.organizationProviderModel.modelId, data.modelId)
+              )
+            )
+            .get()
+        : null
+
+    if (!model && !organizationModel)
+      throw new Error("This model is not available")
 
     if (data.scope === "organization") {
-      await env.DB.prepare(
-        "UPDATE open_code_connection SET is_default = CASE WHEN provider_id = ? THEN 1 ELSE 0 END, updated_at = CASE WHEN provider_id = ? THEN unixepoch() ELSE updated_at END WHERE organization_id = ?"
-      )
-        .bind(data.providerId, data.providerId, data.organizationId)
-        .run()
+      await database
+        .insert(schema.organizationModelPreference)
+        .values({
+          organizationId: data.organizationId,
+          providerId: data.providerId,
+          modelId: data.modelId,
+          configuredByUserId: session.user.id,
+        })
+        .onConflictDoUpdate({
+          target: schema.organizationModelPreference.organizationId,
+          set: {
+            providerId: data.providerId,
+            modelId: data.modelId,
+            configuredByUserId: session.user.id,
+            updatedAt: new Date(),
+          },
+        })
     } else {
-      await env.DB.prepare(
-        "UPDATE user_open_code_connection SET is_default = CASE WHEN provider_id = ? THEN 1 ELSE 0 END, updated_at = CASE WHEN provider_id = ? THEN unixepoch() ELSE updated_at END WHERE user_id = ?"
-      )
-        .bind(data.providerId, data.providerId, session.user.id)
-        .run()
+      await database
+        .insert(schema.userModelPreference)
+        .values({
+          userId: session.user.id,
+          providerId: data.providerId,
+          modelId: data.modelId,
+        })
+        .onConflictDoUpdate({
+          target: schema.userModelPreference.userId,
+          set: {
+            providerId: data.providerId,
+            modelId: data.modelId,
+            updatedAt: new Date(),
+          },
+        })
     }
 
-    return { providerId: data.providerId }
+    return { providerId: data.providerId, modelId: data.modelId }
   })
 
 export const getWorkspaceCreationContext = createServerFn({ method: "GET" })
@@ -478,29 +1010,23 @@ export const saveOpenCodeSetup = createServerFn({ method: "POST" })
 
     if (!validation.ok) throw new Error(await validation.text())
 
+    const connected = await decodeOpenCodeConnectionResultPromise(
+      await validation.json()
+    )
+
     const credential = await encryptCredential(
       data.apiKey,
       env.CREDENTIAL_ENCRYPTION_KEY
     )
     const now = new Date()
     if (data.scope === "organization") {
-      const existingConnection = await database
-        .select({ providerId: schema.openCodeConnection.providerId })
-        .from(schema.openCodeConnection)
-        .where(
-          eq(schema.openCodeConnection.organizationId, data.organizationId)
-        )
-        .get()
-
       await database
         .insert(schema.openCodeConnection)
         .values({
           organizationId: data.organizationId,
           configuredByUserId: session.user.id,
           providerId: data.providerId,
-          modelId: data.modelId,
           authMethod: "api-key",
-          isDefault: !existingConnection,
           encryptedCredential: credential.encrypted,
           encryptionIv: credential.iv,
           createdAt: now,
@@ -513,7 +1039,6 @@ export const saveOpenCodeSetup = createServerFn({ method: "POST" })
           ],
           set: {
             configuredByUserId: session.user.id,
-            modelId: data.modelId,
             authMethod: "api-key",
             encryptedCredential: credential.encrypted,
             encryptionIv: credential.iv,
@@ -521,20 +1046,12 @@ export const saveOpenCodeSetup = createServerFn({ method: "POST" })
           },
         })
     } else {
-      const existingConnection = await database
-        .select({ providerId: schema.userOpenCodeConnection.providerId })
-        .from(schema.userOpenCodeConnection)
-        .where(eq(schema.userOpenCodeConnection.userId, session.user.id))
-        .get()
-
       await database
         .insert(schema.userOpenCodeConnection)
         .values({
           userId: session.user.id,
           providerId: data.providerId,
-          modelId: data.modelId,
           authMethod: "api-key",
-          isDefault: !existingConnection,
           encryptedCredential: credential.encrypted,
           encryptionIv: credential.iv,
           createdAt: now,
@@ -546,7 +1063,6 @@ export const saveOpenCodeSetup = createServerFn({ method: "POST" })
             schema.userOpenCodeConnection.providerId,
           ],
           set: {
-            modelId: data.modelId,
             authMethod: "api-key",
             encryptedCredential: credential.encrypted,
             encryptionIv: credential.iv,
@@ -555,7 +1071,20 @@ export const saveOpenCodeSetup = createServerFn({ method: "POST" })
         })
     }
 
-    return { providerId: data.providerId, modelId: data.modelId }
+    const availableModelCount = await saveProviderModels({
+      database,
+      organizationId: data.organizationId,
+      userId: session.user.id,
+      scope: data.scope,
+      providerId: data.providerId,
+      models: connected.models,
+      recommendedModelId: connected.recommendedModelId,
+    })
+
+    return {
+      providerId: data.providerId,
+      availableModelCount,
+    }
   })
 
 export const startOpenCodeSubscription = createServerFn({ method: "POST" })
@@ -630,6 +1159,9 @@ export const getOpenCodeSubscriptionStatus = createServerFn({ method: "POST" })
     if (!result.credential || result.credential.type !== "oauth") {
       throw new Error("OpenCode completed sign-in without a subscription")
     }
+    if (!result.models) {
+      throw new Error("OpenCode completed sign-in without a model catalog")
+    }
 
     const encrypted = await encryptCredential(
       JSON.stringify(result.credential),
@@ -638,23 +1170,13 @@ export const getOpenCodeSubscriptionStatus = createServerFn({ method: "POST" })
     const now = new Date()
     const database = drizzle(env.DB, { schema })
     if (data.scope === "organization") {
-      const existingConnection = await database
-        .select({ providerId: schema.openCodeConnection.providerId })
-        .from(schema.openCodeConnection)
-        .where(
-          eq(schema.openCodeConnection.organizationId, data.organizationId)
-        )
-        .get()
-
       await database
         .insert(schema.openCodeConnection)
         .values({
           organizationId: data.organizationId,
           configuredByUserId: session.user.id,
           providerId: subscriptionProviderId,
-          modelId: data.modelId,
           authMethod: "chatgpt-subscription",
-          isDefault: !existingConnection,
           encryptedCredential: encrypted.encrypted,
           encryptionIv: encrypted.iv,
           createdAt: now,
@@ -667,7 +1189,6 @@ export const getOpenCodeSubscriptionStatus = createServerFn({ method: "POST" })
           ],
           set: {
             configuredByUserId: session.user.id,
-            modelId: data.modelId,
             authMethod: "chatgpt-subscription",
             encryptedCredential: encrypted.encrypted,
             encryptionIv: encrypted.iv,
@@ -675,20 +1196,12 @@ export const getOpenCodeSubscriptionStatus = createServerFn({ method: "POST" })
           },
         })
     } else {
-      const existingConnection = await database
-        .select({ providerId: schema.userOpenCodeConnection.providerId })
-        .from(schema.userOpenCodeConnection)
-        .where(eq(schema.userOpenCodeConnection.userId, session.user.id))
-        .get()
-
       await database
         .insert(schema.userOpenCodeConnection)
         .values({
           userId: session.user.id,
           providerId: subscriptionProviderId,
-          modelId: data.modelId,
           authMethod: "chatgpt-subscription",
-          isDefault: !existingConnection,
           encryptedCredential: encrypted.encrypted,
           encryptionIv: encrypted.iv,
           createdAt: now,
@@ -700,7 +1213,6 @@ export const getOpenCodeSubscriptionStatus = createServerFn({ method: "POST" })
             schema.userOpenCodeConnection.providerId,
           ],
           set: {
-            modelId: data.modelId,
             authMethod: "chatgpt-subscription",
             encryptedCredential: encrypted.encrypted,
             encryptionIv: encrypted.iv,
@@ -708,6 +1220,16 @@ export const getOpenCodeSubscriptionStatus = createServerFn({ method: "POST" })
           },
         })
     }
+
+    await saveProviderModels({
+      database,
+      organizationId: data.organizationId,
+      userId: session.user.id,
+      scope: data.scope,
+      providerId: subscriptionProviderId,
+      models: result.models,
+      recommendedModelId: result.recommendedModelId ?? null,
+    })
 
     return { status: "complete" as const, message: undefined }
   })
@@ -858,32 +1380,40 @@ export const createProject = createServerFn({ method: "POST" })
       throw new Error("Project name needs a letter or number")
     }
 
-    const repositoryName = `${membership.organizationSlug}-${requestedRepositoryName}`
-    const artifact = sourceRepositoryUrl
-      ? await env.REPOS.import({
-          source: {
-            url: sourceRepositoryUrl,
-            branch: data.sourceBranch,
-          },
-          target: {
-            name: repositoryName,
-            opts: { description: `${data.name} imported by Sylph` },
-          },
-        })
-      : await env.REPOS.create(repositoryName, {
-          description: `${data.name} created by Sylph`,
-          setDefaultBranch: "main",
-        })
     const projectId = ProjectId.make(crypto.randomUUID())
     const workspaceId = WorkspaceId.make(crypto.randomUUID())
+    const repositoryName = `${membership.organizationSlug}-${requestedRepositoryName.slice(0, 28)}-${projectId.replaceAll("-", "").slice(0, 12)}`
+    const artifacts = makeArtifactRepositoryService(env.REPOS)
+    const createdArtifact = await Effect.runPromise(
+      sourceRepositoryUrl
+        ? artifacts.importProject({
+            name: repositoryName,
+            description: `${data.name} imported by Sylph`,
+            sourceUrl: sourceRepositoryUrl,
+            sourceBranch: data.sourceBranch,
+          })
+        : artifacts.createProject({
+            name: repositoryName,
+            description: `${data.name} created by Sylph`,
+            defaultBranch: "main",
+          })
+    )
+    const artifact = await Effect.runPromise(
+      artifacts.inspect(createdArtifact.name)
+    )
     const workspaceRepositoryName = `${repositoryName.slice(0, 44)}-${workspaceId.replaceAll("-", "").slice(0, 12)}`
-    const baseRepository = await env.REPOS.get(artifact.name)
-    const workspaceArtifact = await baseRepository.fork(
-      workspaceRepositoryName,
-      {
+    const prepared = await prepareProjectRepository(workspaceId, {
+      repositoryName: artifact.name,
+      repositoryRemote: artifact.remote,
+      defaultRef: artifact.defaultBranch,
+      projectName: data.name,
+    })
+    const workspaceArtifact = await Effect.runPromise(
+      artifacts.forkWorkspace({
+        sourceName: artifact.name,
+        name: workspaceRepositoryName,
         description: `Workspace for ${data.name}`,
-        defaultBranchOnly: true,
-      }
+      })
     )
     const now = new Date()
 
@@ -914,6 +1444,10 @@ export const createProject = createServerFn({ method: "POST" })
         repositoryMode: "fork",
         baseArtifactRepo: artifact.name,
         workspaceArtifactRepo: workspaceArtifact.name,
+        baseCommit: prepared.head,
+        forkHead: prepared.head,
+        syncStatus: "hydrating",
+        mergeStatus: "unreviewed",
         createdAt: now,
         updatedAt: now,
       })
@@ -934,6 +1468,10 @@ export const createProject = createServerFn({ method: "POST" })
           projectName: data.name,
           repositoryName: workspaceArtifact.name,
           repositoryRemote: workspaceArtifact.remote,
+          projectRepositoryName: artifact.name,
+          projectRepositoryRemote: artifact.remote,
+          defaultRef: artifact.defaultBranch,
+          baseCommit: prepared.head,
           providerId: connection.providerId,
           modelId: connection.modelId,
           credential,
@@ -966,7 +1504,12 @@ export const createProject = createServerFn({ method: "POST" })
 
     await database
       .update(schema.workspace)
-      .set({ status: "ready", errorSummary: null, updatedAt: new Date() })
+      .set({
+        status: "ready",
+        syncStatus: "ready",
+        errorSummary: null,
+        updatedAt: new Date(),
+      })
       .where(eq(schema.workspace.id, workspaceId))
 
     return {
@@ -999,6 +1542,8 @@ export const createWorkspace = createServerFn({ method: "POST" })
         name: schema.project.name,
         organizationId: schema.project.organizationId,
         repositoryName: schema.project.artifactRepo,
+        repositoryRemote: schema.project.artifactRemote,
+        defaultRef: schema.project.defaultBranch,
       })
       .from(schema.project)
       .innerJoin(
@@ -1030,13 +1575,19 @@ export const createWorkspace = createServerFn({ method: "POST" })
     const credential = await connectionCredential(connection)
     const workspaceId = WorkspaceId.make(crypto.randomUUID())
     const workspaceRepositoryName = `${project.repositoryName.slice(0, 44)}-${workspaceId.replaceAll("-", "").slice(0, 12)}`
-    const baseRepository = await env.REPOS.get(project.repositoryName)
-    const workspaceRepository = await baseRepository.fork(
-      workspaceRepositoryName,
-      {
+    const artifacts = makeArtifactRepositoryService(env.REPOS)
+    const prepared = await prepareProjectRepository(workspaceId, {
+      repositoryName: project.repositoryName,
+      repositoryRemote: project.repositoryRemote,
+      defaultRef: project.defaultRef,
+      projectName: project.name,
+    })
+    const workspaceRepository = await Effect.runPromise(
+      artifacts.forkWorkspace({
+        sourceName: project.repositoryName,
+        name: workspaceRepositoryName,
         description: `Workspace for ${project.name}: ${title}`,
-        defaultBranchOnly: true,
-      }
+      })
     )
     const now = new Date()
 
@@ -1050,6 +1601,10 @@ export const createWorkspace = createServerFn({ method: "POST" })
       repositoryMode: "fork",
       baseArtifactRepo: project.repositoryName,
       workspaceArtifactRepo: workspaceRepository.name,
+      baseCommit: prepared.head,
+      forkHead: prepared.head,
+      syncStatus: "hydrating",
+      mergeStatus: "unreviewed",
       createdAt: now,
       updatedAt: now,
     })
@@ -1064,6 +1619,10 @@ export const createWorkspace = createServerFn({ method: "POST" })
           projectName: project.name,
           repositoryName: workspaceRepository.name,
           repositoryRemote: workspaceRepository.remote,
+          projectRepositoryName: project.repositoryName,
+          projectRepositoryRemote: project.repositoryRemote,
+          defaultRef: project.defaultRef,
+          baseCommit: prepared.head,
           providerId: connection.providerId,
           modelId: connection.modelId,
           credential,
@@ -1083,7 +1642,12 @@ export const createWorkspace = createServerFn({ method: "POST" })
 
     await database
       .update(schema.workspace)
-      .set({ status: "ready", errorSummary: null, updatedAt: new Date() })
+      .set({
+        status: "ready",
+        syncStatus: "ready",
+        errorSummary: null,
+        updatedAt: new Date(),
+      })
       .where(eq(schema.workspace.id, workspaceId))
 
     return { id: workspaceId, status: "ready" as const, errorSummary: null }
@@ -1141,23 +1705,63 @@ export const getWorkspace = createServerFn({ method: "GET" })
     const runtime = env.WORKSPACES.get(
       env.WORKSPACES.idFromName(data.workspaceId)
     )
-    const response = await runtime.fetch("https://workspace/snapshot")
+    const [response, vcsResponse] = await Promise.all([
+      runtime.fetch("https://workspace/snapshot"),
+      runtime.fetch("https://workspace/vcs"),
+    ])
 
     if (!response.ok) {
       throw new Error(await response.text())
+    }
+    if (!vcsResponse.ok) {
+      throw new Error(await vcsResponse.text())
     }
 
     const runtimeSnapshot = await decodeWorkspaceRuntimeHealth(
       await response.json()
     )
+    const separator = runtimeSnapshot.model?.indexOf("/") ?? -1
+    const conversationModel =
+      runtimeSnapshot.model && separator > 0
+        ? {
+            providerId: runtimeSnapshot.model.slice(0, separator),
+            modelId: runtimeSnapshot.model.slice(separator + 1),
+          }
+        : null
+    const connection = await effectiveConnection(
+      drizzle(env.DB, { schema }),
+      workspace.organizationId,
+      session.user.id,
+      conversationModel
+    )
+    const vcsPayload = await vcsResponse.json<{
+      vcs: unknown
+      checkpoints: unknown
+    }>()
+    const versionControl = await decodeWorkspaceVersionControl(vcsPayload.vcs)
+    const checkpoints = await decodeWorkspaceCheckpointList(
+      vcsPayload.checkpoints
+    )
+    const [encodedVersionControl, encodedCheckpoints] = await Promise.all([
+      encodeWorkspaceVersionControl(versionControl),
+      encodeWorkspaceCheckpointList(checkpoints),
+    ])
 
-    const status =
+    const runtimeStatus =
       (workspace.status === "error" || workspace.errorSummary) &&
       runtimeSnapshot.status === "provisioning"
         ? "error"
         : runtimeSnapshot.status
+    const status =
+      workspace.status === "merging" || workspace.status === "archived"
+        ? workspace.status
+        : runtimeStatus
 
-    if (workspace.status !== status) {
+    if (
+      workspace.status !== status &&
+      workspace.status !== "merging" &&
+      workspace.status !== "archived"
+    ) {
       await drizzle(env.DB, { schema })
         .update(schema.workspace)
         .set({ status, updatedAt: new Date() })
@@ -1167,8 +1771,18 @@ export const getWorkspace = createServerFn({ method: "GET" })
     return {
       workspace: { ...workspace, status },
       runtime: await encodeWorkspaceRuntimeHealth(
-        new WorkspaceRuntimeHealth({ ...runtimeSnapshot, status })
+        new WorkspaceRuntimeHealth({
+          ...runtimeSnapshot,
+          status: runtimeStatus,
+        })
       ),
+      versionControl: encodedVersionControl,
+      checkpoints: encodedCheckpoints,
+      models: connection?.models ?? [],
+      selectedModel: connection
+        ? { providerId: connection.providerId, modelId: connection.modelId }
+        : null,
+      modelNotice: connection?.notice ?? null,
     }
   })
 
@@ -1189,6 +1803,10 @@ export const restartWorkspace = createServerFn({ method: "POST" })
         organizationId: schema.workspace.organizationId,
         ownerUserId: schema.workspace.ownerUserId,
         repositoryName: schema.workspace.workspaceArtifactRepo,
+        projectRepositoryName: schema.project.artifactRepo,
+        projectRepositoryRemote: schema.project.artifactRemote,
+        defaultRef: schema.project.defaultBranch,
+        baseCommit: schema.workspace.baseCommit,
       })
       .from(schema.workspace)
       .innerJoin(
@@ -1222,7 +1840,13 @@ export const restartWorkspace = createServerFn({ method: "POST" })
     }
 
     const credential = await connectionCredential(connection)
-    const repository = await env.REPOS.get(workspace.repositoryName)
+    const repository = await Effect.runPromise(
+      makeArtifactRepositoryService(env.REPOS).inspect(workspace.repositoryName)
+    )
+
+    if (!workspace.baseCommit) {
+      throw new Error("This Workspace predates Artifact-backed version control")
+    }
 
     await database
       .update(schema.workspace)
@@ -1243,6 +1867,10 @@ export const restartWorkspace = createServerFn({ method: "POST" })
           projectName: workspace.projectName,
           repositoryName: workspace.repositoryName,
           repositoryRemote: repository.remote,
+          projectRepositoryName: workspace.projectRepositoryName,
+          projectRepositoryRemote: workspace.projectRepositoryRemote,
+          defaultRef: workspace.defaultRef,
+          baseCommit: workspace.baseCommit,
           providerId: connection.providerId,
           modelId: connection.modelId,
           credential,
@@ -1280,7 +1908,10 @@ export const promptWorkspace = createServerFn({ method: "POST" })
 
     const database = drizzle(env.DB, { schema })
     const workspace = await database
-      .select({ id: schema.workspace.id })
+      .select({
+        id: schema.workspace.id,
+        organizationId: schema.workspace.organizationId,
+      })
       .from(schema.workspace)
       .innerJoin(
         schema.member,
@@ -1296,13 +1927,34 @@ export const promptWorkspace = createServerFn({ method: "POST" })
       throw new Error("This workspace does not exist or you cannot access it")
     }
 
+    const connection = await effectiveConnection(
+      database,
+      workspace.organizationId,
+      session.user.id,
+      data.model
+    )
+
+    if (!connection) {
+      throw new Error("Connect an AI provider before sending a message")
+    }
+
+    const credential = await connectionCredential(connection)
+
     const runtime = env.WORKSPACES.get(
       env.WORKSPACES.idFromName(data.workspaceId)
     )
     const response = await runtime.fetch("https://workspace/prompt", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(data),
+      body: JSON.stringify({
+        workspaceId: data.workspaceId,
+        text: data.text,
+        model: {
+          providerId: connection.providerId,
+          modelId: connection.modelId,
+        },
+        credential,
+      }),
     })
 
     if (!response.ok) {
@@ -1314,7 +1966,185 @@ export const promptWorkspace = createServerFn({ method: "POST" })
       .set({ status: "running", updatedAt: new Date() })
       .where(eq(schema.workspace.id, data.workspaceId))
 
-    return encodeWorkspaceRuntimeHealth(
-      await decodeWorkspaceRuntimeHealth(await response.json())
+    return {
+      health: await encodeWorkspaceRuntimeHealth(
+        await decodeWorkspaceRuntimeHealth(await response.json())
+      ),
+      models: connection.models,
+      selectedModel: {
+        providerId: connection.providerId,
+        modelId: connection.modelId,
+      },
+      modelNotice: connection.notice,
+    }
+  })
+
+export const checkpointWorkspace = createServerFn({ method: "POST" })
+  .validator((input) => decodeWorkspaceCheckpointInputPromise(input))
+  .handler(async ({ data }) => {
+    const { session } = await currentSession(getRequest())
+    if (!session) throw new Error("Sign in before creating a Checkpoint")
+
+    const database = drizzle(env.DB, { schema })
+    const workspace = await database
+      .select({ id: schema.workspace.id })
+      .from(schema.workspace)
+      .innerJoin(
+        schema.member,
+        and(
+          eq(schema.member.organizationId, schema.workspace.organizationId),
+          eq(schema.member.userId, session.user.id)
+        )
+      )
+      .where(eq(schema.workspace.id, data.workspaceId))
+      .get()
+    if (!workspace) {
+      throw new Error("This Workspace does not exist or you cannot access it")
+    }
+
+    const runtime = env.WORKSPACES.get(
+      env.WORKSPACES.idFromName(data.workspaceId)
     )
+    const snapshotResponse = await runtime.fetch("https://workspace/snapshot")
+    if (!snapshotResponse.ok) throw new Error(await snapshotResponse.text())
+    const snapshot = await decodeWorkspaceRuntimeHealth(
+      await snapshotResponse.json()
+    )
+    if (!snapshot.opencode.healthy || snapshot.status === "running") {
+      throw new Error(
+        "Wait for the Workspace checks to pass before checkpointing"
+      )
+    }
+    const response = await runtime.fetch("https://workspace/checkpoint", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(data),
+    })
+    if (!response.ok) throw new Error(await response.text())
+    const result = await decodeWorkspaceCheckpointResult(await response.json())
+    await database
+      .update(schema.workspace)
+      .set({
+        forkHead: result.checkpoint.commit,
+        syncStatus: "ready",
+        mergeStatus: "ready",
+        latestCheckpointAt: new Date(result.checkpoint.createdAt),
+        errorSummary: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.workspace.id, data.workspaceId))
+    return result
+  })
+
+export const acceptWorkspace = createServerFn({ method: "POST" })
+  .validator((input) => decodeWorkspaceAcceptInputPromise(input))
+  .handler(async ({ data }) => {
+    const { session } = await currentSession(getRequest())
+    if (!session) throw new Error("Sign in before accepting Workspace work")
+
+    const database = drizzle(env.DB, { schema })
+    const workspace = await database
+      .select({
+        id: schema.workspace.id,
+        status: schema.workspace.status,
+        mergeStatus: schema.workspace.mergeStatus,
+        projectRepositoryName: schema.project.artifactRepo,
+        projectRepositoryRemote: schema.project.artifactRemote,
+        workspaceRepositoryName: schema.workspace.workspaceArtifactRepo,
+        defaultRef: schema.project.defaultBranch,
+        baseCommit: schema.workspace.baseCommit,
+        forkHead: schema.workspace.forkHead,
+      })
+      .from(schema.workspace)
+      .innerJoin(
+        schema.project,
+        eq(schema.workspace.projectId, schema.project.id)
+      )
+      .innerJoin(
+        schema.member,
+        and(
+          eq(schema.member.organizationId, schema.workspace.organizationId),
+          eq(schema.member.userId, session.user.id)
+        )
+      )
+      .where(eq(schema.workspace.id, data.workspaceId))
+      .get()
+    if (!workspace) {
+      throw new Error("This Workspace does not exist or you cannot access it")
+    }
+    if (!workspace.baseCommit || !workspace.forkHead) {
+      throw new Error("Create a Checkpoint before accepting this Workspace")
+    }
+    if (workspace.mergeStatus !== "ready") {
+      throw new Error("This Workspace is not ready to merge")
+    }
+
+    const runtime = env.WORKSPACES.get(
+      env.WORKSPACES.idFromName(data.workspaceId)
+    )
+    const [snapshotResponse, vcsResponse] = await Promise.all([
+      runtime.fetch("https://workspace/snapshot"),
+      runtime.fetch("https://workspace/vcs?refresh=1"),
+    ])
+    if (!snapshotResponse.ok) throw new Error(await snapshotResponse.text())
+    if (!vcsResponse.ok) throw new Error(await vcsResponse.text())
+    const snapshot = await decodeWorkspaceRuntimeHealth(
+      await snapshotResponse.json()
+    )
+    const vcsPayload = await vcsResponse.json<{ vcs: unknown }>()
+    const versionControl = await decodeWorkspaceVersionControl(vcsPayload.vcs)
+    if (
+      !snapshot.opencode.healthy ||
+      snapshot.status === "running" ||
+      versionControl.working.length
+    ) {
+      throw new Error("Checkpoint all changes and pass checks before accepting")
+    }
+
+    const operationId = `${data.workspaceId}-${data.idempotencyKey}`
+    const existing = await database
+      .select({ status: schema.repositoryOperation.status })
+      .from(schema.repositoryOperation)
+      .where(eq(schema.repositoryOperation.id, operationId))
+      .get()
+    if (!existing) {
+      await database.insert(schema.repositoryOperation).values({
+        id: operationId,
+        workspaceId: data.workspaceId,
+        kind: "merge",
+        status: "pending",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+    }
+    const params = {
+      operationId,
+      workspaceId: data.workspaceId,
+      projectRepositoryName: workspace.projectRepositoryName,
+      projectRepositoryRemote: workspace.projectRepositoryRemote,
+      workspaceRepositoryName: workspace.workspaceRepositoryName,
+      workspaceRepositoryRemote: (
+        await Effect.runPromise(
+          makeArtifactRepositoryService(env.REPOS).inspect(
+            workspace.workspaceRepositoryName
+          )
+        )
+      ).remote,
+      defaultRef: workspace.defaultRef,
+      baseCommit: workspace.baseCommit,
+      forkHead: workspace.forkHead,
+    }
+    const instance = existing
+      ? await env.MERGES.get(operationId)
+      : await env.MERGES.create({ id: operationId, params })
+    await database
+      .update(schema.workspace)
+      .set({
+        status: "merging",
+        mergeStatus: "merging",
+        errorSummary: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.workspace.id, data.workspaceId))
+    return { operationId: instance.id, status: "merging" as const }
   })

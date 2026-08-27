@@ -6,13 +6,18 @@ import {
   decodeCreateProjectInput,
   decodeCreateWorkspaceInputPromise,
   decodeInitializeWorkspaceRuntime,
+  decodeInstallationClaimInputPromise,
   decodeOpenCodeKeySetupInputPromise,
   decodeOpenCodeSubscriptionStartInputPromise,
   decodeOpenCodeSubscriptionStatusInputPromise,
-  decodeSetDefaultOpenCodeConnectionInputPromise,
+  decodeSetDefaultModelInputPromise,
   decodeWorkspaceSummary,
   decodeWorkspaceWriteFile,
 } from "./workspace"
+import {
+  decodeWorkspaceCheckpointInputPromise,
+  decodeWorkspaceVersionControl,
+} from "./version-control"
 
 describe("WorkspaceSummary", () => {
   test("decodes a valid workspace summary", async () => {
@@ -44,6 +49,26 @@ describe("WorkspaceSummary", () => {
 })
 
 describe("Project and runtime inputs", () => {
+  test("requires an explicit email confirmation for Installation claims", async () => {
+    const claim = await decodeInstallationClaimInputPromise({
+      claimSecret: "claim-secret",
+      confirmedEmail: "operator@example.com",
+      organizationName: "Acme Labs",
+    })
+
+    expect(claim.confirmedEmail).toBe("operator@example.com")
+  })
+
+  test("rejects an empty Installation claim email confirmation", async () => {
+    await expect(
+      decodeInstallationClaimInputPromise({
+        claimSecret: "claim-secret",
+        confirmedEmail: "",
+        organizationName: "Acme Labs",
+      })
+    ).rejects.toBeDefined()
+  })
+
   test("decodes a project that belongs to an organization", async () => {
     const project = await Effect.runPromise(
       decodeCreateProjectInput({
@@ -101,7 +126,6 @@ describe("Project and runtime inputs", () => {
         organizationId: "organization-1",
         scope: "user",
         providerId: "opencode",
-        modelId: "gpt-5.2-codex",
         apiKey: "",
       })
     ).rejects.toBeDefined()
@@ -112,7 +136,6 @@ describe("Project and runtime inputs", () => {
       organizationId: "organization-1",
       scope: "user",
       providerId: "opencode",
-      modelId: "nemotron-3.5-lightning-free",
       apiKey: "secret",
     })
 
@@ -120,25 +143,25 @@ describe("Project and runtime inputs", () => {
     expect(setup.scope).toBe("user")
   })
 
-  test("scopes a default Provider connection to an Organization", async () => {
-    const input = await decodeSetDefaultOpenCodeConnectionInputPromise({
+  test("scopes a default model to an Organization", async () => {
+    const input = await decodeSetDefaultModelInputPromise({
       organizationId: "organization-1",
       scope: "organization",
       providerId: "openai",
+      modelId: "gpt-5.6-sol",
     })
 
     expect(input.organizationId).toBe(OrganizationId.make("organization-1"))
     expect(input.providerId).toBe("openai")
   })
 
-  test("accepts the default Codex subscription model", async () => {
+  test("starts a Codex subscription connection without choosing a model", async () => {
     const start = await decodeOpenCodeSubscriptionStartInputPromise({
       organizationId: "organization-1",
       scope: "user",
-      modelId: "gpt-5.6-sol",
     })
 
-    expect(start.modelId).toBe("gpt-5.6-sol")
+    expect(start.scope).toBe("user")
   })
 
   test("decodes a Codex subscription status request", async () => {
@@ -146,21 +169,9 @@ describe("Project and runtime inputs", () => {
       organizationId: "organization-1",
       scope: "user",
       attemptId: "attempt-1",
-      modelId: "gpt-5.6-terra",
     })
 
     expect(status.attemptId).toBe("attempt-1")
-    expect(status.modelId).toBe("gpt-5.6-terra")
-  })
-
-  test("rejects a model outside the Codex subscription catalog", async () => {
-    await expect(
-      decodeOpenCodeSubscriptionStartInputPromise({
-        organizationId: "organization-1",
-        scope: "user",
-        modelId: "gpt-5.5",
-      })
-    ).rejects.toBeDefined()
   })
 
   test("decodes an OAuth credential for Workspace initialization", async () => {
@@ -171,6 +182,10 @@ describe("Project and runtime inputs", () => {
       projectName: "Weather desk",
       repositoryName: "weather-desk-workspace",
       repositoryRemote: "https://repositories.example/weather-desk-workspace",
+      projectRepositoryName: "weather-desk",
+      projectRepositoryRemote: "https://repositories.example/weather-desk",
+      defaultRef: "main",
+      baseCommit: "a".repeat(40),
       providerId: "openai",
       modelId: "gpt-5.6-sol",
       credential: {
@@ -183,5 +198,34 @@ describe("Project and runtime inputs", () => {
     })
 
     expect(runtime.credential.type).toBe("oauth")
+  })
+})
+
+describe("Artifact-backed Workspace version control", () => {
+  test("requires a valid commit identity in VCS state", async () => {
+    await expect(
+      decodeWorkspaceVersionControl({
+        defaultRef: "main",
+        currentRef: "main",
+        baseCommit: "not-a-commit",
+        forkHead: "a".repeat(40),
+        projectHead: "a".repeat(40),
+        projectChanged: false,
+        syncStatus: "ready",
+        mergeStatus: "unreviewed",
+        working: [],
+        branch: [],
+      })
+    ).rejects.toBeDefined()
+  })
+
+  test("decodes an idempotent Checkpoint request", async () => {
+    const input = await decodeWorkspaceCheckpointInputPromise({
+      workspaceId: "workspace-1",
+      idempotencyKey: "checkpoint-1",
+      message: "Save progress",
+    })
+
+    expect(input.idempotencyKey).toBe("checkpoint-1")
   })
 })

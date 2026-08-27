@@ -6,7 +6,10 @@ import tailwindcss from "@tailwindcss/vite"
 
 const config = defineConfig({
   build: { rolldownOptions: { external: ["cloudflare:workers"] } },
-  resolve: { dedupe: ["effect"], tsconfigPaths: true },
+  resolve: {
+    dedupe: ["effect", "react", "react-dom", "@tanstack/react-router"],
+    tsconfigPaths: true,
+  },
   plugins: [devtools(), tailwindcss(), tanstackStart(), viteReact()],
 })
 

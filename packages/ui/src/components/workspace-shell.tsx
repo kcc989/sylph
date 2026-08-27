@@ -6,11 +6,12 @@ import {
   Bell,
   Blocks,
   Check,
-  ChevronDown,
   ChevronRight,
   CircleAlert,
   Files,
   GitBranch,
+  GitCommit,
+  GitMerge,
   Globe2,
   House,
   LoaderCircle,
@@ -47,6 +48,10 @@ import remarkGfm from "remark-gfm"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import { CodeReview } from "@workspace/ui/components/code-review"
+import {
+  decodeModelOption,
+  encodeModelOption,
+} from "@workspace/ui/lib/model-option"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -135,6 +140,14 @@ type CheckItem = {
   status: "passed" | "running" | "failed"
 }
 
+export type ComposerModel = {
+  providerId: string
+  modelId: string
+  name: string
+  providerName: string
+  scope: "personal" | "organization"
+}
+
 type WorkspaceTabKind = "browser" | "changes" | "checks" | "review" | "terminal"
 
 type WorkspaceTab = {
@@ -155,17 +168,33 @@ type WorkspaceShellProps = {
   patch?: string
   changeSummary?: string
   changedFileCount?: number
+  checkpointHistory?: ReadonlyArray<{
+    id: string
+    commit: string
+    message: string
+    createdAt: number
+  }>
   previewContent?: ReactNode
   agentControllingBrowser?: boolean
   demo?: boolean
   className?: string
-  model?: string | null
+  models?: ReadonlyArray<ComposerModel>
+  selectedModel?: { providerId: string; modelId: string } | null
+  modelNotice?: string | null
   initialPrompt?: string
   promptDisabled?: boolean
   promptError?: string | null
   promptPending?: boolean
+  checkpointPending?: boolean
+  acceptPending?: boolean
   restartPending?: boolean
-  onSubmitPrompt?: (text: string) => Promise<void>
+  onAccept?: () => Promise<void>
+  onCheckpoint?: () => Promise<void>
+  onSubmitPrompt?: (
+    text: string,
+    model: { providerId: string; modelId: string }
+  ) => Promise<void>
+  onModelChange?: (model: { providerId: string; modelId: string }) => void
   onRestartWorkspace?: () => Promise<void>
   workspaceError?: string | null
 }
@@ -518,6 +547,12 @@ function WorkspaceTopbar({
   navigationCollapsed,
   onOpenNavigation,
   onOpenTerminal,
+  onCheckpoint,
+  checkpointDisabled,
+  checkpointPending,
+  onAccept,
+  acceptDisabled,
+  acceptPending,
 }: {
   agentControllingBrowser: boolean
   browser: BrowserState
@@ -529,6 +564,12 @@ function WorkspaceTopbar({
   navigationCollapsed: boolean
   onOpenNavigation: () => void
   onOpenTerminal: () => void
+  onCheckpoint?: () => Promise<void>
+  checkpointDisabled: boolean
+  checkpointPending: boolean
+  onAccept?: () => Promise<void>
+  acceptDisabled: boolean
+  acceptPending: boolean
 }) {
   const passedChecks = checks.filter(
     (check) => check.status === "passed"
@@ -592,10 +633,27 @@ function WorkspaceTopbar({
         <Button
           size="sm"
           variant="outline"
-          disabled
-          title="Available after a reviewable checkpoint"
+          disabled={checkpointDisabled || checkpointPending}
+          onClick={() => void onCheckpoint?.()}
         >
-          <GitBranch /> Create PR
+          {checkpointPending ? (
+            <LoaderCircle className="animate-spin motion-reduce:animate-none" />
+          ) : (
+            <GitBranch />
+          )}
+          Checkpoint
+        </Button>
+        <Button
+          size="sm"
+          disabled={acceptDisabled || acceptPending}
+          onClick={() => void onAccept?.()}
+        >
+          {acceptPending ? (
+            <LoaderCircle className="animate-spin motion-reduce:animate-none" />
+          ) : (
+            <GitMerge />
+          )}
+          Accept
         </Button>
         <Button
           aria-label="More workspace actions"
@@ -627,16 +685,27 @@ function AgentThread({
   restartPending,
   onRestartWorkspace,
   workspaceError,
+  models,
+  selectedModel,
+  modelNotice,
+  onModelChange,
 }: {
   entries: ThreadEntry[]
   initialPrompt?: string
-  onSubmitPrompt?: (text: string) => Promise<void>
+  onSubmitPrompt?: (
+    text: string,
+    model: { providerId: string; modelId: string }
+  ) => Promise<void>
   promptDisabled?: boolean
   promptError?: string | null
   promptPending?: boolean
   restartPending?: boolean
   onRestartWorkspace?: () => Promise<void>
   workspaceError?: string | null
+  models: ReadonlyArray<ComposerModel>
+  selectedModel?: { providerId: string; modelId: string } | null
+  modelNotice?: string | null
+  onModelChange?: (model: { providerId: string; modelId: string }) => void
 }) {
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-background">
@@ -758,6 +827,10 @@ function AgentThread({
         initialPrompt={initialPrompt}
         onSubmit={onSubmitPrompt}
         pending={promptPending}
+        models={models}
+        selectedModel={selectedModel}
+        modelNotice={modelNotice}
+        onModelChange={onModelChange}
       />
     </section>
   )
@@ -769,20 +842,31 @@ function PromptComposer({
   initialPrompt = "",
   onSubmit,
   pending = false,
+  models,
+  selectedModel,
+  modelNotice,
+  onModelChange,
 }: {
   disabled?: boolean
   error?: string | null
   initialPrompt?: string
-  onSubmit?: (text: string) => Promise<void>
+  onSubmit?: (
+    text: string,
+    model: { providerId: string; modelId: string }
+  ) => Promise<void>
   pending?: boolean
+  models: ReadonlyArray<ComposerModel>
+  selectedModel?: { providerId: string; modelId: string } | null
+  modelNotice?: string | null
+  onModelChange?: (model: { providerId: string; modelId: string }) => void
 }) {
   const [text, setText] = useState(initialPrompt)
 
   const submit = async () => {
     const prompt = text.trim()
 
-    if (!prompt || disabled || pending || !onSubmit) return
-    await onSubmit(prompt)
+    if (!prompt || disabled || pending || !onSubmit || !selectedModel) return
+    await onSubmit(prompt, selectedModel)
     setText("")
   }
 
@@ -818,6 +902,11 @@ function PromptComposer({
             {error}
           </p>
         ) : null}
+        {modelNotice ? (
+          <p className="px-3 pb-2 text-[11px] text-amber-200/80">
+            {modelNotice}
+          </p>
+        ) : null}
         <div className="flex h-9 items-center gap-1 border-t border-white/[.07] px-2">
           <Button aria-label="Attach file" size="icon-xs" variant="ghost">
             <Paperclip />
@@ -831,14 +920,33 @@ function PromptComposer({
           <Button size="xs" variant="ghost">
             <Blocks /> Skills
           </Button>
-          <Button className="ml-auto" size="xs" variant="ghost">
-            Agent <ChevronDown />
-          </Button>
+          <label className="ml-auto flex min-w-0 items-center gap-1 text-[10px] text-muted-foreground">
+            <span className="sr-only">Model</span>
+            <select
+              aria-label="Model for next turn"
+              className="max-w-52 truncate rounded-[4px] border border-white/[.1] bg-transparent px-2 py-1 text-[10px] text-foreground outline-none focus:border-[#ef9b7e]/60"
+              disabled={disabled || pending || models.length === 0}
+              value={selectedModel ? encodeModelOption(selectedModel) : ""}
+              onChange={(event) => {
+                const model = decodeModelOption(event.target.value)
+                if (model) onModelChange?.(model)
+              }}
+            >
+              {models.map((option) => (
+                <option
+                  key={`${option.providerId}/${option.modelId}/${option.scope}`}
+                  value={encodeModelOption(option)}
+                >
+                  {option.name}
+                </option>
+              ))}
+            </select>
+          </label>
           <span className="text-[10px] text-muted-foreground">⌘ ↵</span>
           <Button
             aria-label="Send message"
             className="bg-[#ef9b7e] text-[#241613] hover:bg-[#f4af98]"
-            disabled={disabled || pending || !text.trim()}
+            disabled={disabled || pending || !text.trim() || !selectedModel}
             size="icon-sm"
             type="submit"
           >
@@ -1002,10 +1110,17 @@ function ReviewSurface({
   patch,
   changeSummary = "No changes",
   changedFileCount = 0,
+  checkpointHistory = [],
 }: {
   patch?: string
   changeSummary?: string
   changedFileCount?: number
+  checkpointHistory?: ReadonlyArray<{
+    id: string
+    commit: string
+    message: string
+    createdAt: number
+  }>
 }) {
   return (
     <section className="flex size-full min-h-0 flex-col bg-[var(--sylph-ink)]">
@@ -1030,6 +1145,24 @@ function ReviewSurface({
           </div>
         )}
       </div>
+      {checkpointHistory.length ? (
+        <div className="max-h-28 shrink-0 overflow-auto border-t bg-[#171614]">
+          {checkpointHistory.map((checkpoint) => (
+            <div
+              className="flex items-center gap-2 border-b border-white/[.05] px-3 py-1.5 text-[10px] last:border-b-0"
+              key={checkpoint.id}
+            >
+              <GitCommit className="size-3 text-[#ef9b7e]" />
+              <span className="min-w-0 flex-1 truncate text-foreground/80">
+                {checkpoint.message}
+              </span>
+              <span className="font-mono text-muted-foreground">
+                {checkpoint.commit.slice(0, 7)}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
       <footer className="flex h-9 shrink-0 items-center border-t px-3 text-[10px] text-muted-foreground">
         <span>
           {changedFileCount} {changedFileCount === 1 ? "file" : "files"} changed
@@ -1125,7 +1258,6 @@ function WorkspaceToolToggle({
 function WorkspaceChat({
   entries,
   initialPrompt,
-  model,
   onToggleTools,
   onSubmitPrompt,
   onRestartWorkspace,
@@ -1135,12 +1267,18 @@ function WorkspaceChat({
   restartPending,
   toolPaneOpen,
   workspaceError,
+  models,
+  selectedModel,
+  modelNotice,
+  onModelChange,
 }: {
   entries: ThreadEntry[]
   initialPrompt?: string
-  model?: string | null
   onToggleTools: () => void
-  onSubmitPrompt?: (text: string) => Promise<void>
+  onSubmitPrompt?: (
+    text: string,
+    model: { providerId: string; modelId: string }
+  ) => Promise<void>
   onRestartWorkspace?: () => Promise<void>
   promptDisabled?: boolean
   promptError?: string | null
@@ -1148,19 +1286,17 @@ function WorkspaceChat({
   restartPending?: boolean
   toolPaneOpen: boolean
   workspaceError?: string | null
+  models: ReadonlyArray<ComposerModel>
+  selectedModel?: { providerId: string; modelId: string } | null
+  modelNotice?: string | null
+  onModelChange?: (model: { providerId: string; modelId: string }) => void
 }) {
   return (
     <section
       aria-label="Workspace conversation"
       className="flex size-full min-w-0 flex-col bg-background"
     >
-      <header className="flex h-10 shrink-0 items-center gap-2 border-b px-3">
-        <Badge
-          className="hidden rounded-[4px] px-1.5 font-mono text-[9px] sm:inline-flex"
-          variant="outline"
-        >
-          {model ?? "OpenCode v2"}
-        </Badge>
+      <header className="flex h-10 shrink-0 items-center border-b px-3">
         <WorkspaceToolToggle open={toolPaneOpen} onToggle={onToggleTools} />
       </header>
       <AgentThread
@@ -1173,6 +1309,10 @@ function WorkspaceChat({
         restartPending={restartPending}
         onRestartWorkspace={onRestartWorkspace}
         workspaceError={workspaceError}
+        models={models}
+        selectedModel={selectedModel}
+        modelNotice={modelNotice}
+        onModelChange={onModelChange}
       />
     </section>
   )
@@ -1182,6 +1322,7 @@ function WorkspaceTabs({
   activeTabId,
   browser,
   changedFileCount,
+  checkpointHistory,
   changeSummary,
   checks,
   onActivateTab,
@@ -1195,6 +1336,7 @@ function WorkspaceTabs({
   activeTabId: string | null
   browser: BrowserState
   changedFileCount?: number
+  checkpointHistory?: WorkspaceShellProps["checkpointHistory"]
   changeSummary?: string
   checks: CheckItem[]
   onActivateTab: (tabId: string) => void
@@ -1321,6 +1463,7 @@ function WorkspaceTabs({
           <ReviewSurface
             changedFileCount={changedFileCount}
             changeSummary={changeSummary}
+            checkpointHistory={checkpointHistory}
             patch={patch}
           />
         ) : null}
@@ -1350,17 +1493,25 @@ function WorkspaceShell({
   patch,
   changeSummary = "No changes",
   changedFileCount = 0,
+  checkpointHistory = [],
   previewContent,
   agentControllingBrowser = false,
   demo = false,
   className,
-  model,
+  models = [],
+  selectedModel,
+  modelNotice,
+  onModelChange,
   initialPrompt,
   onSubmitPrompt,
   promptDisabled = false,
   promptError,
   promptPending = false,
+  checkpointPending = false,
+  acceptPending = false,
   restartPending = false,
+  onCheckpoint,
+  onAccept,
   onRestartWorkspace,
   workspaceError,
 }: WorkspaceShellProps) {
@@ -1493,6 +1644,14 @@ function WorkspaceShell({
                   setMobileNavigationOpen(true)
                 }}
                 onOpenTerminal={() => openTool("terminal")}
+                onCheckpoint={onCheckpoint}
+                checkpointDisabled={changedFileCount === 0}
+                checkpointPending={checkpointPending}
+                onAccept={onAccept}
+                acceptDisabled={
+                  changedFileCount > 0 || !onAccept || checkpointPending
+                }
+                acceptPending={acceptPending}
                 projectName={projectName}
                 repositoryName={repositoryName}
                 workspaceName={workspaceName}
@@ -1528,7 +1687,10 @@ function WorkspaceShell({
                   <WorkspaceChat
                     entries={entries}
                     initialPrompt={initialPrompt}
-                    model={model}
+                    models={models}
+                    selectedModel={selectedModel}
+                    modelNotice={modelNotice}
+                    onModelChange={onModelChange}
                     onToggleTools={() => setToolPaneOpen((open) => !open)}
                     onSubmitPrompt={onSubmitPrompt}
                     promptDisabled={promptDisabled}
@@ -1560,6 +1722,7 @@ function WorkspaceShell({
                         browser={browser}
                         changedFileCount={changedFileCount}
                         changeSummary={changeSummary}
+                        checkpointHistory={checkpointHistory}
                         checks={checks}
                         onActivateTab={setActiveTabId}
                         onCloseTab={closeTab}

@@ -1,0 +1,3 @@
+# One Organization per Installation
+
+Sylph is distributed as a customer-operated Installation that contains exactly one Organization. The Organization remains the ownership, membership, and authorization boundary so a future managed service can support additional tenancy models, but only a one-time Installation claim may create it; ordinary Users cannot create Organizations. The claimant must authenticate with a provider-verified email, re-enter that address, and present the deployment's claim secret. Early managed deployments should provision a dedicated Installation per customer rather than sharing infrastructure between unrelated customers.

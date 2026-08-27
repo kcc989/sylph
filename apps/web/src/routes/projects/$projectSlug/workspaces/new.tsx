@@ -21,15 +21,11 @@ import {
   getWorkspaceCreationContext,
 } from "@/lib/workspaces"
 
-export const Route = createFileRoute(
-  "/organizations/$organizationSlug/projects/$projectSlug/workspaces/new"
-)({
+export const Route = createFileRoute("/projects/$projectSlug/workspaces/new")({
   loader: async ({ params }) => {
     const dashboard = await getDashboard()
     const project = dashboard.projects.find(
-      (candidate) =>
-        candidate.slug === params.projectSlug &&
-        candidate.organizationSlug === params.organizationSlug
+      (candidate) => candidate.slug === params.projectSlug
     )
     const context = project
       ? await getWorkspaceCreationContext({ data: { projectId: project.id } })
@@ -40,7 +36,7 @@ export const Route = createFileRoute(
 })
 
 function NewWorkspaceScreen() {
-  const { organizationSlug, projectSlug } = Route.useParams()
+  const { projectSlug } = Route.useParams()
   const { context, dashboard } = Route.useLoaderData()
   const navigate = useNavigate()
   const create = useServerFn(createWorkspace)
@@ -82,8 +78,8 @@ function NewWorkspaceScreen() {
         },
       })
       await navigate({
-        to: "/organizations/$organizationSlug/projects/$projectSlug/workspaces/$workspaceId",
-        params: { organizationSlug, projectSlug, workspaceId: result.id },
+        to: "/projects/$projectSlug/workspaces/$workspaceId",
+        params: { projectSlug, workspaceId: result.id },
       })
     } catch (cause) {
       setError(
@@ -101,7 +97,6 @@ function NewWorkspaceScreen() {
     <AppShell
       active="home"
       dashboard={dashboard}
-      organizationSlug={organizationSlug}
       topbar={`New Workspace in ${context.project.name}`}
     >
       <div className="mx-auto grid min-h-[calc(100svh-3rem)] max-w-5xl lg:grid-cols-[0.72fr_1.28fr]">
@@ -151,14 +146,7 @@ function NewWorkspaceScreen() {
                 <Button
                   nativeButton={false}
                   className="mt-8"
-                  render={
-                    <Link
-                      to="/organizations/$organizationSlug/settings"
-                      params={{
-                        organizationSlug: context.project.organizationSlug,
-                      }}
-                    />
-                  }
+                  render={<Link to="/admin" />}
                 >
                   Open Organization settings <ArrowRight />
                 </Button>
@@ -184,14 +172,7 @@ function NewWorkspaceScreen() {
                       nativeButton={false}
                       size="sm"
                       variant="ghost"
-                      render={
-                        <Link
-                          to="/organizations/$organizationSlug/settings"
-                          params={{
-                            organizationSlug: context.project.organizationSlug,
-                          }}
-                        />
-                      }
+                      render={<Link to="/admin" />}
                     >
                       Change
                     </Button>

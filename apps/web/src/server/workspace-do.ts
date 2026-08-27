@@ -5,7 +5,11 @@ import {
   decodeOpenCodeKeySetupInputPromise,
   decodeOpenCodeSubscriptionStartInputPromise,
   decodeOpenCodeSubscriptionStatusInputPromise,
-  decodeWorkspacePromptInputPromise,
+  decodePrepareProjectRepositoryInputPromise,
+  decodeWorkspaceCheckpointInputPromise,
+  decodeWorkspaceRuntimePromptInputPromise,
+  OpenCodeConnectionResult,
+  PrepareProjectRepositoryResult,
   type InitializeWorkspaceRuntime,
   type OpenCodeCredential,
   type WorkspaceRuntimeMessage,
@@ -17,6 +21,10 @@ import { drizzle } from "drizzle-orm/durable-sqlite"
 import { sqliteTable, text } from "drizzle-orm/sqlite-core"
 
 import { createWorkspacePlugin } from "./workspace-plugin"
+import { WorkspaceFilesystem } from "./workspace-filesystem"
+import { WorkspaceGit } from "./workspace-git"
+import { createOpenCodeWithStorageBootstrap } from "./opencode-storage-bootstrap"
+import { workspaceRuntimeStatus } from "./workspace-runtime-status"
 
 const appWorkspaceState = sqliteTable("app_workspace_state", {
   workspaceId: text("workspace_id").primaryKey(),
@@ -88,73 +96,51 @@ const runtimeMessages = (
     return result
   }, [])
 
-const seedFiles = (projectName: string) => [
-  {
-    path: "README.md",
-    content: `# ${projectName}\n\nBuilt in a durable Sylph workspace.\n`,
-  },
-  {
-    path: "package.json",
-    content: `${JSON.stringify(
-      {
-        name: projectName.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-        private: true,
-        type: "module",
-        scripts: { check: "tsc --noEmit" },
-        devDependencies: { typescript: "^6" },
-      },
-      null,
-      2
-    )}\n`,
-  },
-  {
-    path: "src/index.ts",
-    content:
-      'export default {\n  fetch: () => new Response("Hello from Sylph")\n}\n',
-  },
-]
-
 const subscriptionProviderId = "openai"
 const subscriptionMethodId = "chatgpt-headless"
 const subscriptionCredentialLabel = "Sylph connection"
 
-export class WorkspaceDO extends DurableObject<Cloudflare.Env> {
+interface WorkspaceBindings extends Cloudflare.Env {
+  REPOS: Artifacts
+}
+
+export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   readonly #database
   readonly #opencode
+  readonly #filesystem
+  readonly #workspaceGit
 
-  constructor(context: DurableObjectState, bindings: Cloudflare.Env) {
+  constructor(context: DurableObjectState, bindings: WorkspaceBindings) {
     super(context, bindings)
     this.#database = drizzle(context.storage, { schema: { appWorkspaceState } })
+    this.#filesystem = new WorkspaceFilesystem(context.storage)
+    this.#workspaceGit = new WorkspaceGit(
+      context.storage,
+      bindings.REPOS,
+      this.#filesystem
+    )
     this.#opencode = context.blockConcurrencyWhile(async () => {
-      const hasAppWorkspaceState =
-        context.storage.sql
-          .exec<{ name: string }>(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'app_workspace_state'"
-          )
-          .toArray().length > 0
-      const hasOpenCodeSchema =
-        context.storage.sql
-          .exec<{ name: string }>(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('migration', 'session_v2')"
-          )
-          .toArray().length > 0
+      const opencode = await createOpenCodeWithStorageBootstrap(
+        context.storage,
+        () =>
+          OpenCodeWorkerd.create({
+            storage: context.storage,
+            log: {
+              level: "error",
+              emit: ({ message, cause }) =>
+                console.error("OpenCode runtime error", message, cause),
+            },
+            config: {
+              default_agent: "build",
+            },
+            plugins: [
+              createWorkspacePlugin(this.#filesystem, this.#workspaceGit),
+            ],
+          })
+      )
 
-      if (hasAppWorkspaceState && !hasOpenCodeSchema) {
-        context.storage.sql.exec("DROP TABLE app_workspace_state")
-      }
-
-      const opencode = await OpenCodeWorkerd.create({
-        storage: context.storage,
-        log: {
-          level: "error",
-          emit: ({ message, cause }) =>
-            console.error("OpenCode runtime error", message, cause),
-        },
-        config: {
-          default_agent: "build",
-        },
-        plugins: [createWorkspacePlugin(context.storage)],
-      })
+      this.#filesystem.initialize()
+      this.#workspaceGit.initialize()
 
       this.#database.run(sql`
         CREATE TABLE IF NOT EXISTS app_workspace_state (
@@ -169,14 +155,6 @@ export class WorkspaceDO extends DurableObject<Cloudflare.Env> {
           session_id TEXT
         )
       `)
-      this.#database.run(sql`
-        CREATE TABLE IF NOT EXISTS app_workspace_file (
-          path TEXT PRIMARY KEY NOT NULL,
-          content TEXT NOT NULL,
-          updated_at INTEGER NOT NULL
-        )
-      `)
-
       const columns = context.storage.sql
         .exec<{ name: string }>("PRAGMA table_info(app_workspace_state)")
         .toArray()
@@ -212,6 +190,14 @@ export class WorkspaceDO extends DurableObject<Cloudflare.Env> {
       const opencode = await this.#opencode
       const url = new URL(request.url)
 
+      if (request.method === "POST" && url.pathname === "/prepare-project") {
+        const input = await decodePrepareProjectRepositoryInputPromise(
+          await request.json()
+        )
+        const head = await this.#workspaceGit.prepareProject(input)
+        return Response.json(new PrepareProjectRepositoryResult({ head }))
+      }
+
       if (request.method === "POST" && url.pathname === "/connect/key") {
         const input = await decodeOpenCodeKeySetupInputPromise(
           await request.json()
@@ -228,21 +214,9 @@ export class WorkspaceDO extends DurableObject<Cloudflare.Env> {
           )
         }
 
-        const models = await opencode.model.list()
-        const modelAvailable = models.data.some(
-          (model) =>
-            model.providerID === input.providerId &&
-            model.modelID === input.modelId &&
-            model.enabled
+        return Response.json(
+          await this.#connectionResult(opencode, input.providerId)
         )
-
-        if (!modelAvailable) {
-          throw new Error(
-            `OpenCode model ${input.providerId}/${input.modelId} is not available. Choose a model enabled for this provider.`
-          )
-        }
-
-        return new Response(null, { status: 204 })
       }
 
       if (request.method === "POST" && url.pathname === "/oauth/start") {
@@ -301,7 +275,11 @@ export class WorkspaceDO extends DurableObject<Cloudflare.Env> {
           throw new Error("OpenCode returned the wrong credential type")
         }
 
-        return Response.json({ ...result.data, credential })
+        const catalog = await this.#connectionResult(
+          opencode,
+          subscriptionProviderId
+        )
+        return Response.json({ ...result.data, credential, ...catalog })
       }
 
       if (request.method === "POST" && url.pathname === "/oauth/cancel") {
@@ -325,8 +303,29 @@ export class WorkspaceDO extends DurableObject<Cloudflare.Env> {
         return Response.json(await this.#snapshot(opencode))
       }
 
+      if (request.method === "POST" && url.pathname === "/checkpoint") {
+        const input = await decodeWorkspaceCheckpointInputPromise(
+          await request.json()
+        )
+        return Response.json(
+          await this.#workspaceGit.checkpoint({
+            idempotencyKey: input.idempotencyKey,
+            message: input.message,
+          })
+        )
+      }
+
+      if (request.method === "GET" && url.pathname === "/vcs") {
+        return Response.json({
+          vcs: await this.#workspaceGit.versionControl(
+            url.searchParams.get("refresh") === "1"
+          ),
+          checkpoints: this.#workspaceGit.checkpoints(),
+        })
+      }
+
       if (request.method === "POST" && url.pathname === "/prompt") {
-        const input = await decodeWorkspacePromptInputPromise(
+        const input = await decodeWorkspaceRuntimePromptInputPromise(
           await request.json()
         )
         const state = this.#database.select().from(appWorkspaceState).get()
@@ -341,6 +340,33 @@ export class WorkspaceDO extends DurableObject<Cloudflare.Env> {
             status: 409,
           })
         }
+
+        try {
+          await this.#installCredential(
+            opencode,
+            input.model.providerId,
+            input.credential
+          )
+          await opencode.sessions.switchModel({
+            sessionID: state.sessionId,
+            model: {
+              providerID: input.model.providerId,
+              id: input.model.modelId,
+            },
+          })
+        } catch {
+          throw new Error(
+            `OpenCode could not use ${input.model.providerId}/${input.model.modelId}. Choose another available model.`
+          )
+        }
+
+        this.#database
+          .update(appWorkspaceState)
+          .set({
+            providerId: input.model.providerId,
+            modelId: input.model.modelId,
+          })
+          .run()
 
         await opencode.sessions.prompt({
           sessionID: state.sessionId,
@@ -373,9 +399,28 @@ export class WorkspaceDO extends DurableObject<Cloudflare.Env> {
   ) {
     const existing = this.#database.select().from(appWorkspaceState).get()
 
+    await this.#workspaceGit.hydrate({
+      repositoryName: input.repositoryName,
+      repositoryRemote: input.repositoryRemote,
+      projectRepositoryName: input.projectRepositoryName,
+      projectRepositoryRemote: input.projectRepositoryRemote,
+      defaultRef: input.defaultRef,
+      baseCommit: input.baseCommit,
+    })
+
     this.#database
       .insert(appWorkspaceState)
-      .values({ ...input, sessionId: existing?.sessionId })
+      .values({
+        workspaceId: input.workspaceId,
+        organizationId: input.organizationId,
+        projectId: input.projectId,
+        projectName: input.projectName,
+        repositoryName: input.repositoryName,
+        repositoryRemote: input.repositoryRemote,
+        providerId: input.providerId,
+        modelId: input.modelId,
+        sessionId: existing?.sessionId,
+      })
       .onConflictDoUpdate({
         target: appWorkspaceState.workspaceId,
         set: {
@@ -400,23 +445,6 @@ export class WorkspaceDO extends DurableObject<Cloudflare.Env> {
       throw new Error(
         `The AI provider could not connect to ${input.providerId}. Reconnect it and try again.`
       )
-    }
-
-    const fileCount = this.ctx.storage.sql
-      .exec<{ count: number }>(
-        "SELECT COUNT(*) AS count FROM app_workspace_file"
-      )
-      .toArray()[0]?.count
-
-    if (!fileCount) {
-      for (const file of seedFiles(input.projectName)) {
-        this.ctx.storage.sql.exec(
-          "INSERT INTO app_workspace_file (path, content, updated_at) VALUES (?, ?, ?)",
-          file.path,
-          file.content,
-          Date.now()
-        )
-      }
     }
 
     let sessionId = existing?.sessionId
@@ -520,6 +548,42 @@ export class WorkspaceDO extends DurableObject<Cloudflare.Env> {
     )
   }
 
+  async #connectionResult(
+    opencode: OpenCodeWorkerd.Interface,
+    providerId: string
+  ) {
+    const [listed, preferred] = await Promise.all([
+      opencode.model.list(),
+      opencode.model.default(),
+    ])
+    const models = listed.data
+      .filter(
+        (model) =>
+          model.providerID === providerId &&
+          model.enabled &&
+          model.status !== "deprecated"
+      )
+      .map((model) => ({
+        providerId: model.providerID,
+        modelId: model.modelID,
+        name: model.name,
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name))
+
+    if (!models.length) {
+      throw new Error(`${providerId} connected but exposed no usable models`)
+    }
+
+    return new OpenCodeConnectionResult({
+      models,
+      recommendedModelId:
+        preferred.data?.providerID === providerId &&
+        models.some((model) => model.modelId === preferred.data?.modelID)
+          ? preferred.data.modelID
+          : (models[0]?.modelId ?? null),
+    })
+  }
+
   async #waitForIntegration(
     opencode: OpenCodeWorkerd.Interface,
     providerId: string
@@ -561,17 +625,15 @@ export class WorkspaceDO extends DurableObject<Cloudflare.Env> {
         order: "asc",
       }),
     ])
-    const files = this.ctx.storage.sql
-      .exec<{ path: string }>(
-        "SELECT path FROM app_workspace_file ORDER BY path"
-      )
-      .toArray()
-      .map((file) => file.path)
+    const files = this.#filesystem.listWorkingFiles()
 
     return {
       workspaceId: state.workspaceId,
       sessionId: AgentSessionId.make(state.sessionId),
-      status: active[state.sessionId] ? "running" : "ready",
+      status: workspaceRuntimeStatus(
+        Boolean(active[state.sessionId]),
+        messages.data
+      ),
       model:
         state.providerId && state.modelId
           ? `${state.providerId}/${state.modelId}`

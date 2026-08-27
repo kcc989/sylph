@@ -10,20 +10,24 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AdminRouteImport } from './routes/admin'
 import { Route as SettingsRouteImport } from './routes/settings'
-import { Route as OrganizationsIndexRouteImport } from './routes/organizations/index'
-import { Route as OrganizationsNewRouteImport } from './routes/organizations/new'
+import { Route as SetupRouteImport } from './routes/setup'
+import { Route as InviteInvitationIdRouteImport } from './routes/invite/$invitationId'
+import { Route as ProjectsNewRouteImport } from './routes/projects/new'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
-import { Route as OrganizationsOrganizationSlugIndexRouteImport } from './routes/organizations/$organizationSlug/index'
-import { Route as OrganizationsOrganizationSlugSettingsRouteImport } from './routes/organizations/$organizationSlug/settings'
-import { Route as OrganizationsOrganizationSlugProjectsNewRouteImport } from './routes/organizations/$organizationSlug/projects/new'
-import { Route as OrganizationsOrganizationSlugProjectsProjectSlugSettingsRouteImport } from './routes/organizations/$organizationSlug/projects/$projectSlug/settings'
-import { Route as OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesWorkspaceIdRouteImport } from './routes/organizations/$organizationSlug/projects/$projectSlug/workspaces/$workspaceId'
-import { Route as OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesNewRouteImport } from './routes/organizations/$organizationSlug/projects/$projectSlug/workspaces/new'
+import { Route as ProjectsProjectSlugSettingsRouteImport } from './routes/projects/$projectSlug/settings'
+import { Route as ProjectsProjectSlugWorkspacesWorkspaceIdRouteImport } from './routes/projects/$projectSlug/workspaces/$workspaceId'
+import { Route as ProjectsProjectSlugWorkspacesNewRouteImport } from './routes/projects/$projectSlug/workspaces/new'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminRoute = AdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsRoute = SettingsRouteImport.update({
@@ -31,14 +35,19 @@ const SettingsRoute = SettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
-const OrganizationsIndexRoute = OrganizationsIndexRouteImport.update({
-  id: '/organizations/',
-  path: '/organizations/',
+const SetupRoute = SetupRouteImport.update({
+  id: '/setup',
+  path: '/setup',
   getParentRoute: () => rootRouteImport,
 } as any)
-const OrganizationsNewRoute = OrganizationsNewRouteImport.update({
-  id: '/organizations/new',
-  path: '/organizations/new',
+const InviteInvitationIdRoute = InviteInvitationIdRouteImport.update({
+  id: '/invite/$invitationId',
+  path: '/invite/$invitationId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProjectsNewRoute = ProjectsNewRouteImport.update({
+  id: '/projects/new',
+  path: '/projects/new',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
@@ -46,141 +55,112 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
-const OrganizationsOrganizationSlugIndexRoute =
-  OrganizationsOrganizationSlugIndexRouteImport.update({
-    id: '/organizations/$organizationSlug/',
-    path: '/organizations/$organizationSlug/',
+const ProjectsProjectSlugSettingsRoute =
+  ProjectsProjectSlugSettingsRouteImport.update({
+    id: '/projects/$projectSlug/settings',
+    path: '/projects/$projectSlug/settings',
     getParentRoute: () => rootRouteImport,
   } as any)
-const OrganizationsOrganizationSlugSettingsRoute =
-  OrganizationsOrganizationSlugSettingsRouteImport.update({
-    id: '/organizations/$organizationSlug/settings',
-    path: '/organizations/$organizationSlug/settings',
+const ProjectsProjectSlugWorkspacesWorkspaceIdRoute =
+  ProjectsProjectSlugWorkspacesWorkspaceIdRouteImport.update({
+    id: '/projects/$projectSlug/workspaces/$workspaceId',
+    path: '/projects/$projectSlug/workspaces/$workspaceId',
     getParentRoute: () => rootRouteImport,
   } as any)
-const OrganizationsOrganizationSlugProjectsNewRoute =
-  OrganizationsOrganizationSlugProjectsNewRouteImport.update({
-    id: '/organizations/$organizationSlug/projects/new',
-    path: '/organizations/$organizationSlug/projects/new',
+const ProjectsProjectSlugWorkspacesNewRoute =
+  ProjectsProjectSlugWorkspacesNewRouteImport.update({
+    id: '/projects/$projectSlug/workspaces/new',
+    path: '/projects/$projectSlug/workspaces/new',
     getParentRoute: () => rootRouteImport,
   } as any)
-const OrganizationsOrganizationSlugProjectsProjectSlugSettingsRoute =
-  OrganizationsOrganizationSlugProjectsProjectSlugSettingsRouteImport.update({
-    id: '/organizations/$organizationSlug/projects/$projectSlug/settings',
-    path: '/organizations/$organizationSlug/projects/$projectSlug/settings',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesWorkspaceIdRoute =
-  OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesWorkspaceIdRouteImport.update(
-    {
-      id: '/organizations/$organizationSlug/projects/$projectSlug/workspaces/$workspaceId',
-      path: '/organizations/$organizationSlug/projects/$projectSlug/workspaces/$workspaceId',
-      getParentRoute: () => rootRouteImport,
-    } as any,
-  )
-const OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesNewRoute =
-  OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesNewRouteImport.update(
-    {
-      id: '/organizations/$organizationSlug/projects/$projectSlug/workspaces/new',
-      path: '/organizations/$organizationSlug/projects/$projectSlug/workspaces/new',
-      getParentRoute: () => rootRouteImport,
-    } as any,
-  )
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
   '/settings': typeof SettingsRoute
-  '/organizations/new': typeof OrganizationsNewRoute
-  '/organizations/': typeof OrganizationsIndexRoute
+  '/setup': typeof SetupRoute
+  '/invite/$invitationId': typeof InviteInvitationIdRoute
+  '/projects/new': typeof ProjectsNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
-  '/organizations/$organizationSlug/settings': typeof OrganizationsOrganizationSlugSettingsRoute
-  '/organizations/$organizationSlug/': typeof OrganizationsOrganizationSlugIndexRoute
-  '/organizations/$organizationSlug/projects/new': typeof OrganizationsOrganizationSlugProjectsNewRoute
-  '/organizations/$organizationSlug/projects/$projectSlug/settings': typeof OrganizationsOrganizationSlugProjectsProjectSlugSettingsRoute
-  '/organizations/$organizationSlug/projects/$projectSlug/workspaces/$workspaceId': typeof OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesWorkspaceIdRoute
-  '/organizations/$organizationSlug/projects/$projectSlug/workspaces/new': typeof OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesNewRoute
+  '/projects/$projectSlug/settings': typeof ProjectsProjectSlugSettingsRoute
+  '/projects/$projectSlug/workspaces/$workspaceId': typeof ProjectsProjectSlugWorkspacesWorkspaceIdRoute
+  '/projects/$projectSlug/workspaces/new': typeof ProjectsProjectSlugWorkspacesNewRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
   '/settings': typeof SettingsRoute
-  '/organizations/new': typeof OrganizationsNewRoute
-  '/organizations': typeof OrganizationsIndexRoute
+  '/setup': typeof SetupRoute
+  '/invite/$invitationId': typeof InviteInvitationIdRoute
+  '/projects/new': typeof ProjectsNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
-  '/organizations/$organizationSlug/settings': typeof OrganizationsOrganizationSlugSettingsRoute
-  '/organizations/$organizationSlug': typeof OrganizationsOrganizationSlugIndexRoute
-  '/organizations/$organizationSlug/projects/new': typeof OrganizationsOrganizationSlugProjectsNewRoute
-  '/organizations/$organizationSlug/projects/$projectSlug/settings': typeof OrganizationsOrganizationSlugProjectsProjectSlugSettingsRoute
-  '/organizations/$organizationSlug/projects/$projectSlug/workspaces/$workspaceId': typeof OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesWorkspaceIdRoute
-  '/organizations/$organizationSlug/projects/$projectSlug/workspaces/new': typeof OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesNewRoute
+  '/projects/$projectSlug/settings': typeof ProjectsProjectSlugSettingsRoute
+  '/projects/$projectSlug/workspaces/$workspaceId': typeof ProjectsProjectSlugWorkspacesWorkspaceIdRoute
+  '/projects/$projectSlug/workspaces/new': typeof ProjectsProjectSlugWorkspacesNewRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/admin': typeof AdminRoute
   '/settings': typeof SettingsRoute
-  '/organizations/new': typeof OrganizationsNewRoute
-  '/organizations/': typeof OrganizationsIndexRoute
+  '/setup': typeof SetupRoute
+  '/invite/$invitationId': typeof InviteInvitationIdRoute
+  '/projects/new': typeof ProjectsNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
-  '/organizations/$organizationSlug/settings': typeof OrganizationsOrganizationSlugSettingsRoute
-  '/organizations/$organizationSlug/': typeof OrganizationsOrganizationSlugIndexRoute
-  '/organizations/$organizationSlug/projects/new': typeof OrganizationsOrganizationSlugProjectsNewRoute
-  '/organizations/$organizationSlug/projects/$projectSlug/settings': typeof OrganizationsOrganizationSlugProjectsProjectSlugSettingsRoute
-  '/organizations/$organizationSlug/projects/$projectSlug/workspaces/$workspaceId': typeof OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesWorkspaceIdRoute
-  '/organizations/$organizationSlug/projects/$projectSlug/workspaces/new': typeof OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesNewRoute
+  '/projects/$projectSlug/settings': typeof ProjectsProjectSlugSettingsRoute
+  '/projects/$projectSlug/workspaces/$workspaceId': typeof ProjectsProjectSlugWorkspacesWorkspaceIdRoute
+  '/projects/$projectSlug/workspaces/new': typeof ProjectsProjectSlugWorkspacesNewRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/admin'
     | '/settings'
-    | '/organizations/new'
-    | '/organizations/'
+    | '/setup'
+    | '/invite/$invitationId'
+    | '/projects/new'
     | '/api/auth/$'
-    | '/organizations/$organizationSlug/settings'
-    | '/organizations/$organizationSlug/'
-    | '/organizations/$organizationSlug/projects/new'
-    | '/organizations/$organizationSlug/projects/$projectSlug/settings'
-    | '/organizations/$organizationSlug/projects/$projectSlug/workspaces/$workspaceId'
-    | '/organizations/$organizationSlug/projects/$projectSlug/workspaces/new'
+    | '/projects/$projectSlug/settings'
+    | '/projects/$projectSlug/workspaces/$workspaceId'
+    | '/projects/$projectSlug/workspaces/new'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/admin'
     | '/settings'
-    | '/organizations/new'
-    | '/organizations'
+    | '/setup'
+    | '/invite/$invitationId'
+    | '/projects/new'
     | '/api/auth/$'
-    | '/organizations/$organizationSlug/settings'
-    | '/organizations/$organizationSlug'
-    | '/organizations/$organizationSlug/projects/new'
-    | '/organizations/$organizationSlug/projects/$projectSlug/settings'
-    | '/organizations/$organizationSlug/projects/$projectSlug/workspaces/$workspaceId'
-    | '/organizations/$organizationSlug/projects/$projectSlug/workspaces/new'
+    | '/projects/$projectSlug/settings'
+    | '/projects/$projectSlug/workspaces/$workspaceId'
+    | '/projects/$projectSlug/workspaces/new'
   id:
     | '__root__'
     | '/'
+    | '/admin'
     | '/settings'
-    | '/organizations/new'
-    | '/organizations/'
+    | '/setup'
+    | '/invite/$invitationId'
+    | '/projects/new'
     | '/api/auth/$'
-    | '/organizations/$organizationSlug/settings'
-    | '/organizations/$organizationSlug/'
-    | '/organizations/$organizationSlug/projects/new'
-    | '/organizations/$organizationSlug/projects/$projectSlug/settings'
-    | '/organizations/$organizationSlug/projects/$projectSlug/workspaces/$workspaceId'
-    | '/organizations/$organizationSlug/projects/$projectSlug/workspaces/new'
+    | '/projects/$projectSlug/settings'
+    | '/projects/$projectSlug/workspaces/$workspaceId'
+    | '/projects/$projectSlug/workspaces/new'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AdminRoute: typeof AdminRoute
   SettingsRoute: typeof SettingsRoute
-  OrganizationsNewRoute: typeof OrganizationsNewRoute
-  OrganizationsIndexRoute: typeof OrganizationsIndexRoute
+  SetupRoute: typeof SetupRoute
+  InviteInvitationIdRoute: typeof InviteInvitationIdRoute
+  ProjectsNewRoute: typeof ProjectsNewRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
-  OrganizationsOrganizationSlugSettingsRoute: typeof OrganizationsOrganizationSlugSettingsRoute
-  OrganizationsOrganizationSlugIndexRoute: typeof OrganizationsOrganizationSlugIndexRoute
-  OrganizationsOrganizationSlugProjectsNewRoute: typeof OrganizationsOrganizationSlugProjectsNewRoute
-  OrganizationsOrganizationSlugProjectsProjectSlugSettingsRoute: typeof OrganizationsOrganizationSlugProjectsProjectSlugSettingsRoute
-  OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesWorkspaceIdRoute: typeof OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesWorkspaceIdRoute
-  OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesNewRoute: typeof OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesNewRoute
+  ProjectsProjectSlugSettingsRoute: typeof ProjectsProjectSlugSettingsRoute
+  ProjectsProjectSlugWorkspacesWorkspaceIdRoute: typeof ProjectsProjectSlugWorkspacesWorkspaceIdRoute
+  ProjectsProjectSlugWorkspacesNewRoute: typeof ProjectsProjectSlugWorkspacesNewRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -192,6 +172,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings': {
       id: '/settings'
       path: '/settings'
@@ -199,18 +186,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/organizations/': {
-      id: '/organizations/'
-      path: '/organizations'
-      fullPath: '/organizations/'
-      preLoaderRoute: typeof OrganizationsIndexRouteImport
+    '/setup': {
+      id: '/setup'
+      path: '/setup'
+      fullPath: '/setup'
+      preLoaderRoute: typeof SetupRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/organizations/new': {
-      id: '/organizations/new'
-      path: '/organizations/new'
-      fullPath: '/organizations/new'
-      preLoaderRoute: typeof OrganizationsNewRouteImport
+    '/invite/$invitationId': {
+      id: '/invite/$invitationId'
+      path: '/invite/$invitationId'
+      fullPath: '/invite/$invitationId'
+      preLoaderRoute: typeof InviteInvitationIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/projects/new': {
+      id: '/projects/new'
+      path: '/projects/new'
+      fullPath: '/projects/new'
+      preLoaderRoute: typeof ProjectsNewRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/auth/$': {
@@ -220,46 +214,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/organizations/$organizationSlug/': {
-      id: '/organizations/$organizationSlug/'
-      path: '/organizations/$organizationSlug'
-      fullPath: '/organizations/$organizationSlug/'
-      preLoaderRoute: typeof OrganizationsOrganizationSlugIndexRouteImport
+    '/projects/$projectSlug/settings': {
+      id: '/projects/$projectSlug/settings'
+      path: '/projects/$projectSlug/settings'
+      fullPath: '/projects/$projectSlug/settings'
+      preLoaderRoute: typeof ProjectsProjectSlugSettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/organizations/$organizationSlug/settings': {
-      id: '/organizations/$organizationSlug/settings'
-      path: '/organizations/$organizationSlug/settings'
-      fullPath: '/organizations/$organizationSlug/settings'
-      preLoaderRoute: typeof OrganizationsOrganizationSlugSettingsRouteImport
+    '/projects/$projectSlug/workspaces/$workspaceId': {
+      id: '/projects/$projectSlug/workspaces/$workspaceId'
+      path: '/projects/$projectSlug/workspaces/$workspaceId'
+      fullPath: '/projects/$projectSlug/workspaces/$workspaceId'
+      preLoaderRoute: typeof ProjectsProjectSlugWorkspacesWorkspaceIdRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/organizations/$organizationSlug/projects/new': {
-      id: '/organizations/$organizationSlug/projects/new'
-      path: '/organizations/$organizationSlug/projects/new'
-      fullPath: '/organizations/$organizationSlug/projects/new'
-      preLoaderRoute: typeof OrganizationsOrganizationSlugProjectsNewRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/organizations/$organizationSlug/projects/$projectSlug/settings': {
-      id: '/organizations/$organizationSlug/projects/$projectSlug/settings'
-      path: '/organizations/$organizationSlug/projects/$projectSlug/settings'
-      fullPath: '/organizations/$organizationSlug/projects/$projectSlug/settings'
-      preLoaderRoute: typeof OrganizationsOrganizationSlugProjectsProjectSlugSettingsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/organizations/$organizationSlug/projects/$projectSlug/workspaces/$workspaceId': {
-      id: '/organizations/$organizationSlug/projects/$projectSlug/workspaces/$workspaceId'
-      path: '/organizations/$organizationSlug/projects/$projectSlug/workspaces/$workspaceId'
-      fullPath: '/organizations/$organizationSlug/projects/$projectSlug/workspaces/$workspaceId'
-      preLoaderRoute: typeof OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesWorkspaceIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/organizations/$organizationSlug/projects/$projectSlug/workspaces/new': {
-      id: '/organizations/$organizationSlug/projects/$projectSlug/workspaces/new'
-      path: '/organizations/$organizationSlug/projects/$projectSlug/workspaces/new'
-      fullPath: '/organizations/$organizationSlug/projects/$projectSlug/workspaces/new'
-      preLoaderRoute: typeof OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesNewRouteImport
+    '/projects/$projectSlug/workspaces/new': {
+      id: '/projects/$projectSlug/workspaces/new'
+      path: '/projects/$projectSlug/workspaces/new'
+      fullPath: '/projects/$projectSlug/workspaces/new'
+      preLoaderRoute: typeof ProjectsProjectSlugWorkspacesNewRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -267,22 +240,16 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AdminRoute: AdminRoute,
   SettingsRoute: SettingsRoute,
-  OrganizationsNewRoute: OrganizationsNewRoute,
-  OrganizationsIndexRoute: OrganizationsIndexRoute,
+  SetupRoute: SetupRoute,
+  InviteInvitationIdRoute: InviteInvitationIdRoute,
+  ProjectsNewRoute: ProjectsNewRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
-  OrganizationsOrganizationSlugSettingsRoute:
-    OrganizationsOrganizationSlugSettingsRoute,
-  OrganizationsOrganizationSlugIndexRoute:
-    OrganizationsOrganizationSlugIndexRoute,
-  OrganizationsOrganizationSlugProjectsNewRoute:
-    OrganizationsOrganizationSlugProjectsNewRoute,
-  OrganizationsOrganizationSlugProjectsProjectSlugSettingsRoute:
-    OrganizationsOrganizationSlugProjectsProjectSlugSettingsRoute,
-  OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesWorkspaceIdRoute:
-    OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesWorkspaceIdRoute,
-  OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesNewRoute:
-    OrganizationsOrganizationSlugProjectsProjectSlugWorkspacesNewRoute,
+  ProjectsProjectSlugSettingsRoute: ProjectsProjectSlugSettingsRoute,
+  ProjectsProjectSlugWorkspacesWorkspaceIdRoute:
+    ProjectsProjectSlugWorkspacesWorkspaceIdRoute,
+  ProjectsProjectSlugWorkspacesNewRoute: ProjectsProjectSlugWorkspacesNewRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
