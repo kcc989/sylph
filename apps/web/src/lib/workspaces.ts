@@ -8,7 +8,6 @@ import {
   decodeGitHubRepositoryLookupInputPromise,
   decodeInstallationClaimInputPromise,
   decodeMagicLinkRequest,
-  decodeOpenCodeConnectionResultPromise,
   decodeOpenCodeKeySetupInputPromise,
   decodeOpenCodeSubscriptionAttemptPromise,
   decodeOpenCodeSubscriptionRuntimeStatusPromise,
@@ -64,6 +63,7 @@ import {
   encodeKeyCredential,
 } from "@/lib/provider-credential"
 import {
+  bootstrapProviderModels,
   normalizeProviderModels,
   selectInitialProviderModel,
 } from "@/lib/provider-models"
@@ -1139,23 +1139,6 @@ export const saveOpenCodeSetup = createServerFn({ method: "POST" })
     const database = drizzle(env.DB, { schema })
     await connectionAccess(data.organizationId, session.user.id, data.scope)
 
-    const validator = env.WORKSPACES.get(
-      env.WORKSPACES.idFromName(
-        connectionRuntimeName(data.organizationId, session.user.id, data.scope)
-      )
-    )
-    const validation = await validator.fetch("https://workspace/connect/key", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(data),
-    })
-
-    if (!validation.ok) throw new Error(await validation.text())
-
-    const connected = await decodeOpenCodeConnectionResultPromise(
-      await validation.json()
-    )
-
     const credential = await encryptCredential(
       encodeKeyCredential(data.apiKey, data.configuration),
       env.CREDENTIAL_ENCRYPTION_KEY
@@ -1213,14 +1196,15 @@ export const saveOpenCodeSetup = createServerFn({ method: "POST" })
         })
     }
 
+    const models = bootstrapProviderModels(data.providerId)
     const availableModelCount = await saveProviderModels({
       database,
       organizationId: data.organizationId,
       userId: session.user.id,
       scope: data.scope,
       providerId: data.providerId,
-      models: connected.models,
-      recommendedModelId: connected.recommendedModelId,
+      models,
+      recommendedModelId: models[0]?.modelId ?? null,
     })
 
     return {
@@ -1555,6 +1539,7 @@ export const createProject = createServerFn({ method: "POST" })
         sourceName: artifact.name,
         name: workspaceRepositoryName,
         description: `Workspace for ${data.name}`,
+        defaultBranch: artifact.defaultBranch,
       })
     )
     const now = new Date()
@@ -1734,6 +1719,7 @@ export const createWorkspace = createServerFn({ method: "POST" })
         sourceName: project.repositoryName,
         name: workspaceRepositoryName,
         description: `Workspace for ${project.name}: ${title}`,
+        defaultBranch: project.defaultRef,
       })
     )
     const now = new Date()
@@ -2154,19 +2140,29 @@ export const checkpointWorkspace = createServerFn({ method: "POST" })
       body: JSON.stringify(data),
     })
     if (!response.ok) throw new Error(await response.text())
-    const result = await decodeWorkspaceCheckpointResult(await response.json())
-    await database
-      .update(schema.workspace)
-      .set({
-        forkHead: result.checkpoint.commit,
-        syncStatus: "ready",
-        mergeStatus: "ready",
-        latestCheckpointAt: new Date(result.checkpoint.createdAt),
-        errorSummary: null,
-        updatedAt: new Date(),
-      })
-      .where(eq(schema.workspace.id, data.workspaceId))
-    return result
+    try {
+      const result = await decodeWorkspaceCheckpointResult(
+        await response.json()
+      )
+      await database
+        .update(schema.workspace)
+        .set({
+          forkHead: result.checkpoint.commit,
+          syncStatus: "ready",
+          mergeStatus: "ready",
+          latestCheckpointAt: new Date(result.checkpoint.createdAt),
+          errorSummary: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.workspace.id, data.workspaceId))
+      return result
+    } catch (error) {
+      console.error(
+        "Workspace checkpoint persistence failed",
+        error instanceof Error ? error.stack : error
+      )
+      throw error
+    }
   })
 
 export const acceptWorkspace = createServerFn({ method: "POST" })

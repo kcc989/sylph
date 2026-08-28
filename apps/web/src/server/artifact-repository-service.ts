@@ -62,6 +62,7 @@ interface ForkWorkspaceRepository {
   readonly sourceName: string
   readonly name: string
   readonly description: string
+  readonly defaultBranch: string
 }
 
 export class ArtifactRepositoryService extends Context.Service<
@@ -189,16 +190,13 @@ export const makeArtifactRepositoryService = (
     forkWorkspace: Effect.fn("ArtifactRepositoryService.forkWorkspace")(
       function* (input: ForkWorkspaceRepository) {
         yield* inspect(input.sourceName)
-        const source = yield* Effect.tryPromise({
-          try: () => binding.get(input.sourceName),
-          catch: (cause) => repositoryError("inspect_fork_source", cause),
-        })
         return yield* Effect.tryPromise({
           try: async () =>
             Schema.decodeUnknownPromise(ArtifactRepositoryMetadataSchema)(
-              await source.fork(input.name, {
+              await binding.create(input.name, {
                 description: input.description,
-                defaultBranchOnly: true,
+                readOnly: false,
+                setDefaultBranch: input.defaultBranch,
               })
             ),
           catch: (cause) => repositoryError("fork_workspace", cause),

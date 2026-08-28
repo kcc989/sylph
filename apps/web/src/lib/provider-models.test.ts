@@ -1,11 +1,27 @@
 import { describe, expect, test } from "bun:test"
 
 import {
+  bootstrapProviderModels,
   normalizeProviderModels,
   selectInitialProviderModel,
 } from "./provider-models"
 
 describe("provider model normalization", () => {
+  test("provides OpenRouter bootstrap models without provider discovery", () => {
+    expect(bootstrapProviderModels("openrouter")).toEqual([
+      {
+        providerId: "openrouter",
+        modelId: "openrouter/auto",
+        name: "Auto Router",
+      },
+      {
+        providerId: "openrouter",
+        modelId: "deepseek/deepseek-v4-flash-0731",
+        name: "DeepSeek V4 Flash 0731",
+      },
+    ])
+  })
+
   test("keeps one model for each provider model ID", () => {
     const models = normalizeProviderModels(
       [

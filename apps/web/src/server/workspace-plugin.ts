@@ -20,10 +20,122 @@ import {
 } from "./workspace-filesystem"
 import { WorkspaceGit } from "./workspace-git"
 
+export const selectWorkspaceVcs = (draft: {
+  readonly default?: { set(selection: string): void }
+}) => draft.default?.set("sylph")
+
+export const workspaceToolOptions = {
+  codemode: false,
+} satisfies { readonly codemode: false }
+
+export const workspaceWriteToolOptions = {
+  codemode: false,
+  permission: "workspace_write_file",
+} satisfies { readonly codemode: false; readonly permission: string }
+
+export const workspaceDeleteToolOptions = {
+  codemode: false,
+  permission: "workspace_delete_file",
+} satisfies { readonly codemode: false; readonly permission: string }
+
+export type WorkspaceMutationPermissionRequest = {
+  readonly sessionID: string
+  readonly agent: string
+  readonly messageID: string
+  readonly toolCallID: string
+  readonly action: "workspace_write_file" | "workspace_delete_file"
+  readonly path: string
+}
+
+export type WorkspaceMutationPermissionRequester = (
+  request: WorkspaceMutationPermissionRequest
+) => Promise<{
+  readonly id: string
+  readonly effect: "allow" | "deny" | "ask"
+}>
+
+export const createWorkspacePermissionBridge = () => {
+  let requester: WorkspaceMutationPermissionRequester | undefined
+  const pending = new Map<string, (effect: "allow" | "deny") => void>()
+
+  return {
+    connect(nextRequester: WorkspaceMutationPermissionRequester) {
+      requester = nextRequester
+    },
+    async request(request: WorkspaceMutationPermissionRequest) {
+      if (!requester) {
+        throw new Error("Workspace permission service is not ready")
+      }
+
+      const decision = await requester(request)
+      const effect =
+        decision.effect === "ask"
+          ? await new Promise<"allow" | "deny">((resolve) =>
+              pending.set(decision.id, resolve)
+            )
+          : decision.effect
+
+      if (effect !== "allow") {
+        throw new Error(`Permission denied for ${request.action}`)
+      }
+    },
+    reply(requestId: string, reply: "once" | "always" | "reject") {
+      const resolve = pending.get(requestId)
+
+      if (!resolve) return
+
+      pending.delete(requestId)
+      resolve(reply === "reject" ? "deny" : "allow")
+    },
+  }
+}
+
+export type WorkspacePermissionBridge = ReturnType<
+  typeof createWorkspacePermissionBridge
+>
+
+export const workspaceMutationPermissions = [
+  {
+    action: "workspace_write_file",
+    resource: "*",
+    effect: "ask",
+  },
+  {
+    action: "workspace_delete_file",
+    resource: "*",
+    effect: "ask",
+  },
+] satisfies ReadonlyArray<{
+  readonly action: string
+  readonly resource: string
+  readonly effect: "ask"
+}>
+
+export type WorkspacePermissionEvaluation = {
+  readonly action: string
+  effect: "allow" | "ask" | "deny"
+  message?: string
+}
+
+export const requireWorkspaceMutationPermission = (
+  evaluation: WorkspacePermissionEvaluation
+) => {
+  if (
+    evaluation.action !== "workspace_write_file" &&
+    evaluation.action !== "workspace_delete_file"
+  ) {
+    return
+  }
+
+  evaluation.effect = "ask"
+  evaluation.message = "Allow the assistant to change this Workspace?"
+}
+
 export const createWorkspacePlugin = (
   filesystem: WorkspaceFilesystem,
   workspaceGit: WorkspaceGit,
-  openAIOAuth: OpenAIOAuthRequestState
+  openAIOAuth: OpenAIOAuthRequestState,
+  permissionBridge: WorkspacePermissionBridge
 ) =>
   Plugin.define({
     id: "sylph-workspace",
@@ -35,6 +147,7 @@ export const createWorkspacePlugin = (
           description:
             "List files in the durable Sylph workspace. Use this instead of shell or local filesystem tools.",
           input: WorkspaceListFilesJsonSchema,
+          options: workspaceToolOptions,
           async execute(input) {
             const { directory = "" } = await decodeWorkspaceListFiles(input)
             const prefix = directory
@@ -54,6 +167,7 @@ export const createWorkspacePlugin = (
           description:
             "Read a UTF-8 text file from the durable Sylph workspace.",
           input: WorkspaceFilePathJsonSchema,
+          options: workspaceToolOptions,
           async execute(input) {
             const decoded = await decodeWorkspaceFilePath(input)
             const path = normalizeWorkspacePath(decoded.path)
@@ -71,9 +185,18 @@ export const createWorkspacePlugin = (
           description:
             "Create or replace a UTF-8 text file in the durable Sylph workspace.",
           input: WorkspaceWriteFileJsonSchema,
-          async execute(input) {
+          options: workspaceWriteToolOptions,
+          async execute(input, context) {
             const decoded = await decodeWorkspaceWriteFile(input)
             const path = normalizeWorkspacePath(decoded.path)
+            await permissionBridge.request({
+              sessionID: context.sessionID,
+              agent: context.agent,
+              messageID: context.messageID,
+              toolCallID: context.id,
+              action: "workspace_write_file",
+              path,
+            })
             await filesystem.writeFile(path, decoded.content)
 
             return { content: `Wrote ${path}` }
@@ -83,12 +206,26 @@ export const createWorkspacePlugin = (
           name: "workspace_delete_file",
           description: "Delete a file from the durable Sylph Workspace.",
           input: WorkspaceDeleteFileJsonSchema,
-          async execute(input) {
+          options: workspaceDeleteToolOptions,
+          async execute(input, context) {
             const decoded = await decodeWorkspaceDeleteFile(input)
             const path = normalizeWorkspacePath(decoded.path)
+            await permissionBridge.request({
+              sessionID: context.sessionID,
+              agent: context.agent,
+              messageID: context.messageID,
+              toolCallID: context.id,
+              action: "workspace_delete_file",
+              path,
+            })
             await filesystem.unlink(path)
             return { content: `Deleted ${path}` }
           },
+        })
+      })
+      const agentRegistration = await context.agent.transform((draft) => {
+        draft.update("build", (agent) => {
+          agent.permissions.push(...workspaceMutationPermissions)
         })
       })
       const vcsRegistration = await context.vcs.transform((draft) => {
@@ -121,8 +258,12 @@ export const createWorkspacePlugin = (
             return input.mode === "working" ? vcs.working : vcs.branch
           },
         })
-        draft.default.set("sylph")
+        selectWorkspaceVcs(draft)
       })
+      const permissionRegistration = await context.permission.hook(
+        "evaluate",
+        requireWorkspaceMutationPermission
+      )
       const sessionRegistration = await context.session.hook(
         "context",
         (session) => {
@@ -141,6 +282,8 @@ export const createWorkspacePlugin = (
       return async () => {
         await Promise.all([
           toolRegistration.dispose(),
+          agentRegistration.dispose(),
+          permissionRegistration.dispose(),
           vcsRegistration.dispose(),
           sessionRegistration.dispose(),
           openAIRequestRegistration.dispose(),

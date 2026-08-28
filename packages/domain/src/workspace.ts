@@ -230,6 +230,69 @@ export class WorkspaceRuntimePromptInput extends Schema.Class<WorkspaceRuntimePr
   credential: OpenCodeCredential,
 }) {}
 
+export const WorkspacePermissionReply = Schema.Literals([
+  "once",
+  "always",
+  "reject",
+])
+export type WorkspacePermissionReply = typeof WorkspacePermissionReply.Type
+
+export class WorkspacePermissionReplyInput extends Schema.Class<WorkspacePermissionReplyInput>(
+  "@sylph/domain/WorkspacePermissionReplyInput"
+)({
+  workspaceId: WorkspaceId,
+  requestId: Schema.NonEmptyString,
+  reply: WorkspacePermissionReply,
+  message: Schema.optional(Schema.String),
+}) {}
+
+export class WorkspaceRuntimeEvent extends Schema.Class<WorkspaceRuntimeEvent>(
+  "@sylph/domain/WorkspaceRuntimeEvent"
+)({
+  id: Schema.NonEmptyString,
+  created: Schema.Number,
+  type: Schema.NonEmptyString,
+  data: Schema.Unknown,
+  metadata: Schema.optional(Schema.Unknown),
+  durable: Schema.optional(Schema.Unknown),
+  location: Schema.optional(Schema.Unknown),
+}) {}
+
+export class WorkspacePermissionAskedEventData extends Schema.Class<WorkspacePermissionAskedEventData>(
+  "@sylph/domain/WorkspacePermissionAskedEventData"
+)({
+  id: Schema.NonEmptyString,
+  sessionID: Schema.NonEmptyString,
+  action: Schema.NonEmptyString,
+  resources: Schema.Array(Schema.String),
+  save: Schema.optional(Schema.Array(Schema.String)),
+  message: Schema.optional(Schema.String),
+}) {}
+
+export class WorkspacePermissionRepliedEventData extends Schema.Class<WorkspacePermissionRepliedEventData>(
+  "@sylph/domain/WorkspacePermissionRepliedEventData"
+)({
+  sessionID: Schema.NonEmptyString,
+  requestID: Schema.NonEmptyString,
+  reply: WorkspacePermissionReply,
+}) {}
+
+export class WorkspaceTextDeltaEventData extends Schema.Class<WorkspaceTextDeltaEventData>(
+  "@sylph/domain/WorkspaceTextDeltaEventData"
+)({
+  sessionID: Schema.NonEmptyString,
+  assistantMessageID: Schema.NonEmptyString,
+  delta: Schema.String,
+}) {}
+
+export class WorkspaceTextEndedEventData extends Schema.Class<WorkspaceTextEndedEventData>(
+  "@sylph/domain/WorkspaceTextEndedEventData"
+)({
+  sessionID: Schema.NonEmptyString,
+  assistantMessageID: Schema.NonEmptyString,
+  text: Schema.String,
+}) {}
+
 export class WorkspaceRequestInput extends Schema.Class<WorkspaceRequestInput>(
   "@sylph/domain/WorkspaceRequestInput"
 )({
@@ -274,6 +337,7 @@ export class WorkspaceRuntimeHealth extends Schema.Class<WorkspaceRuntimeHealth>
   model: Schema.NullOr(Schema.NonEmptyString),
   files: Schema.Array(Schema.NonEmptyString),
   messages: Schema.Array(WorkspaceRuntimeMessage),
+  permissions: Schema.Array(WorkspacePermissionAskedEventData),
   opencode: Schema.Struct({ healthy: Schema.Boolean }),
 }) {}
 
@@ -383,6 +447,25 @@ export const decodeWorkspacePromptInputPromise =
 
 export const decodeWorkspaceRuntimePromptInputPromise =
   Schema.decodeUnknownPromise(WorkspaceRuntimePromptInput)
+
+export const decodeWorkspacePermissionReplyInputPromise =
+  Schema.decodeUnknownPromise(WorkspacePermissionReplyInput)
+
+export const decodeWorkspaceRuntimeEventPromise = Schema.decodeUnknownPromise(
+  WorkspaceRuntimeEvent
+)
+
+export const decodeWorkspacePermissionAskedEventDataPromise =
+  Schema.decodeUnknownPromise(WorkspacePermissionAskedEventData)
+
+export const decodeWorkspacePermissionRepliedEventDataPromise =
+  Schema.decodeUnknownPromise(WorkspacePermissionRepliedEventData)
+
+export const decodeWorkspaceTextDeltaEventDataPromise =
+  Schema.decodeUnknownPromise(WorkspaceTextDeltaEventData)
+
+export const decodeWorkspaceTextEndedEventDataPromise =
+  Schema.decodeUnknownPromise(WorkspaceTextEndedEventData)
 
 export const decodeWorkspaceRequestInputPromise = Schema.decodeUnknownPromise(
   WorkspaceRequestInput

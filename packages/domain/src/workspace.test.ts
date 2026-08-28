@@ -14,6 +14,9 @@ import {
   decodeSetDefaultModelInputPromise,
   decodeDisconnectOpenCodeConnectionInputPromise,
   decodeWorkspaceSummary,
+  decodeWorkspacePermissionReplyInputPromise,
+  decodeWorkspaceRuntimeEventPromise,
+  decodeWorkspaceRuntimeHealth,
   decodeWorkspaceWriteFile,
 } from "./workspace"
 import {
@@ -127,6 +130,53 @@ describe("Project and runtime inputs", () => {
 
     expect(restart.model?.providerId).toBe("openrouter")
     expect(restart.model?.modelId).toBe("openrouter/auto")
+  })
+
+  test("decodes a Workspace permission reply", async () => {
+    const reply = await decodeWorkspacePermissionReplyInputPromise({
+      workspaceId: "workspace-1",
+      requestId: "permission-1",
+      reply: "once",
+    })
+
+    expect(reply.requestId).toBe("permission-1")
+    expect(reply.reply).toBe("once")
+  })
+
+  test("preserves an OpenCode runtime event envelope", async () => {
+    const event = await decodeWorkspaceRuntimeEventPromise({
+      id: "event-1",
+      created: 1,
+      type: "session.text.delta",
+      data: { sessionID: "session-1", delta: "hello" },
+      durable: { seq: 2 },
+    })
+
+    expect(event.type).toBe("session.text.delta")
+    expect(event.data).toEqual({ sessionID: "session-1", delta: "hello" })
+    expect(event.durable).toEqual({ seq: 2 })
+  })
+
+  test("preserves pending permission requests in runtime health", async () => {
+    const health = await decodeWorkspaceRuntimeHealth({
+      workspaceId: "workspace-1",
+      sessionId: "session-1",
+      status: "running",
+      model: "openrouter/model-1",
+      files: [],
+      messages: [],
+      permissions: [
+        {
+          id: "permission-1",
+          sessionID: "session-1",
+          action: "workspace_write_file",
+          resources: ["APPROVAL_PROOF.md"],
+        },
+      ],
+      opencode: { healthy: true },
+    })
+
+    expect(health.permissions[0]?.action).toBe("workspace_write_file")
   })
 
   test("requires an API key for OpenCode setup", async () => {

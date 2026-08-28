@@ -677,7 +677,7 @@ function OrganizationSettingsScreen() {
             </h2>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
               Add {scope === "organization" ? "an Organization" : "your"} API
-              key. Sylph will discover the models available to this connection.
+              key. Sylph encrypts it before storing the connection.
             </p>
             <form
               className="mt-5 grid max-w-lg gap-5"
