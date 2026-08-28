@@ -1,9 +1,17 @@
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { Button } from "@workspace/ui/components/button"
-import { Bot, FolderGit2, GitBranch, Plus, Settings2 } from "lucide-react"
+import {
+  Bot,
+  FolderGit2,
+  GitBranch,
+  LoaderCircle,
+  Plus,
+  Settings2,
+} from "lucide-react"
 
 import { AppShell } from "@/components/app-shell"
 import { getDashboard, getWorkspaceCreationContext } from "@/lib/workspaces"
+import { useWorkspaceCreation } from "@/lib/use-workspace-creation"
 
 export const Route = createFileRoute("/projects/$projectSlug/settings")({
   loader: async ({ params }) => {
@@ -22,6 +30,8 @@ export const Route = createFileRoute("/projects/$projectSlug/settings")({
 function ProjectSettingsScreen() {
   const { projectSlug } = Route.useParams()
   const { context, dashboard } = Route.useLoaderData()
+  const { creatingProjectId, creationError, startWorkspace } =
+    useWorkspaceCreation()
 
   if (!context) {
     return (
@@ -44,17 +54,25 @@ function ProjectSettingsScreen() {
     <AppShell active="home" dashboard={dashboard} topbar={context.project.name}>
       <div className="mx-auto max-w-3xl px-5 py-10 sm:px-8 sm:py-14">
         <Button
-          nativeButton={false}
           className="ml-auto"
           size="sm"
-          render={
-            <a
-              href={`/projects/${encodeURIComponent(projectSlug)}/workspaces/new`}
-            />
+          disabled={creatingProjectId !== null}
+          onClick={() =>
+            void startWorkspace({ id: context.project.id, slug: projectSlug })
           }
         >
-          <Plus /> New Workspace
+          {creatingProjectId === context.project.id ? (
+            <LoaderCircle className="animate-spin" />
+          ) : (
+            <Plus />
+          )}
+          New Workspace
         </Button>
+        {creationError?.projectId === context.project.id ? (
+          <p role="alert" className="mt-2 text-right text-xs text-destructive">
+            {creationError.message}
+          </p>
+        ) : null}
         <div className="flex items-center gap-3">
           <div className="grid size-9 place-items-center rounded-[7px] bg-white/[.05] text-muted-foreground">
             <Settings2 className="size-4" />

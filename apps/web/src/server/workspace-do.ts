@@ -19,11 +19,14 @@ import { DurableObject } from "cloudflare:workers"
 import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/durable-sqlite"
 import { sqliteTable, text } from "drizzle-orm/sqlite-core"
+import { Schema } from "effect"
 
 import { createWorkspacePlugin } from "./workspace-plugin"
 import { WorkspaceFilesystem } from "./workspace-filesystem"
 import { WorkspaceGit } from "./workspace-git"
 import { createOpenCodeWithStorageBootstrap } from "./opencode-storage-bootstrap"
+import { activateCredentialAndWaitForCatalog } from "./opencode-credential-activation"
+import type { OpenAIOAuthRequestState } from "./opencode-oauth-request"
 import { workspaceRuntimeStatus } from "./workspace-runtime-status"
 
 const appWorkspaceState = sqliteTable("app_workspace_state", {
@@ -109,6 +112,10 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   readonly #opencode
   readonly #filesystem
   readonly #workspaceGit
+  readonly #openAIOAuth: OpenAIOAuthRequestState = {
+    active: false,
+    accountID: null,
+  }
 
   constructor(context: DurableObjectState, bindings: WorkspaceBindings) {
     super(context, bindings)
@@ -134,7 +141,11 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
               default_agent: "build",
             },
             plugins: [
-              createWorkspacePlugin(this.#filesystem, this.#workspaceGit),
+              createWorkspacePlugin(
+                this.#filesystem,
+                this.#workspaceGit,
+                this.#openAIOAuth
+              ),
             ],
           })
       )
@@ -203,10 +214,13 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           await request.json()
         )
 
+        await this.#waitForIntegration(opencode, input.providerId)
+
         try {
           await opencode.integration.connect.key({
             integrationID: input.providerId,
             key: input.apiKey,
+            answer: input.configuration,
           })
         } catch {
           throw new Error(
@@ -486,11 +500,24 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     await this.#waitForIntegration(opencode, providerId)
 
     if (credential.type === "key") {
+      if (providerId === subscriptionProviderId) {
+        this.#openAIOAuth.active = false
+        this.#openAIOAuth.accountID = null
+      }
       await opencode.integration.connect.key({
         integrationID: providerId,
         key: credential.key,
+        answer: credential.configuration,
       })
       return
+    }
+
+    if (providerId === subscriptionProviderId) {
+      const accountID = credential.metadata?.["accountID"]
+      this.#openAIOAuth.active = true
+      this.#openAIOAuth.accountID = Schema.is(Schema.String)(accountID)
+        ? accountID
+        : null
     }
 
     const existing = this.ctx.storage.sql
@@ -541,7 +568,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       now,
       now
     )
-    await opencode.credential.activate({ credentialID: credentialId })
+    await activateCredentialAndWaitForCatalog(opencode, credentialId)
     this.ctx.storage.sql.exec(
       "DELETE FROM credential WHERE id = ?",
       switchCredentialId

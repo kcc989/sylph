@@ -3,10 +3,11 @@
 import {
   Activity,
   ArrowUp,
-  Bell,
   Blocks,
   Check,
+  ChevronDown,
   ChevronRight,
+  CircleHelp,
   CircleAlert,
   Files,
   GitBranch,
@@ -20,7 +21,6 @@ import {
   MessageSquare,
   Monitor,
   MoreHorizontal,
-  Moon,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
@@ -31,12 +31,13 @@ import {
   RefreshCw,
   Search,
   Settings2,
+  ShieldCheck,
   Smartphone,
   Terminal,
   AtSign,
-  UserRound,
   X,
 } from "lucide-react"
+import { Combobox } from "@base-ui/react/combobox"
 import ReactMarkdown from "react-markdown"
 import { useRef, useState, type ReactNode } from "react"
 import {
@@ -48,10 +49,6 @@ import remarkGfm from "remark-gfm"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import { CodeReview } from "@workspace/ui/components/code-review"
-import {
-  decodeModelOption,
-  encodeModelOption,
-} from "@workspace/ui/lib/model-option"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -113,7 +110,8 @@ type ProjectGroup = {
   id: string
   name: string
   repositoryName: string
-  newWorkspaceHref?: string
+  creatingWorkspace?: boolean
+  onCreateWorkspace?: () => void
   settingsHref?: string
   workspaces: WorkspaceItem[]
 }
@@ -157,6 +155,7 @@ type WorkspaceTab = {
 }
 
 type WorkspaceShellProps = {
+  canAdminister?: boolean
   organization?: string
   projectName: string
   repositoryName: string
@@ -324,12 +323,12 @@ const statusStyles = {
   error: "text-destructive",
 } satisfies Record<WorkspaceStatus, string>
 
-function UtilityRail() {
+function UtilityRail({ canAdminister }: { canAdminister: boolean }) {
   const items = [
-    { label: "Home", icon: House },
-    { label: "Search", icon: Search },
-    { label: "Files", icon: Files },
-    { label: "Skills", icon: Blocks },
+    { label: "Projects", icon: House, href: "/" },
+    ...(canAdminister
+      ? [{ label: "Administration", icon: ShieldCheck, href: "/admin" }]
+      : []),
   ]
 
   return (
@@ -337,22 +336,20 @@ function UtilityRail() {
       aria-label="Product navigation"
       className="hidden w-12 shrink-0 flex-col items-center border-r bg-[var(--sylph-ink)] py-2.5 md:flex"
     >
-      <div
-        aria-label="Sylph"
-        role="img"
+      <a
+        aria-label="Sylph home"
+        href="/"
         className="mb-4 grid size-7 place-items-center rounded-[6px] border border-white/10 bg-[#f0a087] text-[#241613]"
       >
         <SylphMark className="size-4" />
-      </div>
+      </a>
       <nav className="grid gap-1" aria-label="Workspace tools">
-        {items.map(({ label, icon: Icon }, index) => (
+        {items.map(({ label, icon: Icon, href }) => (
           <Tooltip key={label}>
             <TooltipTrigger
               aria-label={label}
-              className={cn(
-                "grid size-8 place-items-center rounded-[6px] text-muted-foreground transition-colors hover:bg-white/[.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-                index === 0 && "bg-white/[.07] text-foreground"
-              )}
+              render={<a href={href} />}
+              className="grid size-8 place-items-center rounded-[6px] text-muted-foreground transition-colors hover:bg-white/[.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
             >
               <Icon className="size-4" />
             </TooltipTrigger>
@@ -361,18 +358,26 @@ function UtilityRail() {
         ))}
       </nav>
       <div className="mt-auto grid gap-1">
-        <Button aria-label="Theme" size="icon-sm" variant="ghost">
-          <Moon />
-        </Button>
-        <Button aria-label="Notifications" size="icon-sm" variant="ghost">
-          <Bell />
-        </Button>
-        <Button aria-label="Settings" size="icon-sm" variant="ghost">
-          <Settings2 />
-        </Button>
-        <div className="grid size-7 place-items-center rounded-full border border-white/10 bg-white/[.06]">
-          <UserRound className="size-3.5 text-muted-foreground" />
-        </div>
+        <Tooltip>
+          <TooltipTrigger
+            aria-label="Getting started"
+            render={<a href="/?onboarding=1" />}
+            className="grid size-8 place-items-center rounded-[6px] text-muted-foreground transition-colors hover:bg-white/[.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          >
+            <CircleHelp className="size-4" />
+          </TooltipTrigger>
+          <TooltipContent side="right">Getting started</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger
+            aria-label="User settings"
+            render={<a href="/settings" />}
+            className="grid size-8 place-items-center rounded-[6px] text-muted-foreground transition-colors hover:bg-white/[.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          >
+            <Settings2 className="size-4" />
+          </TooltipTrigger>
+          <TooltipContent side="right">User settings</TooltipContent>
+        </Tooltip>
       </div>
     </aside>
   )
@@ -397,12 +402,12 @@ function ProjectRail({
       aria-modal={mobile || undefined}
       role={mobile ? "dialog" : undefined}
       className={cn(
-        "h-full shrink-0 flex-col bg-sidebar",
+        "h-full min-w-0 shrink-0 flex-col overflow-hidden bg-sidebar",
         mobile ? "flex w-[268px] border-r" : "hidden w-full md:flex"
       )}
     >
-      <header className="flex h-12 items-center gap-2 border-b px-3">
-        <div className="grid size-6 place-items-center rounded-[5px] bg-foreground text-[10px] font-bold text-background">
+      <header className="flex h-12 min-w-0 items-center gap-2 overflow-hidden border-b px-3">
+        <div className="grid size-6 shrink-0 place-items-center rounded-[5px] bg-foreground text-[10px] font-bold text-background">
           {organization.slice(0, 1).toUpperCase()}
         </div>
         <span className="min-w-0 flex-1 truncate text-sm font-medium">
@@ -417,7 +422,7 @@ function ProjectRail({
           <PanelLeftClose />
         </Button>
       </header>
-      <div className="flex h-10 items-center justify-between px-3">
+      <div className="flex h-10 min-w-0 items-center justify-between px-3">
         <span className="text-[10px] font-semibold tracking-[0.14em] text-muted-foreground uppercase">
           Projects
         </span>
@@ -425,43 +430,48 @@ function ProjectRail({
           <Plus />
         </Button>
       </div>
-      <ScrollArea className="min-h-0 flex-1 px-2 pb-3">
-        <div className="grid gap-3">
+      <ScrollArea className="min-h-0 min-w-0 flex-1 overflow-hidden px-2 pb-3">
+        <div className="grid w-full min-w-0 gap-3 overflow-hidden">
           {projects.map((project) => (
-            <section key={project.id}>
-              <div className="flex h-9 items-center gap-2 px-2 text-xs font-semibold text-foreground/85">
+            <section className="min-w-0 overflow-hidden" key={project.id}>
+              <div className="flex h-9 w-full min-w-0 items-center gap-2 overflow-hidden px-2 text-xs font-semibold text-foreground/85">
                 <span className="min-w-0 flex-1 truncate">{project.name}</span>
                 <Button
                   aria-label={`New workspace in ${project.name}`}
-                  disabled={!project.newWorkspaceHref}
-                  nativeButton={!project.newWorkspaceHref}
-                  render={
-                    project.newWorkspaceHref ? (
-                      <a href={project.newWorkspaceHref} />
-                    ) : undefined
+                  disabled={
+                    !project.onCreateWorkspace || project.creatingWorkspace
                   }
                   size="icon-xs"
                   variant="ghost"
+                  className="shrink-0"
+                  onClick={project.onCreateWorkspace}
                 >
-                  <Plus />
+                  {project.creatingWorkspace ? (
+                    <LoaderCircle className="animate-spin" />
+                  ) : (
+                    <Plus />
+                  )}
                 </Button>
                 <DropdownMenu>
                   <DropdownMenuTrigger
                     aria-label={`Open ${project.name} menu`}
-                    className="grid size-6 place-items-center rounded-[4px] text-muted-foreground hover:bg-white/[.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                    className="grid size-6 shrink-0 place-items-center rounded-[4px] text-muted-foreground hover:bg-white/[.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                   >
                     <MoreHorizontal className="size-3.5" />
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-44">
                     <DropdownMenuItem
-                      disabled={!project.newWorkspaceHref}
-                      onClick={() => {
-                        if (project.newWorkspaceHref) {
-                          window.location.assign(project.newWorkspaceHref)
-                        }
-                      }}
+                      disabled={
+                        !project.onCreateWorkspace || project.creatingWorkspace
+                      }
+                      onClick={project.onCreateWorkspace}
                     >
-                      <Plus /> New Workspace
+                      {project.creatingWorkspace ? (
+                        <LoaderCircle className="animate-spin" />
+                      ) : (
+                        <Plus />
+                      )}
+                      New Workspace
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       disabled={!project.settingsHref}
@@ -476,7 +486,7 @@ function ProjectRail({
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
-              <div className="grid gap-0.5 pr-1 pl-2">
+              <div className="grid w-full min-w-0 gap-0.5 overflow-hidden pr-1 pl-2">
                 {project.workspaces.map((workspace) => {
                   const active = workspace.name === workspaceName
                   const label =
@@ -489,7 +499,7 @@ function ProjectRail({
                       href={workspace.href}
                       aria-current={active ? "page" : undefined}
                       className={cn(
-                        "group flex h-8 w-full items-center gap-2 rounded-[5px] px-2 text-left transition-colors hover:bg-white/[.045] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                        "group flex h-8 w-full max-w-full min-w-0 items-center gap-2 overflow-hidden rounded-[5px] px-2 text-left transition-colors hover:bg-white/[.045] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
                         active && "bg-white/[.065]"
                       )}
                     >
@@ -576,7 +586,7 @@ function WorkspaceTopbar({
   ).length
 
   return (
-    <header className="flex h-12 shrink-0 items-center gap-2 border-b bg-background px-3">
+    <header className="flex h-12 shrink-0 items-center gap-2 overflow-hidden border-b bg-background px-3">
       <Button
         className={cn(navigationCollapsed ? "md:inline-flex" : "md:hidden")}
         aria-label={
@@ -588,14 +598,14 @@ function WorkspaceTopbar({
       >
         {navigationCollapsed ? <PanelLeftOpen /> : <Files />}
       </Button>
-      <span className="hidden text-xs text-muted-foreground sm:inline">
+      <span className="hidden max-w-36 min-w-0 shrink truncate text-xs whitespace-nowrap text-muted-foreground sm:inline">
         {projectName}
       </span>
       <ChevronRight className="hidden size-3 text-muted-foreground/50 sm:block" />
-      <span className="min-w-0 truncate text-xs font-medium">
+      <span className="max-w-32 min-w-0 shrink truncate text-xs font-medium whitespace-nowrap">
         {workspaceName}
       </span>
-      <span className="hidden font-mono text-[9px] text-muted-foreground lg:inline">
+      <span className="hidden max-w-40 min-w-0 shrink truncate font-mono text-[9px] whitespace-nowrap text-muted-foreground 2xl:inline">
         {repositoryName}
       </span>
       {demo && (
@@ -612,7 +622,7 @@ function WorkspaceTopbar({
         </Badge>
       )}
       <div className="ml-auto flex items-center gap-1.5">
-        <div className="mr-1 hidden items-center gap-2 xl:flex">
+        <div className="mr-1 hidden items-center gap-2 2xl:flex">
           <span className="text-[10px] text-muted-foreground">
             {checks.length > 0
               ? `Browser checks ${passedChecks}/${checks.length}`
@@ -627,8 +637,13 @@ function WorkspaceTopbar({
             </span>
           )}
         </div>
-        <Button size="sm" variant="ghost" onClick={onOpenTerminal}>
-          <Terminal /> Terminal
+        <Button
+          aria-label="Terminal"
+          size="sm"
+          variant="ghost"
+          onClick={onOpenTerminal}
+        >
+          <Terminal /> <span className="hidden lg:inline">Terminal</span>
         </Button>
         <Button
           size="sm"
@@ -641,7 +656,7 @@ function WorkspaceTopbar({
           ) : (
             <GitBranch />
           )}
-          Checkpoint
+          <span className="hidden xl:inline">Checkpoint</span>
         </Button>
         <Button
           size="sm"
@@ -653,7 +668,7 @@ function WorkspaceTopbar({
           ) : (
             <GitMerge />
           )}
-          Accept
+          <span className="hidden xl:inline">Accept</span>
         </Button>
         <Button
           aria-label="More workspace actions"
@@ -798,13 +813,14 @@ function AgentThread({
         </MessageScroller>
       </MessageScrollerProvider>
       {workspaceError ? (
-        <div className="mx-auto mb-3 flex w-[calc(100%-1.5rem)] max-w-3xl items-center gap-3 border border-destructive/25 bg-destructive/[.06] px-3 py-2.5">
+        <div className="mx-auto mb-3 flex w-[calc(100%-1.5rem)] max-w-3xl flex-col items-stretch gap-3 border border-destructive/25 bg-destructive/[.06] px-3 py-2.5 sm:flex-row sm:items-center">
           <CircleAlert className="size-4 shrink-0 text-destructive" />
           <p className="min-w-0 flex-1 text-[11px] text-foreground/80">
             {workspaceError}
           </p>
           {onRestartWorkspace ? (
             <Button
+              className="self-end sm:self-auto"
               size="sm"
               type="button"
               variant="outline"
@@ -836,6 +852,131 @@ function AgentThread({
   )
 }
 
+function ModelCombobox({
+  disabled,
+  models,
+  selectedOption,
+  onModelChange,
+}: {
+  disabled: boolean
+  models: ReadonlyArray<ComposerModel>
+  selectedOption: ComposerModel | null
+  onModelChange?: (model: { providerId: string; modelId: string }) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState("")
+
+  return (
+    <Combobox.Root<ComposerModel>
+      autoHighlight
+      disabled={disabled}
+      filter={(option, value) => {
+        const normalized = value.trim().toLocaleLowerCase()
+        if (!normalized) return true
+        return `${option.name} ${option.providerName}`
+          .toLocaleLowerCase()
+          .includes(normalized)
+      }}
+      inputValue={query}
+      isItemEqualToValue={(option, value) =>
+        option.providerId === value.providerId &&
+        option.modelId === value.modelId
+      }
+      items={models}
+      itemToStringLabel={(option) => option.name}
+      onInputValueChange={setQuery}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen)
+        if (!nextOpen) setQuery("")
+      }}
+      onValueChange={(option) => {
+        if (!option) return
+        setQuery("")
+        onModelChange?.({
+          providerId: option.providerId,
+          modelId: option.modelId,
+        })
+      }}
+      open={open}
+      value={selectedOption}
+    >
+      <Combobox.Trigger
+        aria-label="Model for next turn"
+        className="ml-auto flex h-7 max-w-56 min-w-0 flex-1 items-center gap-1.5 rounded-[5px] border border-white/[.12] bg-white/[.045] px-2 text-[11px] text-foreground outline-none hover:bg-white/[.07] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none sm:basis-52"
+      >
+        <Tooltip>
+          <TooltipTrigger
+            render={<span />}
+            className="min-w-0 flex-1 truncate text-left"
+          >
+            {selectedOption?.name ?? "Select model"}
+          </TooltipTrigger>
+          {selectedOption ? (
+            <TooltipContent className="max-w-80" side="top">
+              {selectedOption.name}
+            </TooltipContent>
+          ) : null}
+        </Tooltip>
+        <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+      </Combobox.Trigger>
+      <Combobox.Portal>
+        <Combobox.Positioner
+          align="end"
+          className="isolate z-50"
+          side="top"
+          sideOffset={4}
+        >
+          <Combobox.Popup
+            initialFocus
+            className="dark w-[min(24rem,calc(100vw-1.5rem))] overflow-hidden rounded-[6px] bg-[#1c1a18] text-[#f4efe8] shadow-md ring-1 ring-white/10 outline-none"
+          >
+            <div className="relative border-b border-white/[.08] p-2">
+              <Search className="pointer-events-none absolute top-1/2 left-4 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Combobox.Input
+                aria-label="Search models"
+                className="h-9 w-full rounded-[5px] border border-white/[.1] bg-black/20 pr-3 pl-9 text-base text-foreground outline-none placeholder:text-muted-foreground focus:border-[#ef9b7e]/60 focus:ring-2 focus:ring-[#ef9b7e]/20 sm:text-sm"
+                placeholder="Search models…"
+              />
+            </div>
+            <Combobox.Empty className="px-3 py-8 text-center text-xs text-muted-foreground">
+              No matching models
+            </Combobox.Empty>
+            <Combobox.List className="max-h-72 overflow-y-auto p-1">
+              {(option: ComposerModel, index: number) => (
+                <Combobox.Item
+                  aria-label={`${option.name}, ${option.providerName}`}
+                  className="grid min-w-0 cursor-default grid-cols-[minmax(0,1fr)_5rem_1rem] items-center gap-2 rounded-[4px] px-2 py-1.5 text-xs outline-none data-highlighted:bg-white/[.08]"
+                  index={index}
+                  key={`${option.providerId}/${option.modelId}/${option.scope}`}
+                  value={option}
+                >
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={<span />}
+                      className="min-w-0 truncate text-left text-foreground"
+                    >
+                      {option.name}
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-80" side="left">
+                      {option.name}
+                    </TooltipContent>
+                  </Tooltip>
+                  <span className="w-20 truncate text-right text-[10px] text-muted-foreground">
+                    {option.providerName}
+                  </span>
+                  <Combobox.ItemIndicator className="grid size-4 place-items-center">
+                    <Check className="size-3.5" />
+                  </Combobox.ItemIndicator>
+                </Combobox.Item>
+              )}
+            </Combobox.List>
+          </Combobox.Popup>
+        </Combobox.Positioner>
+      </Combobox.Portal>
+    </Combobox.Root>
+  )
+}
+
 function PromptComposer({
   disabled = false,
   error,
@@ -861,6 +1002,13 @@ function PromptComposer({
   onModelChange?: (model: { providerId: string; modelId: string }) => void
 }) {
   const [text, setText] = useState(initialPrompt)
+  const selectedOption = selectedModel
+    ? models.find(
+        (model) =>
+          model.providerId === selectedModel.providerId &&
+          model.modelId === selectedModel.modelId
+      )
+    : null
 
   const submit = async () => {
     const prompt = text.trim()
@@ -903,46 +1051,42 @@ function PromptComposer({
           </p>
         ) : null}
         {modelNotice ? (
-          <p className="px-3 pb-2 text-[11px] text-amber-200/80">
+          <p className="border-t border-white/[.07] px-3 py-2 text-[11px] leading-4 break-words text-muted-foreground">
             {modelNotice}
           </p>
         ) : null}
-        <div className="flex h-9 items-center gap-1 border-t border-white/[.07] px-2">
+        <div className="flex min-h-10 items-center gap-1 border-t border-white/[.07] px-2 py-1">
           <Button aria-label="Attach file" size="icon-xs" variant="ghost">
             <Paperclip />
           </Button>
-          <Button aria-label="Mention context" size="icon-xs" variant="ghost">
+          <Button
+            aria-label="Mention context"
+            className="hidden sm:inline-flex"
+            size="icon-xs"
+            variant="ghost"
+          >
             <AtSign />
           </Button>
-          <Button aria-label="Open command" size="icon-xs" variant="ghost">
+          <Button
+            aria-label="Open command"
+            className="hidden sm:inline-flex"
+            size="icon-xs"
+            variant="ghost"
+          >
             <Terminal />
           </Button>
-          <Button size="xs" variant="ghost">
+          <Button className="hidden md:inline-flex" size="xs" variant="ghost">
             <Blocks /> Skills
           </Button>
-          <label className="ml-auto flex min-w-0 items-center gap-1 text-[10px] text-muted-foreground">
-            <span className="sr-only">Model</span>
-            <select
-              aria-label="Model for next turn"
-              className="max-w-52 truncate rounded-[4px] border border-white/[.1] bg-transparent px-2 py-1 text-[10px] text-foreground outline-none focus:border-[#ef9b7e]/60"
-              disabled={disabled || pending || models.length === 0}
-              value={selectedModel ? encodeModelOption(selectedModel) : ""}
-              onChange={(event) => {
-                const model = decodeModelOption(event.target.value)
-                if (model) onModelChange?.(model)
-              }}
-            >
-              {models.map((option) => (
-                <option
-                  key={`${option.providerId}/${option.modelId}/${option.scope}`}
-                  value={encodeModelOption(option)}
-                >
-                  {option.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <span className="text-[10px] text-muted-foreground">⌘ ↵</span>
+          <ModelCombobox
+            disabled={pending || models.length === 0}
+            models={models}
+            selectedOption={selectedOption ?? null}
+            onModelChange={onModelChange}
+          />
+          <span className="hidden text-[10px] whitespace-nowrap text-muted-foreground sm:inline">
+            ⌘ ↵
+          </span>
           <Button
             aria-label="Send message"
             className="bg-[#ef9b7e] text-[#241613] hover:bg-[#f4af98]"
@@ -1478,6 +1622,7 @@ function WorkspaceTabs({
 }
 
 function WorkspaceShell({
+  canAdminister = false,
   organization = "Casey’s workspace",
   projectName,
   repositoryName,
@@ -1592,7 +1737,7 @@ function WorkspaceShell({
           className
         )}
       >
-        <UtilityRail />
+        <UtilityRail canAdminister={canAdminister} />
         <ResizablePanelGroup
           className="min-w-0 flex-1 max-md:[&>#project-navigation]:hidden max-md:[&>#project-navigation-handle]:hidden"
           defaultLayout={projectLayout.defaultLayout}

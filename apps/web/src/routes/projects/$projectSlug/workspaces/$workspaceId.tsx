@@ -17,6 +17,7 @@ import {
   promptWorkspace,
   restartWorkspace,
 } from "@/lib/workspaces"
+import { useWorkspaceCreation } from "@/lib/use-workspace-creation"
 
 export const Route = createFileRoute(
   "/projects/$projectSlug/workspaces/$workspaceId"
@@ -58,6 +59,7 @@ function WorkspaceScreen() {
   const modelSelectionChanged = useRef(false)
   const modelSelectionWorkspaceId = useRef(workspaceId)
   const [modelNotice, setModelNotice] = useState(result?.modelNotice ?? null)
+  const { creatingProjectId, startWorkspace } = useWorkspaceCreation()
 
   useEffect(() => {
     const workspaceChanged = modelSelectionWorkspaceId.current !== workspaceId
@@ -81,7 +83,8 @@ function WorkspaceScreen() {
   useEffect(() => {
     if (
       !result ||
-      (result.runtime.status !== "running" &&
+      (result.runtime.status !== "provisioning" &&
+        result.runtime.status !== "running" &&
         result.workspace.status !== "merging")
     )
       return
@@ -153,6 +156,7 @@ function WorkspaceScreen() {
 
   return (
     <WorkspaceShell
+      canAdminister={dashboard.installation.canAdminister}
       organization={workspace.organizationName}
       projectName={workspace.projectName}
       repositoryName={workspace.repositoryName}
@@ -271,7 +275,8 @@ function WorkspaceScreen() {
         id: project.id,
         name: project.name,
         repositoryName: project.repositoryName,
-        newWorkspaceHref: `/projects/${encodeURIComponent(project.slug)}/workspaces/new`,
+        creatingWorkspace: creatingProjectId === project.id,
+        onCreateWorkspace: () => void startWorkspace(project),
         settingsHref: `/projects/${encodeURIComponent(project.slug)}/settings`,
         workspaces: dashboard.workspaces
           .filter((item) => item.projectId === project.id)
@@ -306,7 +311,7 @@ function WorkspaceScreen() {
         setPromptError(null)
 
         try {
-          await restart({ data: { workspaceId } })
+          await restart({ data: { workspaceId, model: selectedModel } })
           await router.invalidate()
         } catch (cause) {
           setPromptError(

@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router"
 import { useServerFn } from "@tanstack/react-start"
-import type { ConnectionScope } from "@workspace/domain"
+import type { ConnectionScope, OpenCodeKeyProviderId } from "@workspace/domain"
 import { Button } from "@workspace/ui/components/button"
 import {
   decodeModelOption,
@@ -23,7 +23,13 @@ import { AppShell } from "@/components/app-shell"
 import { authClient } from "@/lib/auth-client"
 import { validateOnboardingSearch } from "@/lib/onboarding"
 import {
+  findProviderOption,
+  providerConfiguration,
+  providerOptions,
+} from "@/lib/provider-options"
+import {
   cancelOpenCodeSubscription,
+  disconnectOpenCodeConnection,
   getDashboard,
   getOpenCodeSubscriptionStatus,
   getOpenCodeSetup,
@@ -50,15 +56,13 @@ export const Route = createFileRoute("/admin")({
   component: OrganizationSettingsScreen,
 })
 
-const providerName = (providerId: string) =>
-  providerId === "openai"
-    ? "OpenAI"
-    : providerId === "opencode"
-      ? "OpenCode Zen"
-      : providerId
-
 const authMethodName = (authMethod: string) =>
   authMethod === "chatgpt-subscription" ? "Codex subscription" : "API key"
+
+const connectionName = (providerId: string, authMethod: string) =>
+  authMethod === "chatgpt-subscription"
+    ? "ChatGPT subscription"
+    : (findProviderOption(providerId)?.name ?? providerId)
 
 type SetupFlow = "list" | "choose" | "openai" | "subscription" | "key"
 
@@ -72,6 +76,7 @@ function OrganizationSettingsScreen() {
   const startSubscription = useServerFn(startOpenCodeSubscription)
   const subscriptionStatus = useServerFn(getOpenCodeSubscriptionStatus)
   const cancelSubscription = useServerFn(cancelOpenCodeSubscription)
+  const disconnectConnection = useServerFn(disconnectOpenCodeConnection)
   const [scope, setScope] = useState<ConnectionScope>(
     setup?.canManageOrganization ? "organization" : "user"
   )
@@ -80,9 +85,16 @@ function OrganizationSettingsScreen() {
       ? (setup?.organizationConnections ?? [])
       : (setup?.personalConnections ?? [])
   const [flow, setFlow] = useState<SetupFlow>("list")
+  const [selectedProviderId, setSelectedProviderId] =
+    useState<OpenCodeKeyProviderId | null>(null)
   const [apiKey, setApiKey] = useState("")
+  const [accountId, setAccountId] = useState("")
   const [pending, setPending] = useState(false)
   const [defaultPending, setDefaultPending] = useState(false)
+  const [disconnectCandidate, setDisconnectCandidate] = useState<string | null>(
+    null
+  )
+  const [disconnectPending, setDisconnectPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [invitePending, setInvitePending] = useState(false)
   const [inviteError, setInviteError] = useState<string | null>(null)
@@ -179,11 +191,22 @@ function OrganizationSettingsScreen() {
   const returnToList = () => {
     setFlow("list")
     setError(null)
+    setDisconnectCandidate(null)
+    setSelectedProviderId(null)
     setApiKey("")
+    setAccountId("")
   }
 
   const handleApiSetup = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    const provider = selectedProviderId
+      ? findProviderOption(selectedProviderId)
+      : undefined
+    if (!provider) {
+      setError("Choose a provider before connecting")
+      setFlow("choose")
+      return
+    }
     setPending(true)
     setError(null)
     try {
@@ -191,8 +214,9 @@ function OrganizationSettingsScreen() {
         data: {
           organizationId,
           scope,
-          providerId: "opencode",
+          providerId: provider.id,
           apiKey,
+          configuration: providerConfiguration(provider, accountId),
         },
       })
       returnToList()
@@ -204,7 +228,7 @@ function OrganizationSettingsScreen() {
       setError(
         cause instanceof Error
           ? cause.message
-          : "OpenCode Zen could not connect"
+          : `${provider.name} could not connect`
       )
     } finally {
       setPending(false)
@@ -254,14 +278,57 @@ function OrganizationSettingsScreen() {
     }
   }
 
-  const reconnect = (providerId: string) => {
+  const reconnect = (connection: {
+    providerId: string
+    authMethod: string
+  }) => {
     setError(null)
-    if (providerId === "openai") {
+    setApiKey("")
+    setAccountId("")
+    if (connection.authMethod === "chatgpt-subscription") {
       setFlow("openai")
       return
     }
+    const provider = findProviderOption(connection.providerId)
+    if (!provider) {
+      setError(`Sylph does not support reconnecting ${connection.providerId}`)
+      return
+    }
+    setSelectedProviderId(provider.id)
     setFlow("key")
   }
+
+  const disconnect = async (providerId: string) => {
+    setDisconnectPending(true)
+    setError(null)
+    try {
+      await disconnectConnection({
+        data: { organizationId, scope, providerId },
+      })
+      setDisconnectCandidate(null)
+      await router.invalidate()
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "The provider could not be disconnected"
+      )
+    } finally {
+      setDisconnectPending(false)
+    }
+  }
+
+  const selectProvider = (providerId: OpenCodeKeyProviderId) => {
+    setSelectedProviderId(providerId)
+    setApiKey("")
+    setAccountId("")
+    setError(null)
+    setFlow("key")
+  }
+
+  const selectedProvider = selectedProviderId
+    ? findProviderOption(selectedProviderId)
+    : undefined
 
   const handleInvite = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -398,7 +465,10 @@ function OrganizationSettingsScreen() {
                     <div className="flex items-center gap-2">
                       <span className="size-1.5 rounded-full bg-status-live" />
                       <h2 className="text-sm font-medium">
-                        {providerName(connection.providerId)}
+                        {connectionName(
+                          connection.providerId,
+                          connection.authMethod
+                        )}
                       </h2>
                     </div>
                     <p className="mt-1 pl-3.5 text-[10px] text-muted-foreground">
@@ -413,13 +483,48 @@ function OrganizationSettingsScreen() {
                     </p>
                   </div>
                   <div className="flex items-center gap-2 pl-3.5 sm:pl-0">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => reconnect(connection.providerId)}
-                    >
-                      Reconnect
-                    </Button>
+                    {disconnectCandidate === connection.providerId ? (
+                      <>
+                        <Button
+                          disabled={disconnectPending}
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setDisconnectCandidate(null)}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          disabled={disconnectPending}
+                          size="sm"
+                          variant="destructive"
+                          onClick={() => void disconnect(connection.providerId)}
+                        >
+                          {disconnectPending ? (
+                            <LoaderCircle className="animate-spin" />
+                          ) : null}
+                          Remove credential
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => reconnect(connection)}
+                        >
+                          Reconnect
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() =>
+                            setDisconnectCandidate(connection.providerId)
+                          }
+                        >
+                          Disconnect
+                        </Button>
+                      </>
+                    )}
                   </div>
                 </div>
               ))
@@ -488,34 +593,24 @@ function OrganizationSettingsScreen() {
           <section className="py-6">
             <h2 className="text-sm font-medium">Choose a provider</h2>
             <div className="mt-4 border-y">
-              <button
-                type="button"
-                className="flex w-full items-center justify-between gap-4 border-b px-1 py-4 text-left hover:bg-sidebar/45 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
-                onClick={() => setFlow("openai")}
-              >
-                <span>
-                  <span className="block text-sm font-medium">OpenAI</span>
-                  <span className="mt-1 block text-xs text-muted-foreground">
-                    Connect a Codex subscription
+              {providerOptions.map((provider) => (
+                <button
+                  key={provider.id}
+                  type="button"
+                  className="flex w-full items-center justify-between gap-4 border-b px-1 py-4 text-left last:border-b-0 hover:bg-sidebar/45 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
+                  onClick={() => selectProvider(provider.id)}
+                >
+                  <span>
+                    <span className="block text-sm font-medium">
+                      {provider.name}
+                    </span>
+                    <span className="mt-1 block text-xs text-muted-foreground">
+                      {provider.description}
+                    </span>
                   </span>
-                </span>
-                <ArrowRight className="size-4 text-muted-foreground" />
-              </button>
-              <button
-                type="button"
-                className="flex w-full items-center justify-between gap-4 px-1 py-4 text-left hover:bg-sidebar/45 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
-                onClick={() => setFlow("key")}
-              >
-                <span>
-                  <span className="block text-sm font-medium">
-                    OpenCode Zen
-                  </span>
-                  <span className="mt-1 block text-xs text-muted-foreground">
-                    Connect with an API key
-                  </span>
-                </span>
-                <ArrowRight className="size-4 text-muted-foreground" />
-              </button>
+                  <ArrowRight className="size-4 shrink-0 text-muted-foreground" />
+                </button>
+              ))}
             </div>
           </section>
         ) : flow === "openai" ? (
@@ -575,9 +670,11 @@ function OrganizationSettingsScreen() {
               Cancel authorization
             </Button>
           </section>
-        ) : (
+        ) : selectedProvider ? (
           <section className="py-6">
-            <h2 className="text-sm font-medium">Connect OpenCode Zen</h2>
+            <h2 className="text-sm font-medium">
+              Connect {selectedProvider.name}
+            </h2>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
               Add {scope === "organization" ? "an Organization" : "your"} API
               key. Sylph will discover the models available to this connection.
@@ -586,19 +683,32 @@ function OrganizationSettingsScreen() {
               className="mt-5 grid max-w-lg gap-5"
               onSubmit={handleApiSetup}
             >
+              {selectedProvider.requiresAccountId ? (
+                <div className="grid gap-2">
+                  <Label htmlFor="cloudflare-account-id">
+                    Cloudflare Account ID
+                  </Label>
+                  <Input
+                    id="cloudflare-account-id"
+                    value={accountId}
+                    onChange={(event) => setAccountId(event.target.value)}
+                    autoComplete="off"
+                    placeholder="Account ID"
+                    autoFocus
+                    required
+                  />
+                </div>
+              ) : null}
               <div className="grid gap-2">
-                <Label htmlFor="api-key">
-                  {scope === "organization" ? "Organization" : "Personal"}
-                  {" API key"}
-                </Label>
+                <Label htmlFor="api-key">{selectedProvider.apiKeyLabel}</Label>
                 <Input
                   id="api-key"
                   type="password"
                   value={apiKey}
                   onChange={(event) => setApiKey(event.target.value)}
                   autoComplete="off"
-                  placeholder="opk_…"
-                  autoFocus
+                  placeholder={selectedProvider.apiKeyPlaceholder}
+                  autoFocus={!selectedProvider.requiresAccountId}
                   required
                 />
               </div>
@@ -619,8 +729,30 @@ function OrganizationSettingsScreen() {
                   {pending ? <LoaderCircle className="animate-spin" /> : null}
                   Connect provider
                 </Button>
+                <Button
+                  nativeButton={false}
+                  variant="ghost"
+                  render={
+                    <a
+                      href={selectedProvider.helpUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    />
+                  }
+                >
+                  Provider help <ExternalLink />
+                </Button>
               </div>
             </form>
+          </section>
+        ) : (
+          <section className="py-6">
+            <p role="alert" className="text-sm text-destructive">
+              Choose a provider before entering credentials.
+            </p>
+            <Button className="mt-5" onClick={() => setFlow("choose")}>
+              Choose provider
+            </Button>
           </section>
         )}
 
