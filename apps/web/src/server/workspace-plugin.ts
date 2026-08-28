@@ -11,6 +11,10 @@ import {
 import { Plugin } from "@opencode-ai/plugin"
 
 import {
+  applyOpenAIOAuthRequest,
+  type OpenAIOAuthRequestState,
+} from "./opencode-oauth-request"
+import {
   WorkspaceFilesystem,
   normalizeWorkspacePath,
 } from "./workspace-filesystem"
@@ -18,7 +22,8 @@ import { WorkspaceGit } from "./workspace-git"
 
 export const createWorkspacePlugin = (
   filesystem: WorkspaceFilesystem,
-  workspaceGit: WorkspaceGit
+  workspaceGit: WorkspaceGit,
+  openAIOAuth: OpenAIOAuthRequestState
 ) =>
   Plugin.define({
     id: "sylph-workspace",
@@ -127,12 +132,18 @@ export const createWorkspacePlugin = (
           })
         }
       )
+      const openAIRequestRegistration = await context.session.hook(
+        "model.request",
+        (request) => applyOpenAIOAuthRequest(request, openAIOAuth),
+        { providerID: "openai" }
+      )
 
       return async () => {
         await Promise.all([
           toolRegistration.dispose(),
           vcsRegistration.dispose(),
           sessionRegistration.dispose(),
+          openAIRequestRegistration.dispose(),
         ])
       }
     },

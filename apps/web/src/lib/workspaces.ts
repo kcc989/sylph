@@ -3,11 +3,11 @@ import {
   decodeWorkspaceAcceptInputPromise,
   decodeCreateWorkspaceInputPromise,
   decodeCreateProjectInputPromise,
+  decodeDisconnectOpenCodeConnectionInputPromise,
   decodeGitHubApiRepositoryJsonPromise,
   decodeGitHubRepositoryLookupInputPromise,
   decodeInstallationClaimInputPromise,
   decodeMagicLinkRequest,
-  decodeOpenCodeCredentialPromise,
   decodeOpenCodeConnectionResultPromise,
   decodeOpenCodeKeySetupInputPromise,
   decodeOpenCodeSubscriptionAttemptPromise,
@@ -17,6 +17,7 @@ import {
   decodeOrganizationRequestInputPromise,
   decodePrepareProjectRepositoryResultPromise,
   decodeProjectRequestInputPromise,
+  decodeRestartWorkspaceInputPromise,
   decodeSetDefaultModelInputPromise,
   decodeWorkspaceCheckpointInputPromise,
   decodeWorkspaceCheckpointList,
@@ -41,8 +42,8 @@ import { Effect } from "effect"
 import { schema } from "@workspace/db"
 import { createServerFn } from "@tanstack/react-start"
 import { getRequest } from "@tanstack/react-start/server"
-import { env } from "cloudflare:workers"
-import { and, desc, eq } from "drizzle-orm"
+import { env, waitUntil } from "cloudflare:workers"
+import { and, count, desc, eq } from "drizzle-orm"
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1"
 
 import { createRequestAuth } from "@/server/auth.server"
@@ -58,6 +59,10 @@ import {
   type AvailableModel,
   type SelectedModel,
 } from "@/lib/model-selection"
+import {
+  decodeStoredCredential,
+  encodeKeyCredential,
+} from "@/lib/provider-credential"
 import {
   normalizeProviderModels,
   selectInitialProviderModel,
@@ -167,6 +172,8 @@ const effectiveConnection = async (
     organizationModels,
     personalPreference,
     organizationPreference,
+    personalConnections,
+    organizationConnections,
   ] = await Promise.all([
     database
       .select({
@@ -204,20 +211,49 @@ const effectiveConnection = async (
         eq(schema.organizationModelPreference.organizationId, organizationId)
       )
       .get(),
+    database
+      .select({
+        providerId: schema.userOpenCodeConnection.providerId,
+        authMethod: schema.userOpenCodeConnection.authMethod,
+      })
+      .from(schema.userOpenCodeConnection)
+      .where(eq(schema.userOpenCodeConnection.userId, userId)),
+    database
+      .select({
+        providerId: schema.openCodeConnection.providerId,
+        authMethod: schema.openCodeConnection.authMethod,
+      })
+      .from(schema.openCodeConnection)
+      .where(eq(schema.openCodeConnection.organizationId, organizationId)),
   ])
 
+  const personalRuntimeProviders = new Set(
+    personalConnections
+      .filter((connection) => connection.authMethod !== "chatgpt-subscription")
+      .map((connection) => connection.providerId)
+  )
+  const organizationRuntimeProviders = new Set(
+    organizationConnections
+      .filter((connection) => connection.authMethod !== "chatgpt-subscription")
+      .map((connection) => connection.providerId)
+  )
   const personalKeys = new Set(
-    personalModels.map((model) => `${model.providerId}\u0000${model.modelId}`)
+    personalModels
+      .filter((model) => personalRuntimeProviders.has(model.providerId))
+      .map((model) => `${model.providerId}\u0000${model.modelId}`)
   )
   const models: AvailableModel[] = [
-    ...personalModels.map((model) => ({
-      ...model,
-      providerName: providerName(model.providerId),
-      scope: "personal" as const,
-    })),
+    ...personalModels
+      .filter((model) => personalRuntimeProviders.has(model.providerId))
+      .map((model) => ({
+        ...model,
+        providerName: providerName(model.providerId),
+        scope: "personal" as const,
+      })),
     ...organizationModels
       .filter(
         (model) =>
+          organizationRuntimeProviders.has(model.providerId) &&
           !personalKeys.has(`${model.providerId}\u0000${model.modelId}`)
       )
       .map((model) => ({
@@ -299,9 +335,7 @@ const connectionCredential = async (connection: {
     env.CREDENTIAL_ENCRYPTION_KEY
   )
 
-  return connection.authMethod === "chatgpt-subscription"
-    ? decodeOpenCodeCredentialPromise(JSON.parse(plaintext))
-    : decodeOpenCodeCredentialPromise({ type: "key", key: plaintext })
+  return decodeStoredCredential(connection.authMethod, plaintext)
 }
 
 const initializeWorkspaceRuntime = async (
@@ -316,6 +350,34 @@ const initializeWorkspaceRuntime = async (
   })
 
   if (!response.ok) throw new Error(await response.text())
+}
+
+const completeWorkspaceInitialization = async (
+  database: DrizzleD1Database<typeof schema>,
+  workspaceId: string,
+  input: InitializeWorkspaceRuntime
+) => {
+  try {
+    await initializeWorkspaceRuntime(workspaceId, input)
+    await database
+      .update(schema.workspace)
+      .set({
+        status: "ready",
+        syncStatus: "ready",
+        errorSummary: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.workspace.id, workspaceId))
+  } catch (error) {
+    const errorSummary =
+      error instanceof Error && error.message
+        ? error.message
+        : "Workspace runtime failed"
+    await database
+      .update(schema.workspace)
+      .set({ status: "error", errorSummary, updatedAt: new Date() })
+      .where(eq(schema.workspace.id, workspaceId))
+  }
 }
 
 const saveProviderModels = async ({
@@ -360,25 +422,29 @@ const saveProviderModels = async ({
         }))
       )
     }
-    const preference = await database
-      .select({ modelId: schema.organizationModelPreference.modelId })
-      .from(schema.organizationModelPreference)
-      .where(
-        eq(schema.organizationModelPreference.organizationId, organizationId)
-      )
-      .get()
     const initial = selectInitialProviderModel(
       providerModels,
       providerId,
       recommendedModelId
     )
-    if (!preference && initial) {
-      await database.insert(schema.organizationModelPreference).values({
-        organizationId,
-        providerId: initial.providerId,
-        modelId: initial.modelId,
-        configuredByUserId: userId,
-      })
+    if (initial) {
+      await database
+        .insert(schema.organizationModelPreference)
+        .values({
+          organizationId,
+          providerId: initial.providerId,
+          modelId: initial.modelId,
+          configuredByUserId: userId,
+        })
+        .onConflictDoUpdate({
+          target: schema.organizationModelPreference.organizationId,
+          set: {
+            providerId: initial.providerId,
+            modelId: initial.modelId,
+            configuredByUserId: userId,
+            updatedAt: new Date(),
+          },
+        })
     }
     return providerModels.length
   }
@@ -401,22 +467,27 @@ const saveProviderModels = async ({
       }))
     )
   }
-  const preference = await database
-    .select({ modelId: schema.userModelPreference.modelId })
-    .from(schema.userModelPreference)
-    .where(eq(schema.userModelPreference.userId, userId))
-    .get()
   const initial = selectInitialProviderModel(
     providerModels,
     providerId,
     recommendedModelId
   )
-  if (!preference && initial) {
-    await database.insert(schema.userModelPreference).values({
-      userId,
-      providerId: initial.providerId,
-      modelId: initial.modelId,
-    })
+  if (initial) {
+    await database
+      .insert(schema.userModelPreference)
+      .values({
+        userId,
+        providerId: initial.providerId,
+        modelId: initial.modelId,
+      })
+      .onConflictDoUpdate({
+        target: schema.userModelPreference.userId,
+        set: {
+          providerId: initial.providerId,
+          modelId: initial.modelId,
+          updatedAt: new Date(),
+        },
+      })
   }
   return providerModels.length
 }
@@ -939,6 +1010,77 @@ export const setDefaultModel = createServerFn({ method: "POST" })
     return { providerId: data.providerId, modelId: data.modelId }
   })
 
+export const disconnectOpenCodeConnection = createServerFn({ method: "POST" })
+  .validator((input) => decodeDisconnectOpenCodeConnectionInputPromise(input))
+  .handler(async ({ data }) => {
+    const { session } = await currentSession(getRequest())
+
+    if (!session) throw new Error("Sign in before disconnecting a provider")
+
+    await connectionAccess(data.organizationId, session.user.id, data.scope)
+
+    const database = drizzle(env.DB, { schema })
+    if (data.scope === "organization") {
+      await database
+        .delete(schema.openCodeConnection)
+        .where(
+          and(
+            eq(schema.openCodeConnection.organizationId, data.organizationId),
+            eq(schema.openCodeConnection.providerId, data.providerId)
+          )
+        )
+      await database
+        .delete(schema.organizationProviderModel)
+        .where(
+          and(
+            eq(
+              schema.organizationProviderModel.organizationId,
+              data.organizationId
+            ),
+            eq(schema.organizationProviderModel.providerId, data.providerId)
+          )
+        )
+      await database
+        .delete(schema.organizationModelPreference)
+        .where(
+          and(
+            eq(
+              schema.organizationModelPreference.organizationId,
+              data.organizationId
+            ),
+            eq(schema.organizationModelPreference.providerId, data.providerId)
+          )
+        )
+    } else {
+      await database
+        .delete(schema.userOpenCodeConnection)
+        .where(
+          and(
+            eq(schema.userOpenCodeConnection.userId, session.user.id),
+            eq(schema.userOpenCodeConnection.providerId, data.providerId)
+          )
+        )
+      await database
+        .delete(schema.userProviderModel)
+        .where(
+          and(
+            eq(schema.userProviderModel.userId, session.user.id),
+            eq(schema.userProviderModel.providerId, data.providerId)
+          )
+        )
+      await database
+        .delete(schema.userModelPreference)
+        .where(
+          and(
+            eq(schema.userModelPreference.userId, session.user.id),
+            eq(schema.userModelPreference.providerId, data.providerId)
+          )
+        )
+    }
+
+    return { providerId: data.providerId }
+  })
+
 export const getWorkspaceCreationContext = createServerFn({ method: "GET" })
   .validator((input) => decodeProjectRequestInputPromise(input))
   .handler(async ({ data }) => {
@@ -1015,7 +1157,7 @@ export const saveOpenCodeSetup = createServerFn({ method: "POST" })
     )
 
     const credential = await encryptCredential(
-      data.apiKey,
+      encodeKeyCredential(data.apiKey, data.configuration),
       env.CREDENTIAL_ENCRYPTION_KEY
     )
     const now = new Date()
@@ -1531,10 +1673,6 @@ export const createWorkspace = createServerFn({ method: "POST" })
 
     if (!session) throw new Error("Sign in before creating a Workspace")
 
-    const title = data.title.trim()
-
-    if (!title) throw new Error("Workspace name needs a letter or number")
-
     const database = drizzle(env.DB, { schema })
     const project = await database
       .select({
@@ -1559,6 +1697,15 @@ export const createWorkspace = createServerFn({ method: "POST" })
     if (!project) {
       throw new Error("This Project does not exist or you cannot access it")
     }
+
+    const existingWorkspaceCount = await database
+      .select({ value: count() })
+      .from(schema.workspace)
+      .where(eq(schema.workspace.projectId, project.id))
+      .get()
+    const workspaceNumber = (existingWorkspaceCount?.value ?? 0) + 1
+    const title =
+      workspaceNumber === 1 ? project.name : `Workspace ${workspaceNumber}`
 
     const connection = await effectiveConnection(
       database,
@@ -1609,8 +1756,9 @@ export const createWorkspace = createServerFn({ method: "POST" })
       updatedAt: now,
     })
 
-    try {
-      await initializeWorkspaceRuntime(
+    waitUntil(
+      completeWorkspaceInitialization(
+        database,
         workspaceId,
         new InitializeWorkspaceRuntime({
           organizationId: OrganizationId.make(project.organizationId),
@@ -1628,29 +1776,13 @@ export const createWorkspace = createServerFn({ method: "POST" })
           credential,
         })
       )
-    } catch (error) {
-      const errorSummary =
-        error instanceof Error && error.message
-          ? error.message
-          : "Workspace runtime failed"
-      await database
-        .update(schema.workspace)
-        .set({ status: "error", errorSummary, updatedAt: new Date() })
-        .where(eq(schema.workspace.id, workspaceId))
-      return { id: workspaceId, status: "error" as const, errorSummary }
+    )
+
+    return {
+      id: workspaceId,
+      status: "provisioning" as const,
+      errorSummary: null,
     }
-
-    await database
-      .update(schema.workspace)
-      .set({
-        status: "ready",
-        syncStatus: "ready",
-        errorSummary: null,
-        updatedAt: new Date(),
-      })
-      .where(eq(schema.workspace.id, workspaceId))
-
-    return { id: workspaceId, status: "ready" as const, errorSummary: null }
   })
 
 export const getWorkspace = createServerFn({ method: "GET" })
@@ -1787,7 +1919,7 @@ export const getWorkspace = createServerFn({ method: "GET" })
   })
 
 export const restartWorkspace = createServerFn({ method: "POST" })
-  .validator((input) => decodeWorkspaceRequestInputPromise(input))
+  .validator((input) => decodeRestartWorkspaceInputPromise(input))
   .handler(async ({ data }) => {
     const request = getRequest()
     const { session } = await currentSession(request)
@@ -1830,7 +1962,8 @@ export const restartWorkspace = createServerFn({ method: "POST" })
     const connection = await effectiveConnection(
       database,
       workspace.organizationId,
-      workspace.ownerUserId
+      workspace.ownerUserId,
+      data.model
     )
 
     if (!connection) {

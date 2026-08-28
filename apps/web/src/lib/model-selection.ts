@@ -1,3 +1,5 @@
+import { providerDisplayName } from "./provider-options"
+
 export type ModelScope = "personal" | "organization"
 
 export interface AvailableModel {
@@ -71,7 +73,13 @@ export const resolveModelSelection = ({
     }
   }
 
-  const fallback = models[0] ?? null
+  const fallback =
+    models.find(
+      (model) =>
+        model.providerId === "openrouter" && model.modelId === "openrouter/auto"
+    ) ??
+    models[0] ??
+    null
   const unavailable = conversation ?? personal ?? organization
   return {
     model: fallback,
@@ -83,9 +91,4 @@ export const resolveModelSelection = ({
   }
 }
 
-export const providerName = (providerId: string) =>
-  providerId === "openai"
-    ? "OpenAI"
-    : providerId === "opencode"
-      ? "OpenCode Zen"
-      : providerId
+export const providerName = providerDisplayName

@@ -36,7 +36,6 @@ export class CreateWorkspaceInput extends Schema.Class<CreateWorkspaceInput>(
   "@sylph/domain/CreateWorkspaceInput"
 )({
   projectId: ProjectId,
-  title: Schema.NonEmptyString,
 }) {}
 
 export class ProjectRequestInput extends Schema.Class<ProjectRequestInput>(
@@ -65,22 +64,32 @@ export const OpenCodeAuthMethod = Schema.Literals([
 ])
 export type OpenCodeAuthMethod = typeof OpenCodeAuthMethod.Type
 
+export const OpenCodeKeyProviderId = Schema.Literals([
+  "openai",
+  "openrouter",
+  "cloudflare-workers-ai",
+  "anthropic",
+  "opencode",
+])
+export type OpenCodeKeyProviderId = typeof OpenCodeKeyProviderId.Type
+
+export const OpenCodeKeyConfiguration = Schema.Record(
+  Schema.String,
+  Schema.Union([
+    Schema.String,
+    Schema.Number,
+    Schema.Boolean,
+    Schema.Array(Schema.String),
+  ])
+)
+export type OpenCodeKeyConfiguration = typeof OpenCodeKeyConfiguration.Type
+
 export const OpenCodeCredential = Schema.Union([
   Schema.Struct({
     type: Schema.Literal("key"),
     key: Schema.NonEmptyString,
     metadata: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
-    configuration: Schema.optional(
-      Schema.Record(
-        Schema.String,
-        Schema.Union([
-          Schema.String,
-          Schema.Number,
-          Schema.Boolean,
-          Schema.Array(Schema.String),
-        ])
-      )
-    ),
+    configuration: Schema.optional(OpenCodeKeyConfiguration),
   }),
   Schema.Struct({
     type: Schema.Literal("oauth"),
@@ -123,8 +132,9 @@ export class OpenCodeKeySetupInput extends Schema.Class<OpenCodeKeySetupInput>(
 )({
   organizationId: OrganizationId,
   scope: ConnectionScope,
-  providerId: Schema.NonEmptyString,
+  providerId: OpenCodeKeyProviderId,
   apiKey: Schema.NonEmptyString,
+  configuration: Schema.optional(OpenCodeKeyConfiguration),
 }) {}
 
 export class SetDefaultModelInput extends Schema.Class<SetDefaultModelInput>(
@@ -134,6 +144,14 @@ export class SetDefaultModelInput extends Schema.Class<SetDefaultModelInput>(
   scope: ConnectionScope,
   providerId: Schema.NonEmptyString,
   modelId: Schema.NonEmptyString,
+}) {}
+
+export class DisconnectOpenCodeConnectionInput extends Schema.Class<DisconnectOpenCodeConnectionInput>(
+  "@sylph/domain/DisconnectOpenCodeConnectionInput"
+)({
+  organizationId: OrganizationId,
+  scope: ConnectionScope,
+  providerId: Schema.NonEmptyString,
 }) {}
 
 export class OpenCodeSubscriptionStartInput extends Schema.Class<OpenCodeSubscriptionStartInput>(
@@ -216,6 +234,13 @@ export class WorkspaceRequestInput extends Schema.Class<WorkspaceRequestInput>(
   "@sylph/domain/WorkspaceRequestInput"
 )({
   workspaceId: WorkspaceId,
+}) {}
+
+export class RestartWorkspaceInput extends Schema.Class<RestartWorkspaceInput>(
+  "@sylph/domain/RestartWorkspaceInput"
+)({
+  workspaceId: WorkspaceId,
+  model: Schema.optional(ModelSelection),
 }) {}
 
 export const WorkspaceRuntimeStatus = Schema.Literals([
@@ -328,6 +353,9 @@ export const decodeOpenCodeKeySetupInputPromise = Schema.decodeUnknownPromise(
 export const decodeSetDefaultModelInputPromise =
   Schema.decodeUnknownPromise(SetDefaultModelInput)
 
+export const decodeDisconnectOpenCodeConnectionInputPromise =
+  Schema.decodeUnknownPromise(DisconnectOpenCodeConnectionInput)
+
 export const decodeOpenCodeSubscriptionStartInputPromise =
   Schema.decodeUnknownPromise(OpenCodeSubscriptionStartInput)
 
@@ -358,6 +386,10 @@ export const decodeWorkspaceRuntimePromptInputPromise =
 
 export const decodeWorkspaceRequestInputPromise = Schema.decodeUnknownPromise(
   WorkspaceRequestInput
+)
+
+export const decodeRestartWorkspaceInputPromise = Schema.decodeUnknownPromise(
+  RestartWorkspaceInput
 )
 
 export const decodeWorkspaceRuntimeHealth = Schema.decodeUnknownPromise(

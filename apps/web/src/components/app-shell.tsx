@@ -17,6 +17,7 @@ import {
   CircleDot,
   CircleHelp,
   House,
+  LoaderCircle,
   LogOut,
   MoreHorizontal,
   PanelLeftClose,
@@ -34,6 +35,7 @@ import {
 } from "react-resizable-panels"
 
 import { authClient } from "@/lib/auth-client"
+import { useWorkspaceCreation } from "@/lib/use-workspace-creation"
 
 type Organization = {
   id: string
@@ -257,6 +259,8 @@ function ProjectNavigation({
 }) {
   const organization = dashboard.organizations[0]
   const projects = dashboard.projects
+  const { creatingProjectId, creationError, startWorkspace } =
+    useWorkspaceCreation()
 
   return (
     <aside
@@ -296,13 +300,21 @@ function ProjectNavigation({
                     {project.name}
                   </span>
                   <Button
-                    nativeButton={false}
-                    aria-label={`New Workspace in ${project.name}`}
+                    aria-label={
+                      creatingProjectId === project.id
+                        ? `Creating Workspace in ${project.name}`
+                        : `New Workspace in ${project.name}`
+                    }
                     size="icon-xs"
                     variant="ghost"
-                    render={<a href={`${basePath}/workspaces/new`} />}
+                    disabled={creatingProjectId !== null}
+                    onClick={() => void startWorkspace(project)}
                   >
-                    <Plus />
+                    {creatingProjectId === project.id ? (
+                      <LoaderCircle className="animate-spin" />
+                    ) : (
+                      <Plus />
+                    )}
                   </Button>
                   <DropdownMenu>
                     <DropdownMenuTrigger
@@ -313,11 +325,15 @@ function ProjectNavigation({
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-44">
                       <DropdownMenuItem
-                        onClick={() =>
-                          window.location.assign(`${basePath}/workspaces/new`)
-                        }
+                        disabled={creatingProjectId !== null}
+                        onClick={() => void startWorkspace(project)}
                       >
-                        <Plus /> New Workspace
+                        {creatingProjectId === project.id ? (
+                          <LoaderCircle className="animate-spin" />
+                        ) : (
+                          <Plus />
+                        )}
+                        New Workspace
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         onClick={() =>
@@ -329,6 +345,14 @@ function ProjectNavigation({
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
+                {creationError?.projectId === project.id ? (
+                  <p
+                    role="alert"
+                    className="px-3 pb-1 text-[10px] leading-4 text-destructive"
+                  >
+                    {creationError.message}
+                  </p>
+                ) : null}
                 <div className="grid gap-0.5 px-1">
                   {workspaces.map((workspace) => (
                     <a

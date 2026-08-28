@@ -10,7 +10,9 @@ import {
   decodeOpenCodeKeySetupInputPromise,
   decodeOpenCodeSubscriptionStartInputPromise,
   decodeOpenCodeSubscriptionStatusInputPromise,
+  decodeRestartWorkspaceInputPromise,
   decodeSetDefaultModelInputPromise,
+  decodeDisconnectOpenCodeConnectionInputPromise,
   decodeWorkspaceSummary,
   decodeWorkspaceWriteFile,
 } from "./workspace"
@@ -104,20 +106,27 @@ describe("Project and runtime inputs", () => {
   test("decodes a Workspace for an existing Project", async () => {
     const workspace = await decodeCreateWorkspaceInputPromise({
       projectId: "project-1",
-      title: "Add billing",
     })
 
     expect(workspace.projectId).toBe(ProjectId.make("project-1"))
-    expect(workspace.title).toBe("Add billing")
   })
 
-  test("rejects an empty Workspace title", async () => {
+  test("rejects an empty Project id when creating a Workspace", async () => {
     await expect(
       decodeCreateWorkspaceInputPromise({
-        projectId: "project-1",
-        title: "",
+        projectId: "",
       })
     ).rejects.toBeDefined()
+  })
+
+  test("restarts a Workspace with a selected model", async () => {
+    const restart = await decodeRestartWorkspaceInputPromise({
+      workspaceId: "workspace-1",
+      model: { providerId: "openrouter", modelId: "openrouter/auto" },
+    })
+
+    expect(restart.model?.providerId).toBe("openrouter")
+    expect(restart.model?.modelId).toBe("openrouter/auto")
   })
 
   test("requires an API key for OpenCode setup", async () => {
@@ -143,6 +152,30 @@ describe("Project and runtime inputs", () => {
     expect(setup.scope).toBe("user")
   })
 
+  test("preserves Cloudflare Workers AI connection configuration", async () => {
+    const setup = await decodeOpenCodeKeySetupInputPromise({
+      organizationId: "organization-1",
+      scope: "organization",
+      providerId: "cloudflare-workers-ai",
+      apiKey: "secret",
+      configuration: { accountId: "account-1" },
+    })
+
+    expect(setup.providerId).toBe("cloudflare-workers-ai")
+    expect(setup.configuration).toEqual({ accountId: "account-1" })
+  })
+
+  test("rejects providers outside the supported key integrations", async () => {
+    await expect(
+      decodeOpenCodeKeySetupInputPromise({
+        organizationId: "organization-1",
+        scope: "user",
+        providerId: "unsupported",
+        apiKey: "secret",
+      })
+    ).rejects.toBeDefined()
+  })
+
   test("scopes a default model to an Organization", async () => {
     const input = await decodeSetDefaultModelInputPromise({
       organizationId: "organization-1",
@@ -152,6 +185,18 @@ describe("Project and runtime inputs", () => {
     })
 
     expect(input.organizationId).toBe(OrganizationId.make("organization-1"))
+    expect(input.providerId).toBe("openai")
+  })
+
+  test("scopes a provider disconnect to the current user", async () => {
+    const input = await decodeDisconnectOpenCodeConnectionInputPromise({
+      organizationId: "organization-1",
+      scope: "user",
+      providerId: "openai",
+    })
+
+    expect(input.organizationId).toBe(OrganizationId.make("organization-1"))
+    expect(input.scope).toBe("user")
     expect(input.providerId).toBe("openai")
   })
 

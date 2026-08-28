@@ -60,4 +60,29 @@ describe("model selection hierarchy", () => {
     expect(result.model).toBeNull()
     expect(result.source).toBeNull()
   })
+
+  test("uses OpenRouter Auto Router when a saved default is unavailable", () => {
+    const result = resolveModelSelection({
+      models: [
+        {
+          providerId: "openrouter",
+          modelId: "aion/aion-2.0",
+          name: "Aion-2.0",
+          providerName: "OpenRouter",
+          scope: "organization",
+        },
+        {
+          providerId: "openrouter",
+          modelId: "openrouter/auto",
+          name: "Auto Router",
+          providerName: "OpenRouter",
+          scope: "organization",
+        },
+      ],
+      organization: { providerId: "openai", modelId: "gpt-5.6-sol" },
+    })
+
+    expect(result.model?.modelId).toBe("openrouter/auto")
+    expect(result.source).toBe("fallback")
+  })
 })

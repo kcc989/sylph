@@ -27,6 +27,7 @@ import {
   getLatestMagicLink,
   restartWorkspace,
 } from "@/lib/workspaces"
+import { useWorkspaceCreation } from "@/lib/use-workspace-creation"
 
 export const Route = createFileRoute("/")({
   validateSearch: validateOnboardingSearch,
@@ -53,6 +54,8 @@ function HomeScreen() {
   })
   const needsOnboarding = onboardingState.completedCount < 3
   const [onboardingVisible, setOnboardingVisible] = useState(needsOnboarding)
+  const { creatingProjectId, creationError, startWorkspace } =
+    useWorkspaceCreation()
 
   useEffect(() => {
     if (!needsOnboarding) setOnboardingVisible(false)
@@ -307,12 +310,17 @@ function HomeScreen() {
                       {project.name}
                     </h2>
                     <Button
-                      nativeButton={false}
                       size="sm"
                       variant="ghost"
-                      render={<a href={`${basePath}/workspaces/new`} />}
+                      disabled={creatingProjectId !== null}
+                      onClick={() => void startWorkspace(project)}
                     >
-                      <Plus /> Workspace
+                      {creatingProjectId === project.id ? (
+                        <LoaderCircle className="animate-spin" />
+                      ) : (
+                        <Plus />
+                      )}
+                      Workspace
                     </Button>
                     <Button
                       nativeButton={false}
@@ -324,6 +332,11 @@ function HomeScreen() {
                       <MoreHorizontal />
                     </Button>
                   </div>
+                  {creationError?.projectId === project.id ? (
+                    <p role="alert" className="px-1 text-xs text-destructive">
+                      {creationError.message}
+                    </p>
+                  ) : null}
                   <div className="mt-3 grid gap-2">
                     {workspaces.map((workspace) => (
                       <div
