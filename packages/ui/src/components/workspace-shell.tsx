@@ -1013,7 +1013,7 @@ function ModelCombobox({
     >
       <Combobox.Trigger
         aria-label="Model for next turn"
-        className="ml-auto flex h-7 max-w-56 min-w-0 flex-1 items-center gap-1.5 rounded-[5px] border border-white/[.12] bg-white/[.045] px-2 text-[11px] text-foreground outline-none hover:bg-white/[.07] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none sm:basis-52"
+        className="ml-auto flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-[5px] border border-white/[.12] bg-white/[.045] px-2 text-[11px] text-foreground outline-none hover:bg-white/[.07] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
       >
         <Tooltip>
           <TooltipTrigger
@@ -1132,7 +1132,7 @@ function PromptComposer({
   return (
     <div className="shrink-0 p-3 pt-0">
       <form
-        className="mx-auto max-w-3xl border border-white/[.12] bg-[#1c1a18] shadow-[0_16px_45px_rgba(0,0,0,.24)] focus-within:border-[#ef9b7e]/45"
+        className="@container mx-auto max-w-3xl border border-white/[.12] bg-[#1c1a18] shadow-[0_16px_45px_rgba(0,0,0,.24)] focus-within:border-[#ef9b7e]/45"
         onSubmit={async (event) => {
           event.preventDefault()
           await submit()
@@ -1166,13 +1166,13 @@ function PromptComposer({
             {modelNotice}
           </p>
         ) : null}
-        <div className="flex min-h-10 items-center gap-1 border-t border-white/[.07] px-2 py-1">
+        <div className="flex min-h-10 min-w-0 items-center gap-1 overflow-hidden border-t border-white/[.07] px-2 py-1">
           <Button aria-label="Attach file" size="icon-xs" variant="ghost">
             <Paperclip />
           </Button>
           <Button
             aria-label="Mention context"
-            className="hidden sm:inline-flex"
+            className="hidden @md:inline-flex"
             size="icon-xs"
             variant="ghost"
           >
@@ -1180,13 +1180,13 @@ function PromptComposer({
           </Button>
           <Button
             aria-label="Open command"
-            className="hidden sm:inline-flex"
+            className="hidden @lg:inline-flex"
             size="icon-xs"
             variant="ghost"
           >
             <Terminal />
           </Button>
-          <Button className="hidden md:inline-flex" size="xs" variant="ghost">
+          <Button className="hidden @xl:inline-flex" size="xs" variant="ghost">
             <Blocks /> Skills
           </Button>
           <ModelCombobox
@@ -1195,7 +1195,7 @@ function PromptComposer({
             selectedOption={selectedOption ?? null}
             onModelChange={onModelChange}
           />
-          <span className="hidden text-[10px] whitespace-nowrap text-muted-foreground sm:inline">
+          <span className="hidden text-[10px] whitespace-nowrap text-muted-foreground @2xl:inline">
             ⌘ ↵
           </span>
           <Button
