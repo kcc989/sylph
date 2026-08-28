@@ -19,3 +19,6 @@ todos.json
 
 # typescript
 *.tsbuildinfo
+playwright/.auth
+playwright-report/release-smoke
+test-results/release-smoke

@@ -457,6 +457,12 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         return new Response(null, { status: 204 })
       }
 
+      if (request.method === "POST" && url.pathname === "/evict") {
+        this.ctx.abort("Sylph requested Workspace runtime eviction", {
+          retryAlarm: false,
+        })
+      }
+
       if (request.method === "GET" && url.pathname === "/snapshot") {
         return Response.json(await this.#snapshot(opencode))
       }

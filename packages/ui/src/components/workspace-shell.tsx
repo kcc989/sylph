@@ -577,6 +577,8 @@ function WorkspaceTopbar({
   onAccept,
   acceptDisabled,
   acceptPending,
+  onRestartWorkspace,
+  restartPending,
 }: {
   agentControllingBrowser: boolean
   browser: BrowserState
@@ -594,6 +596,8 @@ function WorkspaceTopbar({
   onAccept?: () => Promise<void>
   acceptDisabled: boolean
   acceptPending: boolean
+  onRestartWorkspace?: () => Promise<void>
+  restartPending: boolean
 }) {
   const passedChecks = checks.filter(
     (check) => check.status === "passed"
@@ -684,13 +688,27 @@ function WorkspaceTopbar({
           )}
           <span className="hidden xl:inline">Accept</span>
         </Button>
-        <Button
-          aria-label="More workspace actions"
-          size="icon-sm"
-          variant="ghost"
-        >
-          <MoreHorizontal />
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            aria-label="More workspace actions"
+            className="grid size-8 shrink-0 place-items-center rounded-[6px] text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          >
+            <MoreHorizontal className="size-4" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuItem
+              disabled={!onRestartWorkspace || restartPending}
+              onClick={() => void onRestartWorkspace?.()}
+            >
+              {restartPending ? (
+                <LoaderCircle className="animate-spin motion-reduce:animate-none" />
+              ) : (
+                <RefreshCw />
+              )}
+              Restart runtime
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </header>
   )
@@ -1905,6 +1923,8 @@ function WorkspaceShell({
                   changedFileCount > 0 || !onAccept || checkpointPending
                 }
                 acceptPending={acceptPending}
+                onRestartWorkspace={onRestartWorkspace}
+                restartPending={restartPending}
                 projectName={projectName}
                 repositoryName={repositoryName}
                 workspaceName={workspaceName}
