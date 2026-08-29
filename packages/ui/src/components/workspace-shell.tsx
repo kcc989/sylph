@@ -126,6 +126,14 @@ type ThreadEntry = {
   artifact?: { label: string; detail: string }
 }
 
+type WorkspacePermissionRequest = {
+  id: string
+  action: string
+  resources: string[]
+  message?: string
+  canSave: boolean
+}
+
 type BrowserState = {
   url: string
   title: string
@@ -184,6 +192,8 @@ type WorkspaceShellProps = {
   promptDisabled?: boolean
   promptError?: string | null
   promptPending?: boolean
+  permissionRequests?: ReadonlyArray<WorkspacePermissionRequest>
+  replyingPermissionId?: string | null
   checkpointPending?: boolean
   acceptPending?: boolean
   restartPending?: boolean
@@ -192,6 +202,10 @@ type WorkspaceShellProps = {
   onSubmitPrompt?: (
     text: string,
     model: { providerId: string; modelId: string }
+  ) => Promise<void>
+  onPermissionReply?: (
+    requestId: string,
+    reply: "once" | "always" | "reject"
   ) => Promise<void>
   onModelChange?: (model: { providerId: string; modelId: string }) => void
   onRestartWorkspace?: () => Promise<void>
@@ -563,6 +577,8 @@ function WorkspaceTopbar({
   onAccept,
   acceptDisabled,
   acceptPending,
+  onRestartWorkspace,
+  restartPending,
 }: {
   agentControllingBrowser: boolean
   browser: BrowserState
@@ -580,6 +596,8 @@ function WorkspaceTopbar({
   onAccept?: () => Promise<void>
   acceptDisabled: boolean
   acceptPending: boolean
+  onRestartWorkspace?: () => Promise<void>
+  restartPending: boolean
 }) {
   const passedChecks = checks.filter(
     (check) => check.status === "passed"
@@ -670,13 +688,27 @@ function WorkspaceTopbar({
           )}
           <span className="hidden xl:inline">Accept</span>
         </Button>
-        <Button
-          aria-label="More workspace actions"
-          size="icon-sm"
-          variant="ghost"
-        >
-          <MoreHorizontal />
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            aria-label="More workspace actions"
+            className="grid size-8 shrink-0 place-items-center rounded-[6px] text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          >
+            <MoreHorizontal className="size-4" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuItem
+              disabled={!onRestartWorkspace || restartPending}
+              onClick={() => void onRestartWorkspace?.()}
+            >
+              {restartPending ? (
+                <LoaderCircle className="animate-spin motion-reduce:animate-none" />
+              ) : (
+                <RefreshCw />
+              )}
+              Restart runtime
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </header>
   )
@@ -692,6 +724,9 @@ function ResponseMarkdown({ children }: { children: string }) {
 
 function AgentThread({
   entries,
+  permissionRequests,
+  replyingPermissionId,
+  onPermissionReply,
   initialPrompt,
   onSubmitPrompt,
   promptDisabled,
@@ -706,6 +741,12 @@ function AgentThread({
   onModelChange,
 }: {
   entries: ThreadEntry[]
+  permissionRequests: ReadonlyArray<WorkspacePermissionRequest>
+  replyingPermissionId?: string | null
+  onPermissionReply?: (
+    requestId: string,
+    reply: "once" | "always" | "reject"
+  ) => Promise<void>
   initialPrompt?: string
   onSubmitPrompt?: (
     text: string,
@@ -807,6 +848,76 @@ function AgentThread({
                   </article>
                 </MessageScrollerItem>
               ))}
+              {permissionRequests.map((request) => {
+                const pending = replyingPermissionId === request.id
+                return (
+                  <MessageScrollerItem
+                    key={request.id}
+                    messageId={request.id}
+                    className="py-2 last:pb-4"
+                  >
+                    <article className="min-w-0 border border-[#ef9b7e]/30 bg-[#ef9b7e]/[.055] px-3.5 py-3">
+                      <div className="flex min-w-0 items-start gap-3">
+                        <ShieldCheck className="mt-0.5 size-4 shrink-0 text-[#ef9b7e]" />
+                        <div className="min-w-0 flex-1">
+                          <h3 className="text-[13px] font-medium text-foreground">
+                            Permission requested
+                          </h3>
+                          <p className="mt-1 text-[12px] leading-5 text-foreground/75">
+                            {request.message ??
+                              `The assistant wants to run ${request.action}.`}
+                          </p>
+                          <p
+                            className="mt-2 truncate font-mono text-[11px] text-muted-foreground"
+                            title={request.resources.join(", ")}
+                          >
+                            {request.resources.join(", ") || request.action}
+                          </p>
+                          <div className="mt-3 flex flex-wrap justify-end gap-2">
+                            <Button
+                              disabled={pending}
+                              size="sm"
+                              type="button"
+                              variant="ghost"
+                              onClick={() =>
+                                onPermissionReply?.(request.id, "reject")
+                              }
+                            >
+                              Reject
+                            </Button>
+                            {request.canSave ? (
+                              <Button
+                                disabled={pending}
+                                size="sm"
+                                type="button"
+                                variant="outline"
+                                onClick={() =>
+                                  onPermissionReply?.(request.id, "always")
+                                }
+                              >
+                                Always allow
+                              </Button>
+                            ) : null}
+                            <Button
+                              disabled={pending}
+                              size="sm"
+                              type="button"
+                              onClick={() =>
+                                onPermissionReply?.(request.id, "once")
+                              }
+                            >
+                              {pending ? (
+                                <LoaderCircle className="animate-spin" />
+                              ) : null}
+                              Allow once
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </article>
+                  </MessageScrollerItem>
+                )
+              })}
             </MessageScrollerContent>
           </MessageScrollerViewport>
           <MessageScrollerButton />
@@ -902,7 +1013,7 @@ function ModelCombobox({
     >
       <Combobox.Trigger
         aria-label="Model for next turn"
-        className="ml-auto flex h-7 max-w-56 min-w-0 flex-1 items-center gap-1.5 rounded-[5px] border border-white/[.12] bg-white/[.045] px-2 text-[11px] text-foreground outline-none hover:bg-white/[.07] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none sm:basis-52"
+        className="ml-auto flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-[5px] border border-white/[.12] bg-white/[.045] px-2 text-[11px] text-foreground outline-none hover:bg-white/[.07] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
       >
         <Tooltip>
           <TooltipTrigger
@@ -1021,7 +1132,7 @@ function PromptComposer({
   return (
     <div className="shrink-0 p-3 pt-0">
       <form
-        className="mx-auto max-w-3xl border border-white/[.12] bg-[#1c1a18] shadow-[0_16px_45px_rgba(0,0,0,.24)] focus-within:border-[#ef9b7e]/45"
+        className="@container mx-auto max-w-3xl border border-white/[.12] bg-[#1c1a18] shadow-[0_16px_45px_rgba(0,0,0,.24)] focus-within:border-[#ef9b7e]/45"
         onSubmit={async (event) => {
           event.preventDefault()
           await submit()
@@ -1055,13 +1166,13 @@ function PromptComposer({
             {modelNotice}
           </p>
         ) : null}
-        <div className="flex min-h-10 items-center gap-1 border-t border-white/[.07] px-2 py-1">
+        <div className="flex min-h-10 min-w-0 items-center gap-1 overflow-hidden border-t border-white/[.07] px-2 py-1">
           <Button aria-label="Attach file" size="icon-xs" variant="ghost">
             <Paperclip />
           </Button>
           <Button
             aria-label="Mention context"
-            className="hidden sm:inline-flex"
+            className="hidden @md:inline-flex"
             size="icon-xs"
             variant="ghost"
           >
@@ -1069,13 +1180,13 @@ function PromptComposer({
           </Button>
           <Button
             aria-label="Open command"
-            className="hidden sm:inline-flex"
+            className="hidden @lg:inline-flex"
             size="icon-xs"
             variant="ghost"
           >
             <Terminal />
           </Button>
-          <Button className="hidden md:inline-flex" size="xs" variant="ghost">
+          <Button className="hidden @xl:inline-flex" size="xs" variant="ghost">
             <Blocks /> Skills
           </Button>
           <ModelCombobox
@@ -1084,7 +1195,7 @@ function PromptComposer({
             selectedOption={selectedOption ?? null}
             onModelChange={onModelChange}
           />
-          <span className="hidden text-[10px] whitespace-nowrap text-muted-foreground sm:inline">
+          <span className="hidden text-[10px] whitespace-nowrap text-muted-foreground @2xl:inline">
             ⌘ ↵
           </span>
           <Button
@@ -1401,6 +1512,9 @@ function WorkspaceToolToggle({
 
 function WorkspaceChat({
   entries,
+  permissionRequests,
+  replyingPermissionId,
+  onPermissionReply,
   initialPrompt,
   onToggleTools,
   onSubmitPrompt,
@@ -1417,6 +1531,12 @@ function WorkspaceChat({
   onModelChange,
 }: {
   entries: ThreadEntry[]
+  permissionRequests: ReadonlyArray<WorkspacePermissionRequest>
+  replyingPermissionId?: string | null
+  onPermissionReply?: (
+    requestId: string,
+    reply: "once" | "always" | "reject"
+  ) => Promise<void>
   initialPrompt?: string
   onToggleTools: () => void
   onSubmitPrompt?: (
@@ -1445,6 +1565,9 @@ function WorkspaceChat({
       </header>
       <AgentThread
         entries={entries}
+        permissionRequests={permissionRequests}
+        replyingPermissionId={replyingPermissionId}
+        onPermissionReply={onPermissionReply}
         initialPrompt={initialPrompt}
         onSubmitPrompt={onSubmitPrompt}
         promptDisabled={promptDisabled}
@@ -1652,11 +1775,14 @@ function WorkspaceShell({
   promptDisabled = false,
   promptError,
   promptPending = false,
+  permissionRequests = [],
+  replyingPermissionId,
   checkpointPending = false,
   acceptPending = false,
   restartPending = false,
   onCheckpoint,
   onAccept,
+  onPermissionReply,
   onRestartWorkspace,
   workspaceError,
 }: WorkspaceShellProps) {
@@ -1733,7 +1859,7 @@ function WorkspaceShell({
     <TooltipProvider>
       <div
         className={cn(
-          "dark relative m-1.5 flex h-[calc(100svh-0.75rem)] min-h-[620px] overflow-hidden rounded-[10px] border bg-background text-foreground shadow-[0_22px_70px_rgba(0,0,0,.38)]",
+          "dark relative flex h-svh min-h-[620px] overflow-hidden bg-background text-foreground",
           className
         )}
       >
@@ -1797,6 +1923,8 @@ function WorkspaceShell({
                   changedFileCount > 0 || !onAccept || checkpointPending
                 }
                 acceptPending={acceptPending}
+                onRestartWorkspace={onRestartWorkspace}
+                restartPending={restartPending}
                 projectName={projectName}
                 repositoryName={repositoryName}
                 workspaceName={workspaceName}
@@ -1831,6 +1959,9 @@ function WorkspaceShell({
                 <ResizablePanel id="workspace-chat" minSize="260px">
                   <WorkspaceChat
                     entries={entries}
+                    permissionRequests={permissionRequests}
+                    replyingPermissionId={replyingPermissionId}
+                    onPermissionReply={onPermissionReply}
                     initialPrompt={initialPrompt}
                     models={models}
                     selectedModel={selectedModel}
@@ -1907,6 +2038,7 @@ export type {
   CheckItem,
   ProjectGroup,
   ThreadEntry,
+  WorkspacePermissionRequest,
   WorkspaceItem,
   WorkspaceShellProps,
   WorkspaceTab,

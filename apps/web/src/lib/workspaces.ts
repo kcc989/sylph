@@ -8,7 +8,6 @@ import {
   decodeGitHubRepositoryLookupInputPromise,
   decodeInstallationClaimInputPromise,
   decodeMagicLinkRequest,
-  decodeOpenCodeConnectionResultPromise,
   decodeOpenCodeKeySetupInputPromise,
   decodeOpenCodeSubscriptionAttemptPromise,
   decodeOpenCodeSubscriptionRuntimeStatusPromise,
@@ -64,9 +63,11 @@ import {
   encodeKeyCredential,
 } from "@/lib/provider-credential"
 import {
+  bootstrapProviderModels,
   normalizeProviderModels,
   selectInitialProviderModel,
 } from "@/lib/provider-models"
+import { restartDurableWorkspace } from "@/server/workspace-runtime-lifecycle"
 
 const normalizeName = (value: string) =>
   value
@@ -1139,23 +1140,6 @@ export const saveOpenCodeSetup = createServerFn({ method: "POST" })
     const database = drizzle(env.DB, { schema })
     await connectionAccess(data.organizationId, session.user.id, data.scope)
 
-    const validator = env.WORKSPACES.get(
-      env.WORKSPACES.idFromName(
-        connectionRuntimeName(data.organizationId, session.user.id, data.scope)
-      )
-    )
-    const validation = await validator.fetch("https://workspace/connect/key", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(data),
-    })
-
-    if (!validation.ok) throw new Error(await validation.text())
-
-    const connected = await decodeOpenCodeConnectionResultPromise(
-      await validation.json()
-    )
-
     const credential = await encryptCredential(
       encodeKeyCredential(data.apiKey, data.configuration),
       env.CREDENTIAL_ENCRYPTION_KEY
@@ -1213,14 +1197,15 @@ export const saveOpenCodeSetup = createServerFn({ method: "POST" })
         })
     }
 
+    const models = bootstrapProviderModels(data.providerId)
     const availableModelCount = await saveProviderModels({
       database,
       organizationId: data.organizationId,
       userId: session.user.id,
       scope: data.scope,
       providerId: data.providerId,
-      models: connected.models,
-      recommendedModelId: connected.recommendedModelId,
+      models,
+      recommendedModelId: models[0]?.modelId ?? null,
     })
 
     return {
@@ -1555,6 +1540,7 @@ export const createProject = createServerFn({ method: "POST" })
         sourceName: artifact.name,
         name: workspaceRepositoryName,
         description: `Workspace for ${data.name}`,
+        defaultBranch: artifact.defaultBranch,
       })
     )
     const now = new Date()
@@ -1734,6 +1720,7 @@ export const createWorkspace = createServerFn({ method: "POST" })
         sourceName: project.repositoryName,
         name: workspaceRepositoryName,
         description: `Workspace for ${project.name}: ${title}`,
+        defaultBranch: project.defaultRef,
       })
     )
     const now = new Date()
@@ -1930,6 +1917,7 @@ export const restartWorkspace = createServerFn({ method: "POST" })
     const workspace = await database
       .select({
         id: schema.workspace.id,
+        status: schema.workspace.status,
         projectId: schema.workspace.projectId,
         projectName: schema.project.name,
         organizationId: schema.workspace.organizationId,
@@ -1981,6 +1969,22 @@ export const restartWorkspace = createServerFn({ method: "POST" })
       throw new Error("This Workspace predates Artifact-backed version control")
     }
 
+    const runtimeInput = new InitializeWorkspaceRuntime({
+      organizationId: OrganizationId.make(workspace.organizationId),
+      projectId: ProjectId.make(workspace.projectId),
+      workspaceId: WorkspaceId.make(workspace.id),
+      projectName: workspace.projectName,
+      repositoryName: workspace.repositoryName,
+      repositoryRemote: repository.remote,
+      projectRepositoryName: workspace.projectRepositoryName,
+      projectRepositoryRemote: workspace.projectRepositoryRemote,
+      defaultRef: workspace.defaultRef,
+      baseCommit: workspace.baseCommit,
+      providerId: connection.providerId,
+      modelId: connection.modelId,
+      credential,
+    })
+
     await database
       .update(schema.workspace)
       .set({
@@ -1991,24 +1995,16 @@ export const restartWorkspace = createServerFn({ method: "POST" })
       .where(eq(schema.workspace.id, workspace.id))
 
     try {
-      await initializeWorkspaceRuntime(
-        workspace.id,
-        new InitializeWorkspaceRuntime({
-          organizationId: OrganizationId.make(workspace.organizationId),
-          projectId: ProjectId.make(workspace.projectId),
-          workspaceId: WorkspaceId.make(workspace.id),
-          projectName: workspace.projectName,
-          repositoryName: workspace.repositoryName,
-          repositoryRemote: repository.remote,
-          projectRepositoryName: workspace.projectRepositoryName,
-          projectRepositoryRemote: workspace.projectRepositoryRemote,
-          defaultRef: workspace.defaultRef,
-          baseCommit: workspace.baseCommit,
-          providerId: connection.providerId,
-          modelId: connection.modelId,
-          credential,
-        })
-      )
+      await restartDurableWorkspace({
+        async evict() {
+          const runtime = env.WORKSPACES.get(
+            env.WORKSPACES.idFromName(workspace.id)
+          )
+          await runtime.fetch("https://workspace/evict", { method: "POST" })
+        },
+        initialize: () =>
+          initializeWorkspaceRuntime(workspace.id, runtimeInput),
+      })
     } catch (error) {
       const summary =
         error instanceof Error && error.message
@@ -2023,10 +2019,17 @@ export const restartWorkspace = createServerFn({ method: "POST" })
 
     await database
       .update(schema.workspace)
-      .set({ status: "ready", errorSummary: null, updatedAt: new Date() })
+      .set({
+        status: workspace.status === "archived" ? "archived" : "ready",
+        errorSummary: null,
+        updatedAt: new Date(),
+      })
       .where(eq(schema.workspace.id, workspace.id))
 
-    return { id: workspace.id, status: "ready" as const }
+    return {
+      id: workspace.id,
+      status: workspace.status === "archived" ? "archived" : "ready",
+    } as const
   })
 
 export const promptWorkspace = createServerFn({ method: "POST" })
@@ -2154,19 +2157,29 @@ export const checkpointWorkspace = createServerFn({ method: "POST" })
       body: JSON.stringify(data),
     })
     if (!response.ok) throw new Error(await response.text())
-    const result = await decodeWorkspaceCheckpointResult(await response.json())
-    await database
-      .update(schema.workspace)
-      .set({
-        forkHead: result.checkpoint.commit,
-        syncStatus: "ready",
-        mergeStatus: "ready",
-        latestCheckpointAt: new Date(result.checkpoint.createdAt),
-        errorSummary: null,
-        updatedAt: new Date(),
-      })
-      .where(eq(schema.workspace.id, data.workspaceId))
-    return result
+    try {
+      const result = await decodeWorkspaceCheckpointResult(
+        await response.json()
+      )
+      await database
+        .update(schema.workspace)
+        .set({
+          forkHead: result.checkpoint.commit,
+          syncStatus: "ready",
+          mergeStatus: "ready",
+          latestCheckpointAt: new Date(result.checkpoint.createdAt),
+          errorSummary: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.workspace.id, data.workspaceId))
+      return result
+    } catch (error) {
+      console.error(
+        "Workspace checkpoint persistence failed",
+        error instanceof Error ? error.stack : error
+      )
+      throw error
+    }
   })
 
 export const acceptWorkspace = createServerFn({ method: "POST" })

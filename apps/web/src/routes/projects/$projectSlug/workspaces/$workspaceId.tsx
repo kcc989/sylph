@@ -1,9 +1,14 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router"
+import {
+  decodeWorkspaceRuntimeEventPromise,
+  type WorkspacePermissionReply,
+} from "@workspace/domain"
 import { useServerFn } from "@tanstack/react-start"
 import { Button } from "@workspace/ui/components/button"
 import { Card, CardContent } from "@workspace/ui/components/card"
 import {
   type ThreadEntry,
+  type WorkspacePermissionRequest,
   WorkspaceShell,
 } from "@workspace/ui/components/workspace-shell"
 import { useEffect, useRef, useState } from "react"
@@ -18,6 +23,11 @@ import {
   restartWorkspace,
 } from "@/lib/workspaces"
 import { useWorkspaceCreation } from "@/lib/use-workspace-creation"
+import {
+  applyWorkspaceRuntimeEvent,
+  emptyWorkspaceLiveState,
+  workspaceEventNeedsSnapshot,
+} from "@/lib/workspace-runtime-events"
 
 export const Route = createFileRoute(
   "/projects/$projectSlug/workspaces/$workspaceId"
@@ -53,6 +63,12 @@ function WorkspaceScreen() {
   const [acceptKey, setAcceptKey] = useState(() => crypto.randomUUID())
   const [restartPending, setRestartPending] = useState(false)
   const [promptError, setPromptError] = useState<string | null>(null)
+  const [liveState, setLiveState] = useState(emptyWorkspaceLiveState)
+  const liveStateRef = useRef(liveState)
+  const [replyingPermissionId, setReplyingPermissionId] = useState<
+    string | null
+  >(null)
+  const [optimisticEntries, setOptimisticEntries] = useState<ThreadEntry[]>([])
   const [selectedModel, setSelectedModel] = useState(
     result?.selectedModel ?? null
   )
@@ -60,6 +76,44 @@ function WorkspaceScreen() {
   const modelSelectionWorkspaceId = useRef(workspaceId)
   const [modelNotice, setModelNotice] = useState(result?.modelNotice ?? null)
   const { creatingProjectId, startWorkspace } = useWorkspaceCreation()
+
+  useEffect(() => {
+    liveStateRef.current = emptyWorkspaceLiveState()
+    setLiveState(liveStateRef.current)
+    setOptimisticEntries([])
+    const source = new EventSource(
+      `/api/workspaces/${encodeURIComponent(workspaceId)}`
+    )
+    let refreshTimer: number | null = null
+    let eventQueue = Promise.resolve()
+
+    const refresh = () => {
+      if (refreshTimer !== null) window.clearTimeout(refreshTimer)
+      refreshTimer = window.setTimeout(() => void router.invalidate(), 80)
+    }
+
+    source.onopen = refresh
+    source.onmessage = (message) => {
+      eventQueue = eventQueue
+        .then(async () => {
+          const event = await decodeWorkspaceRuntimeEventPromise(
+            JSON.parse(message.data)
+          )
+          liveStateRef.current = await applyWorkspaceRuntimeEvent(
+            liveStateRef.current,
+            event
+          )
+          setLiveState(liveStateRef.current)
+          if (workspaceEventNeedsSnapshot(event)) refresh()
+        })
+        .catch(() => undefined)
+    }
+
+    return () => {
+      if (refreshTimer !== null) window.clearTimeout(refreshTimer)
+      source.close()
+    }
+  }, [router, workspaceId])
 
   useEffect(() => {
     const workspaceChanged = modelSelectionWorkspaceId.current !== workspaceId
@@ -79,18 +133,6 @@ function WorkspaceScreen() {
     result?.selectedModel?.providerId,
     workspaceId,
   ])
-
-  useEffect(() => {
-    if (
-      !result ||
-      (result.runtime.status !== "provisioning" &&
-        result.runtime.status !== "running" &&
-        result.workspace.status !== "merging")
-    )
-      return
-    const poll = window.setInterval(() => router.invalidate(), 1_500)
-    return () => window.clearInterval(poll)
-  }, [result, router])
 
   if (!result) {
     return (
@@ -121,7 +163,7 @@ function WorkspaceScreen() {
     (total, change) => total + change.deletions,
     0
   )
-  const entries: ThreadEntry[] =
+  const snapshotEntries: ThreadEntry[] =
     runtime.status === "error"
       ? [
           {
@@ -153,6 +195,40 @@ function WorkspaceScreen() {
               details: [...runtime.files],
             },
           ]
+
+  const snapshotMessageIds = new Set(
+    runtime.messages.map((message) => message.id)
+  )
+  const streamingEntries: ThreadEntry[] = Object.entries(
+    liveState.partialMessages
+  )
+    .filter(([id]) => !snapshotMessageIds.has(id))
+    .map(([id, body]) => ({
+      id,
+      kind: "agent",
+      body,
+      meta: "Assistant",
+    }))
+  const entries = [
+    ...snapshotEntries,
+    ...optimisticEntries,
+    ...streamingEntries,
+  ]
+  const permissionRequests: WorkspacePermissionRequest[] = Object.values({
+    ...Object.fromEntries(
+      runtime.permissions.map((request) => [
+        request.id,
+        {
+          id: request.id,
+          action: request.action,
+          resources: [...request.resources],
+          message: request.message,
+          canSave: Boolean(request.save?.length),
+        },
+      ])
+    ),
+    ...liveState.permissionRequests,
+  })
 
   return (
     <WorkspaceShell
@@ -194,6 +270,42 @@ function WorkspaceScreen() {
         },
       ]}
       entries={entries}
+      permissionRequests={permissionRequests}
+      replyingPermissionId={replyingPermissionId}
+      onPermissionReply={async (requestId, reply) => {
+        setReplyingPermissionId(requestId)
+        setPromptError(null)
+        try {
+          const response = await fetch(
+            `/api/workspaces/${encodeURIComponent(workspaceId)}`,
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                workspaceId,
+                requestId,
+                reply: reply satisfies WorkspacePermissionReply,
+              }),
+            }
+          )
+          if (!response.ok) throw new Error(await response.text())
+          setLiveState((state) => {
+            const permissionRequests = { ...state.permissionRequests }
+            delete permissionRequests[requestId]
+            const next = { ...state, permissionRequests }
+            liveStateRef.current = next
+            return next
+          })
+        } catch (cause) {
+          setPromptError(
+            cause instanceof Error
+              ? cause.message
+              : "The permission response could not be sent"
+          )
+        } finally {
+          setReplyingPermissionId(null)
+        }
+      }}
       initialPrompt={
         onboarding && runtime.messages.length === 0
           ? "Make one small, useful improvement to this starter project. Explain the change, write the files, and leave it ready for review."
@@ -254,6 +366,15 @@ function WorkspaceScreen() {
       onSubmitPrompt={async (text, model) => {
         setPromptPending(true)
         setPromptError(null)
+        const optimisticId = `optimistic-${crypto.randomUUID()}`
+        setOptimisticEntries([
+          {
+            id: optimisticId,
+            kind: "user",
+            body: text,
+            meta: "You",
+          },
+        ])
 
         try {
           const response = await prompt({ data: { workspaceId, text, model } })
@@ -261,7 +382,9 @@ function WorkspaceScreen() {
           setSelectedModel(response.selectedModel)
           setModelNotice(response.modelNotice)
           await router.invalidate()
+          setOptimisticEntries([])
         } catch (cause) {
+          setOptimisticEntries([])
           setPromptError(
             cause instanceof Error
               ? cause.message

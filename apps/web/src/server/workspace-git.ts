@@ -200,17 +200,54 @@ export class WorkspaceGit {
 
     this.#filesystem.clear()
     const repository = await this.#repositories.get(input.repositoryName)
-    const token = await repository.createToken("read", 300)
-    await git.clone({
-      fs: this.#filesystem,
+    const token = await repository.createToken("write", 300)
+    const refs = await git.listServerRefs({
       http,
-      dir: directory,
       url: input.repositoryRemote,
-      ref: input.defaultRef,
-      singleBranch: true,
-      noTags: true,
+      prefix: `refs/heads/${input.defaultRef}`,
       onAuth: artifactAuth(token.plaintext),
     })
+    const workspaceHead = refs.find(
+      (ref) => ref.ref === `refs/heads/${input.defaultRef}`
+    )?.oid
+
+    if (workspaceHead) {
+      await git.clone({
+        fs: this.#filesystem,
+        http,
+        dir: directory,
+        url: input.repositoryRemote,
+        ref: input.defaultRef,
+        singleBranch: true,
+        noTags: true,
+        onAuth: artifactAuth(token.plaintext),
+      })
+    } else {
+      const projectRepository = await this.#repositories.get(
+        input.projectRepositoryName
+      )
+      const projectToken = await projectRepository.createToken("read", 300)
+      await git.clone({
+        fs: this.#filesystem,
+        http,
+        dir: directory,
+        url: input.projectRepositoryRemote,
+        ref: input.defaultRef,
+        singleBranch: true,
+        noTags: true,
+        onAuth: artifactAuth(projectToken.plaintext),
+      })
+      await git.push({
+        fs: this.#filesystem,
+        http,
+        dir: directory,
+        url: input.repositoryRemote,
+        ref: input.defaultRef,
+        remoteRef: input.defaultRef,
+        force: false,
+        onAuth: artifactAuth(token.plaintext),
+      })
+    }
     const forkHead = await git.resolveRef({
       fs: this.#filesystem,
       dir: directory,

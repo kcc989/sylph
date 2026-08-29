@@ -16,6 +16,7 @@ import { Route as SetupRouteImport } from './routes/setup'
 import { Route as InviteInvitationIdRouteImport } from './routes/invite/$invitationId'
 import { Route as ProjectsNewRouteImport } from './routes/projects/new'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as ApiWorkspacesWorkspaceIdRouteImport } from './routes/api/workspaces/$workspaceId'
 import { Route as ProjectsProjectSlugSettingsRouteImport } from './routes/projects/$projectSlug/settings'
 import { Route as ProjectsProjectSlugWorkspacesWorkspaceIdRouteImport } from './routes/projects/$projectSlug/workspaces/$workspaceId'
 import { Route as ProjectsProjectSlugWorkspacesNewRouteImport } from './routes/projects/$projectSlug/workspaces/new'
@@ -55,6 +56,12 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiWorkspacesWorkspaceIdRoute =
+  ApiWorkspacesWorkspaceIdRouteImport.update({
+    id: '/api/workspaces/$workspaceId',
+    path: '/api/workspaces/$workspaceId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ProjectsProjectSlugSettingsRoute =
   ProjectsProjectSlugSettingsRouteImport.update({
     id: '/projects/$projectSlug/settings',
@@ -82,6 +89,7 @@ export interface FileRoutesByFullPath {
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/projects/new': typeof ProjectsNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/workspaces/$workspaceId': typeof ApiWorkspacesWorkspaceIdRoute
   '/projects/$projectSlug/settings': typeof ProjectsProjectSlugSettingsRoute
   '/projects/$projectSlug/workspaces/$workspaceId': typeof ProjectsProjectSlugWorkspacesWorkspaceIdRoute
   '/projects/$projectSlug/workspaces/new': typeof ProjectsProjectSlugWorkspacesNewRoute
@@ -94,6 +102,7 @@ export interface FileRoutesByTo {
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/projects/new': typeof ProjectsNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/workspaces/$workspaceId': typeof ApiWorkspacesWorkspaceIdRoute
   '/projects/$projectSlug/settings': typeof ProjectsProjectSlugSettingsRoute
   '/projects/$projectSlug/workspaces/$workspaceId': typeof ProjectsProjectSlugWorkspacesWorkspaceIdRoute
   '/projects/$projectSlug/workspaces/new': typeof ProjectsProjectSlugWorkspacesNewRoute
@@ -107,6 +116,7 @@ export interface FileRoutesById {
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/projects/new': typeof ProjectsNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/workspaces/$workspaceId': typeof ApiWorkspacesWorkspaceIdRoute
   '/projects/$projectSlug/settings': typeof ProjectsProjectSlugSettingsRoute
   '/projects/$projectSlug/workspaces/$workspaceId': typeof ProjectsProjectSlugWorkspacesWorkspaceIdRoute
   '/projects/$projectSlug/workspaces/new': typeof ProjectsProjectSlugWorkspacesNewRoute
@@ -121,6 +131,7 @@ export interface FileRouteTypes {
     | '/invite/$invitationId'
     | '/projects/new'
     | '/api/auth/$'
+    | '/api/workspaces/$workspaceId'
     | '/projects/$projectSlug/settings'
     | '/projects/$projectSlug/workspaces/$workspaceId'
     | '/projects/$projectSlug/workspaces/new'
@@ -133,6 +144,7 @@ export interface FileRouteTypes {
     | '/invite/$invitationId'
     | '/projects/new'
     | '/api/auth/$'
+    | '/api/workspaces/$workspaceId'
     | '/projects/$projectSlug/settings'
     | '/projects/$projectSlug/workspaces/$workspaceId'
     | '/projects/$projectSlug/workspaces/new'
@@ -145,6 +157,7 @@ export interface FileRouteTypes {
     | '/invite/$invitationId'
     | '/projects/new'
     | '/api/auth/$'
+    | '/api/workspaces/$workspaceId'
     | '/projects/$projectSlug/settings'
     | '/projects/$projectSlug/workspaces/$workspaceId'
     | '/projects/$projectSlug/workspaces/new'
@@ -158,6 +171,7 @@ export interface RootRouteChildren {
   InviteInvitationIdRoute: typeof InviteInvitationIdRoute
   ProjectsNewRoute: typeof ProjectsNewRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
+  ApiWorkspacesWorkspaceIdRoute: typeof ApiWorkspacesWorkspaceIdRoute
   ProjectsProjectSlugSettingsRoute: typeof ProjectsProjectSlugSettingsRoute
   ProjectsProjectSlugWorkspacesWorkspaceIdRoute: typeof ProjectsProjectSlugWorkspacesWorkspaceIdRoute
   ProjectsProjectSlugWorkspacesNewRoute: typeof ProjectsProjectSlugWorkspacesNewRoute
@@ -214,6 +228,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/workspaces/$workspaceId': {
+      id: '/api/workspaces/$workspaceId'
+      path: '/api/workspaces/$workspaceId'
+      fullPath: '/api/workspaces/$workspaceId'
+      preLoaderRoute: typeof ApiWorkspacesWorkspaceIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/projects/$projectSlug/settings': {
       id: '/projects/$projectSlug/settings'
       path: '/projects/$projectSlug/settings'
@@ -246,6 +267,7 @@ const rootRouteChildren: RootRouteChildren = {
   InviteInvitationIdRoute: InviteInvitationIdRoute,
   ProjectsNewRoute: ProjectsNewRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
+  ApiWorkspacesWorkspaceIdRoute: ApiWorkspacesWorkspaceIdRoute,
   ProjectsProjectSlugSettingsRoute: ProjectsProjectSlugSettingsRoute,
   ProjectsProjectSlugWorkspacesWorkspaceIdRoute:
     ProjectsProjectSlugWorkspacesWorkspaceIdRoute,

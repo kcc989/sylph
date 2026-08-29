@@ -12,7 +12,7 @@
   "dependencies": {
     "@workspace/domain": "workspace:*",
     "drizzle-orm": "latest",
-    "effect": "4.0.0-rc.112"
+    "effect": "4.0.0-rc.111"
   },
   "devDependencies": {
     "typescript": "^6"

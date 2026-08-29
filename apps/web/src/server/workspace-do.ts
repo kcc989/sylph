@@ -6,22 +6,30 @@ import {
   decodeOpenCodeSubscriptionStartInputPromise,
   decodeOpenCodeSubscriptionStatusInputPromise,
   decodePrepareProjectRepositoryInputPromise,
+  decodeWorkspacePermissionReplyInputPromise,
   decodeWorkspaceCheckpointInputPromise,
+  decodeWorkspaceRuntimeEventPromise,
   decodeWorkspaceRuntimePromptInputPromise,
   OpenCodeConnectionResult,
   PrepareProjectRepositoryResult,
   type InitializeWorkspaceRuntime,
   type OpenCodeCredential,
+  WorkspaceRuntimeEvent,
   type WorkspaceRuntimeMessage,
 } from "@workspace/domain"
-import { OpenCodeWorkerd } from "@opencode-ai/sdk/workerd"
+import type { OpenCodeWorkerd } from "@opencode-ai/sdk/workerd"
 import { DurableObject } from "cloudflare:workers"
 import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/durable-sqlite"
 import { sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { Schema } from "effect"
 
-import { createWorkspacePlugin } from "./workspace-plugin"
+import { workspaceEventResponse } from "./workspace-event-stream"
+import {
+  createWorkspacePermissionBridge,
+  createWorkspacePlugin,
+  workspaceMutationPermissions,
+} from "./workspace-plugin"
 import { WorkspaceFilesystem } from "./workspace-filesystem"
 import { WorkspaceGit } from "./workspace-git"
 import { createOpenCodeWithStorageBootstrap } from "./opencode-storage-bootstrap"
@@ -112,6 +120,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   readonly #opencode
   readonly #filesystem
   readonly #workspaceGit
+  readonly #permissionBridge = createWorkspacePermissionBridge()
   readonly #openAIOAuth: OpenAIOAuthRequestState = {
     active: false,
     accountID: null,
@@ -127,6 +136,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       this.#filesystem
     )
     this.#opencode = context.blockConcurrencyWhile(async () => {
+      const { OpenCodeWorkerd } = await import("@opencode-ai/sdk/workerd")
       const opencode = await createOpenCodeWithStorageBootstrap(
         context.storage,
         () =>
@@ -139,15 +149,32 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
             },
             config: {
               default_agent: "build",
+              permissions: workspaceMutationPermissions,
             },
             plugins: [
               createWorkspacePlugin(
                 this.#filesystem,
                 this.#workspaceGit,
-                this.#openAIOAuth
+                this.#openAIOAuth,
+                this.#permissionBridge
               ),
             ],
           })
+      )
+
+      this.#permissionBridge.connect(async (request) =>
+        opencode.permission.create({
+          sessionID: request.sessionID,
+          action: request.action,
+          resources: [request.path],
+          save: [request.path],
+          source: {
+            type: "tool",
+            messageID: request.messageID,
+            id: request.toolCallID,
+          },
+          agent: request.agent,
+        })
       )
 
       this.#filesystem.initialize()
@@ -389,6 +416,53 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         return Response.json(await this.#snapshot(opencode), { status: 202 })
       }
 
+      if (request.method === "GET" && url.pathname === "/events") {
+        const state = this.#database.select().from(appWorkspaceState).get()
+
+        if (!state?.sessionId) {
+          return new Response("OpenCode session is not initialized", {
+            status: 409,
+          })
+        }
+
+        return workspaceEventResponse(
+          this.#events(opencode, AgentSessionId.make(state.sessionId))
+        )
+      }
+
+      if (request.method === "POST" && url.pathname === "/permission/reply") {
+        const input = await decodeWorkspacePermissionReplyInputPromise(
+          await request.json()
+        )
+        const state = this.#database.select().from(appWorkspaceState).get()
+
+        if (!state || state.workspaceId !== input.workspaceId) {
+          return new Response("Workspace runtime is not initialized", {
+            status: 409,
+          })
+        }
+        if (!state.sessionId) {
+          return new Response("OpenCode session is not initialized", {
+            status: 409,
+          })
+        }
+
+        await opencode.permission.reply({
+          sessionID: state.sessionId,
+          requestID: input.requestId,
+          reply: input.reply,
+          message: input.message,
+        })
+        this.#permissionBridge.reply(input.requestId, input.reply)
+        return new Response(null, { status: 204 })
+      }
+
+      if (request.method === "POST" && url.pathname === "/evict") {
+        this.ctx.abort("Sylph requested Workspace runtime eviction", {
+          retryAlarm: false,
+        })
+      }
+
       if (request.method === "GET" && url.pathname === "/snapshot") {
         return Response.json(await this.#snapshot(opencode))
       }
@@ -399,11 +473,37 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
 
       return new Response("Not found", { status: 404 })
     } catch (error) {
-      console.error("Workspace runtime request failed", error)
+      console.error(
+        "Workspace runtime request failed",
+        error instanceof Error ? error.stack : error
+      )
       return new Response(
         error instanceof Error ? error.message : "Workspace runtime failed",
         { status: 500 }
       )
+    }
+  }
+
+  async *#events(
+    opencode: OpenCodeWorkerd.Interface,
+    sessionId: AgentSessionId
+  ): AsyncIterable<WorkspaceRuntimeEvent> {
+    const pending = await opencode.permission.request.list({
+      location: { directory: "/workspace" },
+    })
+
+    for (const request of pending.data) {
+      if (request.sessionID !== sessionId) continue
+      yield new WorkspaceRuntimeEvent({
+        id: `pending-${request.id}`,
+        created: Date.now(),
+        type: "permission.asked",
+        data: request,
+      })
+    }
+
+    for await (const event of opencode.events.subscribe()) {
+      yield await decodeWorkspaceRuntimeEventPromise(event)
     }
   }
 
@@ -640,16 +740,20 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         model: null,
         files: [],
         messages: [],
+        permissions: [],
         opencode: health,
       }
     }
 
-    const [active, messages] = await Promise.all([
+    const [active, messages, permissions] = await Promise.all([
       opencode.sessions.active(),
       opencode.message.list({
         sessionID: state.sessionId,
         limit: 100,
         order: "asc",
+      }),
+      opencode.permission.request.list({
+        location: { directory: "/workspace" },
       }),
     ])
     const files = this.#filesystem.listWorkingFiles()
@@ -667,6 +771,9 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           : null,
       files,
       messages: runtimeMessages(messages.data),
+      permissions: permissions.data.filter(
+        (request) => request.sessionID === state.sessionId
+      ),
       opencode: health,
     }
   }
