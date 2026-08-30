@@ -10,7 +10,7 @@ Prerequisites:
 
 - Bun
 - A Cloudflare account with access to Durable Objects, D1, Workflows, and Cloudflare Artifacts
-- A GitHub account that can create an OAuth application
+- A GitHub account that can create and install a GitHub App
 
 Run the guided setup:
 
@@ -18,7 +18,7 @@ Run the guided setup:
 ./scripts/setup.sh
 ```
 
-The wizard connects Alchemy to Cloudflare, generates local secrets, deploys the initial stack, configures GitHub OAuth against the deployed URL, and opens `/setup`. Sign in there with the account that should become the first Admin, confirm the verified email address shown by Sylph, and enter `INSTALLATION_CLAIM_SECRET` from `.env`.
+The wizard connects Alchemy to Cloudflare, generates local secrets, deploys the initial stack, configures a repository-scoped GitHub App against the deployed URL, and opens `/setup`. Sign in there with the account that should become the first Admin, confirm the verified email address shown by Sylph, and enter `INSTALLATION_CLAIM_SECRET` from `.env`.
 
 Only the one-time Installation claim can create the Organization. After claiming, use `/admin` to configure a shared AI Provider connection and create invitation links for other Users. Invitees must authenticate with the exact email address that was invited. Once the Installation is claimed, Sylph does not create an authentication account unless a current pending invitation authorizes that email address.
 
@@ -30,7 +30,7 @@ Sylph is a Bun monorepo managed with Turborepo. The web app lives in `apps/web`.
 
 ## Local development
 
-Copy `.env.example` to `.env` and provide the required secrets. Configure a GitHub OAuth app with this local callback URL:
+Copy `.env.example` to `.env` and provide the required secrets. Configure a GitHub App with read and write Contents permission, read and write Pull requests permission, read-only Email addresses account permission, user authorization during installation, and this local callback URL:
 
 ```text
 http://localhost:1337/api/auth/callback/github
@@ -188,7 +188,7 @@ Generate the current Better Auth tables for:
 - `account`
 - `verification`
 
-GitHub sign-in is identity only. Do not assume its OAuth token grants repository access. Add a separate repository connection later if GitHub imports need private-repo access.
+Configure GitHub sign-in with a GitHub App client ID and client secret. Give the App read and write Contents and Pull requests repository permissions plus read-only Email addresses account permission, enable user authorization during installation, and let each installation choose its repositories. The resulting user access token is repository-scoped and powers private import, synchronization, push delivery, and pull-request delivery without a personal access token.
 
 ### `user_settings`
 

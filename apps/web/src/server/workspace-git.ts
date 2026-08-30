@@ -4,6 +4,8 @@ import {
   WorkspaceCheckpointResult,
   WorkspaceFileChange,
   WorkspaceVersionControl,
+  SyncProjectRepositoryResult,
+  WorkspaceRebaseResult,
 } from "@workspace/domain"
 import { createTwoFilesPatch } from "diff"
 import git from "isomorphic-git"
@@ -69,6 +71,35 @@ const artifactAuth = (plaintext: string) => () => ({
 export const isRepositoryMetadata = (file: string) =>
   file === ".git" || file.startsWith(".git/")
 
+export const projectRepositorySyncStatus = async (
+  filesystem: WorkspaceFilesystem,
+  projectHead: string,
+  upstreamHead: string
+) => {
+  if (projectHead === upstreamHead) return "up_to_date" as const
+  if (
+    await git.isDescendent({
+      fs: filesystem,
+      dir: directory,
+      oid: upstreamHead,
+      ancestor: projectHead,
+    })
+  ) {
+    return "fast_forwarded" as const
+  }
+  if (
+    await git.isDescendent({
+      fs: filesystem,
+      dir: directory,
+      oid: projectHead,
+      ancestor: upstreamHead,
+    })
+  ) {
+    return "ahead" as const
+  }
+  return "diverged" as const
+}
+
 export class WorkspaceGit {
   readonly #storage: WorkspaceStorage
   readonly #repositories: Artifacts
@@ -101,6 +132,11 @@ export class WorkspaceGit {
     repositoryRemote: string
     defaultRef: string
     projectName: string
+    source?: {
+      remote: string
+      ref: string
+      accessToken?: string
+    }
   }) {
     this.#filesystem.clear()
     const repository = await this.#repositories.get(input.repositoryName)
@@ -127,6 +163,37 @@ export class WorkspaceGit {
         onAuth: artifactAuth(token.plaintext),
       })
       return GitCommitId.make(head)
+    }
+
+    if (input.source) {
+      await git.clone({
+        fs: this.#filesystem,
+        http,
+        dir: directory,
+        url: input.source.remote,
+        ref: input.source.ref,
+        singleBranch: true,
+        noTags: false,
+        onAuth: input.source.accessToken
+          ? artifactAuth(input.source.accessToken)
+          : undefined,
+      })
+      const importedHead = await git.resolveRef({
+        fs: this.#filesystem,
+        dir: directory,
+        ref: "HEAD",
+      })
+      await git.push({
+        fs: this.#filesystem,
+        http,
+        dir: directory,
+        url: input.repositoryRemote,
+        ref: input.source.ref,
+        remoteRef: input.defaultRef,
+        force: false,
+        onAuth: artifactAuth(token.plaintext),
+      })
+      return GitCommitId.make(importedHead)
     }
 
     await git.init({
@@ -270,6 +337,95 @@ export class WorkspaceGit {
     return GitCommitId.make(forkHead)
   }
 
+  async synchronizeProject(input: {
+    repositoryName: string
+    repositoryRemote: string
+    defaultRef: string
+    sourceRemote: string
+    sourceRef: string
+    sourceAccessToken?: string
+  }) {
+    this.#filesystem.clear()
+    const repository = await this.#repositories.get(input.repositoryName)
+    const token = await repository.createToken("write", 300)
+    await git.clone({
+      fs: this.#filesystem,
+      http,
+      dir: directory,
+      url: input.repositoryRemote,
+      ref: input.defaultRef,
+      singleBranch: true,
+      noTags: false,
+      onAuth: artifactAuth(token.plaintext),
+    })
+    const projectHead = await git.resolveRef({
+      fs: this.#filesystem,
+      dir: directory,
+      ref: "HEAD",
+    })
+    await git.addRemote({
+      fs: this.#filesystem,
+      dir: directory,
+      remote: "upstream",
+      url: input.sourceRemote,
+      force: true,
+    })
+    await git.fetch({
+      fs: this.#filesystem,
+      http,
+      dir: directory,
+      remote: "upstream",
+      ref: input.sourceRef,
+      singleBranch: true,
+      tags: true,
+      onAuth: input.sourceAccessToken
+        ? artifactAuth(input.sourceAccessToken)
+        : undefined,
+    })
+    const upstreamHead = await git.resolveRef({
+      fs: this.#filesystem,
+      dir: directory,
+      ref: `refs/remotes/upstream/${input.sourceRef}`,
+    })
+    const status = await projectRepositorySyncStatus(
+      this.#filesystem,
+      projectHead,
+      upstreamHead
+    )
+    if (status === "fast_forwarded") {
+      await git.writeRef({
+        fs: this.#filesystem,
+        dir: directory,
+        ref: `refs/heads/${input.defaultRef}`,
+        value: upstreamHead,
+        force: true,
+      })
+      await git.checkout({
+        fs: this.#filesystem,
+        dir: directory,
+        ref: input.defaultRef,
+        force: true,
+      })
+      await git.push({
+        fs: this.#filesystem,
+        http,
+        dir: directory,
+        url: input.repositoryRemote,
+        ref: input.defaultRef,
+        remoteRef: input.defaultRef,
+        force: false,
+        onAuth: artifactAuth(token.plaintext),
+      })
+    }
+    return new SyncProjectRepositoryResult({
+      status,
+      projectHead: GitCommitId.make(
+        status === "fast_forwarded" ? upstreamHead : projectHead
+      ),
+      upstreamHead: GitCommitId.make(upstreamHead),
+    })
+  }
+
   async versionControl(refreshProjectHead = false) {
     const state = this.#requiredState()
     const latestProjectHead = refreshProjectHead
@@ -294,6 +450,129 @@ export class WorkspaceGit {
       mergeStatus: state.mergeStatus === "ready" ? "ready" : "unreviewed",
       working,
       branch,
+    })
+  }
+
+  async rebase() {
+    const state = this.#requiredState()
+    const working = await this.#changes(state.forkHead, "working")
+    if (working.length) {
+      throw new Error(
+        "Checkpoint or discard Working copy changes before rebasing"
+      )
+    }
+    const repository = await this.#repositories.get(state.repositoryName)
+    const token = await repository.createToken("write", 300)
+    const remoteHead = await this.#remoteHead(
+      state.repositoryRemote,
+      state.defaultRef,
+      token.plaintext,
+      true
+    )
+    if (remoteHead !== state.forkHead) {
+      this.#markDiverged()
+      throw new Error("Workspace fork changed outside Sylph")
+    }
+    const projectRepository = await this.#repositories.get(
+      state.projectRepositoryName
+    )
+    const projectToken = await projectRepository.createToken("read", 300)
+    await git.addRemote({
+      fs: this.#filesystem,
+      dir: directory,
+      remote: "project",
+      url: state.projectRepositoryRemote,
+      force: true,
+    })
+    await git.fetch({
+      fs: this.#filesystem,
+      http,
+      dir: directory,
+      remote: "project",
+      ref: state.defaultRef,
+      singleBranch: true,
+      tags: false,
+      onAuth: artifactAuth(projectToken.plaintext),
+    })
+    const projectHead = await git.resolveRef({
+      fs: this.#filesystem,
+      dir: directory,
+      ref: `refs/remotes/project/${state.defaultRef}`,
+    })
+    if (projectHead === state.baseCommit) {
+      return new WorkspaceRebaseResult({
+        baseCommit: GitCommitId.make(state.baseCommit),
+        forkHead: GitCommitId.make(state.forkHead),
+        projectHead: GitCommitId.make(projectHead),
+      })
+    }
+    const accepted = await git.isDescendent({
+      fs: this.#filesystem,
+      dir: directory,
+      oid: projectHead,
+      ancestor: state.forkHead,
+    })
+    let forkHead = projectHead
+    if (!accepted) {
+      const merge = await git.merge({
+        fs: this.#filesystem,
+        dir: directory,
+        ours: projectHead,
+        theirs: state.forkHead,
+        fastForward: false,
+        message: "Prepare Workspace rebase",
+        author,
+      })
+      if (!merge.oid) throw new Error("Rebase did not produce a commit")
+      const merged = await git.readCommit({
+        fs: this.#filesystem,
+        dir: directory,
+        oid: merge.oid,
+      })
+      forkHead = await git.commit({
+        fs: this.#filesystem,
+        dir: directory,
+        ref: state.defaultRef,
+        message: "Rebase Workspace changes",
+        author,
+        parent: [projectHead],
+        tree: merged.commit.tree,
+      })
+    } else {
+      await git.writeRef({
+        fs: this.#filesystem,
+        dir: directory,
+        ref: `refs/heads/${state.defaultRef}`,
+        value: projectHead,
+        force: true,
+      })
+    }
+    await git.checkout({
+      fs: this.#filesystem,
+      dir: directory,
+      ref: state.defaultRef,
+      force: true,
+    })
+    await git.push({
+      fs: this.#filesystem,
+      http,
+      dir: directory,
+      url: state.repositoryRemote,
+      ref: state.defaultRef,
+      remoteRef: state.defaultRef,
+      force: true,
+      onAuth: artifactAuth(token.plaintext),
+    })
+    this.#storage.sql.exec(
+      "UPDATE app_workspace_vcs SET base_commit = ?, fork_head = ?, project_head = ?, sync_status = 'ready', merge_status = 'ready' WHERE singleton = 1",
+      projectHead,
+      forkHead,
+      projectHead
+    )
+    return new WorkspaceRebaseResult({
+      baseCommit: GitCommitId.make(projectHead),
+      forkHead: GitCommitId.make(forkHead),
+      projectHead: GitCommitId.make(projectHead),
     })
   }
 

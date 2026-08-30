@@ -92,6 +92,14 @@ export class WorkspaceAcceptInput extends Schema.Class<WorkspaceAcceptInput>(
   idempotencyKey: Schema.NonEmptyString,
 }) {}
 
+export class WorkspaceRebaseResult extends Schema.Class<WorkspaceRebaseResult>(
+  "@sylph/domain/WorkspaceRebaseResult"
+)({
+  baseCommit: GitCommitId,
+  forkHead: GitCommitId,
+  projectHead: GitCommitId,
+}) {}
+
 export class PrepareProjectRepositoryInput extends Schema.Class<PrepareProjectRepositoryInput>(
   "@sylph/domain/PrepareProjectRepositoryInput"
 )({
@@ -99,12 +107,47 @@ export class PrepareProjectRepositoryInput extends Schema.Class<PrepareProjectRe
   repositoryRemote: Schema.NonEmptyString,
   defaultRef: Schema.NonEmptyString,
   projectName: Schema.NonEmptyString,
+  source: Schema.optional(
+    Schema.Struct({
+      remote: Schema.NonEmptyString,
+      ref: Schema.NonEmptyString,
+      accessToken: Schema.optional(Schema.NonEmptyString),
+    })
+  ),
 }) {}
 
 export class PrepareProjectRepositoryResult extends Schema.Class<PrepareProjectRepositoryResult>(
   "@sylph/domain/PrepareProjectRepositoryResult"
 )({
   head: GitCommitId,
+}) {}
+
+export const ProjectRepositorySyncStatus = Schema.Literals([
+  "up_to_date",
+  "fast_forwarded",
+  "ahead",
+  "diverged",
+])
+export type ProjectRepositorySyncStatus =
+  typeof ProjectRepositorySyncStatus.Type
+
+export class SyncProjectRepositoryInput extends Schema.Class<SyncProjectRepositoryInput>(
+  "@sylph/domain/SyncProjectRepositoryInput"
+)({
+  repositoryName: Schema.NonEmptyString,
+  repositoryRemote: Schema.NonEmptyString,
+  defaultRef: Schema.NonEmptyString,
+  sourceRemote: Schema.NonEmptyString,
+  sourceRef: Schema.NonEmptyString,
+  sourceAccessToken: Schema.optional(Schema.NonEmptyString),
+}) {}
+
+export class SyncProjectRepositoryResult extends Schema.Class<SyncProjectRepositoryResult>(
+  "@sylph/domain/SyncProjectRepositoryResult"
+)({
+  status: ProjectRepositorySyncStatus,
+  projectHead: GitCommitId,
+  upstreamHead: GitCommitId,
 }) {}
 
 export class WorkspaceDeleteFileInput extends Schema.Class<WorkspaceDeleteFileInput>(
@@ -126,6 +169,9 @@ export const decodeWorkspaceCheckpointInputPromise =
   Schema.decodeUnknownPromise(WorkspaceCheckpointInput)
 export const decodeWorkspaceAcceptInputPromise =
   Schema.decodeUnknownPromise(WorkspaceAcceptInput)
+export const decodeWorkspaceRebaseResultPromise = Schema.decodeUnknownPromise(
+  WorkspaceRebaseResult
+)
 export const decodeWorkspaceDeleteFile = Schema.decodeUnknownPromise(
   WorkspaceDeleteFileInput
 )
@@ -148,3 +194,7 @@ export const decodePrepareProjectRepositoryInputPromise =
   Schema.decodeUnknownPromise(PrepareProjectRepositoryInput)
 export const decodePrepareProjectRepositoryResultPromise =
   Schema.decodeUnknownPromise(PrepareProjectRepositoryResult)
+export const decodeSyncProjectRepositoryInputPromise =
+  Schema.decodeUnknownPromise(SyncProjectRepositoryInput)
+export const decodeSyncProjectRepositoryResultPromise =
+  Schema.decodeUnknownPromise(SyncProjectRepositoryResult)

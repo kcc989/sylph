@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test"
 
-import { resolveArtifactRepositoryMetadata } from "./artifact-repository-service"
+import { resolveStoredRepository } from "./repository-store"
 
-describe("Artifact Repository metadata", () => {
+describe("Repository Store metadata", () => {
   test("resolves metadata through an RPC repository handle", async () => {
-    const result = await resolveArtifactRepositoryMetadata({
+    const result = await resolveStoredRepository({
       id: "rpc-id",
       name: "rpc-name",
       remote: "rpc-remote",
@@ -13,6 +13,13 @@ describe("Artifact Repository metadata", () => {
         id: "repo-1",
         name: "weather-desk",
         remote: "https://repositories.example/weather-desk",
+        defaultBranch: "main",
+      }),
+      createToken: async () => ({ plaintext: "token", expiresAt: "later" }),
+      fork: async () => ({
+        id: "repo-2",
+        name: "fork",
+        remote: "https://repositories.example/fork",
         defaultBranch: "main",
       }),
     })

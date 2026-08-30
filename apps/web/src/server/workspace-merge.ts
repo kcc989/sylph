@@ -5,9 +5,14 @@ import {
 } from "cloudflare:workers"
 import git from "isomorphic-git"
 import http from "isomorphic-git/http/web"
+import { Effect } from "effect"
 
 import { MemoryFilesystem } from "./memory-filesystem"
 import { mergeWorkspaceHeads } from "./workspace-merge-heads"
+import {
+  GitHubRepositoryLive,
+  GitHubRepositoryService,
+} from "./github-repository-service"
 
 export interface WorkspaceMergeInput {
   operationId: string
@@ -19,6 +24,8 @@ export interface WorkspaceMergeInput {
   defaultRef: string
   baseCommit: string
   forkHead: string
+  projectId: string
+  actorUserId: string
 }
 
 const directory = "/workspace"
@@ -31,6 +38,13 @@ const authentication = (token: string) => () => ({
 interface WorkspaceMergeBindings extends Cloudflare.Env {
   DB: D1Database
   REPOS: Artifacts
+}
+
+interface DeliveryContext {
+  importOriginUrl: string | null
+  importOriginBranch: string | null
+  deliveryMode: string
+  accessToken: string | null
 }
 
 export class WorkspaceMerge extends WorkflowEntrypoint<
@@ -60,6 +74,45 @@ export class WorkspaceMerge extends WorkflowEntrypoint<
           .bind(acceptedCommit, input.operationId)
           .run()
       })
+      let delivery: { url: string } | null = null
+      let deliveryError: string | null = null
+      try {
+        delivery = await step.do(
+          "deliver-to-github",
+          {
+            retries: {
+              limit: 3,
+              delay: "10 seconds",
+              backoff: "exponential",
+            },
+          },
+          async () => this.#deliver(input, acceptedCommit)
+        )
+      } catch (cause) {
+        deliveryError =
+          cause instanceof Error ? cause.message : "GitHub delivery failed"
+        await step.do("record-github-delivery-failure", async () => {
+          await this.env.DB.prepare(
+            "UPDATE project SET upstream_status = 'delivery_conflict', delivery_url = NULL, updated_at = unixepoch() WHERE id = ?"
+          )
+            .bind(input.projectId)
+            .run()
+          await this.env.DB.prepare(
+            "UPDATE repository_operation SET error_summary = ?, updated_at = unixepoch() WHERE id = ?"
+          )
+            .bind(deliveryError, input.operationId)
+            .run()
+        })
+      }
+      if (delivery) {
+        await step.do("record-github-delivery", async () => {
+          await this.env.DB.prepare(
+            "UPDATE project SET delivered_commit = ?, delivery_url = ?, upstream_status = 'up_to_date', upstream_head = ?, upstream_synced_at = unixepoch(), updated_at = unixepoch() WHERE id = ?"
+          )
+            .bind(acceptedCommit, delivery.url, acceptedCommit, input.projectId)
+            .run()
+        })
+      }
       await step.sleep("retain-workspace-fork", "7 days")
       await step.do(
         "delete-workspace-fork",
@@ -68,7 +121,7 @@ export class WorkspaceMerge extends WorkflowEntrypoint<
           await this.env.REPOS.delete(input.workspaceRepositoryName)
         }
       )
-      return { status: "merged", acceptedCommit }
+      return { status: "merged", acceptedCommit, delivery, deliveryError }
     } catch (cause) {
       const conflict =
         cause instanceof Error &&
@@ -160,5 +213,86 @@ export class WorkspaceMerge extends WorkflowEntrypoint<
       onAuth: authentication(projectToken.plaintext),
     })
     return acceptedCommit
+  }
+
+  async #deliver(input: WorkspaceMergeInput, acceptedCommit: string) {
+    const context = await this.env.DB.prepare(
+      "SELECT project.import_origin_url AS importOriginUrl, project.import_origin_branch AS importOriginBranch, project.delivery_mode AS deliveryMode, account.access_token AS accessToken FROM project LEFT JOIN account ON account.user_id = ? AND account.provider_id = 'github' WHERE project.id = ?"
+    )
+      .bind(input.actorUserId, input.projectId)
+      .first<DeliveryContext>()
+    if (!context?.importOriginUrl) return null
+    if (!context.accessToken) {
+      throw new Error("Reconnect GitHub before delivering accepted work")
+    }
+    const accessToken = context.accessToken
+
+    const projectRepository = await this.env.REPOS.get(
+      input.projectRepositoryName
+    )
+    const projectToken = await projectRepository.createToken("read", 300)
+    const filesystem = new MemoryFilesystem()
+    await git.clone({
+      fs: filesystem,
+      http,
+      dir: directory,
+      url: input.projectRepositoryRemote,
+      ref: input.defaultRef,
+      singleBranch: true,
+      noTags: false,
+      onAuth: authentication(projectToken.plaintext),
+    })
+    const localHead = await git.resolveRef({
+      fs: filesystem,
+      dir: directory,
+      ref: "HEAD",
+    })
+    if (localHead !== acceptedCommit) {
+      throw new Error("Accepted commit changed before GitHub delivery")
+    }
+    const upstreamRef = context.importOriginBranch ?? input.defaultRef
+    if (context.deliveryMode === "push") {
+      await git.push({
+        fs: filesystem,
+        http,
+        dir: directory,
+        url: `${context.importOriginUrl}.git`,
+        ref: input.defaultRef,
+        remoteRef: upstreamRef,
+        force: false,
+        onAuth: authentication(accessToken),
+      })
+      return { url: `${context.importOriginUrl}/commit/${acceptedCommit}` }
+    }
+
+    const branch = `sylph/workspace-${input.workspaceId.slice(0, 8)}`
+    await git.push({
+      fs: filesystem,
+      http,
+      dir: directory,
+      url: `${context.importOriginUrl}.git`,
+      ref: input.defaultRef,
+      remoteRef: branch,
+      force: false,
+      onAuth: authentication(accessToken),
+    })
+    const location = new URL(context.importOriginUrl)
+    const [owner, name] = location.pathname.split("/").filter(Boolean)
+    if (!owner || !name) throw new Error("GitHub Repository URL is invalid")
+    const url = await Effect.runPromise(
+      Effect.gen(function* () {
+        const github = yield* GitHubRepositoryService
+        return yield* github.ensurePullRequest({
+          owner,
+          name,
+          accessToken,
+          head: branch,
+          base: upstreamRef,
+          title: `Accept ${input.workspaceId.slice(0, 8)}`,
+          body: "Accepted from a Sylph Workspace.",
+        })
+      }).pipe(Effect.provide(GitHubRepositoryLive))
+    )
+    return { url }
   }
 }

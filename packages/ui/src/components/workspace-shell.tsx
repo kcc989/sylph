@@ -12,6 +12,7 @@ import {
   Files,
   GitBranch,
   GitCommit,
+  GitCompareArrows,
   GitMerge,
   Globe2,
   House,
@@ -197,6 +198,7 @@ type WorkspaceShellProps = {
   checkpointPending?: boolean
   acceptPending?: boolean
   restartPending?: boolean
+  rebasePending?: boolean
   onAccept?: () => Promise<void>
   onCheckpoint?: () => Promise<void>
   onSubmitPrompt?: (
@@ -209,6 +211,7 @@ type WorkspaceShellProps = {
   ) => Promise<void>
   onModelChange?: (model: { providerId: string; modelId: string }) => void
   onRestartWorkspace?: () => Promise<void>
+  onRebase?: () => Promise<void>
   workspaceError?: string | null
 }
 
@@ -579,6 +582,8 @@ function WorkspaceTopbar({
   acceptPending,
   onRestartWorkspace,
   restartPending,
+  onRebase,
+  rebasePending,
 }: {
   agentControllingBrowser: boolean
   browser: BrowserState
@@ -598,6 +603,8 @@ function WorkspaceTopbar({
   acceptPending: boolean
   onRestartWorkspace?: () => Promise<void>
   restartPending: boolean
+  onRebase?: () => Promise<void>
+  rebasePending: boolean
 }) {
   const passedChecks = checks.filter(
     (check) => check.status === "passed"
@@ -696,6 +703,17 @@ function WorkspaceTopbar({
             <MoreHorizontal className="size-4" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuItem
+              disabled={!onRebase || rebasePending}
+              onClick={() => void onRebase?.()}
+            >
+              {rebasePending ? (
+                <LoaderCircle className="animate-spin motion-reduce:animate-none" />
+              ) : (
+                <GitCompareArrows />
+              )}
+              Rebase Workspace
+            </DropdownMenuItem>
             <DropdownMenuItem
               disabled={!onRestartWorkspace || restartPending}
               onClick={() => void onRestartWorkspace?.()}
@@ -1780,10 +1798,12 @@ function WorkspaceShell({
   checkpointPending = false,
   acceptPending = false,
   restartPending = false,
+  rebasePending = false,
   onCheckpoint,
   onAccept,
   onPermissionReply,
   onRestartWorkspace,
+  onRebase,
   workspaceError,
 }: WorkspaceShellProps) {
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false)
@@ -1925,6 +1945,8 @@ function WorkspaceShell({
                 acceptPending={acceptPending}
                 onRestartWorkspace={onRestartWorkspace}
                 restartPending={restartPending}
+                onRebase={onRebase}
+                rebasePending={rebasePending}
                 projectName={projectName}
                 repositoryName={repositoryName}
                 workspaceName={workspaceName}

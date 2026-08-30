@@ -6,6 +6,7 @@ import {
   decodeOpenCodeSubscriptionStartInputPromise,
   decodeOpenCodeSubscriptionStatusInputPromise,
   decodePrepareProjectRepositoryInputPromise,
+  decodeSyncProjectRepositoryInputPromise,
   decodeWorkspacePermissionReplyInputPromise,
   decodeWorkspaceCheckpointInputPromise,
   decodeWorkspaceRuntimeEventPromise,
@@ -225,7 +226,6 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
 
   async fetch(request: Request) {
     try {
-      const opencode = await this.#opencode
       const url = new URL(request.url)
 
       if (request.method === "POST" && url.pathname === "/prepare-project") {
@@ -235,6 +235,15 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         const head = await this.#workspaceGit.prepareProject(input)
         return Response.json(new PrepareProjectRepositoryResult({ head }))
       }
+
+      if (request.method === "POST" && url.pathname === "/sync-project") {
+        const input = await decodeSyncProjectRepositoryInputPromise(
+          await request.json()
+        )
+        return Response.json(await this.#workspaceGit.synchronizeProject(input))
+      }
+
+      const opencode = await this.#opencode
 
       if (request.method === "POST" && url.pathname === "/connect/key") {
         const input = await decodeOpenCodeKeySetupInputPromise(
@@ -354,6 +363,10 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
             message: input.message,
           })
         )
+      }
+
+      if (request.method === "POST" && url.pathname === "/rebase") {
+        return Response.json(await this.#workspaceGit.rebase())
       }
 
       if (request.method === "GET" && url.pathname === "/vcs") {

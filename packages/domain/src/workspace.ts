@@ -44,6 +44,13 @@ export class ProjectRequestInput extends Schema.Class<ProjectRequestInput>(
   projectId: ProjectId,
 }) {}
 
+export class ProjectDeliveryModeInput extends Schema.Class<ProjectDeliveryModeInput>(
+  "@sylph/domain/ProjectDeliveryModeInput"
+)({
+  projectId: ProjectId,
+  mode: Schema.Literals(["push", "pull_request"]),
+}) {}
+
 export class OrganizationRequestInput extends Schema.Class<OrganizationRequestInput>(
   "@sylph/domain/OrganizationRequestInput"
 )({
@@ -402,6 +409,8 @@ export const decodeCreateWorkspaceInputPromise =
 
 export const decodeProjectRequestInputPromise =
   Schema.decodeUnknownPromise(ProjectRequestInput)
+export const decodeProjectDeliveryModeInputPromise =
+  Schema.decodeUnknownPromise(ProjectDeliveryModeInput)
 
 export const decodeOrganizationRequestInputPromise =
   Schema.decodeUnknownPromise(OrganizationRequestInput)

@@ -28,6 +28,15 @@ The product a user creates inside an organization. A Project contains one Projec
 **Project Repository**:
 The accepted source history for a Project. A Project has exactly one Project Repository.
 
+**Upstream Repository**:
+An external GitHub Repository connected to a Project Repository for ongoing synchronization and delivery. It is not the accepted source history inside Sylph.
+
+**Delivery**:
+Publication of an Accepted commit to an Upstream Repository by direct push or pull request.
+
+**Recovery export**:
+A manifest containing every Git Repository needed to recover a Project, including its Project Repository and retained Workspace forks.
+
 **Workspace**:
 The durable place where a user works with an agent in an isolated Workspace fork. An initial Workspace is created automatically with its Project.
 
