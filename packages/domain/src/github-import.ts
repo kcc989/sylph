@@ -69,6 +69,9 @@ export const decodeGitHubApiRepositoryJsonPromise = Schema.decodeUnknownPromise(
   Schema.fromJsonString(GitHubApiRepository)
 )
 
+export const encodeGitHubRepositoryInfo =
+  Schema.encodePromise(GitHubRepositoryInfo)
+
 export const parseGitHubRepositoryUrl = Effect.fn("parseGitHubRepositoryUrl")(
   function* (repositoryUrl: string) {
     const url = yield* Effect.try({

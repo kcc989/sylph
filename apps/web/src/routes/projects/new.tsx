@@ -113,6 +113,16 @@ function NewProjectScreen() {
           sourceBranch: repository?.defaultBranch,
         },
       })
+      if (
+        result.status === "error" &&
+        result.errorSummary === "Connect an AI provider to start this Workspace"
+      ) {
+        await navigate({
+          to: "/projects/$projectSlug/settings",
+          params: { projectSlug: result.projectSlug },
+        })
+        return
+      }
       await navigate({
         to: "/projects/$projectSlug/workspaces/$workspaceId",
         params: {
@@ -131,8 +141,6 @@ function NewProjectScreen() {
     }
   }
 
-  const needsSetup = !setup?.providerId
-
   return (
     <AppShell active="home" dashboard={dashboard} topbar="New project">
       <main className="px-5 py-10">
@@ -143,155 +151,141 @@ function NewProjectScreen() {
           >
             <ArrowLeft className="size-4" /> Projects
           </Link>
-          {needsSetup ? (
-            <section className="border-y py-8">
-              <h1 className="text-xl font-semibold tracking-[-0.03em]">
-                Connect an AI provider
-              </h1>
-              <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                Connect an AI provider for this Organization before creating a
-                Project.
-              </p>
-              <Button
-                nativeButton={false}
-                className="mt-6"
-                render={<Link to="/admin" search={{ onboarding }} />}
-              >
-                Open Organization settings <ArrowRight />
-              </Button>
-            </section>
-          ) : (
-            <section className="border-y py-8">
-              <h1 className="text-xl font-semibold tracking-[-0.03em]">
-                Create a Project
-              </h1>
-              <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                Start fresh or import a public GitHub Repository. Sylph creates
-                the first Workspace in the same step.
-              </p>
-              <form className="mt-7 grid gap-5" onSubmit={handleSubmit}>
-                <div className="flex items-center justify-between border-y py-3">
-                  <div>
-                    <p className="text-sm font-medium">Default provider</p>
-                    <p className="text-xs text-muted-foreground">
-                      {setup.providerId}/{setup.modelId}
-                    </p>
-                  </div>
-                  <Button
-                    nativeButton={false}
-                    variant="ghost"
-                    size="sm"
-                    render={<Link to="/admin" search={{ onboarding }} />}
-                  >
-                    Change
-                  </Button>
-                </div>
-                <fieldset className="grid gap-2">
-                  <legend className="mb-1 text-sm font-medium">
-                    Repository source
-                  </legend>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <SourceOption
-                      active={source === "blank"}
-                      description="Create an empty Artifacts Repository."
-                      icon={<Plus />}
-                      label="Start fresh"
-                      onClick={() => {
-                        setSource("blank")
-                        setRepository(undefined)
-                        setError(null)
-                      }}
-                    />
-                    <SourceOption
-                      active={source === "github"}
-                      description="Copy an existing public Repository."
-                      icon={<Code2 />}
-                      label="Import from GitHub"
-                      onClick={() => {
-                        setSource("github")
-                        setError(null)
-                      }}
-                    />
-                  </div>
-                </fieldset>
-                {source === "github" ? (
-                  <div className="grid gap-3 border-y py-5">
-                    <div className="grid gap-2">
-                      <Label htmlFor="repository-url">
-                        GitHub Repository URL
-                      </Label>
-                      <div className="flex gap-2">
-                        <Input
-                          id="repository-url"
-                          type="url"
-                          value={repositoryUrl}
-                          onChange={(event) => {
-                            setRepositoryUrl(event.target.value)
-                            setRepository(undefined)
-                          }}
-                          placeholder="https://github.com/owner/repository"
-                          required
-                        />
-                        <Button
-                          type="button"
-                          variant="outline"
-                          disabled={verifying || repositoryUrl.length === 0}
-                          onClick={handleRepositoryLookup}
-                        >
-                          {verifying ? (
-                            <LoaderCircle className="animate-spin" />
-                          ) : repository ? (
-                            <Check />
-                          ) : null}
-                          {repository ? "Verified" : "Verify"}
-                        </Button>
-                      </div>
-                    </div>
-                    {repository ? (
-                      <RepositoryPreview repository={repository} />
-                    ) : null}
-                    <p className="text-xs leading-5 text-muted-foreground">
-                      Private repositories will use a separate GitHub
-                      connection. Signing in with GitHub does not grant
-                      Repository access.
-                    </p>
-                  </div>
-                ) : null}
-                <div className="grid gap-2">
-                  <Label htmlFor="name">Project name</Label>
-                  <Input
-                    id="name"
-                    name="name"
-                    placeholder="Weather desk"
-                    autoFocus
-                    required
-                  />
+          <section className="border-y py-8">
+            <h1 className="text-xl font-semibold tracking-[-0.03em]">
+              Create a Project
+            </h1>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              Start fresh or import a GitHub Repository. Sylph creates the first
+              Workspace in the same step.
+            </p>
+            <form className="mt-7 grid gap-5" onSubmit={handleSubmit}>
+              <div className="flex items-center justify-between gap-4 border-y py-3">
+                <div>
+                  <p className="text-sm font-medium">
+                    {setup?.providerId
+                      ? "Default provider"
+                      : "AI provider not connected"}
+                  </p>
                   <p className="text-xs text-muted-foreground">
-                    The Project and initial Workspace use this name.
+                    {setup?.providerId
+                      ? `${setup.providerId}/${setup.modelId}`
+                      : "Repository setup works now. Connect before starting the Workspace."}
                   </p>
                 </div>
-                {error ? (
-                  <p role="alert" className="text-sm text-destructive">
-                    {error}
-                  </p>
-                ) : null}
-                <Button type="submit" disabled={pending}>
-                  {pending ? (
-                    <LoaderCircle className="animate-spin" />
-                  ) : (
-                    <ArrowRight />
-                  )}
-                  {pending
-                    ? source === "github"
-                      ? "Importing Repository…"
-                      : "Creating Project…"
-                    : source === "github"
-                      ? "Import Repository"
-                      : "Create Project"}
+                <Button
+                  nativeButton={false}
+                  variant="ghost"
+                  size="sm"
+                  render={<Link to="/admin" search={{ onboarding }} />}
+                >
+                  {setup?.providerId ? "Change" : "Connect"}
                 </Button>
-              </form>
-            </section>
-          )}
+              </div>
+              <fieldset className="grid gap-2">
+                <legend className="mb-1 text-sm font-medium">
+                  Repository source
+                </legend>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <SourceOption
+                    active={source === "blank"}
+                    description="Create an empty Project Repository."
+                    icon={<Plus />}
+                    label="Start fresh"
+                    onClick={() => {
+                      setSource("blank")
+                      setRepository(undefined)
+                      setError(null)
+                    }}
+                  />
+                  <SourceOption
+                    active={source === "github"}
+                    description="Copy a public or private Repository."
+                    icon={<Code2 />}
+                    label="Import from GitHub"
+                    onClick={() => {
+                      setSource("github")
+                      setError(null)
+                    }}
+                  />
+                </div>
+              </fieldset>
+              {source === "github" ? (
+                <div className="grid gap-3 border-y py-5">
+                  <div className="grid gap-2">
+                    <Label htmlFor="repository-url">
+                      GitHub Repository URL
+                    </Label>
+                    <div className="flex gap-2">
+                      <Input
+                        id="repository-url"
+                        type="url"
+                        value={repositoryUrl}
+                        onChange={(event) => {
+                          setRepositoryUrl(event.target.value)
+                          setRepository(undefined)
+                        }}
+                        placeholder="https://github.com/owner/repository"
+                        required
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={verifying || repositoryUrl.length === 0}
+                        onClick={handleRepositoryLookup}
+                      >
+                        {verifying ? (
+                          <LoaderCircle className="animate-spin" />
+                        ) : repository ? (
+                          <Check />
+                        ) : null}
+                        {repository ? "Verified" : "Verify"}
+                      </Button>
+                    </div>
+                  </div>
+                  {repository ? (
+                    <RepositoryPreview repository={repository} />
+                  ) : null}
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    Private access uses the GitHub App repositories granted
+                    during sign-in. Sylph never stores a personal access token.
+                  </p>
+                </div>
+              ) : null}
+              <div className="grid gap-2">
+                <Label htmlFor="name">Project name</Label>
+                <Input
+                  id="name"
+                  name="name"
+                  placeholder="Weather desk"
+                  autoFocus
+                  required
+                />
+                <p className="text-xs text-muted-foreground">
+                  The Project and initial Workspace use this name.
+                </p>
+              </div>
+              {error ? (
+                <p role="alert" className="text-sm text-destructive">
+                  {error}
+                </p>
+              ) : null}
+              <Button type="submit" disabled={pending}>
+                {pending ? (
+                  <LoaderCircle className="animate-spin" />
+                ) : (
+                  <ArrowRight />
+                )}
+                {pending
+                  ? source === "github"
+                    ? "Importing Repository…"
+                    : "Creating Project…"
+                  : source === "github"
+                    ? "Import Repository"
+                    : "Create Project"}
+              </Button>
+            </form>
+          </section>
         </div>
       </main>
     </AppShell>
@@ -368,7 +362,7 @@ function RepositoryPreview({
           </p>
         </div>
       </div>
-      <div className="mt-3 flex items-center gap-4 border-t pt-3 text-[11px] text-muted-foreground">
+      <div className="mt-3 flex items-center gap-4 border-t pt-3 text-[10px] text-muted-foreground">
         <span className="inline-flex items-center gap-1.5">
           <GitBranch className="size-3" /> {repository.defaultBranch}
         </span>

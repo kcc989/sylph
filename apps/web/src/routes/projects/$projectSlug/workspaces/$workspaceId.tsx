@@ -20,6 +20,7 @@ import {
   getDashboard,
   getWorkspace,
   promptWorkspace,
+  rebaseWorkspace,
   restartWorkspace,
 } from "@/lib/workspaces"
 import { useWorkspaceCreation } from "@/lib/use-workspace-creation"
@@ -56,12 +57,14 @@ function WorkspaceScreen() {
   const checkpoint = useServerFn(checkpointWorkspace)
   const accept = useServerFn(acceptWorkspace)
   const restart = useServerFn(restartWorkspace)
+  const rebase = useServerFn(rebaseWorkspace)
   const [promptPending, setPromptPending] = useState(false)
   const [checkpointPending, setCheckpointPending] = useState(false)
   const [acceptPending, setAcceptPending] = useState(false)
   const [checkpointKey, setCheckpointKey] = useState(() => crypto.randomUUID())
   const [acceptKey, setAcceptKey] = useState(() => crypto.randomUUID())
   const [restartPending, setRestartPending] = useState(false)
+  const [rebasePending, setRebasePending] = useState(false)
   const [promptError, setPromptError] = useState<string | null>(null)
   const [liveState, setLiveState] = useState(emptyWorkspaceLiveState)
   const liveStateRef = useRef(liveState)
@@ -250,6 +253,7 @@ function WorkspaceScreen() {
       patch={workingChanges.map((change) => change.patch).join("\n")}
       checkpointPending={checkpointPending}
       acceptPending={acceptPending}
+      rebasePending={rebasePending}
       checks={[
         {
           name: "Assistant",
@@ -338,6 +342,26 @@ function WorkspaceScreen() {
                 )
               } finally {
                 setAcceptPending(false)
+              }
+            }
+          : undefined
+      }
+      onRebase={
+        result.versionControl.projectChanged &&
+        workspace.status !== "merging" &&
+        workspace.status !== "archived"
+          ? async () => {
+              setRebasePending(true)
+              setPromptError(null)
+              try {
+                await rebase({ data: { workspaceId } })
+                await router.invalidate()
+              } catch (cause) {
+                setPromptError(
+                  cause instanceof Error ? cause.message : "Rebase failed"
+                )
+              } finally {
+                setRebasePending(false)
               }
             }
           : undefined

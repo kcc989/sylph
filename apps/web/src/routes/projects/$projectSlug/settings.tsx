@@ -1,16 +1,25 @@
-import { createFileRoute, Link } from "@tanstack/react-router"
+import { createFileRoute, Link, useRouter } from "@tanstack/react-router"
+import { useServerFn } from "@tanstack/react-start"
 import { Button } from "@workspace/ui/components/button"
 import {
   Bot,
+  Download,
   FolderGit2,
+  GitFork,
   GitBranch,
   LoaderCircle,
   Plus,
   Settings2,
 } from "lucide-react"
+import { useState } from "react"
 
 import { AppShell } from "@/components/app-shell"
-import { getDashboard, getWorkspaceCreationContext } from "@/lib/workspaces"
+import {
+  exportProjectRecovery,
+  getDashboard,
+  getWorkspaceCreationContext,
+  setProjectDeliveryMode,
+} from "@/lib/workspaces"
 import { useWorkspaceCreation } from "@/lib/use-workspace-creation"
 
 export const Route = createFileRoute("/projects/$projectSlug/settings")({
@@ -30,6 +39,12 @@ export const Route = createFileRoute("/projects/$projectSlug/settings")({
 function ProjectSettingsScreen() {
   const { projectSlug } = Route.useParams()
   const { context, dashboard } = Route.useLoaderData()
+  const router = useRouter()
+  const setDeliveryMode = useServerFn(setProjectDeliveryMode)
+  const exportRecovery = useServerFn(exportProjectRecovery)
+  const [deliveryPending, setDeliveryPending] = useState(false)
+  const [exportPending, setExportPending] = useState(false)
+  const [repositoryError, setRepositoryError] = useState<string | null>(null)
   const { creatingProjectId, creationError, startWorkspace } =
     useWorkspaceCreation()
 
@@ -102,6 +117,138 @@ function ProjectSettingsScreen() {
               </p>
             </div>
           </div>
+          {context.project.importOriginUrl ? (
+            <>
+              <div className="grid gap-4 border-b py-6 sm:grid-cols-[180px_1fr]">
+                <div className="flex items-center gap-2 text-xs font-medium">
+                  <GitFork className="size-3.5 text-muted-foreground" /> GitHub
+                  upstream
+                </div>
+                <div className="min-w-0">
+                  <a
+                    href={context.project.importOriginUrl}
+                    className="block truncate font-mono text-xs text-primary hover:underline"
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    {context.project.importOriginUrl}
+                  </a>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    {context.project.upstreamStatus.replaceAll("_", " ")}
+                    {context.project.upstreamHead
+                      ? ` at ${context.project.upstreamHead.slice(0, 7)}`
+                      : ""}
+                  </p>
+                </div>
+              </div>
+              <div className="grid gap-4 border-b py-6 sm:grid-cols-[180px_1fr]">
+                <div className="flex items-center gap-2 text-xs font-medium">
+                  <GitBranch className="size-3.5 text-muted-foreground" />
+                  Delivery
+                </div>
+                <div>
+                  <select
+                    aria-label="GitHub delivery mode"
+                    className="h-8 rounded-[8px] border bg-background px-2.5 text-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
+                    disabled={deliveryPending}
+                    value={context.project.deliveryMode}
+                    onChange={async (event) => {
+                      const mode = event.target.value
+                      if (mode !== "push" && mode !== "pull_request") return
+                      setDeliveryPending(true)
+                      setRepositoryError(null)
+                      try {
+                        await setDeliveryMode({
+                          data: {
+                            projectId: context.project.id,
+                            mode,
+                          },
+                        })
+                        await router.invalidate()
+                      } catch (cause) {
+                        setRepositoryError(
+                          cause instanceof Error
+                            ? cause.message
+                            : "Delivery mode could not be saved"
+                        )
+                      } finally {
+                        setDeliveryPending(false)
+                      }
+                    }}
+                  >
+                    <option value="pull_request">Open a pull request</option>
+                    <option value="push">Push the default branch</option>
+                  </select>
+                  <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                    Accepted Workspace commits are delivered with your GitHub
+                    App authorization. A rejected push remains accepted in Sylph
+                    and is marked as a delivery conflict.
+                  </p>
+                  {context.project.deliveryUrl ? (
+                    <a
+                      href={context.project.deliveryUrl}
+                      className="mt-2 inline-flex text-xs font-medium text-primary hover:underline"
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      Open latest delivery
+                    </a>
+                  ) : null}
+                </div>
+              </div>
+            </>
+          ) : null}
+          <div className="grid gap-4 border-b py-6 sm:grid-cols-[180px_1fr]">
+            <div className="flex items-center gap-2 text-xs font-medium">
+              <Download className="size-3.5 text-muted-foreground" /> Recovery
+              export
+            </div>
+            <div>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={exportPending}
+                onClick={async () => {
+                  setExportPending(true)
+                  setRepositoryError(null)
+                  try {
+                    const recovery = await exportRecovery({
+                      data: { projectId: context.project.id },
+                    })
+                    const href = URL.createObjectURL(
+                      new Blob([JSON.stringify(recovery, null, 2)], {
+                        type: "application/json",
+                      })
+                    )
+                    const link = document.createElement("a")
+                    link.href = href
+                    link.download = `${context.project.slug}-sylph-recovery.json`
+                    link.click()
+                    URL.revokeObjectURL(href)
+                  } catch (cause) {
+                    setRepositoryError(
+                      cause instanceof Error
+                        ? cause.message
+                        : "Recovery export could not be prepared"
+                    )
+                  } finally {
+                    setExportPending(false)
+                  }
+                }}
+              >
+                {exportPending ? (
+                  <LoaderCircle className="animate-spin" />
+                ) : (
+                  <Download />
+                )}
+                {exportPending ? "Preparing…" : "Download recovery manifest"}
+              </Button>
+              <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                Includes the Project Repository, every Workspace fork, commit
+                identities, and short-lived credentials for full mirror clones.
+              </p>
+            </div>
+          </div>
           <div className="grid gap-4 border-b py-6 sm:grid-cols-[180px_1fr]">
             <div className="flex items-center gap-2 text-xs font-medium">
               <GitBranch className="size-3.5 text-muted-foreground" /> Default
@@ -133,6 +280,11 @@ function ProjectSettingsScreen() {
             </div>
           </div>
         </section>
+        {repositoryError ? (
+          <p role="alert" className="mt-4 text-sm text-destructive">
+            {repositoryError}
+          </p>
+        ) : null}
       </div>
     </AppShell>
   )

@@ -4,7 +4,6 @@ import {
   decodeCreateWorkspaceInputPromise,
   decodeCreateProjectInputPromise,
   decodeDisconnectOpenCodeConnectionInputPromise,
-  decodeGitHubApiRepositoryJsonPromise,
   decodeGitHubRepositoryLookupInputPromise,
   decodeInstallationClaimInputPromise,
   decodeMagicLinkRequest,
@@ -15,21 +14,24 @@ import {
   decodeOpenCodeSubscriptionStatusInputPromise,
   decodeOrganizationRequestInputPromise,
   decodePrepareProjectRepositoryResultPromise,
+  decodeProjectDeliveryModeInputPromise,
   decodeProjectRequestInputPromise,
   decodeRestartWorkspaceInputPromise,
   decodeSetDefaultModelInputPromise,
+  decodeSyncProjectRepositoryResultPromise,
   decodeWorkspaceCheckpointInputPromise,
   decodeWorkspaceCheckpointList,
   decodeWorkspaceCheckpointResult,
   decodeWorkspacePromptInputPromise,
   decodeWorkspaceRequestInputPromise,
+  decodeWorkspaceRebaseResultPromise,
   decodeWorkspaceRuntimeHealth,
   decodeWorkspaceVersionControl,
+  encodeGitHubRepositoryInfo,
   encodeWorkspaceCheckpointList,
   encodeWorkspaceRuntimeHealth,
   encodeWorkspaceVersionControl,
   InitializeWorkspaceRuntime,
-  GitHubRepositoryInfo,
   OpenCodeSubscriptionStatus,
   OrganizationId,
   ProjectId,
@@ -47,7 +49,11 @@ import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1"
 
 import { createRequestAuth } from "@/server/auth.server"
 import { assertInstallationClaimIdentity } from "@/lib/installation-claim"
-import { makeArtifactRepositoryService } from "@/server/artifact-repository-service"
+import { makeCloudflareArtifactsRepositoryStore } from "@/server/repository-store"
+import {
+  GitHubRepositoryLive,
+  GitHubRepositoryService,
+} from "@/server/github-repository-service"
 import {
   decryptCredential,
   encryptCredential,
@@ -106,6 +112,67 @@ const organizationMembership = async (organizationId: string, userId: string) =>
       )
     )
     .get()
+
+const githubUserAccessToken = async (
+  database: DrizzleD1Database<typeof schema>,
+  userId: string
+) => {
+  const account = await database
+    .select({
+      id: schema.account.id,
+      accessToken: schema.account.accessToken,
+      refreshToken: schema.account.refreshToken,
+      accessTokenExpiresAt: schema.account.accessTokenExpiresAt,
+    })
+    .from(schema.account)
+    .where(
+      and(
+        eq(schema.account.userId, userId),
+        eq(schema.account.providerId, "github")
+      )
+    )
+    .get()
+  if (!account?.accessToken) return undefined
+  if (
+    !account.accessTokenExpiresAt ||
+    account.accessTokenExpiresAt.getTime() > Date.now() + 60_000
+  ) {
+    return account.accessToken
+  }
+  if (
+    !account.refreshToken ||
+    !env.GITHUB_CLIENT_ID ||
+    !env.GITHUB_CLIENT_SECRET
+  ) {
+    return undefined
+  }
+  const refreshToken = account.refreshToken
+  const refreshed = await Effect.runPromise(
+    Effect.gen(function* () {
+      const github = yield* GitHubRepositoryService
+      return yield* github.refreshUserAccessToken({
+        clientId: env.GITHUB_CLIENT_ID,
+        clientSecret: env.GITHUB_CLIENT_SECRET,
+        refreshToken,
+      })
+    }).pipe(Effect.provide(GitHubRepositoryLive))
+  ).catch(() => null)
+  if (!refreshed) return undefined
+  const now = Date.now()
+  await database
+    .update(schema.account)
+    .set({
+      accessToken: refreshed.accessToken,
+      refreshToken: refreshed.refreshToken,
+      accessTokenExpiresAt: new Date(now + refreshed.expiresIn * 1000),
+      refreshTokenExpiresAt: new Date(
+        now + refreshed.refreshTokenExpiresIn * 1000
+      ),
+      updatedAt: new Date(),
+    })
+    .where(eq(schema.account.id, account.id))
+  return refreshed.accessToken
+}
 
 const isOrganizationAdmin = (role: string) =>
   role === "owner" || role === "admin"
@@ -500,6 +567,11 @@ const prepareProjectRepository = async (
     repositoryRemote: string
     defaultRef: string
     projectName: string
+    source?: {
+      remote: string
+      ref: string
+      accessToken?: string
+    }
   }
 ) => {
   const runtime = env.WORKSPACES.get(env.WORKSPACES.idFromName(workspaceId))
@@ -510,6 +582,63 @@ const prepareProjectRepository = async (
   })
   if (!response.ok) throw new Error(await response.text())
   return decodePrepareProjectRepositoryResultPromise(await response.json())
+}
+
+const synchronizeProjectRepository = async (
+  database: DrizzleD1Database<typeof schema>,
+  userId: string,
+  project: {
+    id: string
+    repositoryName: string
+    repositoryRemote: string
+    defaultRef: string
+    sourceUrl: string | null
+    sourceRef: string | null
+  }
+) => {
+  if (!project.sourceUrl) return null
+  const accessToken = await githubUserAccessToken(database, userId)
+  const runtime = env.WORKSPACES.get(
+    env.WORKSPACES.idFromName(`repository-sync-${project.id}`)
+  )
+  const response = await runtime.fetch("https://workspace/sync-project", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      repositoryName: project.repositoryName,
+      repositoryRemote: project.repositoryRemote,
+      defaultRef: project.defaultRef,
+      sourceRemote: `${project.sourceUrl}.git`,
+      sourceRef: project.sourceRef ?? project.defaultRef,
+      sourceAccessToken: accessToken,
+    }),
+  })
+  if (!response.ok) {
+    await database
+      .update(schema.project)
+      .set({
+        upstreamStatus: accessToken
+          ? "synchronization_error"
+          : "authorization_required",
+        upstreamSyncedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.project.id, project.id))
+    return null
+  }
+  const result = await decodeSyncProjectRepositoryResultPromise(
+    await response.json()
+  )
+  await database
+    .update(schema.project)
+    .set({
+      upstreamHead: result.upstreamHead,
+      upstreamStatus: result.status,
+      upstreamSyncedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(schema.project.id, project.id))
+  return result
 }
 
 const currentSession = async (request: Request) => {
@@ -1100,6 +1229,14 @@ export const getWorkspaceCreationContext = createServerFn({ method: "GET" })
         organizationSlug: schema.organization.slug,
         repositoryName: schema.project.artifactRepo,
         defaultBranch: schema.project.defaultBranch,
+        importOriginUrl: schema.project.importOriginUrl,
+        importOriginBranch: schema.project.importOriginBranch,
+        upstreamHead: schema.project.upstreamHead,
+        upstreamStatus: schema.project.upstreamStatus,
+        upstreamSyncedAt: schema.project.upstreamSyncedAt,
+        deliveryMode: schema.project.deliveryMode,
+        deliveredCommit: schema.project.deliveredCommit,
+        deliveryUrl: schema.project.deliveryUrl,
       })
       .from(schema.project)
       .innerJoin(
@@ -1127,6 +1264,111 @@ export const getWorkspaceCreationContext = createServerFn({ method: "GET" })
     return {
       project,
       setup: setup ?? { providerId: null, modelId: null, authMethod: null },
+    }
+  })
+
+export const setProjectDeliveryMode = createServerFn({ method: "POST" })
+  .validator((input) => decodeProjectDeliveryModeInputPromise(input))
+  .handler(async ({ data }) => {
+    const { session } = await currentSession(getRequest())
+    if (!session) throw new Error("Sign in before changing delivery")
+    const database = drizzle(env.DB, { schema })
+    const membership = await database
+      .select({ id: schema.project.id })
+      .from(schema.project)
+      .innerJoin(
+        schema.member,
+        and(
+          eq(schema.member.organizationId, schema.project.organizationId),
+          eq(schema.member.userId, session.user.id)
+        )
+      )
+      .where(eq(schema.project.id, data.projectId))
+      .get()
+    if (!membership) {
+      throw new Error("This Project does not exist or you cannot access it")
+    }
+    await database
+      .update(schema.project)
+      .set({ deliveryMode: data.mode, updatedAt: new Date() })
+      .where(eq(schema.project.id, data.projectId))
+    return { mode: data.mode }
+  })
+
+export const exportProjectRecovery = createServerFn({ method: "POST" })
+  .validator((input) => decodeProjectRequestInputPromise(input))
+  .handler(async ({ data }) => {
+    const { session } = await currentSession(getRequest())
+    if (!session) throw new Error("Sign in before exporting a Project")
+    const database = drizzle(env.DB, { schema })
+    const project = await database
+      .select({
+        id: schema.project.id,
+        name: schema.project.name,
+        repositoryName: schema.project.artifactRepo,
+        defaultBranch: schema.project.defaultBranch,
+        importOriginUrl: schema.project.importOriginUrl,
+      })
+      .from(schema.project)
+      .innerJoin(
+        schema.member,
+        and(
+          eq(schema.member.organizationId, schema.project.organizationId),
+          eq(schema.member.userId, session.user.id)
+        )
+      )
+      .where(eq(schema.project.id, data.projectId))
+      .get()
+    if (!project) {
+      throw new Error("This Project does not exist or you cannot access it")
+    }
+    const workspaces = await database
+      .select({
+        id: schema.workspace.id,
+        title: schema.workspace.title,
+        repositoryName: schema.workspace.workspaceArtifactRepo,
+        baseCommit: schema.workspace.baseCommit,
+        forkHead: schema.workspace.forkHead,
+        acceptedCommit: schema.workspace.acceptedCommit,
+      })
+      .from(schema.workspace)
+      .where(eq(schema.workspace.projectId, project.id))
+    const repositories = makeCloudflareArtifactsRepositoryStore(env.REPOS)
+    const entries = await Promise.all(
+      [
+        {
+          kind: "project" as const,
+          id: project.id,
+          title: project.name,
+          repositoryName: project.repositoryName,
+          baseCommit: null,
+          forkHead: null,
+          acceptedCommit: null,
+        },
+        ...workspaces.map((workspace) => ({
+          kind: "workspace" as const,
+          ...workspace,
+        })),
+      ].map(async (entry) => {
+        const [repository, access] = await Promise.all([
+          Effect.runPromise(repositories.inspect(entry.repositoryName)),
+          Effect.runPromise(
+            repositories.access(entry.repositoryName, "read", 15 * 60)
+          ),
+        ])
+        return { ...entry, repository, access }
+      })
+    )
+    return {
+      version: 1 as const,
+      generatedAt: new Date().toISOString(),
+      project: {
+        id: project.id,
+        name: project.name,
+        defaultBranch: project.defaultBranch,
+        upstream: project.importOriginUrl,
+      },
+      repositories: entries,
     }
   })
 
@@ -1401,46 +1643,15 @@ export const lookupGitHubRepository = createServerFn({ method: "POST" })
     }
 
     const location = await Effect.runPromise(parseGitHubRepositoryUrl(data.url))
-    const response = await fetch(
-      `https://api.github.com/repos/${location.owner}/${location.name}`,
-      {
-        headers: {
-          Accept: "application/vnd.github+json",
-          "User-Agent": "Sylph",
-          "X-GitHub-Api-Version": "2022-11-28",
-        },
-      }
+    const database = drizzle(env.DB, { schema })
+    const accessToken = await githubUserAccessToken(database, session.user.id)
+    const repository = await Effect.runPromise(
+      Effect.gen(function* () {
+        const github = yield* GitHubRepositoryService
+        return yield* github.inspect({ ...location, accessToken })
+      }).pipe(Effect.provide(GitHubRepositoryLive))
     )
-
-    if (response.status === 404) {
-      throw new Error(
-        "Repository not found. Private repositories need a GitHub connection."
-      )
-    }
-
-    if (!response.ok) {
-      throw new Error(
-        "GitHub could not load this repository. Try again shortly."
-      )
-    }
-
-    const repository = await decodeGitHubApiRepositoryJsonPromise(
-      await response.text()
-    )
-
-    return new GitHubRepositoryInfo({
-      owner: repository.owner.login,
-      name: repository.name,
-      fullName: repository.full_name,
-      description: repository.description,
-      visibility: repository.private ? "private" : "public",
-      defaultBranch: repository.default_branch,
-      stars: repository.stargazers_count,
-      language: repository.language,
-      updatedAt: repository.updated_at,
-      url: repository.html_url,
-      ownerAvatarUrl: repository.owner.avatar_url,
-    })
+    return encodeGitHubRepositoryInfo(repository)
   })
 
 export const createProject = createServerFn({ method: "POST" })
@@ -1479,13 +1690,9 @@ export const createProject = createServerFn({ method: "POST" })
       session.user.id
     )
 
-    if (!connection) {
-      throw new Error(
-        "Add a personal or Organization AI connection before creating a Project"
-      )
-    }
-
-    const credential = await connectionCredential(connection)
+    const credential = connection
+      ? await connectionCredential(connection)
+      : undefined
 
     if (!data.sourceRepositoryUrl && data.sourceBranch) {
       throw new Error("A source branch requires a GitHub Repository URL")
@@ -1499,6 +1706,9 @@ export const createProject = createServerFn({ method: "POST" })
     const sourceRepositoryUrl = sourceRepository
       ? `https://github.com/${sourceRepository.owner}/${sourceRepository.name}`
       : undefined
+    const sourceAccessToken = sourceRepository
+      ? await githubUserAccessToken(database, session.user.id)
+      : undefined
 
     const projectSlug = normalizeName(data.name)
     const requestedRepositoryName = projectSlug
@@ -1510,23 +1720,18 @@ export const createProject = createServerFn({ method: "POST" })
     const projectId = ProjectId.make(crypto.randomUUID())
     const workspaceId = WorkspaceId.make(crypto.randomUUID())
     const repositoryName = `${membership.organizationSlug}-${requestedRepositoryName.slice(0, 28)}-${projectId.replaceAll("-", "").slice(0, 12)}`
-    const artifacts = makeArtifactRepositoryService(env.REPOS)
+    const repositories = makeCloudflareArtifactsRepositoryStore(env.REPOS)
     const createdArtifact = await Effect.runPromise(
-      sourceRepositoryUrl
-        ? artifacts.importProject({
-            name: repositoryName,
-            description: `${data.name} imported by Sylph`,
-            sourceUrl: sourceRepositoryUrl,
-            sourceBranch: data.sourceBranch,
-          })
-        : artifacts.createProject({
-            name: repositoryName,
-            description: `${data.name} created by Sylph`,
-            defaultBranch: "main",
-          })
+      repositories.create({
+        name: repositoryName,
+        description: sourceRepositoryUrl
+          ? `${data.name} imported by Sylph`
+          : `${data.name} created by Sylph`,
+        defaultBranch: data.sourceBranch ?? "main",
+      })
     )
     const artifact = await Effect.runPromise(
-      artifacts.inspect(createdArtifact.name)
+      repositories.inspect(createdArtifact.name)
     )
     const workspaceRepositoryName = `${repositoryName.slice(0, 44)}-${workspaceId.replaceAll("-", "").slice(0, 12)}`
     const prepared = await prepareProjectRepository(workspaceId, {
@@ -1534,13 +1739,19 @@ export const createProject = createServerFn({ method: "POST" })
       repositoryRemote: artifact.remote,
       defaultRef: artifact.defaultBranch,
       projectName: data.name,
+      source: sourceRepositoryUrl
+        ? {
+            remote: `${sourceRepositoryUrl}.git`,
+            ref: data.sourceBranch ?? artifact.defaultBranch,
+            accessToken: sourceAccessToken,
+          }
+        : undefined,
     })
     const workspaceArtifact = await Effect.runPromise(
-      artifacts.forkWorkspace({
+      repositories.fork({
         sourceName: artifact.name,
         name: workspaceRepositoryName,
         description: `Workspace for ${data.name}`,
-        defaultBranch: artifact.defaultBranch,
       })
     )
     const now = new Date()
@@ -1568,14 +1779,17 @@ export const createProject = createServerFn({ method: "POST" })
         organizationId: data.organizationId,
         ownerUserId: session.user.id,
         title: data.name,
-        status: "provisioning",
+        status: connection ? "provisioning" : "error",
         repositoryMode: "fork",
         baseArtifactRepo: artifact.name,
         workspaceArtifactRepo: workspaceArtifact.name,
         baseCommit: prepared.head,
         forkHead: prepared.head,
-        syncStatus: "hydrating",
+        syncStatus: connection ? "hydrating" : "ready",
         mergeStatus: "unreviewed",
+        errorSummary: connection
+          ? null
+          : "Connect an AI provider to start this Workspace",
         createdAt: now,
         updatedAt: now,
       })
@@ -1584,6 +1798,18 @@ export const createProject = createServerFn({ method: "POST" })
         .delete(schema.project)
         .where(eq(schema.project.id, projectId))
       throw error
+    }
+
+    if (!connection || !credential) {
+      return {
+        id: workspaceId,
+        projectId,
+        projectSlug,
+        organizationSlug: membership.organizationSlug,
+        repositoryName: artifact.name,
+        status: "error" as const,
+        errorSummary: "Connect an AI provider to start this Workspace",
+      }
     }
 
     try {
@@ -1668,6 +1894,8 @@ export const createWorkspace = createServerFn({ method: "POST" })
         repositoryName: schema.project.artifactRepo,
         repositoryRemote: schema.project.artifactRemote,
         defaultRef: schema.project.defaultBranch,
+        sourceUrl: schema.project.importOriginUrl,
+        sourceRef: schema.project.importOriginBranch,
       })
       .from(schema.project)
       .innerJoin(
@@ -1683,6 +1911,8 @@ export const createWorkspace = createServerFn({ method: "POST" })
     if (!project) {
       throw new Error("This Project does not exist or you cannot access it")
     }
+
+    await synchronizeProjectRepository(database, session.user.id, project)
 
     const existingWorkspaceCount = await database
       .select({ value: count() })
@@ -1708,7 +1938,7 @@ export const createWorkspace = createServerFn({ method: "POST" })
     const credential = await connectionCredential(connection)
     const workspaceId = WorkspaceId.make(crypto.randomUUID())
     const workspaceRepositoryName = `${project.repositoryName.slice(0, 44)}-${workspaceId.replaceAll("-", "").slice(0, 12)}`
-    const artifacts = makeArtifactRepositoryService(env.REPOS)
+    const repositories = makeCloudflareArtifactsRepositoryStore(env.REPOS)
     const prepared = await prepareProjectRepository(workspaceId, {
       repositoryName: project.repositoryName,
       repositoryRemote: project.repositoryRemote,
@@ -1716,11 +1946,10 @@ export const createWorkspace = createServerFn({ method: "POST" })
       projectName: project.name,
     })
     const workspaceRepository = await Effect.runPromise(
-      artifacts.forkWorkspace({
+      repositories.fork({
         sourceName: project.repositoryName,
         name: workspaceRepositoryName,
         description: `Workspace for ${project.name}: ${title}`,
-        defaultBranch: project.defaultRef,
       })
     )
     const now = new Date()
@@ -1796,6 +2025,14 @@ export const getWorkspace = createServerFn({ method: "GET" })
         repositoryName: schema.project.artifactRepo,
         workspaceRepositoryName: schema.workspace.workspaceArtifactRepo,
         defaultBranch: schema.project.defaultBranch,
+        importOriginUrl: schema.project.importOriginUrl,
+        importOriginBranch: schema.project.importOriginBranch,
+        upstreamHead: schema.project.upstreamHead,
+        upstreamStatus: schema.project.upstreamStatus,
+        upstreamSyncedAt: schema.project.upstreamSyncedAt,
+        deliveryMode: schema.project.deliveryMode,
+        deliveredCommit: schema.project.deliveredCommit,
+        deliveryUrl: schema.project.deliveryUrl,
         errorSummary: schema.workspace.errorSummary,
       })
       .from(schema.workspace)
@@ -1821,12 +2058,41 @@ export const getWorkspace = createServerFn({ method: "GET" })
       return null
     }
 
+    const shouldSynchronize =
+      workspace.importOriginUrl &&
+      (!workspace.upstreamSyncedAt ||
+        Date.now() - workspace.upstreamSyncedAt.getTime() > 5 * 60 * 1000)
+    const synchronization = shouldSynchronize
+      ? await synchronizeProjectRepository(
+          drizzle(env.DB, { schema }),
+          session.user.id,
+          {
+            id: workspace.projectId,
+            repositoryName: workspace.repositoryName,
+            repositoryRemote: (
+              await Effect.runPromise(
+                makeCloudflareArtifactsRepositoryStore(env.REPOS).inspect(
+                  workspace.repositoryName
+                )
+              )
+            ).remote,
+            defaultRef: workspace.defaultBranch,
+            sourceUrl: workspace.importOriginUrl,
+            sourceRef: workspace.importOriginBranch,
+          }
+        )
+      : null
+
     const runtime = env.WORKSPACES.get(
       env.WORKSPACES.idFromName(data.workspaceId)
     )
     const [response, vcsResponse] = await Promise.all([
       runtime.fetch("https://workspace/snapshot"),
-      runtime.fetch("https://workspace/vcs"),
+      runtime.fetch(
+        synchronization
+          ? "https://workspace/vcs?refresh=1"
+          : "https://workspace/vcs"
+      ),
     ])
 
     if (!response.ok) {
@@ -1962,7 +2228,9 @@ export const restartWorkspace = createServerFn({ method: "POST" })
 
     const credential = await connectionCredential(connection)
     const repository = await Effect.runPromise(
-      makeArtifactRepositoryService(env.REPOS).inspect(workspace.repositoryName)
+      makeCloudflareArtifactsRepositoryStore(env.REPOS).inspect(
+        workspace.repositoryName
+      )
     )
 
     if (!workspace.baseCommit) {
@@ -2182,6 +2450,51 @@ export const checkpointWorkspace = createServerFn({ method: "POST" })
     }
   })
 
+export const rebaseWorkspace = createServerFn({ method: "POST" })
+  .validator((input) => decodeWorkspaceRequestInputPromise(input))
+  .handler(async ({ data }) => {
+    const { session } = await currentSession(getRequest())
+    if (!session) throw new Error("Sign in before rebasing a Workspace")
+    const database = drizzle(env.DB, { schema })
+    const workspace = await database
+      .select({ id: schema.workspace.id })
+      .from(schema.workspace)
+      .innerJoin(
+        schema.member,
+        and(
+          eq(schema.member.organizationId, schema.workspace.organizationId),
+          eq(schema.member.userId, session.user.id)
+        )
+      )
+      .where(eq(schema.workspace.id, data.workspaceId))
+      .get()
+    if (!workspace) {
+      throw new Error("This Workspace does not exist or you cannot access it")
+    }
+    const runtime = env.WORKSPACES.get(
+      env.WORKSPACES.idFromName(data.workspaceId)
+    )
+    const response = await runtime.fetch("https://workspace/rebase", {
+      method: "POST",
+    })
+    if (!response.ok) throw new Error(await response.text())
+    const result = await decodeWorkspaceRebaseResultPromise(
+      await response.json()
+    )
+    await database
+      .update(schema.workspace)
+      .set({
+        baseCommit: result.baseCommit,
+        forkHead: result.forkHead,
+        syncStatus: "ready",
+        mergeStatus: "ready",
+        errorSummary: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.workspace.id, data.workspaceId))
+    return result
+  })
+
 export const acceptWorkspace = createServerFn({ method: "POST" })
   .validator((input) => decodeWorkspaceAcceptInputPromise(input))
   .handler(async ({ data }) => {
@@ -2192,10 +2505,13 @@ export const acceptWorkspace = createServerFn({ method: "POST" })
     const workspace = await database
       .select({
         id: schema.workspace.id,
+        projectId: schema.workspace.projectId,
         status: schema.workspace.status,
         mergeStatus: schema.workspace.mergeStatus,
         projectRepositoryName: schema.project.artifactRepo,
         projectRepositoryRemote: schema.project.artifactRemote,
+        importOriginUrl: schema.project.importOriginUrl,
+        importOriginBranch: schema.project.importOriginBranch,
         workspaceRepositoryName: schema.workspace.workspaceArtifactRepo,
         defaultRef: schema.project.defaultBranch,
         baseCommit: schema.workspace.baseCommit,
@@ -2224,6 +2540,15 @@ export const acceptWorkspace = createServerFn({ method: "POST" })
     if (workspace.mergeStatus !== "ready") {
       throw new Error("This Workspace is not ready to merge")
     }
+
+    await synchronizeProjectRepository(database, session.user.id, {
+      id: workspace.projectId,
+      repositoryName: workspace.projectRepositoryName,
+      repositoryRemote: workspace.projectRepositoryRemote,
+      defaultRef: workspace.defaultRef,
+      sourceUrl: workspace.importOriginUrl,
+      sourceRef: workspace.importOriginBranch,
+    })
 
     const runtime = env.WORKSPACES.get(
       env.WORKSPACES.idFromName(data.workspaceId)
@@ -2271,7 +2596,7 @@ export const acceptWorkspace = createServerFn({ method: "POST" })
       workspaceRepositoryName: workspace.workspaceRepositoryName,
       workspaceRepositoryRemote: (
         await Effect.runPromise(
-          makeArtifactRepositoryService(env.REPOS).inspect(
+          makeCloudflareArtifactsRepositoryStore(env.REPOS).inspect(
             workspace.workspaceRepositoryName
           )
         )
@@ -2279,6 +2604,8 @@ export const acceptWorkspace = createServerFn({ method: "POST" })
       defaultRef: workspace.defaultRef,
       baseCommit: workspace.baseCommit,
       forkHead: workspace.forkHead,
+      projectId: workspace.projectId,
+      actorUserId: session.user.id,
     }
     const instance = existing
       ? await env.MERGES.get(operationId)
