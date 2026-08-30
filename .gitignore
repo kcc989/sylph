@@ -6,6 +6,7 @@ storybook-static
 *.local
 .env*
 !.env.example
+.dev.vars
 .tanstack
 .wrangler
 .alchemy

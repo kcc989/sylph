@@ -8,6 +8,7 @@ import { Button } from "@workspace/ui/components/button"
 import { Card, CardContent } from "@workspace/ui/components/card"
 import {
   type ThreadEntry,
+  type CheckItem,
   type WorkspacePermissionRequest,
   WorkspaceShell,
 } from "@workspace/ui/components/workspace-shell"
@@ -21,7 +22,10 @@ import {
   getWorkspace,
   promptWorkspace,
   rebaseWorkspace,
+  repairWorkspaceCheck,
   restartWorkspace,
+  retryWorkspaceCheck,
+  syncWorkspaceProject,
 } from "@/lib/workspaces"
 import { useWorkspaceCreation } from "@/lib/use-workspace-creation"
 import {
@@ -58,6 +62,9 @@ function WorkspaceScreen() {
   const accept = useServerFn(acceptWorkspace)
   const restart = useServerFn(restartWorkspace)
   const rebase = useServerFn(rebaseWorkspace)
+  const retryCheck = useServerFn(retryWorkspaceCheck)
+  const repairCheck = useServerFn(repairWorkspaceCheck)
+  const syncProject = useServerFn(syncWorkspaceProject)
   const [promptPending, setPromptPending] = useState(false)
   const [checkpointPending, setCheckpointPending] = useState(false)
   const [acceptPending, setAcceptPending] = useState(false)
@@ -65,6 +72,9 @@ function WorkspaceScreen() {
   const [acceptKey, setAcceptKey] = useState(() => crypto.randomUUID())
   const [restartPending, setRestartPending] = useState(false)
   const [rebasePending, setRebasePending] = useState(false)
+  const [checkActionPending, setCheckActionPending] = useState(false)
+  const [retryKey, setRetryKey] = useState(() => crypto.randomUUID())
+  const [repairKey, setRepairKey] = useState(() => crypto.randomUUID())
   const [promptError, setPromptError] = useState<string | null>(null)
   const [liveState, setLiveState] = useState(emptyWorkspaceLiveState)
   const liveStateRef = useRef(liveState)
@@ -87,6 +97,7 @@ function WorkspaceScreen() {
     const source = new EventSource(
       `/api/workspaces/${encodeURIComponent(workspaceId)}`
     )
+    const checkTimer = window.setInterval(() => void router.invalidate(), 3_000)
     let refreshTimer: number | null = null
     let eventQueue = Promise.resolve()
 
@@ -114,6 +125,7 @@ function WorkspaceScreen() {
 
     return () => {
       if (refreshTimer !== null) window.clearTimeout(refreshTimer)
+      window.clearInterval(checkTimer)
       source.close()
     }
   }, [router, workspaceId])
@@ -232,6 +244,155 @@ function WorkspaceScreen() {
     ),
     ...liveState.permissionRequests,
   })
+  const checkpointCheck = result.checks.find((run) => run.kind === "checkpoint")
+  const productionCheck = result.checks.find((run) => run.kind === "production")
+  const currentCheckpointPassed =
+    checkpointCheck?.commit === result.versionControl.forkHead &&
+    checkpointCheck.status === "passed"
+  const checkItems: CheckItem[] = checkpointCheck
+    ? checkpointCheck.stages.map((stage, index) => {
+        const diagnostic = checkpointCheck.diagnostics.find(
+          (item) => item.stage === stage.name
+        )
+        const failed = stage.status === "failed"
+        return {
+          name: stage.name[0].toUpperCase() + stage.name.slice(1),
+          detail:
+            stage.durationMs === null
+              ? stage.detail
+              : `${stage.detail} · ${(stage.durationMs / 1000).toFixed(1)}s`,
+          status:
+            stage.status === "passed" || stage.status === "skipped"
+              ? ("passed" as const)
+              : failed
+                ? ("failed" as const)
+                : stage.status === "running"
+                  ? ("running" as const)
+                  : ("queued" as const),
+          output: diagnostic?.output,
+          evidence:
+            stage.name === "browser" ? checkpointCheck.evidence : undefined,
+          action:
+            failed &&
+            index ===
+              checkpointCheck.stages.findIndex(
+                (candidate) => candidate.status === "failed"
+              )
+              ? {
+                  label: "Retry",
+                  disabled: checkActionPending,
+                  onClick: () => {
+                    setCheckActionPending(true)
+                    setPromptError(null)
+                    void retryCheck({
+                      data: {
+                        workspaceId,
+                        runId: checkpointCheck.id,
+                        idempotencyKey: retryKey,
+                      },
+                    })
+                      .then(async () => {
+                        setRetryKey(crypto.randomUUID())
+                        await router.invalidate()
+                      })
+                      .catch((cause) =>
+                        setPromptError(
+                          cause instanceof Error
+                            ? cause.message
+                            : "Check retry failed"
+                        )
+                      )
+                      .finally(() => setCheckActionPending(false))
+                  },
+                }
+              : undefined,
+        }
+      })
+    : []
+  if (checkpointCheck?.status === "failed") {
+    checkItems.push({
+      name: "Agent repair",
+      detail:
+        checkpointCheck.repairStatus === "started"
+          ? "Repair turn started"
+          : "Optional",
+      status: checkpointCheck.repairStatus === "started" ? "running" : "failed",
+      output: undefined,
+      evidence: undefined,
+      action: {
+        label: "Repair",
+        disabled:
+          checkActionPending || checkpointCheck.repairStatus === "started",
+        onClick: () => {
+          setCheckActionPending(true)
+          setPromptError(null)
+          void repairCheck({
+            data: {
+              workspaceId,
+              runId: checkpointCheck.id,
+              idempotencyKey: repairKey,
+            },
+          })
+            .then(async () => {
+              setRepairKey(crypto.randomUUID())
+              await router.invalidate()
+            })
+            .catch((cause) =>
+              setPromptError(
+                cause instanceof Error ? cause.message : "Repair turn failed"
+              )
+            )
+            .finally(() => setCheckActionPending(false))
+        },
+      },
+    })
+  }
+  if (result.versionControl.projectChanged) {
+    checkItems.unshift({
+      name: "Project Repository",
+      detail: "A newer commit is available",
+      status: "failed",
+      output: undefined,
+      evidence: undefined,
+      action: {
+        label: "Update",
+        disabled: checkActionPending || workingChanges.length > 0,
+        onClick: () => {
+          setCheckActionPending(true)
+          setPromptError(null)
+          void syncProject({ data: { workspaceId } })
+            .then(async () => router.invalidate())
+            .catch((cause) =>
+              setPromptError(
+                cause instanceof Error
+                  ? cause.message
+                  : "Repository update failed"
+              )
+            )
+            .finally(() => setCheckActionPending(false))
+        },
+      },
+    })
+  }
+  if (productionCheck) {
+    checkItems.push(
+      ...productionCheck.stages.map((stage) => ({
+        name: `Production ${stage.name}`,
+        detail: stage.detail,
+        status:
+          stage.status === "passed" || stage.status === "skipped"
+            ? ("passed" as const)
+            : stage.status === "failed"
+              ? ("failed" as const)
+              : stage.status === "running"
+                ? ("running" as const)
+                : ("queued" as const),
+        output: productionCheck.diagnostics.find(
+          (diagnostic) => diagnostic.stage === stage.name
+        )?.output,
+      }))
+    )
+  }
 
   return (
     <WorkspaceShell
@@ -241,9 +402,15 @@ function WorkspaceScreen() {
       repositoryName={workspace.repositoryName}
       workspaceName={workspace.title}
       browser={{
-        url: "about:blank",
-        title: "A preview will appear after the first checkpoint.",
-        status: "loading",
+        url: checkpointCheck?.previewUrl ?? "",
+        title: checkpointCheck?.previewUrl
+          ? `Checkpoint ${checkpointCheck.commit.slice(0, 7)} Preview`
+          : "A preview will appear after its Check passes.",
+        status: checkpointCheck?.previewUrl
+          ? "live"
+          : checkpointCheck?.status === "failed"
+            ? "error"
+            : "loading",
       }}
       changedFileCount={workingChanges.length}
       checkpointHistory={result.checkpoints}
@@ -254,25 +421,7 @@ function WorkspaceScreen() {
       checkpointPending={checkpointPending}
       acceptPending={acceptPending}
       rebasePending={rebasePending}
-      checks={[
-        {
-          name: "Assistant",
-          detail: runtime.opencode.healthy ? "healthy" : "unavailable",
-          status: runtime.opencode.healthy ? "passed" : "failed",
-        },
-        {
-          name: "Durable working tree",
-          detail: `${runtime.files.length} files`,
-          status: "passed",
-        },
-        {
-          name: "Project baseline",
-          detail: result.versionControl.projectChanged
-            ? "Project Repository changed"
-            : result.versionControl.baseCommit.slice(0, 7),
-          status: result.versionControl.projectChanged ? "failed" : "passed",
-        },
-      ]}
+      checks={checkItems}
       entries={entries}
       permissionRequests={permissionRequests}
       replyingPermissionId={replyingPermissionId}
@@ -325,6 +474,8 @@ function WorkspaceScreen() {
       }}
       onAccept={
         result.versionControl.branch.length > 0 &&
+        currentCheckpointPassed &&
+        !result.versionControl.projectChanged &&
         workspace.status !== "merging" &&
         workspace.status !== "archived"
           ? async () => {

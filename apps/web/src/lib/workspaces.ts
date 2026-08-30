@@ -22,13 +22,18 @@ import {
   decodeWorkspaceCheckpointInputPromise,
   decodeWorkspaceCheckpointList,
   decodeWorkspaceCheckpointResult,
+  decodeWorkspaceCheckRunList,
   decodeWorkspacePromptInputPromise,
   decodeWorkspaceRequestInputPromise,
   decodeWorkspaceRebaseResultPromise,
+  decodeWorkspaceRepairCheckInputPromise,
+  decodeWorkspaceRetryCheckInputPromise,
   decodeWorkspaceRuntimeHealth,
+  decodeWorkspaceSyncInputPromise,
   decodeWorkspaceVersionControl,
   encodeGitHubRepositoryInfo,
   encodeWorkspaceCheckpointList,
+  encodeWorkspaceCheckRunList,
   encodeWorkspaceRuntimeHealth,
   encodeWorkspaceVersionControl,
   InitializeWorkspaceRuntime,
@@ -69,10 +74,10 @@ import {
   encodeKeyCredential,
 } from "@/lib/provider-credential"
 import {
-  bootstrapProviderModels,
   normalizeProviderModels,
   selectInitialProviderModel,
 } from "@/lib/provider-models"
+import { discoverOpenCodeKeyModels } from "@/server/opencode-key-setup"
 import { restartDurableWorkspace } from "@/server/workspace-runtime-lifecycle"
 
 const normalizeName = (value: string) =>
@@ -1382,6 +1387,13 @@ export const saveOpenCodeSetup = createServerFn({ method: "POST" })
     const database = drizzle(env.DB, { schema })
     await connectionAccess(data.organizationId, session.user.id, data.scope)
 
+    const runtime = env.WORKSPACES.get(
+      env.WORKSPACES.idFromName(
+        connectionRuntimeName(data.organizationId, session.user.id, data.scope)
+      )
+    )
+    const result = await discoverOpenCodeKeyModels(runtime, data)
+
     const credential = await encryptCredential(
       encodeKeyCredential(data.apiKey, data.configuration),
       env.CREDENTIAL_ENCRYPTION_KEY
@@ -1439,15 +1451,14 @@ export const saveOpenCodeSetup = createServerFn({ method: "POST" })
         })
     }
 
-    const models = bootstrapProviderModels(data.providerId)
     const availableModelCount = await saveProviderModels({
       database,
       organizationId: data.organizationId,
       userId: session.user.id,
       scope: data.scope,
       providerId: data.providerId,
-      models,
-      recommendedModelId: models[0]?.modelId ?? null,
+      models: result.models,
+      recommendedModelId: result.recommendedModelId,
     })
 
     return {
@@ -2086,13 +2097,14 @@ export const getWorkspace = createServerFn({ method: "GET" })
     const runtime = env.WORKSPACES.get(
       env.WORKSPACES.idFromName(data.workspaceId)
     )
-    const [response, vcsResponse] = await Promise.all([
+    const [response, vcsResponse, checksResponse] = await Promise.all([
       runtime.fetch("https://workspace/snapshot"),
       runtime.fetch(
         synchronization
           ? "https://workspace/vcs?refresh=1"
           : "https://workspace/vcs"
       ),
+      runtime.fetch("https://workspace/checks"),
     ])
 
     if (!response.ok) {
@@ -2100,6 +2112,9 @@ export const getWorkspace = createServerFn({ method: "GET" })
     }
     if (!vcsResponse.ok) {
       throw new Error(await vcsResponse.text())
+    }
+    if (!checksResponse.ok) {
+      throw new Error(await checksResponse.text())
     }
 
     const runtimeSnapshot = await decodeWorkspaceRuntimeHealth(
@@ -2127,10 +2142,15 @@ export const getWorkspace = createServerFn({ method: "GET" })
     const checkpoints = await decodeWorkspaceCheckpointList(
       vcsPayload.checkpoints
     )
-    const [encodedVersionControl, encodedCheckpoints] = await Promise.all([
-      encodeWorkspaceVersionControl(versionControl),
-      encodeWorkspaceCheckpointList(checkpoints),
-    ])
+    const checks = await decodeWorkspaceCheckRunList(
+      await checksResponse.json()
+    )
+    const [encodedVersionControl, encodedCheckpoints, encodedChecks] =
+      await Promise.all([
+        encodeWorkspaceVersionControl(versionControl),
+        encodeWorkspaceCheckpointList(checkpoints),
+        encodeWorkspaceCheckRunList(checks),
+      ])
 
     const runtimeStatus =
       (workspace.status === "error" || workspace.errorSummary) &&
@@ -2163,6 +2183,7 @@ export const getWorkspace = createServerFn({ method: "GET" })
       ),
       versionControl: encodedVersionControl,
       checkpoints: encodedCheckpoints,
+      checks: encodedChecks,
       models: connection?.models ?? [],
       selectedModel: connection
         ? { providerId: connection.providerId, modelId: connection.modelId }
@@ -2429,10 +2450,15 @@ export const checkpointWorkspace = createServerFn({ method: "POST" })
       const result = await decodeWorkspaceCheckpointResult(
         await response.json()
       )
+      const vcsResponse = await runtime.fetch("https://workspace/vcs")
+      if (!vcsResponse.ok) throw new Error(await vcsResponse.text())
+      const vcsPayload = await vcsResponse.json<{ vcs: unknown }>()
+      const versionControl = await decodeWorkspaceVersionControl(vcsPayload.vcs)
       await database
         .update(schema.workspace)
         .set({
           forkHead: result.checkpoint.commit,
+          baseCommit: versionControl.baseCommit,
           syncStatus: "ready",
           mergeStatus: "ready",
           latestCheckpointAt: new Date(result.checkpoint.createdAt),
@@ -2489,6 +2515,101 @@ export const rebaseWorkspace = createServerFn({ method: "POST" })
         syncStatus: "ready",
         mergeStatus: "ready",
         errorSummary: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.workspace.id, data.workspaceId))
+    return result
+  })
+
+const authorizedWorkspaceRuntime = async (
+  workspaceId: string,
+  userId: string
+) => {
+  const workspace = await drizzle(env.DB, { schema })
+    .select({ id: schema.workspace.id })
+    .from(schema.workspace)
+    .innerJoin(
+      schema.member,
+      and(
+        eq(schema.member.organizationId, schema.workspace.organizationId),
+        eq(schema.member.userId, userId)
+      )
+    )
+    .where(eq(schema.workspace.id, workspaceId))
+    .get()
+  if (!workspace) {
+    throw new Error("This Workspace does not exist or you cannot access it")
+  }
+  return env.WORKSPACES.get(env.WORKSPACES.idFromName(workspaceId))
+}
+
+export const retryWorkspaceCheck = createServerFn({ method: "POST" })
+  .validator((input) => decodeWorkspaceRetryCheckInputPromise(input))
+  .handler(async ({ data }) => {
+    const { session } = await currentSession(getRequest())
+    if (!session) throw new Error("Sign in before retrying a Check")
+    const runtime = await authorizedWorkspaceRuntime(
+      data.workspaceId,
+      session.user.id
+    )
+    const response = await runtime.fetch("https://workspace/checks/retry", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(data),
+    })
+    if (!response.ok) throw new Error(await response.text())
+    return response.json<{
+      id: string
+      status: "queued" | "running" | "passed" | "failed"
+      attempt: number
+    }>()
+  })
+
+export const repairWorkspaceCheck = createServerFn({ method: "POST" })
+  .validator((input) => decodeWorkspaceRepairCheckInputPromise(input))
+  .handler(async ({ data }) => {
+    const { session } = await currentSession(getRequest())
+    if (!session) throw new Error("Sign in before starting a repair turn")
+    const runtime = await authorizedWorkspaceRuntime(
+      data.workspaceId,
+      session.user.id
+    )
+    const response = await runtime.fetch("https://workspace/checks/repair", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(data),
+    })
+    if (!response.ok) throw new Error(await response.text())
+    return response.json<{ started: boolean }>()
+  })
+
+export const syncWorkspaceProject = createServerFn({ method: "POST" })
+  .validator((input) => decodeWorkspaceSyncInputPromise(input))
+  .handler(async ({ data }) => {
+    const { session } = await currentSession(getRequest())
+    if (!session) throw new Error("Sign in before updating a Workspace")
+    const runtime = await authorizedWorkspaceRuntime(
+      data.workspaceId,
+      session.user.id
+    )
+    const response = await runtime.fetch("https://workspace/update-project", {
+      method: "POST",
+    })
+    if (!response.ok) throw new Error(await response.text())
+    const result = await response.json<{
+      status: "current" | "updated" | "conflicted"
+    }>()
+    const vcsResponse = await runtime.fetch("https://workspace/vcs")
+    if (!vcsResponse.ok) throw new Error(await vcsResponse.text())
+    const vcsPayload = await vcsResponse.json<{ vcs: unknown }>()
+    const versionControl = await decodeWorkspaceVersionControl(vcsPayload.vcs)
+    await drizzle(env.DB, { schema })
+      .update(schema.workspace)
+      .set({
+        baseCommit: versionControl.baseCommit,
+        forkHead: versionControl.forkHead,
+        syncStatus: versionControl.syncStatus,
+        mergeStatus: versionControl.mergeStatus,
         updatedAt: new Date(),
       })
       .where(eq(schema.workspace.id, data.workspaceId))
@@ -2553,23 +2674,44 @@ export const acceptWorkspace = createServerFn({ method: "POST" })
     const runtime = env.WORKSPACES.get(
       env.WORKSPACES.idFromName(data.workspaceId)
     )
-    const [snapshotResponse, vcsResponse] = await Promise.all([
+    const [snapshotResponse, vcsResponse, checksResponse] = await Promise.all([
       runtime.fetch("https://workspace/snapshot"),
       runtime.fetch("https://workspace/vcs?refresh=1"),
+      runtime.fetch("https://workspace/checks"),
     ])
     if (!snapshotResponse.ok) throw new Error(await snapshotResponse.text())
     if (!vcsResponse.ok) throw new Error(await vcsResponse.text())
+    if (!checksResponse.ok) throw new Error(await checksResponse.text())
     const snapshot = await decodeWorkspaceRuntimeHealth(
       await snapshotResponse.json()
     )
     const vcsPayload = await vcsResponse.json<{ vcs: unknown }>()
     const versionControl = await decodeWorkspaceVersionControl(vcsPayload.vcs)
+    const checks = await decodeWorkspaceCheckRunList(
+      await checksResponse.json()
+    )
     if (
       !snapshot.opencode.healthy ||
       snapshot.status === "running" ||
       versionControl.working.length
     ) {
       throw new Error("Checkpoint all changes and pass checks before accepting")
+    }
+    const passingCheck = checks.find(
+      (run) =>
+        run.kind === "checkpoint" &&
+        run.commit === versionControl.forkHead &&
+        run.status === "passed"
+    )
+    if (!passingCheck) {
+      throw new Error(
+        "The latest Checkpoint must pass its Check, Preview, and browser verification before acceptance"
+      )
+    }
+    if (versionControl.projectChanged) {
+      throw new Error(
+        "Update this Workspace from the Project Repository, resolve any conflicts, and run a new Check before acceptance"
+      )
     }
 
     const operationId = `${data.workspaceId}-${data.idempotencyKey}`

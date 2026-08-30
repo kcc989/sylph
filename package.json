@@ -25,6 +25,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20260826.1",
+    "@types/node": "^22",
     "@effect/platform-bun": "4.0.0-rc.111",
     "@effect/platform-node": "4.0.0-rc.111",
     "@oxlint/plugins": "1.80.0",
@@ -55,6 +56,8 @@
     "packages/*"
   ],
   "dependencies": {
+    "@cloudflare/ci": "^0.1.0",
+    "@cloudflare/sandbox": "^0.12.9",
     "effect": "4.0.0-rc.111"
   }
 }

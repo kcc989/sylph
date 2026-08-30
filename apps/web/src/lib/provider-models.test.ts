@@ -22,6 +22,16 @@ describe("provider model normalization", () => {
     ])
   })
 
+  test("provides a tool-capable Workers AI bootstrap model", () => {
+    expect(bootstrapProviderModels("cloudflare-workers-ai")).toEqual([
+      {
+        providerId: "cloudflare-workers-ai",
+        modelId: "@cf/moonshotai/kimi-k2.7-code",
+        name: "Kimi K2.7 Code",
+      },
+    ])
+  })
+
   test("keeps one model for each provider model ID", () => {
     const models = normalizeProviderModels(
       [

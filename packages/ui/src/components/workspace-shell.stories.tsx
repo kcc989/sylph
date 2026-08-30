@@ -79,7 +79,7 @@ export const WaitingForAgent: Story = {
     checks: [
       { name: "Install dependencies", detail: "12s", status: "passed" },
       { name: "Start preview", detail: "waiting", status: "running" },
-      { name: "Browser verification", detail: "queued", status: "running" },
+      { name: "Browser verification", detail: "queued", status: "queued" },
     ],
   },
 }

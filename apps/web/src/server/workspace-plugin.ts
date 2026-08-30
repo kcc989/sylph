@@ -1,11 +1,19 @@
 import {
+  decodeWorkspaceCheckStatusToolInput,
   decodeWorkspaceDeleteFile,
   decodeWorkspaceFilePath,
   decodeWorkspaceListFiles,
+  decodeWorkspaceRunChecksToolInput,
+  decodeWorkspaceSyncToolInput,
   decodeWorkspaceWriteFile,
+  WorkspaceCheckStatusToolJsonSchema,
+  type WorkspaceCheckRun,
   WorkspaceDeleteFileJsonSchema,
   WorkspaceFilePathJsonSchema,
   WorkspaceListFilesJsonSchema,
+  WorkspaceRunChecksToolJsonSchema,
+  WorkspaceSyncToolJsonSchema,
+  type WorkspaceSyncResult,
   WorkspaceWriteFileJsonSchema,
 } from "@workspace/domain"
 import { Plugin } from "@opencode-ai/plugin"
@@ -94,6 +102,15 @@ export type WorkspacePermissionBridge = ReturnType<
   typeof createWorkspacePermissionBridge
 >
 
+export type WorkspacePluginActions = {
+  runChecks(input: {
+    message: string
+    repairOnFailure: boolean
+  }): Promise<WorkspaceCheckRun>
+  checkStatus(): Promise<ReadonlyArray<WorkspaceCheckRun>>
+  syncProject(): Promise<WorkspaceSyncResult>
+}
+
 export const workspaceMutationPermissions = [
   {
     action: "workspace_write_file",
@@ -135,7 +152,8 @@ export const createWorkspacePlugin = (
   filesystem: WorkspaceFilesystem,
   workspaceGit: WorkspaceGit,
   openAIOAuth: OpenAIOAuthRequestState,
-  permissionBridge: WorkspacePermissionBridge
+  permissionBridge: WorkspacePermissionBridge,
+  actions: WorkspacePluginActions
 ) =>
   Plugin.define({
     id: "sylph-workspace",
@@ -160,6 +178,47 @@ export const createWorkspacePlugin = (
             return {
               content: rows.length ? rows.join("\n") : "No files found.",
             }
+          },
+        })
+        draft.add({
+          name: "workspace_run_checks",
+          description:
+            "Create a durable Checkpoint and run install, typecheck, lint, test, build, preview, and browser verification in Cloudflare CI.",
+          input: WorkspaceRunChecksToolJsonSchema,
+          options: workspaceToolOptions,
+          async execute(input) {
+            const decoded = await decodeWorkspaceRunChecksToolInput(input)
+            return {
+              content: JSON.stringify(
+                await actions.runChecks({
+                  message:
+                    decoded.message ?? "Checkpoint verified Workspace changes",
+                  repairOnFailure: decoded.repairOnFailure ?? false,
+                })
+              ),
+            }
+          },
+        })
+        draft.add({
+          name: "workspace_check_status",
+          description:
+            "Read structured Cloudflare CI diagnostics, Preview state, and captured browser evidence for this Workspace.",
+          input: WorkspaceCheckStatusToolJsonSchema,
+          options: workspaceToolOptions,
+          async execute(input) {
+            await decodeWorkspaceCheckStatusToolInput(input)
+            return { content: JSON.stringify(await actions.checkStatus()) }
+          },
+        })
+        draft.add({
+          name: "workspace_sync_project",
+          description:
+            "Update this Workspace from the latest Project Repository commit and leave useful conflict markers when changes overlap.",
+          input: WorkspaceSyncToolJsonSchema,
+          options: workspaceToolOptions,
+          async execute(input) {
+            await decodeWorkspaceSyncToolInput(input)
+            return { content: JSON.stringify(await actions.syncProject()) }
           },
         })
         draft.add({
@@ -269,7 +328,7 @@ export const createWorkspacePlugin = (
         (session) => {
           session.system.push({
             type: "text",
-            text: "You are coding inside a Cloudflare Durable Object. Use workspace_list_files, workspace_read_file, and workspace_write_file for all source work. The durable workspace filesystem is authoritative during the session. Do not call shell, PTY, or local filesystem tools because they are unavailable in Workerd. Explain when install, build, test, or deployment work must be delegated to Cloudflare CI.",
+            text: "You are coding inside a Cloudflare Durable Object. Use workspace_list_files, workspace_read_file, and workspace_write_file for source work. Use workspace_run_checks after a coherent change, workspace_check_status for diagnostics and browser evidence, and workspace_sync_project when the Project Repository advances. The durable workspace filesystem is authoritative. Shell, PTY, and local filesystem tools are unavailable in Workerd; Cloudflare CI performs install, typecheck, lint, test, build, preview, browser verification, and deployment.",
           })
         }
       )

@@ -1,5 +1,9 @@
 import {
   AgentSessionId,
+  decodeWorkspaceCheckUpdatePromise,
+  decodeWorkspaceProductionCheckInputPromise,
+  decodeWorkspaceRepairCheckInputPromise,
+  decodeWorkspaceRetryCheckInputPromise,
   decodeInitializeWorkspaceRuntime,
   decodeOpenCodeCredentialPromise,
   decodeOpenCodeKeySetupInputPromise,
@@ -17,8 +21,14 @@ import {
   type OpenCodeCredential,
   WorkspaceRuntimeEvent,
   type WorkspaceRuntimeMessage,
+  GitCommitId,
+  WorkspaceCheckRun,
+  type WorkspaceCiInput,
+  type WorkspaceCheckStageName,
+  WorkspaceId,
 } from "@workspace/domain"
 import type { OpenCodeWorkerd } from "@opencode-ai/sdk/workerd"
+import { InvalidRequestError } from "@opencode-ai/protocol/errors"
 import { DurableObject } from "cloudflare:workers"
 import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/durable-sqlite"
@@ -26,6 +36,7 @@ import { sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { Schema } from "effect"
 
 import { workspaceEventResponse } from "./workspace-event-stream"
+import { providerConnectionErrorSummary } from "./workspace-error-summary"
 import {
   createWorkspacePermissionBridge,
   createWorkspacePlugin,
@@ -35,8 +46,33 @@ import { WorkspaceFilesystem } from "./workspace-filesystem"
 import { WorkspaceGit } from "./workspace-git"
 import { createOpenCodeWithStorageBootstrap } from "./opencode-storage-bootstrap"
 import { activateCredentialAndWaitForCatalog } from "./opencode-credential-activation"
+import {
+  connectOpenCodeKeyCredential,
+  OpenCodeCredentialReloadRequired,
+} from "./opencode-key-credential"
 import type { OpenAIOAuthRequestState } from "./opencode-oauth-request"
+import { activateWorkspacePrompt } from "./workspace-prompt-activation"
 import { workspaceRuntimeStatus } from "./workspace-runtime-status"
+import { checkStage, WorkspaceChecks } from "./workspace-checks"
+const checkpointCheckStages: WorkspaceCheckStageName[] = [
+  "install",
+  "typecheck",
+  "lint",
+  "test",
+  "build",
+  "preview",
+  "browser",
+]
+const productionCheckStages: WorkspaceCheckStageName[] = [
+  "install",
+  "build",
+  "production",
+]
+
+const providerFailureMessage = Schema.Struct({ message: Schema.String })
+const wrappedProviderFailureMessage = Schema.Struct({
+  error: providerFailureMessage,
+})
 
 const appWorkspaceState = sqliteTable("app_workspace_state", {
   workspaceId: text("workspace_id").primaryKey(),
@@ -113,6 +149,9 @@ const subscriptionMethodId = "chatgpt-headless"
 const subscriptionCredentialLabel = "Sylph connection"
 
 interface WorkspaceBindings extends Cloudflare.Env {
+  CI_WORKFLOW: Workflow<WorkspaceCiInput>
+  DB: D1Database
+  REPOSITORY_NAMESPACE: string
   REPOS: Artifacts
 }
 
@@ -121,6 +160,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   readonly #opencode
   readonly #filesystem
   readonly #workspaceGit
+  readonly #checks
   readonly #permissionBridge = createWorkspacePermissionBridge()
   readonly #openAIOAuth: OpenAIOAuthRequestState = {
     active: false,
@@ -136,6 +176,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       bindings.REPOS,
       this.#filesystem
     )
+    this.#checks = new WorkspaceChecks(context.storage)
     this.#opencode = context.blockConcurrencyWhile(async () => {
       const { OpenCodeWorkerd } = await import("@opencode-ai/sdk/workerd")
       const opencode = await createOpenCodeWithStorageBootstrap(
@@ -157,7 +198,32 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
                 this.#filesystem,
                 this.#workspaceGit,
                 this.#openAIOAuth,
-                this.#permissionBridge
+                this.#permissionBridge,
+                {
+                  runChecks: async (input) => {
+                    try {
+                      const state = this.#requiredState()
+                      const result = await this.#workspaceGit.checkpoint({
+                        idempotencyKey: crypto.randomUUID(),
+                        message: input.message,
+                      })
+                      return await this.#startCheckpointCheck(
+                        state.workspaceId,
+                        result.checkpoint.id,
+                        result.checkpoint.commit,
+                        input.repairOnFailure
+                      )
+                    } catch (error) {
+                      console.error(
+                        "Workspace runChecks failed",
+                        error instanceof Error ? error.stack : error
+                      )
+                      throw error
+                    }
+                  },
+                  checkStatus: async () => this.#checks.list(),
+                  syncProject: async () => this.#syncProjectAndCheck(),
+                }
               ),
             ],
           })
@@ -180,6 +246,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
 
       this.#filesystem.initialize()
       this.#workspaceGit.initialize()
+      this.#checks.initialize()
 
       this.#database.run(sql`
         CREATE TABLE IF NOT EXISTS app_workspace_state (
@@ -253,12 +320,13 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         await this.#waitForIntegration(opencode, input.providerId)
 
         try {
-          await opencode.integration.connect.key({
-            integrationID: input.providerId,
+          await connectOpenCodeKeyCredential(opencode, {
+            providerId: input.providerId,
             key: input.apiKey,
-            answer: input.configuration,
+            configuration: input.configuration,
           })
-        } catch {
+        } catch (error) {
+          if (error instanceof OpenCodeCredentialReloadRequired) throw error
           throw new Error(
             `OpenCode could not connect to ${input.providerId}. Check the provider key and try again.`
           )
@@ -357,12 +425,101 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         const input = await decodeWorkspaceCheckpointInputPromise(
           await request.json()
         )
-        return Response.json(
-          await this.#workspaceGit.checkpoint({
-            idempotencyKey: input.idempotencyKey,
-            message: input.message,
-          })
+        const result = await this.#workspaceGit.checkpoint({
+          idempotencyKey: input.idempotencyKey,
+          message: input.message,
+        })
+        const state = this.#requiredState()
+        const check = await this.#startCheckpointCheck(
+          state.workspaceId,
+          result.checkpoint.id,
+          result.checkpoint.commit,
+          input.repairOnFailure ?? false
         )
+        return Response.json({ ...result, check })
+      }
+
+      if (request.method === "GET" && url.pathname === "/checks") {
+        return Response.json(this.#checks.list())
+      }
+
+      if (request.method === "POST" && url.pathname === "/checks/update") {
+        const update = await decodeWorkspaceCheckUpdatePromise(
+          await request.json()
+        )
+        return Response.json({ applied: this.#checks.apply(update) })
+      }
+
+      if (request.method === "POST" && url.pathname === "/checks/production") {
+        const input = await decodeWorkspaceProductionCheckInputPromise(
+          await request.json()
+        )
+        const state = this.#requiredState()
+        const existing = this.#checks.get(input.id)
+        if (existing) return Response.json(existing)
+        const run = new WorkspaceCheckRun({
+          id: input.id,
+          workspaceId: WorkspaceId.make(state.workspaceId),
+          checkpointId: null,
+          commit: GitCommitId.make(input.commit),
+          kind: "production",
+          status: "queued",
+          attempt: 1,
+          repairOnFailure: false,
+          repairStatus: "disabled",
+          previewUrl: null,
+          stages: productionCheckStages.map((name) =>
+            checkStage(name, "queued", "Waiting")
+          ),
+          diagnostics: [],
+          evidence: [],
+          createdAt: input.createdAt,
+          updatedAt: input.createdAt,
+        })
+        this.#checks.create(run)
+        return Response.json(run)
+      }
+
+      if (request.method === "POST" && url.pathname === "/checks/retry") {
+        const input = await decodeWorkspaceRetryCheckInputPromise(
+          await request.json()
+        )
+        const state = this.#requiredState()
+        if (input.workspaceId !== state.workspaceId)
+          throw new Error("Check retry belongs to another Workspace")
+        const run = this.#checks.retry(input.runId, input.idempotencyKey)
+        await this.#startWorkflow(run)
+        return Response.json(run)
+      }
+
+      if (request.method === "POST" && url.pathname === "/checks/repair") {
+        const input = await decodeWorkspaceRepairCheckInputPromise(
+          await request.json()
+        )
+        const state = this.#requiredState()
+        if (input.workspaceId !== state.workspaceId)
+          throw new Error("Check repair belongs to another Workspace")
+        this.#checks.requestRepair(input.runId, input.idempotencyKey)
+        const run = this.#checks.takeRepair(input.runId)
+        if (!run) return Response.json({ started: false })
+        if (!state.sessionId)
+          throw new Error("OpenCode session is not initialized")
+        const diagnostics = run.diagnostics
+          .map(
+            (diagnostic) =>
+              `${diagnostic.stage}: ${diagnostic.summary}\n${diagnostic.output}`
+          )
+          .join("\n\n")
+          .slice(-12_000)
+        await opencode.sessions.prompt({
+          sessionID: state.sessionId,
+          text: `Repair the failures from Check ${run.id} without weakening validation. Inspect the current Working copy, make the smallest correct changes, then run Workspace checks again.\n\n${diagnostics}`,
+        })
+        return Response.json({ started: true })
+      }
+
+      if (request.method === "POST" && url.pathname === "/update-project") {
+        return Response.json(await this.#syncProjectAndCheck())
       }
 
       if (request.method === "POST" && url.pathname === "/rebase") {
@@ -394,23 +551,45 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
             status: 409,
           })
         }
+        const sessionId = state.sessionId
 
         try {
-          await this.#installCredential(
-            opencode,
-            input.model.providerId,
-            input.credential
-          )
-          await opencode.sessions.switchModel({
-            sessionID: state.sessionId,
-            model: {
-              providerID: input.model.providerId,
-              id: input.model.modelId,
-            },
+          await activateWorkspacePrompt({
+            refreshCredential: () =>
+              this.#installCredential(
+                opencode,
+                input.model.providerId,
+                input.credential
+              ),
+            switchModel: () =>
+              opencode.sessions.switchModel({
+                sessionID: sessionId,
+                model: {
+                  providerID: input.model.providerId,
+                  id: input.model.modelId,
+                },
+              }),
           })
-        } catch {
+          this.#database
+            .update(appWorkspaceState)
+            .set({
+              providerId: input.model.providerId,
+              modelId: input.model.modelId,
+            })
+            .run()
+        } catch (error) {
+          const detail =
+            error instanceof Error
+              ? error.message
+              : Schema.is(providerFailureMessage)(error)
+                ? error.message
+                : Schema.is(wrappedProviderFailureMessage)(error)
+                  ? error.error.message
+                  : null
           throw new Error(
-            `OpenCode could not use ${input.model.providerId}/${input.model.modelId}. Choose another available model.`
+            detail
+              ? `OpenCode could not use ${input.model.providerId}/${input.model.modelId}: ${detail}`
+              : `OpenCode could not use ${input.model.providerId}/${input.model.modelId}. Choose another available model.`
           )
         }
 
@@ -423,7 +602,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           .run()
 
         await opencode.sessions.prompt({
-          sessionID: state.sessionId,
+          sessionID: sessionId,
           text: input.text,
         })
         return Response.json(await this.#snapshot(opencode), { status: 202 })
@@ -486,6 +665,11 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
 
       return new Response("Not found", { status: 404 })
     } catch (error) {
+      if (error instanceof OpenCodeCredentialReloadRequired) {
+        return new Response("Workspace runtime credential store refreshed", {
+          status: 409,
+        })
+      }
       console.error(
         "Workspace runtime request failed",
         error instanceof Error ? error.stack : error
@@ -495,6 +679,113 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         { status: 500 }
       )
     }
+  }
+
+  #requiredState() {
+    const state = this.#database.select().from(appWorkspaceState).get()
+    if (!state) throw new Error("Workspace runtime is not initialized")
+    return state
+  }
+
+  async #startCheckpointCheck(
+    workspaceId: string,
+    checkpointId: string,
+    commit: string,
+    repairOnFailure: boolean
+  ) {
+    const id = `check-${checkpointId}`
+    const existing = this.#checks.get(id)
+    if (existing) return existing
+    const createdAt = Date.now()
+    const run = new WorkspaceCheckRun({
+      id,
+      workspaceId: WorkspaceId.make(workspaceId),
+      checkpointId,
+      commit: GitCommitId.make(commit),
+      kind: "checkpoint",
+      status: "queued",
+      attempt: 1,
+      repairOnFailure,
+      repairStatus: repairOnFailure ? "available" : "disabled",
+      previewUrl: null,
+      stages: checkpointCheckStages.map((name) =>
+        checkStage(name, "queued", "Waiting")
+      ),
+      diagnostics: [],
+      evidence: [],
+      createdAt,
+      updatedAt: createdAt,
+    })
+    this.#checks.create(run)
+    await this.#startWorkflow(run)
+    return run
+  }
+
+  async #startWorkflow(run: WorkspaceCheckRun) {
+    const state = this.#requiredState()
+    const versionControl = await this.#workspaceGit.versionControl()
+    const params: WorkspaceCiInput = {
+      provider: "cloudflare-artifacts",
+      providerData: { namespace: this.env.REPOSITORY_NAMESPACE },
+      event: { type: "push" },
+      owner: this.env.REPOSITORY_NAMESPACE,
+      repo: state.repositoryName,
+      sha: run.commit,
+      remote: "cloudflare",
+      trigger: "push",
+      ref: `refs/heads/${versionControl.defaultRef}`,
+      branch: versionControl.defaultRef,
+      checkRunId: run.id,
+      workspaceId: run.workspaceId,
+      checkpointId: run.checkpointId,
+      kind: run.kind,
+      attempt: run.attempt,
+      repairOnFailure: run.repairOnFailure,
+      createdAt: run.createdAt,
+    }
+    const instanceId = `${run.id}-attempt-${run.attempt}`
+    const existingStatus = await this.env.CI_WORKFLOW.get(instanceId)
+      .then((instance) => instance.status())
+      .catch(() => null)
+    if (existingStatus && existingStatus.status !== "unknown") return
+    try {
+      await this.env.CI_WORKFLOW.create({ id: instanceId, params })
+    } catch (cause) {
+      const createdStatus = await this.env.CI_WORKFLOW.get(instanceId)
+        .then((instance) => instance.status())
+        .catch(() => null)
+      if (!createdStatus || createdStatus.status === "unknown") throw cause
+    }
+  }
+
+  async #syncProjectAndCheck() {
+    const result = await this.#workspaceGit.syncProject()
+    const state = this.#requiredState()
+    const versionControl = await this.#workspaceGit.versionControl()
+    await this.env.DB.prepare(
+      "UPDATE workspace SET base_commit = ?, fork_head = ?, sync_status = ?, merge_status = ?, updated_at = unixepoch() WHERE id = ?"
+    )
+      .bind(
+        versionControl.baseCommit,
+        versionControl.forkHead,
+        versionControl.syncStatus,
+        versionControl.mergeStatus,
+        state.workspaceId
+      )
+      .run()
+    if (result.status !== "updated") return result
+    const checkpoint = this.#workspaceGit
+      .checkpoints()
+      .find((candidate) => candidate.commit === versionControl.forkHead)
+    if (checkpoint) {
+      await this.#startCheckpointCheck(
+        state.workspaceId,
+        checkpoint.id,
+        checkpoint.commit,
+        false
+      )
+    }
+    return result
   }
 
   async *#events(
@@ -568,10 +859,23 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         input.providerId,
         input.credential
       )
-    } catch {
-      throw new Error(
-        `The AI provider could not connect to ${input.providerId}. Reconnect it and try again.`
-      )
+    } catch (error) {
+      if (error instanceof OpenCodeCredentialReloadRequired) throw error
+      const failure =
+        error instanceof Error
+          ? error
+          : Schema.is(InvalidRequestError)(error) ||
+              Schema.is(providerFailureMessage)(error)
+            ? { _tag: "InvalidRequestError" as const, message: error.message }
+            : Schema.is(wrappedProviderFailureMessage)(error)
+              ? {
+                  _tag: "InvalidRequestError" as const,
+                  message: error.error.message,
+                }
+              : Schema.is(Schema.String)(error)
+                ? { _tag: "InvalidRequestError" as const, message: error }
+                : null
+      throw new Error(providerConnectionErrorSummary(input.providerId, failure))
     }
 
     let sessionId = existing?.sessionId
@@ -598,9 +902,19 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         sessionID: sessionId,
         model: { providerID: input.providerId, id: input.modelId },
       })
-    } catch {
+    } catch (error) {
+      const detail =
+        error instanceof Error
+          ? error.message
+          : Schema.is(providerFailureMessage)(error)
+            ? error.message
+            : Schema.is(wrappedProviderFailureMessage)(error)
+              ? error.error.message
+              : null
       throw new Error(
-        `OpenCode could not use ${input.providerId}/${input.modelId}. Update the model and try again.`
+        detail
+          ? `OpenCode could not use ${input.providerId}/${input.modelId}: ${detail}`
+          : `OpenCode could not use ${input.providerId}/${input.modelId}. Update the model and try again.`
       )
     }
   }
@@ -610,18 +924,42 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     providerId: string,
     credential: OpenCodeCredential
   ) {
-    await this.#waitForIntegration(opencode, providerId)
+    try {
+      await this.#waitForIntegration(opencode, providerId)
+    } catch {
+      throw new Error(`OpenCode could not load the ${providerId} integration`)
+    }
 
     if (credential.type === "key") {
       if (providerId === subscriptionProviderId) {
         this.#openAIOAuth.active = false
         this.#openAIOAuth.accountID = null
       }
-      await opencode.integration.connect.key({
-        integrationID: providerId,
-        key: credential.key,
-        answer: credential.configuration,
-      })
+      try {
+        await connectOpenCodeKeyCredential(opencode, {
+          providerId,
+          key: credential.key,
+          configuration: credential.configuration,
+        })
+      } catch (error) {
+        if (error instanceof OpenCodeCredentialReloadRequired) {
+          throw error
+        }
+        const detail =
+          Schema.is(InvalidRequestError)(error) ||
+          Schema.is(providerFailureMessage)(error)
+            ? error.message
+            : Schema.is(wrappedProviderFailureMessage)(error)
+              ? error.error.message
+              : Schema.is(Schema.String)(error)
+                ? error
+                : null
+        throw new Error(
+          detail
+            ? `OpenCode rejected the ${providerId} credential: ${detail}`
+            : `OpenCode rejected the ${providerId} credential without a diagnostic`
+        )
+      }
       return
     }
 

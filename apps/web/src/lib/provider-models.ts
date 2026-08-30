@@ -7,6 +7,16 @@ export type DiscoveredProviderModel = {
 export const bootstrapProviderModels = (
   providerId: string
 ): ReadonlyArray<DiscoveredProviderModel> => {
+  if (providerId === "cloudflare-workers-ai") {
+    return [
+      {
+        providerId,
+        modelId: "@cf/moonshotai/kimi-k2.7-code",
+        name: "Kimi K2.7 Code",
+      },
+    ]
+  }
+
   if (providerId !== "openrouter") return []
 
   return [
