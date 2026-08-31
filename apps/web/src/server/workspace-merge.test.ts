@@ -1,8 +1,16 @@
 import { describe, expect, test } from "bun:test"
+import { Database } from "bun:sqlite"
 import git from "isomorphic-git"
 
 import { MemoryFilesystem } from "./memory-filesystem"
-import { mergeWorkspaceHeads } from "./workspace-merge-heads"
+import {
+  acceptanceCanStart,
+  acceptanceWorkflowRevision,
+  acceptedOperationUpdateSql,
+  configureWorkspaceRemoteForAcceptance,
+  mergeWorkspaceHeads,
+  productionDeploymentAlreadyStarted,
+} from "./workspace-merge-heads"
 
 const directory = "/workspace"
 const author = { name: "Sylph", email: "test@sylph.dev" }
@@ -32,6 +40,71 @@ const repository = async () => {
 }
 
 describe("mergeWorkspaceHeads", () => {
+  test("acceptance can retry after an operational failure", () => {
+    expect(acceptanceCanStart("error")).toBeTrue()
+  })
+
+  test("acceptance uses the revision reviewed by the latest Check", () => {
+    expect(
+      acceptanceWorkflowRevision({
+        persisted: { baseCommit: "base-old", forkHead: "fork-old" },
+        reviewed: { baseCommit: "base-reviewed", forkHead: "fork-reviewed" },
+      })
+    ).toEqual({ baseCommit: "base-reviewed", forkHead: "fork-reviewed" })
+  })
+
+  test("acceptance records its commit on the repository operation", () => {
+    const database = new Database(":memory:")
+    database.exec(
+      'CREATE TABLE repository_operation (id TEXT PRIMARY KEY, status TEXT, "commit" TEXT, error_summary TEXT, updated_at INTEGER)'
+    )
+    database.exec(
+      "INSERT INTO repository_operation (id, status) VALUES ('operation-1', 'pending')"
+    )
+
+    database
+      .query(acceptedOperationUpdateSql)
+      .run("accepted-commit", "operation-1")
+
+    expect(
+      database
+        .query(
+          'SELECT status, "commit" AS acceptedCommit, error_summary FROM repository_operation WHERE id = ?'
+        )
+        .get("operation-1")
+    ).toEqual({
+      status: "complete",
+      acceptedCommit: "accepted-commit",
+      error_summary: null,
+    })
+  })
+
+  test("acceptance reuses an existing production deployment", () => {
+    expect(
+      productionDeploymentAlreadyStarted(
+        new Error("(instance.already_exists) Instance already exists")
+      )
+    ).toBeTrue()
+  })
+
+  test("acceptance prepares the Workspace fork for fetching", async () => {
+    const filesystem = new MemoryFilesystem()
+    await git.init({ fs: filesystem, dir: directory, defaultBranch: "main" })
+
+    await configureWorkspaceRemoteForAcceptance({
+      filesystem,
+      remote: "https://repositories.example/workspace.git",
+    })
+
+    expect(
+      await git.getConfig({
+        fs: filesystem,
+        dir: directory,
+        path: "remote.workspace.fetch",
+      })
+    ).toBe("+refs/heads/*:refs/remotes/workspace/*")
+  })
+
   test("creates a clean three-way accepted commit", async () => {
     const { filesystem, baseCommit } = await repository()
     await git.checkout({ fs: filesystem, dir: directory, ref: "workspace" })

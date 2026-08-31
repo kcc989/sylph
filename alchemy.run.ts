@@ -37,6 +37,9 @@ const WorkspaceRuntime = Cloudflare.Worker(
         CLOUDFLARE_ACCOUNT_ID: Config.string("CLOUDFLARE_ACCOUNT_ID"),
         DB: database,
         CF_TOKEN: Config.redacted("CF_TOKEN"),
+        PREVIEW_RETENTION_SECONDS: Config.string(
+          "PREVIEW_RETENTION_SECONDS"
+        ).pipe(Config.withDefault("")),
         R2_ACCESS_KEY_ID: Config.redacted("R2_ACCESS_KEY_ID"),
         R2_SECRET_ACCESS_KEY: Config.redacted("R2_SECRET_ACCESS_KEY"),
         REPOSITORY_NAMESPACE: repositories.namespace,

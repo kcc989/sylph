@@ -13,7 +13,12 @@ import http from "isomorphic-git/http/web"
 import { Effect } from "effect"
 
 import { MemoryFilesystem } from "./memory-filesystem"
-import { mergeWorkspaceHeads } from "./workspace-merge-heads"
+import {
+  acceptedOperationUpdateSql,
+  configureWorkspaceRemoteForAcceptance,
+  mergeWorkspaceHeads,
+  productionDeploymentAlreadyStarted,
+} from "./workspace-merge-heads"
 import {
   GitHubRepositoryLive,
   GitHubRepositoryService,
@@ -76,9 +81,7 @@ export class WorkspaceMerge extends WorkflowEntrypoint<
         )
           .bind(acceptedCommit, input.workspaceId)
           .run()
-        await this.env.DB.prepare(
-          "UPDATE repository_operation SET status = 'complete', commit = ?, error_summary = NULL, updated_at = unixepoch() WHERE id = ?"
-        )
+        await this.env.DB.prepare(acceptedOperationUpdateSql)
           .bind(acceptedCommit, input.operationId)
           .run()
       })
@@ -156,10 +159,14 @@ export class WorkspaceMerge extends WorkflowEntrypoint<
             repairOnFailure: false,
             createdAt,
           }
-          await this.env.CI_WORKFLOW.create({
-            id: `${id}-attempt-1`,
-            params,
-          })
+          try {
+            await this.env.CI_WORKFLOW.create({
+              id: `${id}-attempt-1`,
+              params,
+            })
+          } catch (cause) {
+            if (!productionDeploymentAlreadyStarted(cause)) throw cause
+          }
         })
       } catch (cause) {
         console.error(
@@ -228,6 +235,10 @@ export class WorkspaceMerge extends WorkflowEntrypoint<
       fs: filesystem,
       dir: directory,
       ref: "HEAD",
+    })
+    await configureWorkspaceRemoteForAcceptance({
+      filesystem,
+      remote: input.workspaceRepositoryRemote,
     })
     await git.fetch({
       fs: filesystem,
