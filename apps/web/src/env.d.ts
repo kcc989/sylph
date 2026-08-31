@@ -12,6 +12,7 @@ declare global {
       GITHUB_CLIENT_SECRET: string
       CREDENTIAL_ENCRYPTION_KEY: string
       INSTALLATION_CLAIM_SECRET: string
+      PREVIEW_RETENTION_SECONDS: string
       REPOS: Artifacts
       CHECK_EVIDENCE: R2Bucket
       CI_WORKFLOW: Workflow<WorkspaceCiInput>

@@ -21,10 +21,12 @@ import {
 import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers"
 import type { CiBindings } from "@cloudflare/ci/worker"
 import { checkStage } from "./workspace-checks"
+import { previewRetention, removePreviewWorker } from "./preview-lifecycle"
 
 type WorkspaceCiBindings = CiBindings & {
   BROWSER: BrowserRun
   CHECK_EVIDENCE: R2Bucket
+  PREVIEW_RETENTION_SECONDS: string
   WORKSPACES: DurableObjectNamespace
 }
 
@@ -188,10 +190,30 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
         run = await this.#browserEvidence(step, run, url)
       }
 
-      await this.#publish(step, "run-passed", run, {
+      run = await this.#publish(step, "run-passed", run, {
         status: "passed",
         repairStatus: "disabled",
       })
+      const retainedPreviewUrl = run.previewUrl
+      if (input.kind !== "production" && retainedPreviewUrl) {
+        await step.sleep(
+          "retain-preview",
+          previewRetention(this.env.PREVIEW_RETENTION_SECONDS)
+        )
+        await step.do(
+          "delete-expired-preview",
+          { retries: { limit: 5, delay: "1 minute", backoff: "exponential" } },
+          () =>
+            removePreviewWorker({
+              accountId: this.env.CLOUDFLARE_ACCOUNT_ID,
+              token: this.env.CF_TOKEN,
+              previewUrl: retainedPreviewUrl,
+            })
+        )
+        await this.#publish(step, "preview-expired", run, {
+          previewUrl: null,
+        })
+      }
     } catch (cause) {
       const diagnostics = isCiRunnerFailure(cause)
         ? cause.diagnostics.failures.map(

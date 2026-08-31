@@ -16,6 +16,7 @@ import {
   WorkspaceFilesystem,
   type WorkspaceStorage,
 } from "./workspace-filesystem"
+import { readCurrentProjectHead } from "./workspace-repository-refresh"
 
 const directory = "/workspace"
 const author = { name: "Sylph", email: "checkpoints@sylph.dev" }
@@ -103,6 +104,18 @@ export const projectRepositorySyncStatus = async (
 
 export const artifactGitProtocolVersion = (forPush: boolean) =>
   forPush ? (1 as const) : (2 as const)
+
+export const workspaceRebaseConflictState = (projectHead: string) => ({
+  projectHead,
+  syncStatus: "diverged" as const,
+  mergeStatus: "unreviewed" as const,
+})
+
+export const workspaceProjectRemote = (url: string) => ({
+  remote: "project",
+  url,
+  force: true,
+})
 
 export class WorkspaceGit {
   readonly #storage: WorkspaceStorage
@@ -433,7 +446,7 @@ export class WorkspaceGit {
   async versionControl(refreshProjectHead = false) {
     const state = this.#requiredState()
     const latestProjectHead = refreshProjectHead
-      ? await this.#readProjectHead(state).catch(() => state.projectHead)
+      ? await readCurrentProjectHead(() => this.#readProjectHead(state))
       : state.projectHead
     if (latestProjectHead !== state.projectHead) {
       this.#storage.sql.exec(
@@ -484,9 +497,7 @@ export class WorkspaceGit {
     await git.addRemote({
       fs: this.#filesystem,
       dir: directory,
-      remote: "project",
-      url: state.projectRepositoryRemote,
-      force: true,
+      ...workspaceProjectRemote(state.projectRepositoryRemote),
     })
     await git.fetch({
       fs: this.#filesystem,
@@ -518,15 +529,28 @@ export class WorkspaceGit {
     })
     let forkHead = projectHead
     if (!accepted) {
-      const merge = await git.merge({
-        fs: this.#filesystem,
-        dir: directory,
-        ours: projectHead,
-        theirs: state.forkHead,
-        fastForward: false,
-        message: "Prepare Workspace rebase",
-        author,
-      })
+      const merge = await git
+        .merge({
+          fs: this.#filesystem,
+          dir: directory,
+          ours: projectHead,
+          theirs: state.forkHead,
+          fastForward: false,
+          abortOnConflict: false,
+          message: "Prepare Workspace rebase",
+          author,
+        })
+        .catch((cause) => {
+          if (!(cause instanceof git.Errors.MergeConflictError)) throw cause
+          const conflict = workspaceRebaseConflictState(projectHead)
+          this.#storage.sql.exec(
+            "UPDATE app_workspace_vcs SET project_head = ?, sync_status = ?, merge_status = ? WHERE singleton = 1",
+            conflict.projectHead,
+            conflict.syncStatus,
+            conflict.mergeStatus
+          )
+          throw cause
+        })
       if (!merge.oid) throw new Error("Rebase did not produce a commit")
       const merged = await git.readCommit({
         fs: this.#filesystem,
@@ -697,6 +721,11 @@ export class WorkspaceGit {
       state.projectRepositoryName
     )
     const projectToken = await projectRepository.createToken("read", 300)
+    await git.addRemote({
+      fs: this.#filesystem,
+      dir: directory,
+      ...workspaceProjectRemote(state.projectRepositoryRemote),
+    })
     await git.fetch({
       fs: this.#filesystem,
       http,

@@ -79,6 +79,14 @@ import {
 } from "@/lib/provider-models"
 import { discoverOpenCodeKeyModels } from "@/server/opencode-key-setup"
 import { restartDurableWorkspace } from "@/server/workspace-runtime-lifecycle"
+import { workspaceVersionControlRequest } from "@/server/workspace-repository-refresh"
+import { serializableWorkspaceRebaseResult } from "@/server/workspace-rebase-result"
+import { serializableWorkspaceCheckpointResult } from "@/server/workspace-checkpoint-result"
+import { recoveryRepositoryEntry } from "@/server/recovery-export"
+import {
+  acceptanceCanStart,
+  acceptanceWorkflowRevision,
+} from "@/server/workspace-merge-heads"
 
 const normalizeName = (value: string) =>
   value
@@ -1355,13 +1363,14 @@ export const exportProjectRecovery = createServerFn({ method: "POST" })
           ...workspace,
         })),
       ].map(async (entry) => {
-        const [repository, access] = await Promise.all([
+        const [repository, access, headCommit] = await Promise.all([
           Effect.runPromise(repositories.inspect(entry.repositoryName)),
           Effect.runPromise(
             repositories.access(entry.repositoryName, "read", 15 * 60)
           ),
+          Effect.runPromise(repositories.head(entry.repositoryName)),
         ])
-        return { ...entry, repository, access }
+        return recoveryRepositoryEntry(entry, repository, access, headCommit)
       })
     )
     return {
@@ -2073,37 +2082,33 @@ export const getWorkspace = createServerFn({ method: "GET" })
       workspace.importOriginUrl &&
       (!workspace.upstreamSyncedAt ||
         Date.now() - workspace.upstreamSyncedAt.getTime() > 5 * 60 * 1000)
-    const synchronization = shouldSynchronize
-      ? await synchronizeProjectRepository(
-          drizzle(env.DB, { schema }),
-          session.user.id,
-          {
-            id: workspace.projectId,
-            repositoryName: workspace.repositoryName,
-            repositoryRemote: (
-              await Effect.runPromise(
-                makeCloudflareArtifactsRepositoryStore(env.REPOS).inspect(
-                  workspace.repositoryName
-                )
+    if (shouldSynchronize) {
+      await synchronizeProjectRepository(
+        drizzle(env.DB, { schema }),
+        session.user.id,
+        {
+          id: workspace.projectId,
+          repositoryName: workspace.repositoryName,
+          repositoryRemote: (
+            await Effect.runPromise(
+              makeCloudflareArtifactsRepositoryStore(env.REPOS).inspect(
+                workspace.repositoryName
               )
-            ).remote,
-            defaultRef: workspace.defaultBranch,
-            sourceUrl: workspace.importOriginUrl,
-            sourceRef: workspace.importOriginBranch,
-          }
-        )
-      : null
+            )
+          ).remote,
+          defaultRef: workspace.defaultBranch,
+          sourceUrl: workspace.importOriginUrl,
+          sourceRef: workspace.importOriginBranch,
+        }
+      )
+    }
 
     const runtime = env.WORKSPACES.get(
       env.WORKSPACES.idFromName(data.workspaceId)
     )
     const [response, vcsResponse, checksResponse] = await Promise.all([
       runtime.fetch("https://workspace/snapshot"),
-      runtime.fetch(
-        synchronization
-          ? "https://workspace/vcs?refresh=1"
-          : "https://workspace/vcs"
-      ),
+      runtime.fetch(workspaceVersionControlRequest()),
       runtime.fetch("https://workspace/checks"),
     ])
 
@@ -2466,7 +2471,7 @@ export const checkpointWorkspace = createServerFn({ method: "POST" })
           updatedAt: new Date(),
         })
         .where(eq(schema.workspace.id, data.workspaceId))
-      return result
+      return serializableWorkspaceCheckpointResult(result)
     } catch (error) {
       console.error(
         "Workspace checkpoint persistence failed",
@@ -2518,7 +2523,7 @@ export const rebaseWorkspace = createServerFn({ method: "POST" })
         updatedAt: new Date(),
       })
       .where(eq(schema.workspace.id, data.workspaceId))
-    return result
+    return serializableWorkspaceRebaseResult(result)
   })
 
 const authorizedWorkspaceRuntime = async (
@@ -2658,7 +2663,7 @@ export const acceptWorkspace = createServerFn({ method: "POST" })
     if (!workspace.baseCommit || !workspace.forkHead) {
       throw new Error("Create a Checkpoint before accepting this Workspace")
     }
-    if (workspace.mergeStatus !== "ready") {
+    if (!acceptanceCanStart(workspace.mergeStatus)) {
       throw new Error("This Workspace is not ready to merge")
     }
 
@@ -2713,6 +2718,16 @@ export const acceptWorkspace = createServerFn({ method: "POST" })
         "Update this Workspace from the Project Repository, resolve any conflicts, and run a new Check before acceptance"
       )
     }
+    const revision = acceptanceWorkflowRevision({
+      persisted: {
+        baseCommit: workspace.baseCommit,
+        forkHead: workspace.forkHead,
+      },
+      reviewed: {
+        baseCommit: versionControl.baseCommit,
+        forkHead: versionControl.forkHead,
+      },
+    })
 
     const operationId = `${data.workspaceId}-${data.idempotencyKey}`
     const existing = await database
@@ -2744,8 +2759,8 @@ export const acceptWorkspace = createServerFn({ method: "POST" })
         )
       ).remote,
       defaultRef: workspace.defaultRef,
-      baseCommit: workspace.baseCommit,
-      forkHead: workspace.forkHead,
+      baseCommit: revision.baseCommit,
+      forkHead: revision.forkHead,
       projectId: workspace.projectId,
       actorUserId: session.user.id,
     }

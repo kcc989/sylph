@@ -102,4 +102,38 @@ describe("Repository Store metadata", () => {
       ],
     ])
   })
+
+  test("reads the repository's actual default-branch head", async () => {
+    const binding: RepositoryNamespace = {
+      create: async () => {
+        throw new Error("Unexpected create")
+      },
+      delete: async () => {
+        throw new Error("Unexpected delete")
+      },
+      get: async (name: string) => ({
+        id: "project-id",
+        name,
+        remote: "https://repositories.example/project",
+        defaultBranch: "main",
+        createToken: async () => ({ plaintext: "token", expiresAt: "later" }),
+        fork: async () => {
+          throw new Error("Unexpected fork")
+        },
+      }),
+    }
+    const service = makeCloudflareArtifactsRepositoryStore(
+      binding,
+      async () => [
+        {
+          ref: "refs/heads/main",
+          oid: "1111111111111111111111111111111111111111",
+        },
+      ]
+    )
+
+    const result = await Effect.runPromise(service.head("project"))
+
+    expect(result).toBe("1111111111111111111111111111111111111111")
+  })
 })

@@ -66,4 +66,40 @@ describe("GitHubRepositoryService", () => {
     expect(result._tag).toBe("Failure")
     expect(String(result)).toContain("not granted")
   })
+
+  test("authorizes pull request creation", async () => {
+    const requests: Array<{ method: string; authorization: string }> = []
+    const layer = githubRepositoryTestLayer(async (_input, init) => {
+      requests.push({
+        method: init?.method ?? "GET",
+        authorization: new Headers(init?.headers).get("authorization") ?? "",
+      })
+      return init?.method === "POST"
+        ? Response.json({
+            html_url: "https://github.com/octocat/private-project/pull/1",
+          })
+        : Response.json([])
+    })
+
+    const url = await Effect.runPromise(
+      Effect.gen(function* () {
+        const service = yield* GitHubRepositoryService
+        return yield* service.ensurePullRequest({
+          owner: "octocat",
+          name: "private-project",
+          accessToken: "ghu_private",
+          head: "sylph/workspace-proof",
+          base: "main",
+          title: "Accept proof",
+          body: "Accepted from a Sylph Workspace.",
+        })
+      }).pipe(Effect.provide(layer))
+    )
+
+    expect(requests).toEqual([
+      { method: "GET", authorization: "Bearer ghu_private" },
+      { method: "POST", authorization: "Bearer ghu_private" },
+    ])
+    expect(url).toBe("https://github.com/octocat/private-project/pull/1")
+  })
 })

@@ -5,6 +5,32 @@ import { MemoryFilesystem } from "./memory-filesystem"
 const directory = "/workspace"
 const author = { name: "Sylph", email: "accept@sylph.dev" }
 
+export const acceptedOperationUpdateSql =
+  "UPDATE repository_operation SET status = 'complete', \"commit\" = ?, error_summary = NULL, updated_at = unixepoch() WHERE id = ?"
+
+export const acceptanceCanStart = (mergeStatus: string) =>
+  mergeStatus === "ready" || mergeStatus === "error"
+
+export const acceptanceWorkflowRevision = (input: {
+  persisted: { baseCommit: string; forkHead: string }
+  reviewed: { baseCommit: string; forkHead: string }
+}) => input.reviewed
+
+export const productionDeploymentAlreadyStarted = (cause: unknown) =>
+  cause instanceof Error && cause.message.includes("instance.already_exists")
+
+export const configureWorkspaceRemoteForAcceptance = (input: {
+  filesystem: MemoryFilesystem
+  remote: string
+}) =>
+  git.addRemote({
+    fs: input.filesystem,
+    dir: directory,
+    remote: "workspace",
+    url: input.remote,
+    force: true,
+  })
+
 export const mergeWorkspaceHeads = async (input: {
   filesystem: MemoryFilesystem
   workspaceId: string

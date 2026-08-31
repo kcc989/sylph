@@ -144,14 +144,13 @@ const makeGitHubRepositoryService = (
               PullRequestListResponse
             )(await existingResponse.json())
             if (existing[0]) return existing[0].html_url
+            const headers = githubHeaders(input.accessToken)
+            headers.set("content-type", "application/json")
             const response = await request(
               `https://api.github.com/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.name)}/pulls`,
               {
                 method: "POST",
-                headers: {
-                  ...githubHeaders(input.accessToken),
-                  "content-type": "application/json",
-                },
+                headers,
                 body: JSON.stringify({
                   title: input.title,
                   body: input.body,

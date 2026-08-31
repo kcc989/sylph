@@ -1,4 +1,6 @@
 import { Context, Effect, Schema } from "effect"
+import git from "isomorphic-git"
+import http from "isomorphic-git/http/web"
 
 const RepositoryStoreErrorCode = Schema.Literals([
   "ALREADY_EXISTS",
@@ -93,6 +95,7 @@ export class RepositoryStore extends Context.Service<
       scope: "read" | "write",
       ttlSeconds: number
     ) => Effect.Effect<RepositoryAccess, RepositoryStoreError>
+    readonly head: (name: string) => Effect.Effect<string, RepositoryStoreError>
     readonly remove: (
       name: string
     ) => Effect.Effect<boolean, RepositoryStoreError>
@@ -131,7 +134,10 @@ export const resolveStoredRepository = async (repository: RepositoryHandle) =>
   )
 
 export const makeCloudflareArtifactsRepositoryStore = (
-  binding: RepositoryNamespace
+  binding: RepositoryNamespace,
+  listRefs: (
+    input: Parameters<typeof git.listServerRefs>[0]
+  ) => Promise<Array<{ ref: string; oid: string }>> = git.listServerRefs
 ): RepositoryStore["Service"] => {
   const inspect = Effect.fn("RepositoryStore.inspect")(function* (
     name: string
@@ -208,6 +214,32 @@ export const makeCloudflareArtifactsRepositoryStore = (
         })
       }
     ),
+    head: Effect.fn("RepositoryStore.head")(function* (name) {
+      return yield* Effect.tryPromise({
+        try: async () => {
+          const handle = await binding.get(name)
+          const repository = await resolveStoredRepository(handle)
+          const token = await handle.createToken("read", 300)
+          const refs = await listRefs({
+            http,
+            url: repository.remote,
+            prefix: `refs/heads/${repository.defaultBranch}`,
+            protocolVersion: 2,
+            onAuth: () => ({
+              username: "x",
+              password: token.plaintext.split("?expires=")[0],
+            }),
+          })
+          const head = refs.find(
+            (candidate) =>
+              candidate.ref === `refs/heads/${repository.defaultBranch}`
+          )
+          if (!head) throw new Error("Repository default ref is missing")
+          return head.oid
+        },
+        catch: (cause) => storeError("head", cause),
+      })
+    }),
     remove: Effect.fn("RepositoryStore.remove")(function* (name) {
       return yield* Effect.tryPromise({
         try: () => binding.delete(name),
