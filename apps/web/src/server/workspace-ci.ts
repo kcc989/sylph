@@ -22,10 +22,17 @@ import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers"
 import type { CiBindings } from "@cloudflare/ci/worker"
 import { checkStage } from "./workspace-checks"
 import { previewRetention, removePreviewWorker } from "./preview-lifecycle"
+import {
+  deploymentFailedSql,
+  deploymentRunningSql,
+  deploymentSucceededSql,
+  productionUrl,
+} from "./deployment-records"
 
 type WorkspaceCiBindings = CiBindings & {
   BROWSER: BrowserRun
   CHECK_EVIDENCE: R2Bucket
+  DB: D1Database
   PREVIEW_RETENTION_SECONDS: string
   WORKSPACES: DurableObjectNamespace
 }
@@ -112,6 +119,13 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
     run = await this.#publish(step, "run-started", run, {
       status: "running",
     })
+    if (input.deploymentId) {
+      await step.do("record-deployment-running", async () => {
+        await this.env.DB.prepare(deploymentRunningSql)
+          .bind(input.deploymentId)
+          .run()
+      })
+    }
 
     try {
       const install = await this.#runner(step, ci, run, "install", {
@@ -150,6 +164,22 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
           }
         )
         run = deployment.run
+        const url = productionUrl(
+          `${deployment.logs.stdout}\n${deployment.logs.stderr}`
+        )
+        if (!url) {
+          throw new Error(
+            "The sylph:deploy script must print SYLPH_PRODUCTION_URL=https://..."
+          )
+        }
+        if (!input.deploymentId) {
+          throw new Error("Production CI requires a Deployment record")
+        }
+        await step.do("record-deployment-succeeded", async () => {
+          await this.env.DB.prepare(deploymentSucceededSql)
+            .bind(url, input.deploymentId)
+            .run()
+        })
       } else {
         let parent: CiRunnerResult = install.result
         for (const name of ["typecheck", "lint", "test"] as const) {
@@ -226,7 +256,12 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
           )
         : [
             new WorkspaceCheckDiagnostic({
-              stage: run.previewUrl ? "browser" : "preview",
+              stage:
+                input.kind === "production"
+                  ? "production"
+                  : run.previewUrl
+                    ? "browser"
+                    : "preview",
               summary: cause instanceof Error ? cause.message : "Check failed",
               output: safeDiagnosticOutput(
                 cause instanceof Error
@@ -251,6 +286,17 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
         updatedAt: run.updatedAt,
       })
       await this.#publish(step, "run-failed", failedRun)
+      if (input.deploymentId) {
+        const failureDetails = diagnostics
+          .map((diagnostic) => `${diagnostic.summary}\n${diagnostic.output}`)
+          .join("\n\n")
+          .slice(-20_000)
+        await step.do("record-deployment-failed", async () => {
+          await this.env.DB.prepare(deploymentFailedSql)
+            .bind(failureDetails, input.deploymentId)
+            .run()
+        })
+      }
       if (input.repairOnFailure) {
         await step.do("start-agent-repair", async () => {
           const workspace = this.env.WORKSPACES.get(
@@ -419,6 +465,7 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
         ...changes,
         updatedAt: Date.now(),
       })
+      if (updated.kind === "production") return JSON.stringify(updated)
       const workspace = this.env.WORKSPACES.get(
         this.env.WORKSPACES.idFromName(updated.workspaceId)
       )

@@ -1,5 +1,6 @@
 import {
   type ConnectionScope,
+  decodeProjectDeployInputPromise,
   decodeWorkspaceAcceptInputPromise,
   decodeCreateWorkspaceInputPromise,
   decodeCreateProjectInputPromise,
@@ -37,10 +38,12 @@ import {
   encodeWorkspaceRuntimeHealth,
   encodeWorkspaceVersionControl,
   InitializeWorkspaceRuntime,
+  GitCommitId,
   OpenCodeSubscriptionStatus,
   OrganizationId,
   ProjectId,
   WorkspaceId,
+  type WorkspaceCiInput,
   WorkspaceRuntimeHealth,
   parseGitHubRepositoryUrl,
 } from "@workspace/domain"
@@ -83,6 +86,7 @@ import { workspaceVersionControlRequest } from "@/server/workspace-repository-re
 import { serializableWorkspaceRebaseResult } from "@/server/workspace-rebase-result"
 import { serializableWorkspaceCheckpointResult } from "@/server/workspace-checkpoint-result"
 import { recoveryRepositoryEntry } from "@/server/recovery-export"
+import { deploymentWorkflowAlreadyStarted } from "@/server/deployment-records"
 import {
   acceptanceCanStart,
   acceptanceWorkflowRevision,
@@ -1278,6 +1282,161 @@ export const getWorkspaceCreationContext = createServerFn({ method: "GET" })
       project,
       setup: setup ?? { providerId: null, modelId: null, authMethod: null },
     }
+  })
+
+export const getProjectDeployments = createServerFn({ method: "GET" })
+  .validator((input) => decodeProjectRequestInputPromise(input))
+  .handler(async ({ data }) => {
+    const { session } = await currentSession(getRequest())
+    if (!session) return null
+    const database = drizzle(env.DB, { schema })
+    const project = await database
+      .select({ id: schema.project.id })
+      .from(schema.project)
+      .innerJoin(
+        schema.member,
+        and(
+          eq(schema.member.organizationId, schema.project.organizationId),
+          eq(schema.member.userId, session.user.id)
+        )
+      )
+      .where(eq(schema.project.id, data.projectId))
+      .get()
+    if (!project) return null
+    const [acceptedRows, deployments] = await Promise.all([
+      database
+        .select({
+          commit: schema.workspace.acceptedCommit,
+          acceptedAt: schema.workspace.archivedAt,
+        })
+        .from(schema.workspace)
+        .where(eq(schema.workspace.projectId, data.projectId))
+        .orderBy(desc(schema.workspace.archivedAt)),
+      database
+        .select({
+          id: schema.deployment.id,
+          commit: schema.deployment.commit,
+          status: schema.deployment.status,
+          productionUrl: schema.deployment.productionUrl,
+          actorName: schema.user.name,
+          failureDetails: schema.deployment.failureDetails,
+          startedAt: schema.deployment.startedAt,
+          completedAt: schema.deployment.completedAt,
+          createdAt: schema.deployment.createdAt,
+        })
+        .from(schema.deployment)
+        .innerJoin(
+          schema.user,
+          eq(schema.user.id, schema.deployment.actorUserId)
+        )
+        .where(eq(schema.deployment.projectId, data.projectId))
+        .orderBy(desc(schema.deployment.createdAt)),
+    ])
+    const acceptedCommits = Array.from(
+      new Map(
+        acceptedRows
+          .filter((row): row is { commit: string; acceptedAt: Date | null } =>
+            Boolean(row.commit)
+          )
+          .map((row) => [row.commit, row])
+      ).values()
+    )
+    return { acceptedCommits, deployments }
+  })
+
+export const deployProjectCommit = createServerFn({ method: "POST" })
+  .validator((input) => decodeProjectDeployInputPromise(input))
+  .handler(async ({ data }) => {
+    const { session } = await currentSession(getRequest())
+    if (!session) throw new Error("Sign in before deploying a Project")
+    const database = drizzle(env.DB, { schema })
+    const accepted = await database
+      .select({
+        workspaceId: schema.workspace.id,
+        repositoryName: schema.project.artifactRepo,
+        defaultRef: schema.project.defaultBranch,
+      })
+      .from(schema.workspace)
+      .innerJoin(
+        schema.project,
+        eq(schema.project.id, schema.workspace.projectId)
+      )
+      .innerJoin(
+        schema.member,
+        and(
+          eq(schema.member.organizationId, schema.project.organizationId),
+          eq(schema.member.userId, session.user.id)
+        )
+      )
+      .where(
+        and(
+          eq(schema.workspace.projectId, data.projectId),
+          eq(schema.workspace.acceptedCommit, data.commit)
+        )
+      )
+      .get()
+    if (!accepted) {
+      throw new Error("Only an Accepted commit can be deployed")
+    }
+    const deploymentId = `${data.projectId}-${data.idempotencyKey}`
+    const existing = await database
+      .select({ status: schema.deployment.status })
+      .from(schema.deployment)
+      .where(eq(schema.deployment.id, deploymentId))
+      .get()
+    if (existing) return { id: deploymentId, status: existing.status }
+    const createdAt = Date.now()
+    await database.insert(schema.deployment).values({
+      id: deploymentId,
+      projectId: data.projectId,
+      commit: data.commit,
+      status: "queued",
+      actorUserId: session.user.id,
+      createdAt: new Date(createdAt),
+      updatedAt: new Date(createdAt),
+    })
+    const params: WorkspaceCiInput = {
+      provider: "cloudflare-artifacts",
+      providerData: { namespace: env.REPOSITORY_NAMESPACE },
+      event: { type: "push" },
+      owner: env.REPOSITORY_NAMESPACE,
+      repo: accepted.repositoryName,
+      sha: GitCommitId.make(data.commit),
+      remote: "cloudflare",
+      trigger: "push",
+      ref: `refs/heads/${accepted.defaultRef}`,
+      branch: accepted.defaultRef,
+      checkRunId: deploymentId,
+      workspaceId: WorkspaceId.make(accepted.workspaceId),
+      checkpointId: null,
+      kind: "production",
+      attempt: 1,
+      repairOnFailure: false,
+      deploymentId,
+      createdAt,
+    }
+    try {
+      await env.CI_WORKFLOW.create({
+        id: `${deploymentId}-attempt-1`,
+        params,
+      })
+    } catch (cause) {
+      if (!deploymentWorkflowAlreadyStarted(cause)) {
+        const failure =
+          cause instanceof Error ? cause.message : "Deployment could not start"
+        await database
+          .update(schema.deployment)
+          .set({
+            status: "failed",
+            failureDetails: failure,
+            completedAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.deployment.id, deploymentId))
+        throw cause
+      }
+    }
+    return { id: deploymentId, status: "queued" as const }
   })
 
 export const setProjectDeliveryMode = createServerFn({ method: "POST" })
