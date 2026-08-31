@@ -27,7 +27,13 @@ describe("Durable Workspace runtime lifecycle", () => {
       }
     )
 
-    expect(events).toEqual(["evict", "initialize-1", "delay", "initialize-2"])
+    expect(events).toEqual([
+      "evict",
+      "initialize-1",
+      "evict",
+      "delay",
+      "initialize-2",
+    ])
   })
 
   test("reports the final initialization failure", async () => {

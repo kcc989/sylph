@@ -184,7 +184,7 @@ finish() {
 # Replace the example below. Set TOTAL_STAGES to match the stages you write.
 # ──────────────────────────────────────────────────────────────────────────
 
-TOTAL_STAGES=5
+TOTAL_STAGES=6
 
 banner "Sylph Installation setup"
 
@@ -208,6 +208,24 @@ done
 write_env ALLOW_TEST_MAGIC_LINKS "false"
 note "The claim secret remains in .env and is entered once at /setup."
 pause "Secrets are ready. Press Enter to deploy the bootstrap configuration."
+
+stage "Cloudflare CI credentials"
+say "Cloudflare CI needs a deployment token and R2 credentials inside its isolated Sandbox."
+open_url "https://dash.cloudflare.com/profile/api-tokens"
+step "Create a token for Sylph CI. Start with Edit Cloudflare Workers and add any permissions required by your Projects' preview and production scripts. Limit it to this Installation's account."
+step "Create the token, then copy its value. Cloudflare shows it only once."
+ask_secret CF_TOKEN "Paste the Cloudflare CI API token:"
+write_env CF_TOKEN "$CF_TOKEN"
+open_url "https://dash.cloudflare.com/?to=/:account/r2/api-tokens"
+step "Create an Account API token with Object Read & Write access to all buckets so the first deployment can create and use the generated Check backup bucket."
+step "Copy the Account ID, Access Key ID, and Secret Access Key. Cloudflare shows the secret only once."
+ask CLOUDFLARE_ACCOUNT_ID "Paste the Cloudflare Account ID:"
+ask_secret R2_ACCESS_KEY_ID "Paste the R2 Access Key ID:"
+ask_secret R2_SECRET_ACCESS_KEY "Paste the R2 Secret Access Key:"
+write_env CLOUDFLARE_ACCOUNT_ID "$CLOUDFLARE_ACCOUNT_ID"
+write_env R2_ACCESS_KEY_ID "$R2_ACCESS_KEY_ID"
+write_env R2_SECRET_ACCESS_KEY "$R2_SECRET_ACCESS_KEY"
+pause "Cloudflare CI credentials are ready. Press Enter to deploy the bootstrap configuration."
 
 stage "Initial deployment"
 say "The first deployment gives us the permanent URL required by GitHub OAuth."

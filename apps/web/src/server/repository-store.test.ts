@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test"
+import { Effect } from "effect"
 
-import { resolveStoredRepository } from "./repository-store"
+import {
+  makeCloudflareArtifactsRepositoryStore,
+  type RepositoryNamespace,
+  resolveStoredRepository,
+} from "./repository-store"
 
 describe("Repository Store metadata", () => {
   test("resolves metadata through an RPC repository handle", async () => {
@@ -30,5 +35,71 @@ describe("Repository Store metadata", () => {
       remote: "https://repositories.example/weather-desk",
       defaultBranch: "main",
     })
+  })
+
+  test("forks a Workspace from the Project repository", async () => {
+    const calls: Array<unknown> = []
+    const binding: RepositoryNamespace = {
+      create: async () => {
+        throw new Error("Unexpected create")
+      },
+      delete: async () => {
+        throw new Error("Unexpected delete")
+      },
+      get: async (name: string) => {
+        calls.push(["get", name])
+        return {
+          id: "project-id",
+          name,
+          remote: "https://repositories.example/project",
+          defaultBranch: "main",
+          createToken: async () => ({ plaintext: "token", expiresAt: "later" }),
+          info: async () => ({
+            id: "project-id",
+            name,
+            remote: "https://repositories.example/project",
+            defaultBranch: "main",
+          }),
+          fork: async (target, options) => {
+            calls.push(["fork", target, options])
+            return {
+              id: "workspace-id",
+              name: target,
+              remote: "https://repositories.example/workspace",
+              defaultBranch: "main",
+            }
+          },
+        }
+      },
+    }
+    const service = makeCloudflareArtifactsRepositoryStore(binding)
+
+    const result = await Effect.runPromise(
+      service.fork({
+        sourceName: "project",
+        name: "workspace",
+        description: "Workspace fork",
+      })
+    )
+
+    expect(result).toEqual({
+      id: "workspace-id",
+      name: "workspace",
+      remote: "https://repositories.example/workspace",
+      defaultBranch: "main",
+    })
+    expect(calls).toEqual([
+      ["get", "project"],
+      ["get", "project"],
+      [
+        "fork",
+        "workspace",
+        {
+          description: "Workspace fork",
+          readOnly: false,
+          defaultBranchOnly: true,
+        },
+      ],
+    ])
   })
 })

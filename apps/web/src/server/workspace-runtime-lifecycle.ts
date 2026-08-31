@@ -27,7 +27,10 @@ export const restartDurableWorkspace = async (
       return
     } catch (cause) {
       failure = cause
-      if (attempt + 1 < options.attempts) await options.delay()
+      if (attempt + 1 < options.attempts) {
+        await runtime.evict().catch(() => undefined)
+        await options.delay()
+      }
     }
   }
 

@@ -10,6 +10,7 @@ import {
 import { createTwoFilesPatch } from "diff"
 import git from "isomorphic-git"
 import http from "isomorphic-git/http/web"
+import { Option, Schema } from "effect"
 
 import {
   WorkspaceFilesystem,
@@ -99,6 +100,9 @@ export const projectRepositorySyncStatus = async (
   }
   return "diverged" as const
 }
+
+export const artifactGitProtocolVersion = (forPush: boolean) =>
+  forPush ? (1 as const) : (2 as const)
 
 export class WorkspaceGit {
   readonly #storage: WorkspaceStorage
@@ -639,11 +643,16 @@ export class WorkspaceGit {
         await git.add({ fs: this.#filesystem, dir: directory, filepath })
       }
     }
+    const parents =
+      state.syncStatus === "diverged" && state.projectHead !== state.baseCommit
+        ? [state.forkHead, state.projectHead]
+        : undefined
     const commit = await git.commit({
       fs: this.#filesystem,
       dir: directory,
       message: input.message,
       author,
+      parent: parents,
     })
     const createdAt = Date.now()
     this.#storage.sql.exec(
@@ -673,6 +682,93 @@ export class WorkspaceGit {
       )
       .toArray()
       .map((row) => this.#checkpointValue(row))
+  }
+
+  async syncProject() {
+    const state = this.#requiredState()
+    const working = await this.#changes(state.forkHead, "working")
+    if (working.length) {
+      throw new Error(
+        "Create a Checkpoint before updating from the Project Repository"
+      )
+    }
+
+    const projectRepository = await this.#repositories.get(
+      state.projectRepositoryName
+    )
+    const projectToken = await projectRepository.createToken("read", 300)
+    await git.fetch({
+      fs: this.#filesystem,
+      http,
+      dir: directory,
+      url: state.projectRepositoryRemote,
+      remote: "project",
+      ref: state.defaultRef,
+      singleBranch: true,
+      tags: false,
+      onAuth: artifactAuth(projectToken.plaintext),
+    })
+    const projectCommit = await git.resolveRef({
+      fs: this.#filesystem,
+      dir: directory,
+      ref: `refs/remotes/project/${state.defaultRef}`,
+    })
+    if (projectCommit === state.baseCommit) {
+      return {
+        status: "current" as const,
+        projectCommit: GitCommitId.make(projectCommit),
+        conflictedFiles: [],
+      }
+    }
+
+    try {
+      const result = await git.merge({
+        fs: this.#filesystem,
+        dir: directory,
+        ours: state.defaultRef,
+        theirs: `refs/remotes/project/${state.defaultRef}`,
+        abortOnConflict: false,
+        message: "Update Workspace from Project Repository",
+        author,
+      })
+      const forkHead = result.oid ?? state.forkHead
+      const repository = await this.#repositories.get(state.repositoryName)
+      const token = await repository.createToken("write", 300)
+      await this.#push({ ...state, forkHead }, token.plaintext)
+      const checkpointId = `sync-${projectCommit}`
+      this.#storage.sql.exec(
+        "INSERT OR IGNORE INTO app_workspace_checkpoint (id, commit_id, message, status, created_at) VALUES (?, ?, 'Update from Project Repository', 'complete', ?)",
+        checkpointId,
+        forkHead,
+        Date.now()
+      )
+      this.#storage.sql.exec(
+        "UPDATE app_workspace_vcs SET base_commit = ?, fork_head = ?, project_head = ?, sync_status = 'ready', merge_status = 'ready' WHERE singleton = 1",
+        projectCommit,
+        forkHead,
+        projectCommit
+      )
+      return {
+        status: "updated" as const,
+        projectCommit: GitCommitId.make(projectCommit),
+        conflictedFiles: [],
+      }
+    } catch (cause) {
+      if (!(cause instanceof git.Errors.MergeConflictError)) throw cause
+      const conflictedFiles = Option.getOrElse(
+        Schema.decodeUnknownOption(Schema.Array(Schema.String))(cause.data),
+        () => []
+      )
+      this.#storage.sql.exec(
+        "UPDATE app_workspace_vcs SET project_head = ?, sync_status = 'diverged', merge_status = 'unreviewed' WHERE singleton = 1",
+        projectCommit
+      )
+      return {
+        status: "conflicted" as const,
+        projectCommit: GitCommitId.make(projectCommit),
+        conflictedFiles,
+      }
+    }
   }
 
   async #changes(from: string, to: "working" | string) {
@@ -727,6 +823,7 @@ export class WorkspaceGit {
       url: remote,
       prefix: `refs/heads/${ref}`,
       forPush,
+      protocolVersion: artifactGitProtocolVersion(forPush),
       onAuth: artifactAuth(plaintext),
     })
     const head = refs.find((candidate) => candidate.ref === `refs/heads/${ref}`)
@@ -791,12 +888,16 @@ export class WorkspaceGit {
   }
 
   #completeCheckpoint(id: string, commit: string) {
+    const state = this.#requiredState()
+    const baseCommit =
+      state.syncStatus === "diverged" ? state.projectHead : state.baseCommit
     this.#storage.sql.exec(
       "UPDATE app_workspace_checkpoint SET status = 'complete' WHERE id = ?",
       id
     )
     this.#storage.sql.exec(
-      "UPDATE app_workspace_vcs SET fork_head = ?, sync_status = 'ready', merge_status = 'ready' WHERE singleton = 1",
+      "UPDATE app_workspace_vcs SET base_commit = ?, fork_head = ?, sync_status = 'ready', merge_status = 'ready' WHERE singleton = 1",
+      baseCommit,
       commit
     )
   }

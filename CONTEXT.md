@@ -49,6 +49,18 @@ The mutable files inside a Workspace, including work not yet saved as a Checkpoi
 **Checkpoint**:
 A durable commit that records the Working copy in the Workspace fork.
 
+**Check**:
+An evaluation of one exact Checkpoint through the Project's install, typecheck, lint, test, and build requirements. A Check may also create and test that Checkpoint's Preview.
+
+**Preview**:
+An isolated deployment of one exact Checkpoint that can be inspected by a User or a browser test.
+
+**Evidence**:
+A durable observation captured while testing a Preview, such as a screenshot or accessibility snapshot, and linked to the Check that produced it.
+
+**Acceptance**:
+The User's decision to merge a checked Checkpoint from a Workspace fork into the Project Repository.
+
 **Base commit**:
 The exact Project Repository commit from which a Workspace fork was created.
 

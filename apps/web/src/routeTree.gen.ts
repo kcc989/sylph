@@ -20,6 +20,7 @@ import { Route as ApiWorkspacesWorkspaceIdRouteImport } from './routes/api/works
 import { Route as ProjectsProjectSlugSettingsRouteImport } from './routes/projects/$projectSlug/settings'
 import { Route as ProjectsProjectSlugWorkspacesWorkspaceIdRouteImport } from './routes/projects/$projectSlug/workspaces/$workspaceId'
 import { Route as ProjectsProjectSlugWorkspacesNewRouteImport } from './routes/projects/$projectSlug/workspaces/new'
+import { Route as ApiWorkspacesWorkspaceIdEvidenceEvidenceIdRouteImport } from './routes/api/workspaces/$workspaceId/evidence/$evidenceId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -80,6 +81,12 @@ const ProjectsProjectSlugWorkspacesNewRoute =
     path: '/projects/$projectSlug/workspaces/new',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiWorkspacesWorkspaceIdEvidenceEvidenceIdRoute =
+  ApiWorkspacesWorkspaceIdEvidenceEvidenceIdRouteImport.update({
+    id: '/evidence/$evidenceId',
+    path: '/evidence/$evidenceId',
+    getParentRoute: () => ApiWorkspacesWorkspaceIdRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -89,10 +96,11 @@ export interface FileRoutesByFullPath {
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/projects/new': typeof ProjectsNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
-  '/api/workspaces/$workspaceId': typeof ApiWorkspacesWorkspaceIdRoute
+  '/api/workspaces/$workspaceId': typeof ApiWorkspacesWorkspaceIdRouteWithChildren
   '/projects/$projectSlug/settings': typeof ProjectsProjectSlugSettingsRoute
   '/projects/$projectSlug/workspaces/$workspaceId': typeof ProjectsProjectSlugWorkspacesWorkspaceIdRoute
   '/projects/$projectSlug/workspaces/new': typeof ProjectsProjectSlugWorkspacesNewRoute
+  '/api/workspaces/$workspaceId/evidence/$evidenceId': typeof ApiWorkspacesWorkspaceIdEvidenceEvidenceIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -102,10 +110,11 @@ export interface FileRoutesByTo {
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/projects/new': typeof ProjectsNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
-  '/api/workspaces/$workspaceId': typeof ApiWorkspacesWorkspaceIdRoute
+  '/api/workspaces/$workspaceId': typeof ApiWorkspacesWorkspaceIdRouteWithChildren
   '/projects/$projectSlug/settings': typeof ProjectsProjectSlugSettingsRoute
   '/projects/$projectSlug/workspaces/$workspaceId': typeof ProjectsProjectSlugWorkspacesWorkspaceIdRoute
   '/projects/$projectSlug/workspaces/new': typeof ProjectsProjectSlugWorkspacesNewRoute
+  '/api/workspaces/$workspaceId/evidence/$evidenceId': typeof ApiWorkspacesWorkspaceIdEvidenceEvidenceIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -116,10 +125,11 @@ export interface FileRoutesById {
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/projects/new': typeof ProjectsNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
-  '/api/workspaces/$workspaceId': typeof ApiWorkspacesWorkspaceIdRoute
+  '/api/workspaces/$workspaceId': typeof ApiWorkspacesWorkspaceIdRouteWithChildren
   '/projects/$projectSlug/settings': typeof ProjectsProjectSlugSettingsRoute
   '/projects/$projectSlug/workspaces/$workspaceId': typeof ProjectsProjectSlugWorkspacesWorkspaceIdRoute
   '/projects/$projectSlug/workspaces/new': typeof ProjectsProjectSlugWorkspacesNewRoute
+  '/api/workspaces/$workspaceId/evidence/$evidenceId': typeof ApiWorkspacesWorkspaceIdEvidenceEvidenceIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -135,6 +145,7 @@ export interface FileRouteTypes {
     | '/projects/$projectSlug/settings'
     | '/projects/$projectSlug/workspaces/$workspaceId'
     | '/projects/$projectSlug/workspaces/new'
+    | '/api/workspaces/$workspaceId/evidence/$evidenceId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -148,6 +159,7 @@ export interface FileRouteTypes {
     | '/projects/$projectSlug/settings'
     | '/projects/$projectSlug/workspaces/$workspaceId'
     | '/projects/$projectSlug/workspaces/new'
+    | '/api/workspaces/$workspaceId/evidence/$evidenceId'
   id:
     | '__root__'
     | '/'
@@ -161,6 +173,7 @@ export interface FileRouteTypes {
     | '/projects/$projectSlug/settings'
     | '/projects/$projectSlug/workspaces/$workspaceId'
     | '/projects/$projectSlug/workspaces/new'
+    | '/api/workspaces/$workspaceId/evidence/$evidenceId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -171,7 +184,7 @@ export interface RootRouteChildren {
   InviteInvitationIdRoute: typeof InviteInvitationIdRoute
   ProjectsNewRoute: typeof ProjectsNewRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
-  ApiWorkspacesWorkspaceIdRoute: typeof ApiWorkspacesWorkspaceIdRoute
+  ApiWorkspacesWorkspaceIdRoute: typeof ApiWorkspacesWorkspaceIdRouteWithChildren
   ProjectsProjectSlugSettingsRoute: typeof ProjectsProjectSlugSettingsRoute
   ProjectsProjectSlugWorkspacesWorkspaceIdRoute: typeof ProjectsProjectSlugWorkspacesWorkspaceIdRoute
   ProjectsProjectSlugWorkspacesNewRoute: typeof ProjectsProjectSlugWorkspacesNewRoute
@@ -256,8 +269,30 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjectsProjectSlugWorkspacesNewRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/workspaces/$workspaceId/evidence/$evidenceId': {
+      id: '/api/workspaces/$workspaceId/evidence/$evidenceId'
+      path: '/evidence/$evidenceId'
+      fullPath: '/api/workspaces/$workspaceId/evidence/$evidenceId'
+      preLoaderRoute: typeof ApiWorkspacesWorkspaceIdEvidenceEvidenceIdRouteImport
+      parentRoute: typeof ApiWorkspacesWorkspaceIdRoute
+    }
   }
 }
+
+interface ApiWorkspacesWorkspaceIdRouteChildren {
+  ApiWorkspacesWorkspaceIdEvidenceEvidenceIdRoute: typeof ApiWorkspacesWorkspaceIdEvidenceEvidenceIdRoute
+}
+
+const ApiWorkspacesWorkspaceIdRouteChildren: ApiWorkspacesWorkspaceIdRouteChildren =
+  {
+    ApiWorkspacesWorkspaceIdEvidenceEvidenceIdRoute:
+      ApiWorkspacesWorkspaceIdEvidenceEvidenceIdRoute,
+  }
+
+const ApiWorkspacesWorkspaceIdRouteWithChildren =
+  ApiWorkspacesWorkspaceIdRoute._addFileChildren(
+    ApiWorkspacesWorkspaceIdRouteChildren,
+  )
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
@@ -267,7 +302,7 @@ const rootRouteChildren: RootRouteChildren = {
   InviteInvitationIdRoute: InviteInvitationIdRoute,
   ProjectsNewRoute: ProjectsNewRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
-  ApiWorkspacesWorkspaceIdRoute: ApiWorkspacesWorkspaceIdRoute,
+  ApiWorkspacesWorkspaceIdRoute: ApiWorkspacesWorkspaceIdRouteWithChildren,
   ProjectsProjectSlugSettingsRoute: ProjectsProjectSlugSettingsRoute,
   ProjectsProjectSlugWorkspacesWorkspaceIdRoute:
     ProjectsProjectSlugWorkspacesWorkspaceIdRoute,

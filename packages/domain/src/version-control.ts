@@ -65,6 +65,7 @@ export class WorkspaceCheckpointInput extends Schema.Class<WorkspaceCheckpointIn
   workspaceId: WorkspaceId,
   idempotencyKey: Schema.NonEmptyString,
   message: Schema.NonEmptyString,
+  repairOnFailure: Schema.optional(Schema.Boolean),
 }) {}
 
 export class WorkspaceCheckpoint extends Schema.Class<WorkspaceCheckpoint>(

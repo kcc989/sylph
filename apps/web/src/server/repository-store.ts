@@ -63,6 +63,15 @@ interface RepositoryHandle extends StoredRepository {
   ) => Promise<StoredRepository>
 }
 
+export interface RepositoryNamespace {
+  readonly create: (
+    name: string,
+    options: { description: string; setDefaultBranch: string }
+  ) => Promise<StoredRepository>
+  readonly get: (name: string) => Promise<RepositoryHandle>
+  readonly delete: (name: string) => Promise<boolean>
+}
+
 export class RepositoryStore extends Context.Service<
   RepositoryStore,
   {
@@ -122,7 +131,7 @@ export const resolveStoredRepository = async (repository: RepositoryHandle) =>
   )
 
 export const makeCloudflareArtifactsRepositoryStore = (
-  binding: Artifacts
+  binding: RepositoryNamespace
 ): RepositoryStore["Service"] => {
   const inspect = Effect.fn("RepositoryStore.inspect")(function* (
     name: string
@@ -175,7 +184,7 @@ export const makeCloudflareArtifactsRepositoryStore = (
             await repository.fork(input.name, {
               description: input.description,
               readOnly: false,
-              defaultBranchOnly: false,
+              defaultBranchOnly: true,
             })
           )
         },

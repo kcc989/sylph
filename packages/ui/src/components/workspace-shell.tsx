@@ -144,7 +144,19 @@ type BrowserState = {
 type CheckItem = {
   name: string
   detail: string
-  status: "passed" | "running" | "failed"
+  status: "queued" | "passed" | "running" | "failed"
+  output?: string
+  evidence?: ReadonlyArray<{
+    id: string
+    kind: "screenshot" | "accessibility"
+    label: string
+    url: string
+  }>
+  action?: {
+    label: string
+    disabled?: boolean
+    onClick: () => void
+  }
 }
 
 export type ComposerModel = {
@@ -1318,23 +1330,32 @@ function BrowserPreview({
               "max-w-[390px] border-x border-black/10"
           )}
         >
-          {content ?? (
-            <div className="flex h-full flex-col items-center justify-center px-8 text-center">
-              <span className="mb-5 grid size-10 place-items-center rounded-[9px] border border-white/10 bg-white/[.05] text-[#ef9b7e] shadow-lg">
-                <SylphMark className="size-5" />
-              </span>
-              <h2 className="max-w-sm text-xl font-semibold tracking-[-0.03em] text-balance">
-                {browser.title}
-              </h2>
-              <p className="mt-2 max-w-sm text-xs leading-5 text-pretty text-muted-foreground">
-                {browser.status === "loading"
-                  ? "Waiting for the workspace preview server."
-                  : browser.status === "error"
-                    ? "The preview could not be reached."
-                    : "Connect a browser surface to begin verification."}
-              </p>
-            </div>
-          )}
+          {content ??
+            (browser.status === "live" ? (
+              <iframe
+                className="size-full border-0 bg-white"
+                referrerPolicy="no-referrer"
+                sandbox="allow-forms allow-modals allow-popups allow-same-origin allow-scripts"
+                src={browser.url}
+                title={browser.title}
+              />
+            ) : (
+              <div className="flex h-full flex-col items-center justify-center px-8 text-center">
+                <span className="mb-5 grid size-10 place-items-center rounded-[9px] border border-white/10 bg-white/[.05] text-[#ef9b7e] shadow-lg">
+                  <SylphMark className="size-5" />
+                </span>
+                <h2 className="max-w-sm text-xl font-semibold tracking-[-0.03em] text-balance">
+                  {browser.title}
+                </h2>
+                <p className="mt-2 max-w-sm text-xs leading-5 text-pretty text-muted-foreground">
+                  {browser.status === "loading"
+                    ? "Waiting for the workspace preview server."
+                    : browser.status === "error"
+                      ? "The preview could not be reached."
+                      : "Connect a browser surface to begin verification."}
+                </p>
+              </div>
+            ))}
         </div>
         <div className="absolute right-3 bottom-3 flex items-center gap-1.5 rounded-[4px] border border-black/10 bg-white/90 px-2 py-1 font-mono text-[9px] text-stone-700 shadow-sm backdrop-blur">
           <span className="size-1.5 rounded-full bg-emerald-500" /> 1440 × 900
@@ -1358,21 +1379,76 @@ function CheckList({ checks }: { checks: CheckItem[] }) {
   return (
     <div className="divide-y divide-white/[.06]">
       {checks.map((check) => (
-        <div key={check.name} className="flex items-center gap-2.5 px-3 py-2.5">
-          {check.status === "passed" && (
-            <Check className="size-3.5 text-emerald-400" />
-          )}
-          {check.status === "running" && (
-            <LoaderCircle className="size-3.5 animate-spin text-[#ef9b7e] motion-reduce:animate-none" />
-          )}
-          {check.status === "failed" && (
-            <X className="size-3.5 text-destructive" />
-          )}
-          <span className="text-xs font-medium">{check.name}</span>
-          <span className="sr-only">{check.status}</span>
-          <span className="ml-auto font-mono text-[10px] text-muted-foreground">
-            {check.detail}
-          </span>
+        <div key={check.name} className="px-3 py-2.5">
+          <div className="flex items-center gap-2.5">
+            {check.status === "passed" && (
+              <Check className="size-3.5 text-emerald-400" />
+            )}
+            {check.status === "running" && (
+              <LoaderCircle className="size-3.5 animate-spin text-[#ef9b7e] motion-reduce:animate-none" />
+            )}
+            {check.status === "queued" && (
+              <span className="size-3.5 rounded-full border border-muted-foreground/50" />
+            )}
+            {check.status === "failed" && (
+              <X className="size-3.5 text-destructive" />
+            )}
+            <span className="text-xs font-medium">{check.name}</span>
+            <span className="sr-only">{check.status}</span>
+            <span className="ml-auto font-mono text-[10px] text-muted-foreground">
+              {check.detail}
+            </span>
+            {check.action ? (
+              <Button
+                disabled={check.action.disabled}
+                onClick={check.action.onClick}
+                size="xs"
+                variant="outline"
+              >
+                {check.action.label}
+              </Button>
+            ) : null}
+          </div>
+          {check.output ? (
+            <pre className="mt-2 max-h-48 overflow-auto border border-white/[.07] bg-black/20 p-2 font-mono text-[10px] leading-4 whitespace-pre-wrap text-muted-foreground">
+              {check.output}
+            </pre>
+          ) : null}
+          {check.evidence?.length ? (
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              {check.evidence.map((item) =>
+                item.kind === "screenshot" ? (
+                  <a
+                    className="overflow-hidden border border-white/[.08] bg-black/20 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                    href={item.url}
+                    key={item.id}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    <img
+                      alt={item.label}
+                      className="aspect-video w-full object-cover object-top"
+                      src={item.url}
+                    />
+                    <span className="block px-2 py-1.5 text-[10px] text-muted-foreground">
+                      {item.label}
+                    </span>
+                  </a>
+                ) : (
+                  <a
+                    className="flex items-center gap-2 border border-white/[.08] bg-black/20 px-2 py-2 text-[10px] text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                    href={item.url}
+                    key={item.id}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    <ShieldCheck className="size-3.5 text-[var(--sylph-live)]" />
+                    {item.label}
+                  </a>
+                )
+              )}
+            </div>
+          ) : null}
         </div>
       ))}
     </div>
