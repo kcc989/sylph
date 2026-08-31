@@ -143,6 +143,8 @@ The OpenCode host must not depend on a long-lived local process or terminal. Rep
 
 An Artifacts push event starts a Cloudflare CI Workflow. Each command runs in a Sandbox-backed, retryable Workflow step. Store dependency snapshots in R2 through the CI SDK.
 
+[`workspace-ci.ts`](./apps/web/src/server/workspace-ci.ts) is Sylph's CI-as-Code pipeline built on `@cloudflare/ci`, following Cloudflare's [authored pipeline example](https://github.com/cloudflare/ci/blob/main/examples/cloudflare-artifacts/cloudflare.ci.ts). Project Repositories do not need a Sylph-specific execution manifest. They expose recognizable package scripts; Sylph owns the surrounding Check lifecycle, credential scoping, diagnostics, repair, Preview identity, and browser evidence in application code. Add an execution adapter seam only when more than one real Project execution model exists.
+
 Each Project repository must define `typecheck`, `lint`, `test`, `build`, `sylph:preview`, and `sylph:deploy` package scripts. Sylph sets `SYLPH_CHECKPOINT` to the exact commit under test and `SYLPH_DEPLOYMENT` to `preview` or `production`. The preview script must print `SYLPH_PREVIEW_URL=https://...` after the deployment is reachable. A missing required script fails its Check rather than silently weakening acceptance.
 
 Do not keep a Durable Object request open while CI runs. `ci.run` should checkpoint the tree, create a run, and return its ID. When the Workflow completes, it calls the `WorkspaceDO`. The object appends a product event and sends a synthetic OpenCode message with the result. A resume policy can start a repair turn when the user enabled automatic repair.
