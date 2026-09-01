@@ -13,6 +13,7 @@ import {
 } from "@workspace/ui/components/resizable"
 import { cn } from "@workspace/ui/lib/utils"
 import {
+  Blocks,
   CircleAlert,
   CircleDot,
   CircleHelp,
@@ -66,7 +67,7 @@ type AppShellDashboard = {
 }
 
 type AppShellProps = {
-  active: "home" | "admin" | "settings"
+  active: "home" | "skills" | "admin" | "settings"
   children: ReactNode
   dashboard: AppShellDashboard
   topbar?: ReactNode
@@ -127,6 +128,12 @@ function ProductRail({
   const router = useRouter()
   const tools = [
     { label: "Projects", icon: House, href: "/", selected: active === "home" },
+    {
+      label: "Skills",
+      icon: Blocks,
+      href: "/skills",
+      selected: active === "skills",
+    },
     { label: "Search", icon: Search },
     ...(canAdminister
       ? [

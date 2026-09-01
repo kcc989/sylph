@@ -10,6 +10,9 @@ declare global {
       DB: D1Database
       GITHUB_CLIENT_ID: string
       GITHUB_CLIENT_SECRET: string
+      OAUTH_PROXY_URL: string
+      OAUTH_PROXY_SECRET: string
+      OAUTH_PROXY_TRUSTED_ORIGINS: string
       CREDENTIAL_ENCRYPTION_KEY: string
       INSTALLATION_CLAIM_SECRET: string
       PREVIEW_RETENTION_SECONDS: string

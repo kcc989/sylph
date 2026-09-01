@@ -21,8 +21,8 @@ const projectName =
 const modelName =
   process.env.SYLPH_SMOKE_MODEL_NAME?.trim() || "DeepSeek V4 Flash 0731"
 const authenticationState = resolve(
-  process.cwd(),
-  "playwright/.auth/release-smoke.json"
+  process.env.SYLPH_SMOKE_AUTH_STATE ??
+    resolve(process.cwd(), "playwright/.auth/release-smoke.json")
 )
 const proofFile = "RELEASE_SMOKE_PROOF.txt"
 const proofMarker = `sylph-release-smoke-${Date.now()}`

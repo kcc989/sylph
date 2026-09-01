@@ -64,6 +64,10 @@ import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1"
 import { alias } from "drizzle-orm/sqlite-core"
 
 import { createRequestAuth } from "@/server/auth.server"
+import {
+  loadInstalledSkills,
+  serializeInstalledSkill,
+} from "@/server/installed-skills"
 import { assertInstallationClaimIdentity } from "@/lib/installation-claim"
 import { makeCloudflareArtifactsRepositoryStore } from "@/server/repository-store"
 import {
@@ -91,6 +95,7 @@ import {
 import { discoverOpenCodeKeyModels } from "@/server/opencode-key-setup"
 import { restartDurableWorkspace } from "@/server/workspace-runtime-lifecycle"
 import {
+  readWorkspaceVersionControl,
   readWorkspaceVersionControlResponse,
   workspaceVersionControlRequest,
 } from "@/server/workspace-repository-refresh"
@@ -2423,10 +2428,19 @@ export const getWorkspace = createServerFn({ method: "GET" })
     const runtime = env.WORKSPACES.get(
       env.WORKSPACES.idFromName(data.workspaceId)
     )
-    const [response, vcsResponse, checksResponse] = await Promise.all([
+    const [response, vcsResponse, checksResponse, skills] = await Promise.all([
       runtime.fetch("https://workspace/snapshot"),
-      runtime.fetch(workspaceVersionControlRequest()),
+      workspace.status === "error" || workspace.errorSummary
+        ? runtime.fetch(workspaceVersionControlRequest())
+        : readWorkspaceVersionControl(() =>
+            runtime.fetch(workspaceVersionControlRequest())
+          ),
       runtime.fetch("https://workspace/checks"),
+      loadInstalledSkills(
+        env.DB,
+        workspace.organizationId,
+        workspace.projectId
+      ),
     ])
 
     if (!response.ok) {
@@ -2524,6 +2538,7 @@ export const getWorkspace = createServerFn({ method: "GET" })
         ? { providerId: connection.providerId, modelId: connection.modelId }
         : null,
       modelNotice: connection?.notice ?? null,
+      skills: skills.map(serializeInstalledSkill),
     }
   })
 

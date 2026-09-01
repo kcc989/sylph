@@ -19,4 +19,16 @@ describe("Workspace prompt activation", () => {
 
     expect(calls).toEqual(["credential", "model", "credential", "model"])
   })
+
+  test("switches models without reinstalling an unchanged credential", async () => {
+    const calls: string[] = []
+
+    await activateWorkspacePrompt({
+      switchModel: async () => {
+        calls.push("model")
+      },
+    })
+
+    expect(calls).toEqual(["model"])
+  })
 })

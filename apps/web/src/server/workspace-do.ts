@@ -31,6 +31,7 @@ import {
   type WorkspaceCiInput,
   type WorkspaceCheckStageName,
   WorkspaceId,
+  resolveSkillInvocation,
 } from "@workspace/domain"
 import type { OpenCodeWorkerd } from "@opencode-ai/sdk/workerd"
 import { InvalidRequestError } from "@opencode-ai/protocol/errors"
@@ -64,6 +65,8 @@ import {
   maxWorkspaceRepairAttempts,
   WorkspaceChecks,
 } from "./workspace-checks"
+import { loadInstalledSkills } from "./installed-skills"
+import { createWorkspaceSkillRegistry } from "./workspace-skills"
 const checkpointCheckStages: WorkspaceCheckStageName[] = [
   "install",
   "typecheck",
@@ -95,8 +98,19 @@ const appWorkspaceState = sqliteTable("app_workspace_state", {
   repositoryRemote: text("repository_remote").notNull(),
   providerId: text("provider_id"),
   modelId: text("model_id"),
+  credentialFingerprint: text("credential_fingerprint"),
   sessionId: text("session_id"),
 })
+
+const credentialFingerprint = async (credential: OpenCodeCredential) => {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(JSON.stringify(credential))
+  )
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0")
+  ).join("")
+}
 
 const messageText = (message: {
   content: ReadonlyArray<{ type: string; text?: string; name?: string }>
@@ -218,6 +232,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   readonly #workspaceGit
   readonly #checks
   readonly #permissionBridge = createWorkspacePermissionBridge()
+  readonly #skills = createWorkspaceSkillRegistry()
   readonly #openAIOAuth: OpenAIOAuthRequestState = {
     active: false,
     accountID: null,
@@ -255,6 +270,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
                 this.#workspaceGit,
                 this.#openAIOAuth,
                 this.#permissionBridge,
+                this.#skills,
                 {
                   runChecks: async (input) => {
                     try {
@@ -314,6 +330,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           repository_remote TEXT NOT NULL,
           provider_id TEXT,
           model_id TEXT,
+          credential_fingerprint TEXT,
           session_id TEXT
         )
       `)
@@ -340,6 +357,11 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       if (!columns.includes("model_id")) {
         context.storage.sql.exec(
           "ALTER TABLE app_workspace_state ADD COLUMN model_id TEXT"
+        )
+      }
+      if (!columns.includes("credential_fingerprint")) {
+        context.storage.sql.exec(
+          "ALTER TABLE app_workspace_state ADD COLUMN credential_fingerprint TEXT"
         )
       }
 
@@ -635,6 +657,9 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           })
         }
         const sessionId = state.sessionId
+        const nextCredentialFingerprint = await credentialFingerprint(
+          input.credential
+        )
         const activeSessions = await opencode.sessions.active()
         const turnActive = Boolean(activeSessions[sessionId])
         if (turnActive && !input.delivery) {
@@ -676,12 +701,15 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         try {
           if (!turnActive) {
             await activateWorkspacePrompt({
-              refreshCredential: () =>
-                this.#installCredential(
-                  opencode,
-                  input.model.providerId,
-                  input.credential
-                ),
+              refreshCredential:
+                state.credentialFingerprint === nextCredentialFingerprint
+                  ? undefined
+                  : () =>
+                      this.#installCredential(
+                        opencode,
+                        input.model.providerId,
+                        input.credential
+                      ),
               switchModel: () =>
                 opencode.sessions.switchModel({
                   sessionID: sessionId,
@@ -697,6 +725,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
             .set({
               providerId: input.model.providerId,
               modelId: input.model.modelId,
+              credentialFingerprint: nextCredentialFingerprint,
             })
             .run()
         } catch (error) {
@@ -715,17 +744,16 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           )
         }
 
-        this.#database
-          .update(appWorkspaceState)
-          .set({
-            providerId: input.model.providerId,
-            modelId: input.model.modelId,
-          })
-          .run()
-
+        const invocation = resolveSkillInvocation(
+          input.text,
+          this.#skills.list()
+        )
         await opencode.sessions.prompt({
           sessionID: sessionId,
-          text: input.text,
+          text: invocation
+            ? invocation.text || "Follow the attached Skill instructions."
+            : input.text,
+          skills: invocation ? [{ id: invocation.skillId }] : undefined,
           delivery: input.delivery,
         })
         if (input.delivery !== "queue") await this.#scheduleTurnLimit()
@@ -781,6 +809,18 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         return workspaceEventResponse(
           this.#events(opencode, AgentSessionId.make(state.sessionId))
         )
+      }
+
+      if (request.method === "POST" && url.pathname === "/skills/reload") {
+        const state = this.#requiredState()
+        await this.#skills.replace(
+          await loadInstalledSkills(
+            this.env.DB,
+            state.organizationId,
+            state.projectId
+          )
+        )
+        return Response.json({ skills: this.#skills.list().length })
       }
 
       if (request.method === "POST" && url.pathname === "/permission/reply") {
@@ -1048,12 +1088,26 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       })
       .run()
 
+    await this.#skills.replace(
+      await loadInstalledSkills(
+        this.env.DB,
+        input.organizationId,
+        input.projectId
+      )
+    )
+
     try {
       await this.#installCredential(
         opencode,
         input.providerId,
         input.credential
       )
+      this.#database
+        .update(appWorkspaceState)
+        .set({
+          credentialFingerprint: await credentialFingerprint(input.credential),
+        })
+        .run()
     } catch (error) {
       if (error instanceof OpenCodeCredentialReloadRequired) throw error
       const failure =

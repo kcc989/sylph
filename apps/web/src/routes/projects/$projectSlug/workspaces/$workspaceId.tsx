@@ -1,6 +1,12 @@
-import { createFileRoute, Link, useRouter } from "@tanstack/react-router"
+import {
+  createFileRoute,
+  type ErrorComponentProps,
+  Link,
+  useRouter,
+} from "@tanstack/react-router"
 import {
   decodeWorkspaceRuntimeEventPromise,
+  resolveSkillInvocation,
   type WorkspacePermissionReply,
 } from "@workspace/domain"
 import { useServerFn } from "@tanstack/react-start"
@@ -58,7 +64,55 @@ export const Route = createFileRoute(
     return { dashboard, result: matches ? result : null }
   },
   component: WorkspaceScreen,
+  errorComponent: WorkspaceLoadError,
 })
+
+function WorkspaceLoadError({ error, reset }: ErrorComponentProps) {
+  const { projectSlug } = Route.useParams()
+  const router = useRouter()
+  const initializing = error.message.includes(
+    "Workspace version control is not initialized"
+  )
+
+  return (
+    <main className="grid min-h-svh place-items-center bg-background px-5 text-foreground">
+      <Card className="w-full max-w-lg">
+        <CardContent className="py-10 text-center">
+          <h1 className="text-lg font-semibold">
+            {initializing ? "Workspace is starting" : "Workspace unavailable"}
+          </h1>
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">
+            {initializing
+              ? "Version control is still initializing. Try again in a moment."
+              : "Sylph could not load this Workspace. Retry or return to Project settings."}
+          </p>
+          <div className="mt-5 flex justify-center gap-2">
+            <Button
+              onClick={() => {
+                reset()
+                void router.invalidate()
+              }}
+            >
+              Try again
+            </Button>
+            <Button
+              nativeButton={false}
+              render={
+                <Link
+                  params={{ projectSlug }}
+                  to="/projects/$projectSlug/settings"
+                />
+              }
+              variant="outline"
+            >
+              Project settings
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </main>
+  )
+}
 
 function WorkspaceScreen() {
   const { workspaceId } = Route.useParams()
@@ -192,6 +246,20 @@ function WorkspaceScreen() {
   }
 
   const { runtime, workspace } = result
+  const matchedSkill = (text: string) => {
+    const invocation = resolveSkillInvocation(text, result.skills)
+    if (!invocation) return undefined
+    const skill = result.skills.find(
+      (candidate) => candidate.metadata.name === invocation.skillId
+    )
+    return skill
+      ? {
+          name: invocation.skillId,
+          scope: skill.scope,
+          prompt: invocation.text,
+        }
+      : undefined
+  }
   const workingChanges = result.versionControl.working
   const additions = workingChanges.reduce(
     (total, change) => total + change.additions,
@@ -220,6 +288,8 @@ function WorkspaceScreen() {
             kind: message.role === "user" ? "user" : "agent",
             title: message.error ? "Assistant error" : undefined,
             body: message.error ?? message.text,
+            skill:
+              message.role === "user" ? matchedSkill(message.text) : undefined,
             meta: message.role === "user" ? "You" : "Assistant",
             details: message.tools.length ? [...message.tools] : undefined,
           }))
@@ -588,6 +658,13 @@ function WorkspaceScreen() {
           : undefined
       }
       models={result.models}
+      skills={result.skills
+        .filter((skill) => skill.metadata.userInvokable)
+        .map((skill) => ({
+          name: skill.metadata.name,
+          description: skill.metadata.description ?? "No description provided.",
+          scope: skill.scope,
+        }))}
       selectedModel={selectedModel}
       modelNotice={modelNotice}
       onModelChange={(model) => {
@@ -675,6 +752,7 @@ function WorkspaceScreen() {
             id: optimisticId,
             kind: "user",
             body: text,
+            skill: matchedSkill(text),
             meta:
               delivery === "steer"
                 ? "You · steering"

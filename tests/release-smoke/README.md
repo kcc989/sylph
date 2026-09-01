@@ -4,7 +4,15 @@ This test exercises a fresh deployed Installation through the public browser int
 
 `setup → claim → provider → Project → Workspace → prompt → permission → checkpoint → accept → eviction/restart`
 
-Use a dedicated Cloudflare stage and GitHub OAuth application. The test intentionally fails if the Installation is already claimed.
+Use a fresh Cloudflare stage behind the permanent OAuth proxy and GitHub App created by the setup wizard. The test intentionally fails if the branch Installation is already claimed.
+
+Provision the reusable credentials once:
+
+```sh
+./scripts/setup-release-smoke.sh
+```
+
+Each branch stage reuses the resulting credentials from `~/.config/sylph/release-smoke.env`. It does not require another GitHub App or callback change. Set `SYLPH_SMOKE_ENV_FILE` when the shared configuration belongs elsewhere.
 
 Install Chromium once:
 
@@ -29,6 +37,6 @@ Run the test headed so GitHub can request human authentication when its saved se
 bun run smoke:release -- --headed
 ```
 
-Playwright stores GitHub browser state under `playwright/.auth`, which is ignored by Git. Treat that file as a credential and delete it when the test account changes. Failure traces, screenshots, video, and the JSON evidence record are stored under `test-results/release-smoke`.
+Playwright stores GitHub browser state at `SYLPH_SMOKE_AUTH_STATE`. The setup wizard defaults it to `~/.config/sylph/release-smoke-auth.json`, so separate worktrees reuse the same login. Treat that file as a credential and delete it when the test account changes. Failure traces, screenshots, video, and the JSON evidence record are stored under `test-results/release-smoke`.
 
 The test leaves its isolated Project and Workspace in the smoke Installation as release evidence. Destroy the dedicated Alchemy stage separately after reviewing the result.

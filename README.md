@@ -22,6 +22,26 @@ The wizard connects Alchemy to Cloudflare, generates local secrets, deploys the 
 
 Only the one-time Installation claim can create the Organization. After claiming, use `/admin` to configure a shared AI Provider connection and create invitation links for other Users. Invitees must authenticate with the exact email address that was invited. Once the Installation is claimed, Sylph does not create an authentication account unless a current pending invitation authorizes that email address.
 
+### OAuth across preview stages
+
+Use Better Auth's OAuth Proxy when branch or smoke-test deployments have changing URLs. Deploy one permanent Sylph stage as the proxy and register only its callback URL with GitHub:
+
+```text
+https://your-permanent-proxy.example/api/auth/callback/github
+```
+
+Set the following values on the permanent stage and every participating preview stage:
+
+```sh
+OAUTH_PROXY_URL=https://your-permanent-proxy.example
+OAUTH_PROXY_SECRET=one-shared-random-secret-with-at-least-32-characters
+OAUTH_PROXY_TRUSTED_ORIGINS=https://sylph-*.your-test-domain.example
+```
+
+Keep `OAUTH_PROXY_TRUSTED_ORIGINS` limited to domains controlled by the test system. Use a dedicated proxy secret instead of sharing `BETTER_AUTH_SECRET`. When these values are absent, Sylph keeps the direct GitHub OAuth flow used by a standalone Installation.
+
+Run `./scripts/setup-release-smoke.sh` for the guided Cloudflare and GitHub provisioning flow.
+
 ## Product direction
 
 Build a web IDE for parallel coding-agent work on Cloudflare. The interface should borrow bb's dense, keyboard-first workspace and Conductor's task-focused parallelism. It should not reproduce bb's local-host architecture.
