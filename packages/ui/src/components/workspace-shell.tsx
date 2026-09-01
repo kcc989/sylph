@@ -2,6 +2,7 @@
 
 import {
   Activity,
+  Archive,
   ArrowUp,
   BadgeCheck,
   Blocks,
@@ -22,6 +23,7 @@ import {
   Maximize2,
   MessageSquare,
   MessageCircle,
+  MessagesSquare,
   Monitor,
   MoreHorizontal,
   PanelLeftClose,
@@ -37,7 +39,9 @@ import {
   Settings2,
   ShieldCheck,
   Smartphone,
+  Square,
   Terminal,
+  Trash2,
   AtSign,
   X,
 } from "lucide-react"
@@ -92,7 +96,7 @@ import {
 } from "@workspace/ui/components/tooltip"
 import { cn } from "@workspace/ui/lib/utils"
 
-type WorkspaceStatus = "running" | "waiting" | "ready" | "error"
+type WorkspaceStatus = "running" | "waiting" | "ready" | "archived" | "error"
 
 const workspacePanelStorage = {
   getItem: (name: string) => {
@@ -146,6 +150,50 @@ type WorkspacePermissionRequest = {
   resources: string[]
   message?: string
   canSave: boolean
+}
+
+type WorkspaceQuestionValue = string | number | boolean | ReadonlyArray<string>
+
+type WorkspaceQuestion = {
+  id: string
+  title: string
+  status: "pending" | "answered" | "cancelled"
+  fields: ReadonlyArray<{
+    key: string
+    title?: string
+    description?: string
+    required?: boolean
+    type:
+      | "string"
+      | "number"
+      | "integer"
+      | "boolean"
+      | "multiselect"
+      | "external"
+    options: ReadonlyArray<{
+      value: string
+      label: string
+      description?: string
+    }>
+    placeholder?: string
+    url?: string
+    defaultValue?: WorkspaceQuestionValue
+  }>
+  answer: Record<string, WorkspaceQuestionValue> | null
+}
+
+type WorkspaceQueuedMessage = {
+  id: string
+  text: string
+  createdAt: number
+  delivery: "queue" | "steer"
+}
+
+type WorkspaceRuntimeLimits = {
+  maxQueuedMessages: number
+  maxTurnDurationMs: number
+  maxCheckAttempts: number
+  maxRepairAttempts: number
 }
 
 type BrowserState = {
@@ -259,10 +307,20 @@ type WorkspaceShellProps = {
   promptError?: string | null
   promptPending?: boolean
   permissionRequests?: ReadonlyArray<WorkspacePermissionRequest>
+  questions?: ReadonlyArray<WorkspaceQuestion>
+  queuedMessages?: ReadonlyArray<WorkspaceQueuedMessage>
+  runtimeLimits?: WorkspaceRuntimeLimits
+  turnActive?: boolean
+  turnInterrupted?: boolean
+  activeTurnStartedAt?: number | null
+  answeringQuestionId?: string | null
   replyingPermissionId?: string | null
   checkpointPending?: boolean
   acceptPending?: boolean
   restartPending?: boolean
+  cancelTurnPending?: boolean
+  archivePending?: boolean
+  discardPending?: boolean
   rebasePending?: boolean
   onAccept?: () => Promise<void>
   onAddReviewComment?: (
@@ -271,7 +329,13 @@ type WorkspaceShellProps = {
   onCheckpoint?: () => Promise<void>
   onSubmitPrompt?: (
     text: string,
-    model: { providerId: string; modelId: string }
+    model: { providerId: string; modelId: string },
+    delivery?: "queue" | "steer"
+  ) => Promise<void>
+  onCancelTurn?: () => Promise<void>
+  onAnswerQuestion?: (
+    questionId: string,
+    answer: Record<string, WorkspaceQuestionValue>
   ) => Promise<void>
   onPermissionReply?: (
     requestId: string,
@@ -279,6 +343,8 @@ type WorkspaceShellProps = {
   ) => Promise<void>
   onModelChange?: (model: { providerId: string; modelId: string }) => void
   onRestartWorkspace?: () => Promise<void>
+  onArchiveWorkspace?: () => Promise<void>
+  onDiscardWorkspace?: () => Promise<void>
   onRebase?: () => Promise<void>
   onResolveReviewComment?: (
     commentId: string,
@@ -410,6 +476,7 @@ const statusStyles = {
   running: "text-[var(--sylph-live)]",
   waiting: "text-amber-400",
   ready: "text-muted-foreground",
+  archived: "text-muted-foreground/50",
   error: "text-destructive",
 } satisfies Record<WorkspaceStatus, string>
 
@@ -655,6 +722,10 @@ function WorkspaceTopbar({
   acceptPending,
   onRestartWorkspace,
   restartPending,
+  onArchiveWorkspace,
+  archivePending,
+  onDiscardWorkspace,
+  discardPending,
   onRebase,
   rebasePending,
 }: {
@@ -676,6 +747,10 @@ function WorkspaceTopbar({
   acceptPending: boolean
   onRestartWorkspace?: () => Promise<void>
   restartPending: boolean
+  onArchiveWorkspace?: () => Promise<void>
+  archivePending: boolean
+  onDiscardWorkspace?: () => Promise<void>
+  discardPending: boolean
   onRebase?: () => Promise<void>
   rebasePending: boolean
 }) {
@@ -798,6 +873,37 @@ function WorkspaceTopbar({
               )}
               Restart runtime
             </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={!onArchiveWorkspace || archivePending}
+              onClick={() => void onArchiveWorkspace?.()}
+            >
+              {archivePending ? (
+                <LoaderCircle className="animate-spin motion-reduce:animate-none" />
+              ) : (
+                <Archive />
+              )}
+              Archive Workspace
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              disabled={!onDiscardWorkspace || discardPending}
+              onClick={() => {
+                if (
+                  window.confirm(
+                    `Discard ${workspaceName}? Its fork, Working copy, and Conversation will be permanently removed.`
+                  )
+                ) {
+                  void onDiscardWorkspace?.()
+                }
+              }}
+            >
+              {discardPending ? (
+                <LoaderCircle className="animate-spin motion-reduce:animate-none" />
+              ) : (
+                <Trash2 />
+              )}
+              Discard Workspace
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -813,16 +919,209 @@ function ResponseMarkdown({ children }: { children: string }) {
   )
 }
 
+function AgentQuestion({
+  question,
+  pending,
+  onAnswer,
+}: {
+  question: WorkspaceQuestion
+  pending: boolean
+  onAnswer?: (
+    questionId: string,
+    answer: Record<string, WorkspaceQuestionValue>
+  ) => Promise<void>
+}) {
+  if (question.status !== "pending") {
+    return (
+      <article className="min-w-0 border border-white/[.1] bg-white/[.025] px-3.5 py-3">
+        <div className="flex items-center gap-2">
+          <CircleHelp className="size-4 shrink-0 text-muted-foreground" />
+          <h3 className="min-w-0 flex-1 text-[13px] font-medium">
+            {question.title}
+          </h3>
+          <span className="text-[10px] text-muted-foreground">
+            {question.status === "answered" ? "Answered" : "Cancelled"}
+          </span>
+        </div>
+        {question.answer ? (
+          <dl className="mt-3 grid gap-2 border-t border-white/[.07] pt-3">
+            {Object.entries(question.answer).map(([key, value]) => (
+              <div className="grid gap-0.5 sm:grid-cols-[10rem_1fr]" key={key}>
+                <dt className="text-[10px] text-muted-foreground">{key}</dt>
+                <dd className="min-w-0 text-[12px] break-words text-foreground/80">
+                  {Array.isArray(value) ? value.join(", ") : String(value)}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        ) : null}
+      </article>
+    )
+  }
+
+  return (
+    <form
+      className="min-w-0 border border-[#ef9b7e]/30 bg-[#ef9b7e]/[.055] px-3.5 py-3"
+      onSubmit={(event) => {
+        event.preventDefault()
+        const form = new FormData(event.currentTarget)
+        const answer: Record<string, WorkspaceQuestionValue> = {}
+        for (const field of question.fields) {
+          if (field.type === "external") continue
+          if (field.type === "multiselect") {
+            answer[field.key] = form.getAll(field.key).map(String)
+            continue
+          }
+          if (field.type === "boolean") {
+            answer[field.key] = form.get(field.key) === "true"
+            continue
+          }
+          const value = String(form.get(field.key) ?? "")
+          answer[field.key] =
+            field.type === "number" || field.type === "integer"
+              ? Number(value)
+              : value
+        }
+        void onAnswer?.(question.id, answer)
+      }}
+    >
+      <div className="flex items-start gap-3">
+        <CircleHelp className="mt-0.5 size-4 shrink-0 text-[#ef9b7e]" />
+        <div className="min-w-0 flex-1">
+          <h3 className="text-[13px] font-medium">{question.title}</h3>
+          <div className="mt-3 grid gap-3">
+            {question.fields.map((field) => (
+              <fieldset className="min-w-0" key={field.key}>
+                <label
+                  className="block text-[11px] font-medium text-foreground/85"
+                  htmlFor={`${question.id}-${field.key}`}
+                >
+                  {field.title ?? field.key}
+                  {field.required ? (
+                    <span className="text-[#ef9b7e]"> *</span>
+                  ) : null}
+                </label>
+                {field.description ? (
+                  <p className="mt-0.5 text-[10px] leading-4 text-muted-foreground">
+                    {field.description}
+                  </p>
+                ) : null}
+                {field.type === "external" ? (
+                  <a
+                    className="mt-1.5 inline-flex min-h-8 items-center text-[11px] font-medium text-[#ef9b7e] underline decoration-[#ef9b7e]/40 underline-offset-4 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                    href={field.url}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    Open required context
+                  </a>
+                ) : field.type === "boolean" ? (
+                  <input
+                    className="mt-2 size-4 accent-[#ef9b7e]"
+                    defaultChecked={field.defaultValue === true}
+                    id={`${question.id}-${field.key}`}
+                    name={field.key}
+                    type="checkbox"
+                    value="true"
+                  />
+                ) : field.type === "multiselect" ? (
+                  <div className="mt-1.5 grid gap-1.5">
+                    {field.options.map((option) => (
+                      <label
+                        className="flex min-w-0 items-start gap-2 text-[11px] text-foreground/80"
+                        key={option.value}
+                      >
+                        <input
+                          className="mt-0.5 size-4 shrink-0 accent-[#ef9b7e]"
+                          defaultChecked={
+                            Array.isArray(field.defaultValue) &&
+                            field.defaultValue.includes(option.value)
+                          }
+                          name={field.key}
+                          type="checkbox"
+                          value={option.value}
+                        />
+                        <span className="min-w-0">
+                          {option.label}
+                          {option.description ? (
+                            <span className="block text-[10px] text-muted-foreground">
+                              {option.description}
+                            </span>
+                          ) : null}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                ) : field.options.length ? (
+                  <select
+                    className="mt-1.5 h-9 w-full rounded-[5px] border border-white/[.12] bg-[#171614] px-2 text-base text-foreground outline-none focus:border-[#ef9b7e]/60 focus:ring-2 focus:ring-[#ef9b7e]/20 sm:text-xs"
+                    defaultValue={String(field.defaultValue ?? "")}
+                    id={`${question.id}-${field.key}`}
+                    name={field.key}
+                    required={field.required}
+                  >
+                    <option disabled value="">
+                      Select an answer
+                    </option>
+                    {field.options.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    className="mt-1.5 h-9 w-full rounded-[5px] border border-white/[.12] bg-black/20 px-2 text-base text-foreground outline-none placeholder:text-muted-foreground focus:border-[#ef9b7e]/60 focus:ring-2 focus:ring-[#ef9b7e]/20 sm:text-xs"
+                    defaultValue={String(field.defaultValue ?? "")}
+                    id={`${question.id}-${field.key}`}
+                    name={field.key}
+                    placeholder={field.placeholder}
+                    required={field.required}
+                    step={field.type === "integer" ? 1 : undefined}
+                    type={
+                      field.type === "number" || field.type === "integer"
+                        ? "number"
+                        : "text"
+                    }
+                  />
+                )}
+              </fieldset>
+            ))}
+          </div>
+          <div className="mt-3 flex justify-end">
+            <Button disabled={pending} size="sm" type="submit">
+              {pending ? (
+                <LoaderCircle className="animate-spin motion-reduce:animate-none" />
+              ) : null}
+              Answer agent
+            </Button>
+          </div>
+        </div>
+      </div>
+    </form>
+  )
+}
+
 function AgentThread({
   entries,
   permissionRequests,
+  questions,
+  queuedMessages,
+  runtimeLimits,
+  turnActive,
+  turnInterrupted,
+  activeTurnStartedAt,
+  answeringQuestionId,
   replyingPermissionId,
   onPermissionReply,
+  onAnswerQuestion,
+  onCancelTurn,
   initialPrompt,
   onSubmitPrompt,
   promptDisabled,
   promptError,
   promptPending,
+  cancelTurnPending,
   restartPending,
   onRestartWorkspace,
   workspaceError,
@@ -833,11 +1132,23 @@ function AgentThread({
 }: {
   entries: ThreadEntry[]
   permissionRequests: ReadonlyArray<WorkspacePermissionRequest>
+  questions: ReadonlyArray<WorkspaceQuestion>
+  queuedMessages: ReadonlyArray<WorkspaceQueuedMessage>
+  runtimeLimits?: WorkspaceRuntimeLimits
+  turnActive: boolean
+  turnInterrupted: boolean
+  activeTurnStartedAt?: number | null
+  answeringQuestionId?: string | null
   replyingPermissionId?: string | null
   onPermissionReply?: (
     requestId: string,
     reply: "once" | "always" | "reject"
   ) => Promise<void>
+  onAnswerQuestion?: (
+    questionId: string,
+    answer: Record<string, WorkspaceQuestionValue>
+  ) => Promise<void>
+  onCancelTurn?: () => Promise<void>
   initialPrompt?: string
   onSubmitPrompt?: (
     text: string,
@@ -846,6 +1157,7 @@ function AgentThread({
   promptDisabled?: boolean
   promptError?: string | null
   promptPending?: boolean
+  cancelTurnPending?: boolean
   restartPending?: boolean
   onRestartWorkspace?: () => Promise<void>
   workspaceError?: string | null
@@ -1009,6 +1321,40 @@ function AgentThread({
                   </MessageScrollerItem>
                 )
               })}
+              {questions.map((question) => (
+                <MessageScrollerItem
+                  className="py-2 last:pb-4"
+                  key={question.id}
+                  messageId={question.id}
+                >
+                  <AgentQuestion
+                    onAnswer={onAnswerQuestion}
+                    pending={answeringQuestionId === question.id}
+                    question={question}
+                  />
+                </MessageScrollerItem>
+              ))}
+              {queuedMessages.map((message, index) => (
+                <MessageScrollerItem
+                  className="py-1 last:pb-4"
+                  key={message.id}
+                  messageId={message.id}
+                >
+                  <article className="flex min-w-0 items-start gap-2 border border-white/[.08] bg-white/[.025] px-3 py-2">
+                    <MessagesSquare className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[11px] leading-4 break-words text-foreground/75">
+                        {message.text}
+                      </p>
+                      <p className="mt-1 text-[9px] text-muted-foreground">
+                        {message.delivery === "steer"
+                          ? "Steering active Turn"
+                          : `Queued ${index + 1} of ${runtimeLimits?.maxQueuedMessages ?? queuedMessages.length}`}
+                      </p>
+                    </div>
+                  </article>
+                </MessageScrollerItem>
+              ))}
             </MessageScrollerContent>
           </MessageScrollerViewport>
           <MessageScrollerButton />
@@ -1039,6 +1385,52 @@ function AgentThread({
           ) : null}
         </div>
       ) : null}
+      {turnInterrupted && !workspaceError ? (
+        <div
+          className="mx-auto mb-3 flex w-[calc(100%-1.5rem)] max-w-3xl items-start gap-2 border border-amber-400/25 bg-amber-400/[.055] px-3 py-2.5"
+          role="status"
+        >
+          <CircleAlert className="mt-0.5 size-4 shrink-0 text-amber-300" />
+          <p className="min-w-0 text-[11px] leading-4 text-foreground/80">
+            The last Turn was interrupted. Files and Conversation history are
+            safe. Send a new message to continue from the current Working copy.
+          </p>
+        </div>
+      ) : null}
+      {turnActive ? (
+        <div
+          className="mx-auto mb-2 flex w-[calc(100%-1.5rem)] max-w-3xl flex-wrap items-center gap-2 border border-white/[.09] bg-white/[.025] px-3 py-2"
+          role="status"
+        >
+          <LoaderCircle className="size-3.5 animate-spin text-[#ef9b7e] motion-reduce:animate-none" />
+          <span className="text-[11px] text-foreground/80">Agent working</span>
+          <span className="font-mono text-[9px] text-muted-foreground">
+            {runtimeLimits
+              ? `${Math.round(runtimeLimits.maxTurnDurationMs / 60_000)} min limit · ${queuedMessages.length}/${runtimeLimits.maxQueuedMessages} queued`
+              : "Turn active"}
+          </span>
+          {activeTurnStartedAt ? (
+            <span className="hidden font-mono text-[9px] text-muted-foreground sm:inline">
+              started {new Date(activeTurnStartedAt).toLocaleTimeString()}
+            </span>
+          ) : null}
+          <Button
+            className="ml-auto"
+            disabled={cancelTurnPending}
+            onClick={onCancelTurn}
+            size="xs"
+            type="button"
+            variant="outline"
+          >
+            {cancelTurnPending ? (
+              <LoaderCircle className="animate-spin motion-reduce:animate-none" />
+            ) : (
+              <Square />
+            )}
+            Cancel Turn
+          </Button>
+        </div>
+      ) : null}
       <PromptComposer
         disabled={promptDisabled}
         error={promptError}
@@ -1049,6 +1441,12 @@ function AgentThread({
         selectedModel={selectedModel}
         modelNotice={modelNotice}
         onModelChange={onModelChange}
+        turnActive={turnActive}
+        queueFull={
+          runtimeLimits
+            ? queuedMessages.length >= runtimeLimits.maxQueuedMessages
+            : false
+        }
       />
     </section>
   )
@@ -1189,19 +1587,24 @@ function PromptComposer({
   selectedModel,
   modelNotice,
   onModelChange,
+  turnActive = false,
+  queueFull = false,
 }: {
   disabled?: boolean
   error?: string | null
   initialPrompt?: string
   onSubmit?: (
     text: string,
-    model: { providerId: string; modelId: string }
+    model: { providerId: string; modelId: string },
+    delivery?: "queue" | "steer"
   ) => Promise<void>
   pending?: boolean
   models: ReadonlyArray<ComposerModel>
   selectedModel?: { providerId: string; modelId: string } | null
   modelNotice?: string | null
   onModelChange?: (model: { providerId: string; modelId: string }) => void
+  turnActive?: boolean
+  queueFull?: boolean
 }) {
   const [text, setText] = useState(initialPrompt)
   const selectedOption = selectedModel
@@ -1212,11 +1615,12 @@ function PromptComposer({
       )
     : null
 
-  const submit = async () => {
+  const submit = async (delivery?: "queue" | "steer") => {
     const prompt = text.trim()
 
     if (!prompt || disabled || pending || !onSubmit || !selectedModel) return
-    await onSubmit(prompt, selectedModel)
+    if (delivery === "queue" && queueFull) return
+    await onSubmit(prompt, selectedModel, delivery)
     setText("")
   }
 
@@ -1226,7 +1630,7 @@ function PromptComposer({
         className="@container mx-auto max-w-3xl border border-white/[.12] bg-[#1c1a18] shadow-[0_16px_45px_rgba(0,0,0,.24)] focus-within:border-[#ef9b7e]/45"
         onSubmit={async (event) => {
           event.preventDefault()
-          await submit()
+          await submit(turnActive ? "queue" : undefined)
         }}
       >
         <Textarea
@@ -1238,13 +1642,15 @@ function PromptComposer({
           onKeyDown={async (event) => {
             if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
               event.preventDefault()
-              await submit()
+              await submit(turnActive ? "queue" : undefined)
             }
           }}
           placeholder={
             disabled
-              ? "OpenCode is still provisioning this Workspace"
-              : "Ask OpenCode to create or change the Project"
+              ? "This Workspace is not accepting messages"
+              : turnActive
+                ? "Queue the next message or steer the active Turn"
+                : "Ask OpenCode to create or change the Project"
           }
         />
         {error ? (
@@ -1281,7 +1687,7 @@ function PromptComposer({
             <Blocks /> Skills
           </Button>
           <ModelCombobox
-            disabled={pending || models.length === 0}
+            disabled={pending || turnActive || models.length === 0}
             models={models}
             selectedOption={selectedOption ?? null}
             onModelChange={onModelChange}
@@ -1289,15 +1695,52 @@ function PromptComposer({
           <span className="hidden text-[10px] whitespace-nowrap text-muted-foreground @2xl:inline">
             ⌘ ↵
           </span>
-          <Button
-            aria-label="Send message"
-            className="bg-[#ef9b7e] text-[#241613] hover:bg-[#f4af98]"
-            disabled={disabled || pending || !text.trim() || !selectedModel}
-            size="icon-sm"
-            type="submit"
-          >
-            {pending ? <LoaderCircle className="animate-spin" /> : <ArrowUp />}
-          </Button>
+          {turnActive ? (
+            <>
+              <Button
+                disabled={disabled || pending || !text.trim() || !selectedModel}
+                onClick={() => void submit("steer")}
+                size="xs"
+                type="button"
+                variant="outline"
+              >
+                <ArrowUp /> Steer
+              </Button>
+              <Button
+                className="bg-[#ef9b7e] text-[#241613] hover:bg-[#f4af98]"
+                disabled={
+                  disabled ||
+                  pending ||
+                  queueFull ||
+                  !text.trim() ||
+                  !selectedModel
+                }
+                size="xs"
+                type="submit"
+              >
+                {pending ? (
+                  <LoaderCircle className="animate-spin" />
+                ) : (
+                  <MessagesSquare />
+                )}
+                Queue
+              </Button>
+            </>
+          ) : (
+            <Button
+              aria-label="Send message"
+              className="bg-[#ef9b7e] text-[#241613] hover:bg-[#f4af98]"
+              disabled={disabled || pending || !text.trim() || !selectedModel}
+              size="icon-sm"
+              type="submit"
+            >
+              {pending ? (
+                <LoaderCircle className="animate-spin" />
+              ) : (
+                <ArrowUp />
+              )}
+            </Button>
+          )}
         </div>
       </form>
     </div>
@@ -2047,8 +2490,17 @@ function WorkspaceToolToggle({
 function WorkspaceChat({
   entries,
   permissionRequests,
+  questions,
+  queuedMessages,
+  runtimeLimits,
+  turnActive,
+  turnInterrupted,
+  activeTurnStartedAt,
+  answeringQuestionId,
   replyingPermissionId,
   onPermissionReply,
+  onAnswerQuestion,
+  onCancelTurn,
   initialPrompt,
   onToggleTools,
   onSubmitPrompt,
@@ -2056,6 +2508,7 @@ function WorkspaceChat({
   promptDisabled,
   promptError,
   promptPending,
+  cancelTurnPending,
   restartPending,
   toolPaneOpen,
   workspaceError,
@@ -2066,21 +2519,35 @@ function WorkspaceChat({
 }: {
   entries: ThreadEntry[]
   permissionRequests: ReadonlyArray<WorkspacePermissionRequest>
+  questions: ReadonlyArray<WorkspaceQuestion>
+  queuedMessages: ReadonlyArray<WorkspaceQueuedMessage>
+  runtimeLimits?: WorkspaceRuntimeLimits
+  turnActive: boolean
+  turnInterrupted: boolean
+  activeTurnStartedAt?: number | null
+  answeringQuestionId?: string | null
   replyingPermissionId?: string | null
   onPermissionReply?: (
     requestId: string,
     reply: "once" | "always" | "reject"
   ) => Promise<void>
+  onAnswerQuestion?: (
+    questionId: string,
+    answer: Record<string, WorkspaceQuestionValue>
+  ) => Promise<void>
+  onCancelTurn?: () => Promise<void>
   initialPrompt?: string
   onToggleTools: () => void
   onSubmitPrompt?: (
     text: string,
-    model: { providerId: string; modelId: string }
+    model: { providerId: string; modelId: string },
+    delivery?: "queue" | "steer"
   ) => Promise<void>
   onRestartWorkspace?: () => Promise<void>
   promptDisabled?: boolean
   promptError?: string | null
   promptPending?: boolean
+  cancelTurnPending?: boolean
   restartPending?: boolean
   toolPaneOpen: boolean
   workspaceError?: string | null
@@ -2100,13 +2567,23 @@ function WorkspaceChat({
       <AgentThread
         entries={entries}
         permissionRequests={permissionRequests}
+        questions={questions}
+        queuedMessages={queuedMessages}
+        runtimeLimits={runtimeLimits}
+        turnActive={turnActive}
+        turnInterrupted={turnInterrupted}
+        activeTurnStartedAt={activeTurnStartedAt}
+        answeringQuestionId={answeringQuestionId}
         replyingPermissionId={replyingPermissionId}
         onPermissionReply={onPermissionReply}
+        onAnswerQuestion={onAnswerQuestion}
+        onCancelTurn={onCancelTurn}
         initialPrompt={initialPrompt}
         onSubmitPrompt={onSubmitPrompt}
         promptDisabled={promptDisabled}
         promptError={promptError}
         promptPending={promptPending}
+        cancelTurnPending={cancelTurnPending}
         restartPending={restartPending}
         onRestartWorkspace={onRestartWorkspace}
         workspaceError={workspaceError}
@@ -2347,16 +2824,30 @@ function WorkspaceShell({
   promptError,
   promptPending = false,
   permissionRequests = [],
+  questions = [],
+  queuedMessages = [],
+  runtimeLimits,
+  turnActive = false,
+  turnInterrupted = false,
+  activeTurnStartedAt,
+  answeringQuestionId,
   replyingPermissionId,
   checkpointPending = false,
   acceptPending = false,
   restartPending = false,
+  cancelTurnPending = false,
+  archivePending = false,
+  discardPending = false,
   rebasePending = false,
   onCheckpoint,
   onAccept,
   onAddReviewComment,
   onPermissionReply,
+  onAnswerQuestion,
+  onCancelTurn,
   onRestartWorkspace,
+  onArchiveWorkspace,
+  onDiscardWorkspace,
   onRebase,
   onResolveReviewComment,
   onSubmitReview,
@@ -2492,7 +2983,7 @@ function WorkspaceShell({
                 }}
                 onOpenTerminal={() => openTool("terminal")}
                 onCheckpoint={onCheckpoint}
-                checkpointDisabled={changedFileCount === 0}
+                checkpointDisabled={changedFileCount === 0 || !onCheckpoint}
                 checkpointPending={checkpointPending}
                 onAccept={onAccept}
                 acceptDisabled={
@@ -2501,6 +2992,10 @@ function WorkspaceShell({
                 acceptPending={acceptPending}
                 onRestartWorkspace={onRestartWorkspace}
                 restartPending={restartPending}
+                onArchiveWorkspace={onArchiveWorkspace}
+                archivePending={archivePending}
+                onDiscardWorkspace={onDiscardWorkspace}
+                discardPending={discardPending}
                 onRebase={onRebase}
                 rebasePending={rebasePending}
                 projectName={projectName}
@@ -2538,8 +3033,17 @@ function WorkspaceShell({
                   <WorkspaceChat
                     entries={entries}
                     permissionRequests={permissionRequests}
+                    questions={questions}
+                    queuedMessages={queuedMessages}
+                    runtimeLimits={runtimeLimits}
+                    turnActive={turnActive}
+                    turnInterrupted={turnInterrupted}
+                    activeTurnStartedAt={activeTurnStartedAt}
+                    answeringQuestionId={answeringQuestionId}
                     replyingPermissionId={replyingPermissionId}
                     onPermissionReply={onPermissionReply}
+                    onAnswerQuestion={onAnswerQuestion}
+                    onCancelTurn={onCancelTurn}
                     initialPrompt={initialPrompt}
                     models={models}
                     selectedModel={selectedModel}
@@ -2550,6 +3054,7 @@ function WorkspaceShell({
                     promptDisabled={promptDisabled}
                     promptError={promptError}
                     promptPending={promptPending}
+                    cancelTurnPending={cancelTurnPending}
                     restartPending={restartPending}
                     toolPaneOpen={toolPaneOpen}
                     onRestartWorkspace={onRestartWorkspace}
@@ -2629,6 +3134,10 @@ export type {
   WorkspaceReviewActor,
   WorkspaceReviewComment,
   WorkspaceReviewCommentDraft,
+  WorkspaceQuestion,
+  WorkspaceQuestionValue,
+  WorkspaceQueuedMessage,
+  WorkspaceRuntimeLimits,
   WorkspacePermissionRequest,
   WorkspaceItem,
   WorkspaceShellProps,

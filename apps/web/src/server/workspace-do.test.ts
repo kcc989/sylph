@@ -27,4 +27,14 @@ describe("Workspace runtime status", () => {
       ])
     ).toBe("running")
   })
+
+  test("reports an interrupted turn after the runtime becomes idle", () => {
+    expect(
+      workspaceRuntimeStatus(
+        false,
+        [{ type: "assistant", time: { created: 1, completed: 2 } }],
+        "interrupted"
+      )
+    ).toBe("interrupted")
+  })
 })

@@ -10,6 +10,10 @@ import type { WorkspaceStorage } from "./workspace-filesystem"
 
 type CheckRow = { [key: string]: SqlStorageValue; payload: string }
 type IdRow = { [key: string]: SqlStorageValue; id: string }
+type CountRow = { [key: string]: SqlStorageValue; value: number }
+
+export const maxWorkspaceCheckAttempts = 3
+export const maxWorkspaceRepairAttempts = 2
 
 const resetStages = (run: WorkspaceCheckRun) =>
   run.stages.map(
@@ -102,12 +106,18 @@ export class WorkspaceChecks {
       .toArray()[0]
     const run = this.#required(runId)
     if (existing) return run
+    if (run.attempt >= maxWorkspaceCheckAttempts) {
+      throw new Error(
+        `This Check reached its ${maxWorkspaceCheckAttempts}-attempt limit`
+      )
+    }
 
     const now = Date.now()
     const retried = new WorkspaceCheckRun({
       ...run,
       status: "queued",
       attempt: run.attempt + 1,
+      maxAttempts: maxWorkspaceCheckAttempts,
       repairStatus: run.repairOnFailure ? "available" : "disabled",
       previewUrl: null,
       stages: resetStages(run),
@@ -133,10 +143,18 @@ export class WorkspaceChecks {
     if (run.status !== "failed") {
       throw new Error("Only a failed Check can start a repair turn")
     }
+    const repairAttempt = this.#actionCount(runId, "repair") + 1
+    if (repairAttempt > maxWorkspaceRepairAttempts) {
+      throw new Error(
+        `This Check reached its ${maxWorkspaceRepairAttempts}-repair limit`
+      )
+    }
 
     const requested = new WorkspaceCheckRun({
       ...run,
       repairStatus: "requested",
+      repairAttempt,
+      maxRepairAttempts: maxWorkspaceRepairAttempts,
       updatedAt: Date.now(),
     })
     this.#save(requested)
@@ -197,6 +215,18 @@ export class WorkspaceChecks {
       runId,
       kind,
       createdAt
+    )
+  }
+
+  #actionCount(runId: string, kind: string) {
+    return (
+      this.#storage.sql
+        .exec<CountRow>(
+          "SELECT COUNT(*) AS value FROM app_workspace_check_action WHERE run_id = ? AND kind = ?",
+          runId,
+          kind
+        )
+        .toArray()[0]?.value ?? 0
     )
   }
 }

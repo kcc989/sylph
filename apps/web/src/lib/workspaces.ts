@@ -24,6 +24,7 @@ import {
   decodeWorkspaceCheckpointResult,
   decodeWorkspaceCheckRunList,
   decodeWorkspacePromptInputPromise,
+  decodeWorkspaceQuestionReplyInputPromise,
   decodeWorkspaceRequestInputPromise,
   decodeWorkspaceRebaseResultPromise,
   decodeWorkspaceRepairCheckInputPromise,
@@ -2670,6 +2671,7 @@ export const promptWorkspace = createServerFn({ method: "POST" })
       .select({
         id: schema.workspace.id,
         organizationId: schema.workspace.organizationId,
+        status: schema.workspace.status,
       })
       .from(schema.workspace)
       .innerJoin(
@@ -2684,6 +2686,9 @@ export const promptWorkspace = createServerFn({ method: "POST" })
 
     if (!workspace) {
       throw new Error("This workspace does not exist or you cannot access it")
+    }
+    if (workspace.status === "archived") {
+      throw new Error("Archived Workspaces are read-only")
     }
 
     const connection = await effectiveConnection(
@@ -2713,6 +2718,7 @@ export const promptWorkspace = createServerFn({ method: "POST" })
           modelId: connection.modelId,
         },
         credential,
+        delivery: data.delivery,
       }),
     })
 
@@ -2738,15 +2744,49 @@ export const promptWorkspace = createServerFn({ method: "POST" })
     }
   })
 
-export const checkpointWorkspace = createServerFn({ method: "POST" })
-  .validator((input) => decodeWorkspaceCheckpointInputPromise(input))
+export const cancelWorkspaceTurn = createServerFn({ method: "POST" })
+  .validator((input) => decodeWorkspaceRequestInputPromise(input))
   .handler(async ({ data }) => {
     const { session } = await currentSession(getRequest())
-    if (!session) throw new Error("Sign in before creating a Checkpoint")
+    if (!session) throw new Error("Sign in before cancelling a Turn")
+    const runtime = await authorizedWorkspaceRuntime(
+      data.workspaceId,
+      session.user.id
+    )
+    const response = await runtime.fetch("https://workspace/turn/cancel", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...data, continueQueued: true }),
+    })
+    if (!response.ok) throw new Error(await response.text())
+    return response.json<{ interrupted: boolean }>()
+  })
 
+export const answerWorkspaceQuestion = createServerFn({ method: "POST" })
+  .validator((input) => decodeWorkspaceQuestionReplyInputPromise(input))
+  .handler(async ({ data }) => {
+    const { session } = await currentSession(getRequest())
+    if (!session) throw new Error("Sign in before answering an agent question")
+    const runtime = await authorizedWorkspaceRuntime(
+      data.workspaceId,
+      session.user.id
+    )
+    const response = await runtime.fetch("https://workspace/question/reply", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(data),
+    })
+    if (!response.ok) throw new Error(await response.text())
+  })
+
+export const archiveWorkspace = createServerFn({ method: "POST" })
+  .validator((input) => decodeWorkspaceRequestInputPromise(input))
+  .handler(async ({ data }) => {
+    const { session } = await currentSession(getRequest())
+    if (!session) throw new Error("Sign in before archiving a Workspace")
     const database = drizzle(env.DB, { schema })
     const workspace = await database
-      .select({ id: schema.workspace.id })
+      .select({ id: schema.workspace.id, status: schema.workspace.status })
       .from(schema.workspace)
       .innerJoin(
         schema.member,
@@ -2759,6 +2799,118 @@ export const checkpointWorkspace = createServerFn({ method: "POST" })
       .get()
     if (!workspace) {
       throw new Error("This Workspace does not exist or you cannot access it")
+    }
+    if (workspace.status === "merging") {
+      throw new Error(
+        "Wait for Workspace acceptance to finish before archiving"
+      )
+    }
+    if (workspace.status === "archived") return { status: "archived" as const }
+
+    const runtime = env.WORKSPACES.get(
+      env.WORKSPACES.idFromName(data.workspaceId)
+    )
+    const cancellation = await runtime.fetch("https://workspace/turn/cancel", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...data, continueQueued: false }),
+    })
+    if (!cancellation.ok && cancellation.status !== 409) {
+      throw new Error(await cancellation.text())
+    }
+
+    await database
+      .update(schema.workspace)
+      .set({
+        status: "archived",
+        archivedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.workspace.id, data.workspaceId))
+    return { status: "archived" as const }
+  })
+
+export const discardWorkspace = createServerFn({ method: "POST" })
+  .validator((input) => decodeWorkspaceRequestInputPromise(input))
+  .handler(async ({ data }) => {
+    const { session } = await currentSession(getRequest())
+    if (!session) throw new Error("Sign in before discarding a Workspace")
+    const database = drizzle(env.DB, { schema })
+    const workspace = await database
+      .select({
+        id: schema.workspace.id,
+        status: schema.workspace.status,
+        repositoryName: schema.workspace.workspaceArtifactRepo,
+      })
+      .from(schema.workspace)
+      .innerJoin(
+        schema.member,
+        and(
+          eq(schema.member.organizationId, schema.workspace.organizationId),
+          eq(schema.member.userId, session.user.id)
+        )
+      )
+      .where(eq(schema.workspace.id, data.workspaceId))
+      .get()
+    if (!workspace) {
+      throw new Error("This Workspace does not exist or you cannot access it")
+    }
+    if (workspace.status === "merging") {
+      throw new Error(
+        "Wait for Workspace acceptance to finish before discarding"
+      )
+    }
+
+    await database
+      .update(schema.workspace)
+      .set({
+        status: "archived",
+        archivedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.workspace.id, data.workspaceId))
+    await Effect.runPromise(
+      makeCloudflareArtifactsRepositoryStore(env.REPOS).remove(
+        workspace.repositoryName
+      )
+    )
+    const runtime = env.WORKSPACES.get(
+      env.WORKSPACES.idFromName(data.workspaceId)
+    )
+    const response = await runtime.fetch("https://workspace/discard", {
+      method: "POST",
+    })
+    if (!response.ok) throw new Error(await response.text())
+    await database
+      .delete(schema.workspace)
+      .where(eq(schema.workspace.id, data.workspaceId))
+    return { discarded: true as const }
+  })
+
+export const checkpointWorkspace = createServerFn({ method: "POST" })
+  .validator((input) => decodeWorkspaceCheckpointInputPromise(input))
+  .handler(async ({ data }) => {
+    const { session } = await currentSession(getRequest())
+    if (!session) throw new Error("Sign in before creating a Checkpoint")
+
+    const database = drizzle(env.DB, { schema })
+    const workspace = await database
+      .select({ id: schema.workspace.id, status: schema.workspace.status })
+      .from(schema.workspace)
+      .innerJoin(
+        schema.member,
+        and(
+          eq(schema.member.organizationId, schema.workspace.organizationId),
+          eq(schema.member.userId, session.user.id)
+        )
+      )
+      .where(eq(schema.workspace.id, data.workspaceId))
+      .get()
+    if (!workspace) {
+      throw new Error("This Workspace does not exist or you cannot access it")
+    }
+    if (workspace.status === "archived") {
+      throw new Error("Archived Workspaces are read-only")
     }
 
     const runtime = env.WORKSPACES.get(
@@ -2996,7 +3148,7 @@ export const rebaseWorkspace = createServerFn({ method: "POST" })
     if (!session) throw new Error("Sign in before rebasing a Workspace")
     const database = drizzle(env.DB, { schema })
     const workspace = await database
-      .select({ id: schema.workspace.id })
+      .select({ id: schema.workspace.id, status: schema.workspace.status })
       .from(schema.workspace)
       .innerJoin(
         schema.member,
@@ -3009,6 +3161,9 @@ export const rebaseWorkspace = createServerFn({ method: "POST" })
       .get()
     if (!workspace) {
       throw new Error("This Workspace does not exist or you cannot access it")
+    }
+    if (workspace.status === "archived") {
+      throw new Error("Archived Workspaces are read-only")
     }
     const runtime = env.WORKSPACES.get(
       env.WORKSPACES.idFromName(data.workspaceId)
@@ -3039,7 +3194,7 @@ const authorizedWorkspaceRuntime = async (
   userId: string
 ) => {
   const workspace = await drizzle(env.DB, { schema })
-    .select({ id: schema.workspace.id })
+    .select({ id: schema.workspace.id, status: schema.workspace.status })
     .from(schema.workspace)
     .innerJoin(
       schema.member,
@@ -3052,6 +3207,9 @@ const authorizedWorkspaceRuntime = async (
     .get()
   if (!workspace) {
     throw new Error("This Workspace does not exist or you cannot access it")
+  }
+  if (workspace.status === "archived") {
+    throw new Error("Archived Workspaces are read-only")
   }
   return env.WORKSPACES.get(env.WORKSPACES.idFromName(workspaceId))
 }
@@ -3167,6 +3325,9 @@ export const acceptWorkspace = createServerFn({ method: "POST" })
       .get()
     if (!workspace) {
       throw new Error("This Workspace does not exist or you cannot access it")
+    }
+    if (workspace.status === "archived") {
+      throw new Error("Archived Workspaces are read-only")
     }
     if (!workspace.baseCommit || !workspace.forkHead) {
       throw new Error("Create a Checkpoint before accepting this Workspace")

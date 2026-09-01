@@ -12,14 +12,19 @@ import {
   decodePrepareProjectRepositoryInputPromise,
   decodeSyncProjectRepositoryInputPromise,
   decodeWorkspacePermissionReplyInputPromise,
+  decodeWorkspaceQuestionReplyInputPromise,
   decodeWorkspaceCheckpointInputPromise,
   decodeWorkspaceRuntimeEventPromise,
   decodeWorkspaceRuntimePromptInputPromise,
+  decodeWorkspaceTurnCancelInputPromise,
   OpenCodeConnectionResult,
   PrepareProjectRepositoryResult,
   type InitializeWorkspaceRuntime,
   type OpenCodeCredential,
   WorkspaceRuntimeEvent,
+  WorkspaceAgentQuestion,
+  WorkspaceQuestionField,
+  WorkspaceQuestionOption,
   type WorkspaceRuntimeMessage,
   GitCommitId,
   WorkspaceCheckRun,
@@ -53,7 +58,12 @@ import {
 import type { OpenAIOAuthRequestState } from "./opencode-oauth-request"
 import { activateWorkspacePrompt } from "./workspace-prompt-activation"
 import { workspaceRuntimeStatus } from "./workspace-runtime-status"
-import { checkStage, WorkspaceChecks } from "./workspace-checks"
+import {
+  checkStage,
+  maxWorkspaceCheckAttempts,
+  maxWorkspaceRepairAttempts,
+  WorkspaceChecks,
+} from "./workspace-checks"
 const checkpointCheckStages: WorkspaceCheckStageName[] = [
   "install",
   "typecheck",
@@ -68,6 +78,8 @@ const productionCheckStages: WorkspaceCheckStageName[] = [
   "build",
   "production",
 ]
+const maxQueuedMessages = 5
+const maxTurnDurationMs = 15 * 60 * 1000
 
 const providerFailureMessage = Schema.Struct({ message: Schema.String })
 const wrappedProviderFailureMessage = Schema.Struct({
@@ -143,6 +155,50 @@ const runtimeMessages = (
 
     return result
   }, [])
+
+const activeTurnStartedAt = (
+  messages: ReadonlyArray<{
+    type: string
+    time: { created: number; completed?: number }
+  }>
+) => {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (message?.type === "assistant" && message.time.completed === undefined) {
+      return message.time.created
+    }
+  }
+  return messages.at(-1)?.time.created ?? null
+}
+
+const workspaceQuestionField = (field: {
+  key: string
+  title?: string
+  description?: string
+  required?: boolean
+  type: "string" | "number" | "integer" | "boolean" | "multiselect" | "external"
+  options?: ReadonlyArray<{
+    value: string
+    label: string
+    description?: string
+  }>
+  placeholder?: string
+  url?: string
+  default?: string | number | boolean | ReadonlyArray<string>
+}) =>
+  new WorkspaceQuestionField({
+    key: field.key,
+    title: field.title,
+    description: field.description,
+    required: field.required,
+    type: field.type,
+    options: (field.options ?? []).map(
+      (option) => new WorkspaceQuestionOption(option)
+    ),
+    placeholder: field.placeholder,
+    url: field.url,
+    defaultValue: field.default,
+  })
 
 const subscriptionProviderId = "openai"
 const subscriptionMethodId = "chatgpt-headless"
@@ -289,6 +345,29 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
 
       return opencode
     })
+  }
+
+  async alarm() {
+    const opencode = await this.#opencode
+    const state = this.#database.select().from(appWorkspaceState).get()
+    if (!state?.sessionId) return
+    const active = await opencode.sessions.active()
+    if (!active[state.sessionId]) return
+    const messages = await opencode.message.list({
+      sessionID: state.sessionId,
+      limit: 100,
+      order: "asc",
+    })
+    const startedAt = activeTurnStartedAt(messages.data) ?? Date.now()
+    const deadline = startedAt + maxTurnDurationMs
+    if (deadline <= Date.now()) {
+      await opencode.sessions.interrupt({
+        sessionID: state.sessionId,
+        continue: false,
+      })
+      return
+    }
+    await this.ctx.storage.setAlarm(deadline)
   }
 
   async fetch(request: Request) {
@@ -465,8 +544,11 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           kind: "production",
           status: "queued",
           attempt: 1,
+          maxAttempts: maxWorkspaceCheckAttempts,
           repairOnFailure: false,
           repairStatus: "disabled",
+          repairAttempt: 0,
+          maxRepairAttempts: maxWorkspaceRepairAttempts,
           previewUrl: null,
           stages: productionCheckStages.map((name) =>
             checkStage(name, "queued", "Waiting")
@@ -515,6 +597,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           sessionID: state.sessionId,
           text: `Repair the failures from Check ${run.id} without weakening validation. Inspect the current Working copy, make the smallest correct changes, then run Workspace checks again.\n\n${diagnostics}`,
         })
+        await this.#scheduleTurnLimit()
         return Response.json({ started: true })
       }
 
@@ -552,24 +635,63 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           })
         }
         const sessionId = state.sessionId
+        const activeSessions = await opencode.sessions.active()
+        const turnActive = Boolean(activeSessions[sessionId])
+        if (turnActive && !input.delivery) {
+          return new Response(
+            "Choose queue or steer while an agent Turn is active",
+            { status: 409 }
+          )
+        }
+        if (!turnActive && input.delivery === "steer") {
+          return new Response("There is no active Turn to steer", {
+            status: 409,
+          })
+        }
+        if (
+          turnActive &&
+          (state.providerId !== input.model.providerId ||
+            state.modelId !== input.model.modelId)
+        ) {
+          return new Response(
+            "Wait for the active Turn to finish before changing models",
+            { status: 409 }
+          )
+        }
+        if (input.delivery === "queue") {
+          const inbox = await opencode.sessions.inbox.list({
+            sessionID: sessionId,
+          })
+          const queued = inbox.filter(
+            (item) => item.type === "user" && item.delivery === "queue"
+          )
+          if (queued.length >= maxQueuedMessages) {
+            return new Response(
+              `This Conversation already has ${maxQueuedMessages} queued messages`,
+              { status: 409 }
+            )
+          }
+        }
 
         try {
-          await activateWorkspacePrompt({
-            refreshCredential: () =>
-              this.#installCredential(
-                opencode,
-                input.model.providerId,
-                input.credential
-              ),
-            switchModel: () =>
-              opencode.sessions.switchModel({
-                sessionID: sessionId,
-                model: {
-                  providerID: input.model.providerId,
-                  id: input.model.modelId,
-                },
-              }),
-          })
+          if (!turnActive) {
+            await activateWorkspacePrompt({
+              refreshCredential: () =>
+                this.#installCredential(
+                  opencode,
+                  input.model.providerId,
+                  input.credential
+                ),
+              switchModel: () =>
+                opencode.sessions.switchModel({
+                  sessionID: sessionId,
+                  model: {
+                    providerID: input.model.providerId,
+                    id: input.model.modelId,
+                  },
+                }),
+            })
+          }
           this.#database
             .update(appWorkspaceState)
             .set({
@@ -604,8 +726,47 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         await opencode.sessions.prompt({
           sessionID: sessionId,
           text: input.text,
+          delivery: input.delivery,
         })
+        if (input.delivery !== "queue") await this.#scheduleTurnLimit()
         return Response.json(await this.#snapshot(opencode), { status: 202 })
+      }
+
+      if (request.method === "POST" && url.pathname === "/turn/cancel") {
+        const input = await decodeWorkspaceTurnCancelInputPromise(
+          await request.json()
+        )
+        const state = this.#requiredState()
+        if (state.workspaceId !== input.workspaceId) {
+          return new Response("Turn belongs to another Workspace", {
+            status: 409,
+          })
+        }
+        if (!state.sessionId) {
+          return new Response("OpenCode session is not initialized", {
+            status: 409,
+          })
+        }
+        const sessionId = state.sessionId
+        const result = await opencode.sessions.interrupt({
+          sessionID: sessionId,
+          continue: input.continueQueued ?? false,
+        })
+        if (!input.continueQueued) {
+          const inbox = await opencode.sessions.inbox.list({
+            sessionID: sessionId,
+          })
+          await Promise.all(
+            inbox.map((item) =>
+              opencode.sessions.inbox.cancel({
+                sessionID: sessionId,
+                inboxID: item.id,
+              })
+            )
+          )
+          await this.ctx.storage.deleteAlarm()
+        }
+        return Response.json(result)
       }
 
       if (request.method === "GET" && url.pathname === "/events") {
@@ -646,6 +807,36 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           message: input.message,
         })
         this.#permissionBridge.reply(input.requestId, input.reply)
+        return new Response(null, { status: 204 })
+      }
+
+      if (request.method === "POST" && url.pathname === "/question/reply") {
+        const input = await decodeWorkspaceQuestionReplyInputPromise(
+          await request.json()
+        )
+        const state = this.#requiredState()
+        if (state.workspaceId !== input.workspaceId || !state.sessionId) {
+          return new Response("Agent question belongs to another Workspace", {
+            status: 409,
+          })
+        }
+        await opencode.form.reply({
+          sessionID: state.sessionId,
+          formID: input.questionId,
+          answer: input.answer,
+        })
+        return new Response(null, { status: 204 })
+      }
+
+      if (request.method === "POST" && url.pathname === "/discard") {
+        const state = this.#requiredState()
+        if (state.sessionId) {
+          await opencode.sessions
+            .interrupt({ sessionID: state.sessionId, continue: false })
+            .catch(() => undefined)
+        }
+        await opencode.close()
+        await this.ctx.storage.deleteAll()
         return new Response(null, { status: 204 })
       }
 
@@ -705,8 +896,11 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       kind: "checkpoint",
       status: "queued",
       attempt: 1,
+      maxAttempts: maxWorkspaceCheckAttempts,
       repairOnFailure,
       repairStatus: repairOnFailure ? "available" : "disabled",
+      repairAttempt: 0,
+      maxRepairAttempts: maxWorkspaceRepairAttempts,
       previewUrl: null,
       stages: checkpointCheckStages.map((name) =>
         checkStage(name, "queued", "Waiting")
@@ -1080,6 +1274,14 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     throw new Error(`OpenCode integration ${providerId} did not start`)
   }
 
+  async #scheduleTurnLimit() {
+    const scheduled = await this.ctx.storage.getAlarm()
+    const deadline = Date.now() + maxTurnDurationMs
+    if (scheduled === null || scheduled > deadline) {
+      await this.ctx.storage.setAlarm(deadline)
+    }
+  }
+
   async #snapshot(opencode: OpenCodeWorkerd.Interface) {
     const state = this.#database.select().from(appWorkspaceState).get()
     const health = await opencode.health.get()
@@ -1092,30 +1294,66 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         model: null,
         files: [],
         messages: [],
+        queuedMessages: [],
+        questions: [],
         permissions: [],
+        lastTurnOutcome: null,
+        activeTurnStartedAt: null,
+        limits: {
+          maxQueuedMessages,
+          maxTurnDurationMs,
+          maxCheckAttempts: maxWorkspaceCheckAttempts,
+          maxRepairAttempts: maxWorkspaceRepairAttempts,
+        },
         opencode: health,
       }
     }
+    const sessionId = state.sessionId
 
-    const [active, messages, permissions] = await Promise.all([
-      opencode.sessions.active(),
-      opencode.message.list({
-        sessionID: state.sessionId,
-        limit: 100,
-        order: "asc",
-      }),
-      opencode.permission.request.list({
-        location: { directory: "/workspace" },
-      }),
-    ])
+    const [active, session, messages, inbox, forms, permissions] =
+      await Promise.all([
+        opencode.sessions.active(),
+        opencode.sessions.get({ sessionID: sessionId }),
+        opencode.message.list({
+          sessionID: sessionId,
+          limit: 100,
+          order: "asc",
+        }),
+        opencode.sessions.inbox.list({ sessionID: sessionId }),
+        opencode.form.list({ sessionID: sessionId }),
+        opencode.permission.request.list({
+          location: { directory: "/workspace" },
+        }),
+      ])
+    const formStates = await Promise.all(
+      forms.map(async (form) => ({
+        form,
+        state: await opencode.form.state({
+          sessionID: sessionId,
+          formID: form.id,
+        }),
+      }))
+    )
     const files = this.#filesystem.listWorkingFiles()
+    const turnActive = Boolean(active[sessionId])
+    const questions = formStates.map(
+      ({ form, state: formState }) =>
+        new WorkspaceAgentQuestion({
+          id: form.id,
+          title: form.title,
+          status: formState.status,
+          fields: form.fields.map(workspaceQuestionField),
+          answer: formState.status === "answered" ? formState.answer : null,
+        })
+    )
 
     return {
       workspaceId: state.workspaceId,
-      sessionId: AgentSessionId.make(state.sessionId),
+      sessionId: AgentSessionId.make(sessionId),
       status: workspaceRuntimeStatus(
-        Boolean(active[state.sessionId]),
-        messages.data
+        turnActive,
+        messages.data,
+        session.outcome
       ),
       model:
         state.providerId && state.modelId
@@ -1123,9 +1361,32 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           : null,
       files,
       messages: runtimeMessages(messages.data),
-      permissions: permissions.data.filter(
-        (request) => request.sessionID === state.sessionId
+      queuedMessages: inbox.flatMap((item) =>
+        item.type === "user"
+          ? [
+              {
+                id: item.id,
+                text: item.payload.text,
+                createdAt: item.timeCreated,
+                delivery: item.delivery,
+              },
+            ]
+          : []
       ),
+      questions,
+      permissions: permissions.data.filter(
+        (request) => request.sessionID === sessionId
+      ),
+      lastTurnOutcome: session.outcome ?? null,
+      activeTurnStartedAt: turnActive
+        ? activeTurnStartedAt(messages.data)
+        : null,
+      limits: {
+        maxQueuedMessages,
+        maxTurnDurationMs,
+        maxCheckAttempts: maxWorkspaceCheckAttempts,
+        maxRepairAttempts: maxWorkspaceRepairAttempts,
+      },
       opencode: health,
     }
   }

@@ -165,6 +165,16 @@ describe("Project and runtime inputs", () => {
       model: "openrouter/model-1",
       files: [],
       messages: [],
+      queuedMessages: [],
+      questions: [],
+      lastTurnOutcome: null,
+      activeTurnStartedAt: 1,
+      limits: {
+        maxTurnDurationMs: 900_000,
+        maxQueuedMessages: 5,
+        maxCheckAttempts: 3,
+        maxRepairAttempts: 2,
+      },
       permissions: [
         {
           id: "permission-1",

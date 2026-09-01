@@ -38,7 +38,10 @@ Publication of an Accepted commit to an Upstream Repository by direct push or pu
 A manifest containing every Git Repository needed to recover a Project, including its Project Repository and retained Workspace forks.
 
 **Workspace**:
-The durable place where a user works with an agent in an isolated Workspace fork. An initial Workspace is created automatically with its Project.
+The durable place where a user works with an agent in an isolated Workspace fork. An archived Workspace is retained with its history but is read-only.
+
+**Discard**:
+The irreversible removal of a Workspace, its Workspace fork, and its Working copy.
 
 **Workspace fork**:
 The independent source history owned by one Workspace and created from a Project Repository.
@@ -86,6 +89,18 @@ _Avoid_: Default Provider
 
 **Conversation**:
 The durable sequence of user and agent turns inside a Workspace. A Conversation may select a model independently of its User and Organization preferences.
+
+**Turn**:
+One agent execution inside a Conversation. A Turn ends when it succeeds, fails, or is interrupted.
+
+**Queued message**:
+A durable User message that starts a new Turn after the active Turn ends.
+
+**Steering message**:
+A durable User message delivered to the agent during the active Turn to change its direction.
+
+**Agent question**:
+A durable request for structured User input during a Turn. It remains answerable after the User leaves or reloads the Workspace.
 
 **Conversation model selection**:
 The model used for the next agent turn in one Conversation. It overrides User and Organization preferences without changing them or rewriting earlier turns.

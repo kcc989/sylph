@@ -4,6 +4,7 @@ import { WorkspaceRuntimeEvent } from "@workspace/domain"
 import {
   applyWorkspaceRuntimeEvent,
   emptyWorkspaceLiveState,
+  workspaceEventNeedsSnapshot,
 } from "./workspace-runtime-events"
 
 describe("applyWorkspaceRuntimeEvent", () => {
@@ -72,5 +73,27 @@ describe("applyWorkspaceRuntimeEvent", () => {
     )
 
     expect(replied.permissionRequests).toEqual({})
+  })
+
+  test("refreshes durable inbox and question changes", () => {
+    for (const type of [
+      "session.inbox.enqueued",
+      "session.inbox.delivered",
+      "session.inbox.cancelled",
+      "form.created",
+      "form.replied",
+      "form.cancelled",
+    ]) {
+      expect(
+        workspaceEventNeedsSnapshot(
+          new WorkspaceRuntimeEvent({
+            id: type,
+            created: 1,
+            type,
+            data: {},
+          })
+        )
+      ).toBeTrue()
+    }
   })
 })

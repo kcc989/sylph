@@ -7,7 +7,12 @@ import {
   WorkspaceId,
 } from "@workspace/domain"
 
-import { checkStage, WorkspaceChecks } from "./workspace-checks"
+import {
+  checkStage,
+  maxWorkspaceCheckAttempts,
+  maxWorkspaceRepairAttempts,
+  WorkspaceChecks,
+} from "./workspace-checks"
 
 class TestSqlStorage {
   readonly #database = new Database(":memory:")
@@ -88,5 +93,40 @@ describe("WorkspaceChecks", () => {
     const retried = checks.retry("check-1", "retry-key")
     expect(retried.attempt).toBe(2)
     expect(checks.retry("check-1", "retry-key")).toEqual(retried)
+  })
+
+  test("enforces visible retry and repair limits", () => {
+    const checks = new WorkspaceChecks(new TestSqlStorage())
+    checks.initialize()
+    checks.create(
+      new WorkspaceCheckRun({
+        ...run(),
+        status: "failed",
+        attempt: maxWorkspaceCheckAttempts,
+        repairOnFailure: false,
+      })
+    )
+
+    expect(() => checks.retry("check-1", "retry-over-limit")).toThrow(
+      `${maxWorkspaceCheckAttempts}-attempt limit`
+    )
+
+    for (let attempt = 1; attempt <= maxWorkspaceRepairAttempts; attempt += 1) {
+      checks.requestRepair("check-1", `repair-${attempt}`)
+      checks.takeRepair("check-1")
+      checks.apply(
+        new WorkspaceCheckUpdate({
+          callbackId: `repair-reset-${attempt}`,
+          run: new WorkspaceCheckRun({
+            ...checks.get("check-1")!,
+            repairStatus: "available",
+          }),
+        })
+      )
+    }
+
+    expect(() => checks.requestRepair("check-1", "repair-over-limit")).toThrow(
+      `${maxWorkspaceRepairAttempts}-repair limit`
+    )
   })
 })
