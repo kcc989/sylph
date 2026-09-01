@@ -16,8 +16,14 @@ export class ProjectDeployInput extends Schema.Class<ProjectDeployInput>(
 )({
   projectId: ProjectId,
   commit: GitCommitId,
+  confirmedCommit: GitCommitId,
   idempotencyKey: Schema.NonEmptyString,
 }) {}
+
+export const productionDeployConfirmed = (input: {
+  commit: string
+  confirmedCommit: string
+}) => input.commit === input.confirmedCommit
 
 export const decodeProjectDeployInputPromise =
   Schema.decodeUnknownPromise(ProjectDeployInput)

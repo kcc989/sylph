@@ -403,14 +403,15 @@ function WorkspaceScreen() {
       })
     : []
   if (checkpointCheck?.status === "failed") {
+    const automaticRepairs = `${runtime.automaticRepairsUsed}/${runtime.limits.maxAutomaticRepairs} automatic`
     checkItems.push({
       name: "Agent repair",
       detail:
         checkpointCheck.repairStatus === "started"
-          ? `Repair Turn ${checkpointCheck.repairAttempt ?? 1}/${checkpointCheck.maxRepairAttempts ?? runtime.limits.maxRepairAttempts} · ${Math.round(runtime.limits.maxTurnDurationMs / 60_000)} min limit`
-          : `${checkpointCheck.repairAttempt ?? 0}/${checkpointCheck.maxRepairAttempts ?? runtime.limits.maxRepairAttempts} repairs used`,
+          ? `Repair Turn ${checkpointCheck.repairAttempt ?? 1}/${checkpointCheck.maxRepairAttempts ?? runtime.limits.maxRepairAttempts} · ${Math.round(runtime.limits.maxTurnDurationMs / 60_000)} min limit · ${automaticRepairs}`
+          : `${checkpointCheck.repairAttempt ?? 0}/${checkpointCheck.maxRepairAttempts ?? runtime.limits.maxRepairAttempts} repairs used · ${automaticRepairs}`,
       status: checkpointCheck.repairStatus === "started" ? "running" : "failed",
-      output: undefined,
+      output: checkpointCheck.repairNotice,
       evidence: undefined,
       action: {
         label: "Repair",

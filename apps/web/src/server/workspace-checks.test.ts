@@ -8,10 +8,13 @@ import {
 } from "@workspace/domain"
 
 import {
+  automaticRepairIdempotencyKey,
   checkStage,
+  maxWorkspaceAutomaticRepairs,
   maxWorkspaceCheckAttempts,
   maxWorkspaceRepairAttempts,
   WorkspaceChecks,
+  WorkspaceRepairLimitReached,
 } from "./workspace-checks"
 
 class TestSqlStorage {
@@ -128,5 +131,113 @@ describe("WorkspaceChecks", () => {
     expect(() => checks.requestRepair("check-1", "repair-over-limit")).toThrow(
       `${maxWorkspaceRepairAttempts}-repair limit`
     )
+  })
+
+  test("bounds automatic repair across every Check in the Workspace", () => {
+    const checks = new WorkspaceChecks(new TestSqlStorage())
+    checks.initialize()
+    const failedRun = (id: string) =>
+      new WorkspaceCheckRun({
+        ...run(),
+        id,
+        checkpointId: id,
+        status: "failed",
+        repairOnFailure: true,
+        repairStatus: "available",
+      })
+
+    for (let index = 1; index <= maxWorkspaceAutomaticRepairs; index += 1) {
+      const id = `check-${index}`
+      checks.create(failedRun(id))
+      checks.requestRepair(id, automaticRepairIdempotencyKey(id), "automatic")
+      expect(checks.takeRepair(id)?.repairStatus).toBe("started")
+    }
+    expect(checks.automaticRepairsUsed()).toBe(maxWorkspaceAutomaticRepairs)
+
+    const exhausted = "check-exhausted"
+    checks.create(failedRun(exhausted))
+    expect(() =>
+      checks.requestRepair(
+        exhausted,
+        automaticRepairIdempotencyKey(exhausted),
+        "automatic"
+      )
+    ).toThrow(WorkspaceRepairLimitReached)
+    expect(checks.get(exhausted)?.repairStatus).toBe("available")
+
+    checks.requestRepair(exhausted, "manual-key")
+    expect(checks.automaticRepairsUsed()).toBe(maxWorkspaceAutomaticRepairs)
+    expect(checks.get(exhausted)?.repairStatus).toBe("requested")
+  })
+
+  test("a user prompt or a passing Check restores the automatic repair budget", () => {
+    const checks = new WorkspaceChecks(new TestSqlStorage())
+    checks.initialize()
+    checks.create(
+      new WorkspaceCheckRun({
+        ...run(),
+        status: "failed",
+        repairOnFailure: true,
+      })
+    )
+    checks.requestRepair(
+      "check-1",
+      automaticRepairIdempotencyKey("check-1"),
+      "automatic"
+    )
+    expect(checks.automaticRepairsUsed()).toBe(1)
+
+    checks.resetAutomaticRepairs("prompt:1")
+    expect(checks.automaticRepairsUsed()).toBe(0)
+
+    checks.create(
+      new WorkspaceCheckRun({ ...run(), id: "check-2", status: "failed" })
+    )
+    checks.requestRepair(
+      "check-2",
+      automaticRepairIdempotencyKey("check-2"),
+      "automatic"
+    )
+    expect(checks.automaticRepairsUsed()).toBe(1)
+    checks.apply(
+      new WorkspaceCheckUpdate({
+        callbackId: "check-2:1:run-passed",
+        run: new WorkspaceCheckRun({
+          ...run(),
+          id: "check-2",
+          status: "passed",
+        }),
+      })
+    )
+    expect(checks.automaticRepairsUsed()).toBe(0)
+  })
+
+  test("keeps repair notices and agent evidence on the durable run", () => {
+    const checks = new WorkspaceChecks(new TestSqlStorage())
+    checks.initialize()
+    checks.create(new WorkspaceCheckRun({ ...run(), status: "failed" }))
+
+    checks.recordRepairNotice("check-1", "Automatic repair reached its limit")
+    checks.apply(
+      new WorkspaceCheckUpdate({
+        callbackId: "late-callback",
+        run: new WorkspaceCheckRun({ ...run(), status: "failed" }),
+      })
+    )
+    expect(checks.get("check-1")?.repairNotice).toBe(
+      "Automatic repair reached its limit"
+    )
+
+    const updated = checks.addEvidence("check-1", [
+      {
+        id: "check-1-agent-screenshot-1",
+        kind: "screenshot",
+        label: "Agent browser /",
+        url: "/api/workspaces/workspace-1/evidence/check-1-agent-screenshot-1",
+        createdAt: 5,
+      },
+    ])
+    expect(updated.evidence).toHaveLength(1)
+    expect(checks.get("check-1")?.evidence[0]?.label).toBe("Agent browser /")
   })
 })

@@ -1,18 +1,37 @@
 import {
+  decodeWorkspaceBrowserToolInput,
+  decodeWorkspaceCheckpointToolInput,
   decodeWorkspaceCheckStatusToolInput,
   decodeWorkspaceDeleteFile,
+  decodeWorkspaceDiffToolInput,
   decodeWorkspaceFilePath,
   decodeWorkspaceListFiles,
+  decodeWorkspaceMergeToolInput,
+  decodeWorkspacePreviewToolInput,
+  decodeWorkspaceProductionToolInput,
   decodeWorkspaceRunChecksToolInput,
   decodeWorkspaceSyncToolInput,
   decodeWorkspaceWriteFile,
   decodeSkillResourceInputPromise,
   SkillResourceJsonSchema,
+  type WorkspaceBrowserResult,
+  WorkspaceBrowserToolJsonSchema,
+  type WorkspaceCheckpointResult,
+  WorkspaceCheckpointToolJsonSchema,
   WorkspaceCheckStatusToolJsonSchema,
   type WorkspaceCheckRun,
   WorkspaceDeleteFileJsonSchema,
+  type WorkspaceDiffResult,
+  type WorkspaceDiffScope,
+  WorkspaceDiffToolJsonSchema,
   WorkspaceFilePathJsonSchema,
   WorkspaceListFilesJsonSchema,
+  type WorkspaceMergeRequest,
+  WorkspaceMergeToolJsonSchema,
+  type WorkspacePreviewResult,
+  WorkspacePreviewToolJsonSchema,
+  type WorkspaceProductionStatus,
+  WorkspaceProductionToolJsonSchema,
   WorkspaceRunChecksToolJsonSchema,
   WorkspaceSyncToolJsonSchema,
   type WorkspaceSyncResult,
@@ -112,13 +131,35 @@ export type WorkspacePermissionBridge = ReturnType<
 >
 
 export type WorkspacePluginActions = {
+  assertWritable(): void
   runChecks(input: {
     message: string
     repairOnFailure: boolean
   }): Promise<WorkspaceCheckRun>
   checkStatus(): Promise<ReadonlyArray<WorkspaceCheckRun>>
   syncProject(): Promise<WorkspaceSyncResult>
+  checkpoint(input: { message: string }): Promise<WorkspaceCheckpointResult>
+  diff(scope: WorkspaceDiffScope): Promise<WorkspaceDiffResult>
+  requestMerge(): Promise<WorkspaceMergeRequest>
+  preview(): Promise<WorkspacePreviewResult>
+  production(): Promise<WorkspaceProductionStatus>
+  browser(input: {
+    path?: string
+    url?: string
+    fullPage: boolean
+  }): Promise<WorkspaceBrowserResult>
 }
+
+export const workspaceSystemPrompt = [
+  "You are coding inside a Cloudflare Durable Object.",
+  "Use workspace_list_files, workspace_read_file, workspace_write_file, and workspace_delete_file for source work. The durable workspace filesystem is authoritative.",
+  "Use workspace_checkpoint to commit the Working copy to the Workspace fork without running CI, and workspace_diff to review uncommitted or Checkpoint changes against the Project Repository base.",
+  "Use workspace_run_checks after a coherent change; Sylph delivers the Check result to this Conversation when Cloudflare CI finishes, so do not poll workspace_check_status in a loop. Use workspace_check_status for diagnostics, Preview state, and browser evidence.",
+  "Use workspace_preview to find or build the Preview of the current Checkpoint, then workspace_browser to open the Preview in a Cloudflare browser, read its rendered content and accessibility tree, and capture screenshot evidence. The browser is limited to the Preview origin.",
+  "Use workspace_request_merge to report whether the Workspace fork is ready for Acceptance; a User performs the merge from the Review tab. Use workspace_production to read production Deployment history; an Admin must confirm production deploys from Project settings, and you cannot deploy.",
+  "Use workspace_sync_project when the Project Repository advances.",
+  "Shell, PTY, and local filesystem tools are unavailable in Workerd; Cloudflare CI performs install, typecheck, lint, test, build, preview, browser verification, and deployment.",
+].join(" ")
 
 export const workspaceMutationPermissions = [
   {
@@ -226,6 +267,7 @@ export const createWorkspacePlugin = (
           options: workspaceToolOptions,
           async execute(input) {
             const decoded = await decodeWorkspaceRunChecksToolInput(input)
+            actions.assertWritable()
             return {
               content: JSON.stringify(
                 await actions.runChecks({
@@ -256,7 +298,103 @@ export const createWorkspacePlugin = (
           options: workspaceToolOptions,
           async execute(input) {
             await decodeWorkspaceSyncToolInput(input)
+            actions.assertWritable()
             return { content: JSON.stringify(await actions.syncProject()) }
+          },
+        })
+        draft.add({
+          name: "workspace_checkpoint",
+          description:
+            "Create a durable Checkpoint commit of the Working copy in the Workspace fork without running Cloudflare CI.",
+          input: WorkspaceCheckpointToolJsonSchema,
+          options: workspaceToolOptions,
+          async execute(input) {
+            const decoded = await decodeWorkspaceCheckpointToolInput(input)
+            actions.assertWritable()
+            return {
+              content: JSON.stringify(
+                await actions.checkpoint({
+                  message: decoded.message ?? "Checkpoint Workspace changes",
+                })
+              ),
+            }
+          },
+        })
+        draft.add({
+          name: "workspace_diff",
+          description:
+            "Compare the Workspace with its Project Repository base. Scope working shows uncommitted changes since the Fork head; scope checkpoint shows every Checkpoint change since the Base commit.",
+          input: WorkspaceDiffToolJsonSchema,
+          options: workspaceToolOptions,
+          async execute(input) {
+            const decoded = await decodeWorkspaceDiffToolInput(input)
+            return {
+              content: JSON.stringify(
+                await actions.diff(decoded.scope ?? "working")
+              ),
+            }
+          },
+        })
+        draft.add({
+          name: "workspace_request_merge",
+          description:
+            "Request Acceptance of the current Checkpoint. Reports whether the Workspace fork can merge into the Project Repository and lists every blocker. A User performs the merge from the Review tab.",
+          input: WorkspaceMergeToolJsonSchema,
+          options: workspaceToolOptions,
+          async execute(input) {
+            await decodeWorkspaceMergeToolInput(input)
+            return { content: JSON.stringify(await actions.requestMerge()) }
+          },
+        })
+        draft.add({
+          name: "workspace_preview",
+          description:
+            "Find the Preview of the current Checkpoint, or start the Check that builds one when none exists.",
+          input: WorkspacePreviewToolJsonSchema,
+          options: workspaceToolOptions,
+          async execute(input) {
+            await decodeWorkspacePreviewToolInput(input)
+            return { content: JSON.stringify(await actions.preview()) }
+          },
+        })
+        draft.add({
+          name: "workspace_production",
+          description:
+            "Read the Project's Accepted commits and production Deployment history. Production deploys require Admin confirmation in Project settings and cannot be started by the agent.",
+          input: WorkspaceProductionToolJsonSchema,
+          options: workspaceToolOptions,
+          async execute(input) {
+            await decodeWorkspaceProductionToolInput(input)
+            return { content: JSON.stringify(await actions.production()) }
+          },
+        })
+        draft.add({
+          name: "workspace_browser",
+          description:
+            "Open a path on the current Preview in a Cloudflare browser. Returns the rendered page as markdown, its accessibility tree, and stores a screenshot as Check evidence. Limited to the Preview origin.",
+          input: WorkspaceBrowserToolJsonSchema,
+          options: workspaceToolOptions,
+          async execute(input) {
+            const decoded = await decodeWorkspaceBrowserToolInput(input)
+            const result = await actions.browser({
+              path: decoded.path,
+              url: decoded.url,
+              fullPage: decoded.fullPage ?? false,
+            })
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({
+                    url: result.url,
+                    checkId: result.checkId,
+                    evidence: result.evidence,
+                    accessibility: result.accessibility,
+                  }),
+                },
+                { type: "text", text: result.markdown },
+              ],
+            }
           },
         })
         draft.add({
@@ -286,6 +424,7 @@ export const createWorkspacePlugin = (
           async execute(input, context) {
             const decoded = await decodeWorkspaceWriteFile(input)
             const path = normalizeWorkspacePath(decoded.path)
+            actions.assertWritable()
             await permissionBridge.request({
               sessionID: context.sessionID,
               agent: context.agent,
@@ -307,6 +446,7 @@ export const createWorkspacePlugin = (
           async execute(input, context) {
             const decoded = await decodeWorkspaceDeleteFile(input)
             const path = normalizeWorkspacePath(decoded.path)
+            actions.assertWritable()
             await permissionBridge.request({
               sessionID: context.sessionID,
               agent: context.agent,
@@ -364,10 +504,7 @@ export const createWorkspacePlugin = (
       const sessionRegistration = await context.session.hook(
         "context",
         (session) => {
-          session.system.push({
-            type: "text",
-            text: "You are coding inside a Cloudflare Durable Object. Use workspace_list_files, workspace_read_file, and workspace_write_file for source work. Use workspace_run_checks after a coherent change, workspace_check_status for diagnostics and browser evidence, and workspace_sync_project when the Project Repository advances. The durable workspace filesystem is authoritative. Shell, PTY, and local filesystem tools are unavailable in Workerd; Cloudflare CI performs install, typecheck, lint, test, build, preview, browser verification, and deployment.",
-          })
+          session.system.push({ type: "text", text: workspaceSystemPrompt })
         }
       )
       const openAIRequestRegistration = await context.session.hook(

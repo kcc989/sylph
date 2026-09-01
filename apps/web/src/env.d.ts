@@ -1,5 +1,6 @@
 import type { WorkspaceDO } from "./server/workspace-do"
 import type { WorkspaceMergeInput } from "./server/workspace-merge"
+import type { WorkspaceRetentionInput } from "./server/workspace-retention"
 import type { WorkspaceCiInput } from "./server/workspace-ci"
 
 declare global {
@@ -21,6 +22,8 @@ declare global {
       CI_WORKFLOW: Workflow<WorkspaceCiInput>
       REPOSITORY_NAMESPACE: string
       MERGES: Workflow<WorkspaceMergeInput>
+      RETENTION: Workflow<WorkspaceRetentionInput>
+      WORKSPACE_FORK_RETENTION_SECONDS: string
       WORKSPACES: DurableObjectNamespace<WorkspaceDO>
     }
   }

@@ -205,6 +205,7 @@ type WorkspaceRuntimeLimits = {
   maxTurnDurationMs: number
   maxCheckAttempts: number
   maxRepairAttempts: number
+  maxAutomaticRepairs?: number
 }
 
 type BrowserState = {

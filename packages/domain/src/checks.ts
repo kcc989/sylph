@@ -1,7 +1,8 @@
 import { Schema } from "effect"
 
-import { WorkspaceId } from "./ids"
-import { GitCommitId } from "./version-control"
+import { ProjectId, WorkspaceId } from "./ids"
+import { WorkspaceReviewDecision } from "./review"
+import { GitCommitId, WorkspaceFileChange } from "./version-control"
 
 export const WorkspaceCheckKind = Schema.Literals(["checkpoint", "production"])
 export type WorkspaceCheckKind = typeof WorkspaceCheckKind.Type
@@ -82,6 +83,7 @@ export class WorkspaceCheckRun extends Schema.Class<WorkspaceCheckRun>(
   maxAttempts: Schema.optional(Schema.Int),
   repairAttempt: Schema.optional(Schema.Int),
   maxRepairAttempts: Schema.optional(Schema.Int),
+  repairNotice: Schema.optional(Schema.String),
   previewUrl: Schema.NullOr(Schema.NonEmptyString),
   stages: Schema.Array(WorkspaceCheckStage),
   diagnostics: Schema.Array(WorkspaceCheckDiagnostic),
@@ -110,7 +112,9 @@ export class WorkspaceCiInput extends Schema.Class<WorkspaceCiInput>(
   headCommitMessage: Schema.optional(Schema.String),
   actor: Schema.optional(Schema.String),
   checkRunId: Schema.NonEmptyString,
+  projectId: ProjectId,
   workspaceId: WorkspaceId,
+  agentSessionId: Schema.optional(Schema.NullOr(Schema.NonEmptyString)),
   checkpointId: Schema.NullOr(Schema.NonEmptyString),
   kind: WorkspaceCheckKind,
   attempt: Schema.Int,
@@ -118,6 +122,51 @@ export class WorkspaceCiInput extends Schema.Class<WorkspaceCiInput>(
   deploymentId: Schema.NullOr(Schema.NonEmptyString),
   createdAt: Schema.Number,
 }) {}
+
+export class CiRunSummary extends Schema.Class<CiRunSummary>(
+  "@sylph/domain/CiRunSummary"
+)({
+  attempt: Schema.Int,
+  stages: Schema.Array(
+    Schema.Struct({
+      name: WorkspaceCheckStageName,
+      status: WorkspaceCheckStageStatus,
+      durationMs: Schema.NullOr(Schema.Number),
+    })
+  ),
+  diagnostics: Schema.Array(
+    Schema.Struct({ stage: WorkspaceCheckStageName, summary: Schema.String })
+  ),
+  previewUrl: Schema.NullOr(Schema.NonEmptyString),
+  evidenceCount: Schema.Int,
+}) {}
+
+export const CiRunStatus = Schema.Literals([
+  "queued",
+  "running",
+  "passed",
+  "failed",
+  "cancelled",
+])
+export type CiRunStatus = typeof CiRunStatus.Type
+
+export class CiRunRecord extends Schema.Class<CiRunRecord>(
+  "@sylph/domain/CiRunRecord"
+)({
+  id: Schema.NonEmptyString,
+  projectId: ProjectId,
+  workspaceId: WorkspaceId,
+  workspaceTitle: Schema.String,
+  commit: GitCommitId,
+  kind: WorkspaceCheckKind,
+  status: CiRunStatus,
+  summary: Schema.NullOr(CiRunSummary),
+  startedAt: Schema.NullOr(Schema.Number),
+  finishedAt: Schema.NullOr(Schema.Number),
+  createdAt: Schema.Number,
+}) {}
+
+export const CiRunRecordList = Schema.Array(CiRunRecord)
 
 export class WorkspaceProductionCheckInput extends Schema.Class<WorkspaceProductionCheckInput>(
   "@sylph/domain/WorkspaceProductionCheckInput"
@@ -179,6 +228,110 @@ export class WorkspaceSyncToolInput extends Schema.Class<WorkspaceSyncToolInput>
   "@sylph/domain/WorkspaceSyncToolInput"
 )({}) {}
 
+export class WorkspaceCheckpointToolInput extends Schema.Class<WorkspaceCheckpointToolInput>(
+  "@sylph/domain/WorkspaceCheckpointToolInput"
+)({
+  message: Schema.optional(Schema.NonEmptyString),
+}) {}
+
+export const WorkspaceDiffScope = Schema.Literals(["working", "checkpoint"])
+export type WorkspaceDiffScope = typeof WorkspaceDiffScope.Type
+
+export class WorkspaceDiffToolInput extends Schema.Class<WorkspaceDiffToolInput>(
+  "@sylph/domain/WorkspaceDiffToolInput"
+)({
+  scope: Schema.optional(WorkspaceDiffScope),
+}) {}
+
+export class WorkspaceDiffResult extends Schema.Class<WorkspaceDiffResult>(
+  "@sylph/domain/WorkspaceDiffResult"
+)({
+  scope: WorkspaceDiffScope,
+  baseCommit: GitCommitId,
+  forkHead: GitCommitId,
+  files: Schema.Array(WorkspaceFileChange),
+  truncated: Schema.Boolean,
+}) {}
+
+export class WorkspaceMergeToolInput extends Schema.Class<WorkspaceMergeToolInput>(
+  "@sylph/domain/WorkspaceMergeToolInput"
+)({}) {}
+
+export class WorkspaceMergeRequest extends Schema.Class<WorkspaceMergeRequest>(
+  "@sylph/domain/WorkspaceMergeRequest"
+)({
+  ready: Schema.Boolean,
+  blockers: Schema.Array(Schema.NonEmptyString),
+  baseCommit: GitCommitId,
+  forkHead: GitCommitId,
+  projectHead: GitCommitId,
+  passingCheckId: Schema.NullOr(Schema.NonEmptyString),
+  reviewDecision: WorkspaceReviewDecision,
+  unresolvedComments: Schema.Int,
+  instructions: Schema.NonEmptyString,
+}) {}
+
+export class WorkspacePreviewToolInput extends Schema.Class<WorkspacePreviewToolInput>(
+  "@sylph/domain/WorkspacePreviewToolInput"
+)({}) {}
+
+export class WorkspacePreviewResult extends Schema.Class<WorkspacePreviewResult>(
+  "@sylph/domain/WorkspacePreviewResult"
+)({
+  status: Schema.Literals(["ready", "pending", "failed"]),
+  commit: GitCommitId,
+  checkId: Schema.NullOr(Schema.NonEmptyString),
+  previewUrl: Schema.NullOr(Schema.NonEmptyString),
+  evidence: Schema.Array(WorkspaceCheckEvidence),
+  detail: Schema.NonEmptyString,
+}) {}
+
+export class WorkspaceProductionToolInput extends Schema.Class<WorkspaceProductionToolInput>(
+  "@sylph/domain/WorkspaceProductionToolInput"
+)({}) {}
+
+export class WorkspaceProductionDeployment extends Schema.Class<WorkspaceProductionDeployment>(
+  "@sylph/domain/WorkspaceProductionDeployment"
+)({
+  id: Schema.NonEmptyString,
+  commit: GitCommitId,
+  status: Schema.NonEmptyString,
+  productionUrl: Schema.NullOr(Schema.String),
+  createdAt: Schema.Number,
+}) {}
+
+export class WorkspaceProductionStatus extends Schema.Class<WorkspaceProductionStatus>(
+  "@sylph/domain/WorkspaceProductionStatus"
+)({
+  acceptedCommits: Schema.Array(GitCommitId),
+  deployments: Schema.Array(WorkspaceProductionDeployment),
+  instructions: Schema.NonEmptyString,
+}) {}
+
+export class WorkspaceBrowserToolInput extends Schema.Class<WorkspaceBrowserToolInput>(
+  "@sylph/domain/WorkspaceBrowserToolInput"
+)({
+  path: Schema.optional(Schema.String),
+  url: Schema.optional(Schema.NonEmptyString),
+  fullPage: Schema.optional(Schema.Boolean),
+}) {}
+
+export class WorkspaceBrowserResult extends Schema.Class<WorkspaceBrowserResult>(
+  "@sylph/domain/WorkspaceBrowserResult"
+)({
+  url: Schema.NonEmptyString,
+  checkId: Schema.NonEmptyString,
+  markdown: Schema.String,
+  accessibility: Schema.String,
+  evidence: Schema.Array(WorkspaceCheckEvidence),
+}) {}
+
+export class WorkspaceArchiveInput extends Schema.Class<WorkspaceArchiveInput>(
+  "@sylph/domain/WorkspaceArchiveInput"
+)({
+  workspaceId: WorkspaceId,
+}) {}
+
 const toolJsonSchema = (schema: Schema.Constraint) => {
   const document = Schema.toJsonSchemaDocument(schema)
   return { ...document.schema, $defs: document.definitions }
@@ -193,6 +346,24 @@ export const WorkspaceCheckStatusToolJsonSchema = toolJsonSchema(
 export const WorkspaceSyncToolJsonSchema = toolJsonSchema(
   WorkspaceSyncToolInput
 )
+export const WorkspaceCheckpointToolJsonSchema = toolJsonSchema(
+  WorkspaceCheckpointToolInput
+)
+export const WorkspaceDiffToolJsonSchema = toolJsonSchema(
+  WorkspaceDiffToolInput
+)
+export const WorkspaceMergeToolJsonSchema = toolJsonSchema(
+  WorkspaceMergeToolInput
+)
+export const WorkspacePreviewToolJsonSchema = toolJsonSchema(
+  WorkspacePreviewToolInput
+)
+export const WorkspaceProductionToolJsonSchema = toolJsonSchema(
+  WorkspaceProductionToolInput
+)
+export const WorkspaceBrowserToolJsonSchema = toolJsonSchema(
+  WorkspaceBrowserToolInput
+)
 export const decodeWorkspaceRunChecksToolInput = Schema.decodeUnknownPromise(
   WorkspaceRunChecksToolInput
 )
@@ -202,6 +373,32 @@ export const decodeWorkspaceCheckStatusToolInput = Schema.decodeUnknownPromise(
 export const decodeWorkspaceSyncToolInput = Schema.decodeUnknownPromise(
   WorkspaceSyncToolInput
 )
+export const decodeWorkspaceCheckpointToolInput = Schema.decodeUnknownPromise(
+  WorkspaceCheckpointToolInput
+)
+export const decodeWorkspaceDiffToolInput = Schema.decodeUnknownPromise(
+  WorkspaceDiffToolInput
+)
+export const decodeWorkspaceMergeToolInput = Schema.decodeUnknownPromise(
+  WorkspaceMergeToolInput
+)
+export const decodeWorkspacePreviewToolInput = Schema.decodeUnknownPromise(
+  WorkspacePreviewToolInput
+)
+export const decodeWorkspaceProductionToolInput = Schema.decodeUnknownPromise(
+  WorkspaceProductionToolInput
+)
+export const decodeWorkspaceBrowserToolInput = Schema.decodeUnknownPromise(
+  WorkspaceBrowserToolInput
+)
+export const decodeWorkspaceArchiveInputPromise = Schema.decodeUnknownPromise(
+  WorkspaceArchiveInput
+)
+export const decodeCiRunSummary = Schema.decodeUnknownSync(CiRunSummary)
+export const encodeCiRunSummary = Schema.encodeSync(CiRunSummary)
+export const decodeCiRunRecordList =
+  Schema.decodeUnknownPromise(CiRunRecordList)
+export const encodeCiRunRecordList = Schema.encodePromise(CiRunRecordList)
 
 export const decodeWorkspaceCheckRun =
   Schema.decodeUnknownSync(WorkspaceCheckRun)
