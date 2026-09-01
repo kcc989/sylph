@@ -10,6 +10,7 @@ import {
   type ThreadEntry,
   type CheckItem,
   type WorkspacePermissionRequest,
+  type WorkspaceQuestionValue,
   WorkspaceShell,
 } from "@workspace/ui/components/workspace-shell"
 import { useEffect, useRef, useState } from "react"
@@ -18,7 +19,11 @@ import { validateOnboardingSearch } from "@/lib/onboarding"
 import {
   acceptWorkspace,
   addWorkspaceReviewComment,
+  answerWorkspaceQuestion,
+  archiveWorkspace,
+  cancelWorkspaceTurn,
   checkpointWorkspace,
+  discardWorkspace,
   getDashboard,
   getWorkspace,
   promptWorkspace,
@@ -61,6 +66,10 @@ function WorkspaceScreen() {
   const { dashboard, result } = Route.useLoaderData()
   const router = useRouter()
   const prompt = useServerFn(promptWorkspace)
+  const cancelTurn = useServerFn(cancelWorkspaceTurn)
+  const answerQuestion = useServerFn(answerWorkspaceQuestion)
+  const archive = useServerFn(archiveWorkspace)
+  const discard = useServerFn(discardWorkspace)
   const checkpoint = useServerFn(checkpointWorkspace)
   const accept = useServerFn(acceptWorkspace)
   const addReviewComment = useServerFn(addWorkspaceReviewComment)
@@ -72,6 +81,12 @@ function WorkspaceScreen() {
   const syncProject = useServerFn(syncWorkspaceProject)
   const submitReview = useServerFn(submitWorkspaceReview)
   const [promptPending, setPromptPending] = useState(false)
+  const [cancelTurnPending, setCancelTurnPending] = useState(false)
+  const [archivePending, setArchivePending] = useState(false)
+  const [discardPending, setDiscardPending] = useState(false)
+  const [answeringQuestionId, setAnsweringQuestionId] = useState<string | null>(
+    null
+  )
   const [checkpointPending, setCheckpointPending] = useState(false)
   const [acceptPending, setAcceptPending] = useState(false)
   const [reviewPending, setReviewPending] = useState(false)
@@ -267,8 +282,8 @@ function WorkspaceScreen() {
           name: stage.name[0].toUpperCase() + stage.name.slice(1),
           detail:
             stage.durationMs === null
-              ? stage.detail
-              : `${stage.detail} · ${(stage.durationMs / 1000).toFixed(1)}s`,
+              ? `${stage.detail} · attempt ${checkpointCheck.attempt}/${checkpointCheck.maxAttempts ?? runtime.limits.maxCheckAttempts}`
+              : `${stage.detail} · ${(stage.durationMs / 1000).toFixed(1)}s · attempt ${checkpointCheck.attempt}/${checkpointCheck.maxAttempts ?? runtime.limits.maxCheckAttempts}`,
           status:
             stage.status === "passed" || stage.status === "skipped"
               ? ("passed" as const)
@@ -322,15 +337,19 @@ function WorkspaceScreen() {
       name: "Agent repair",
       detail:
         checkpointCheck.repairStatus === "started"
-          ? "Repair turn started"
-          : "Optional",
+          ? `Repair Turn ${checkpointCheck.repairAttempt ?? 1}/${checkpointCheck.maxRepairAttempts ?? runtime.limits.maxRepairAttempts} · ${Math.round(runtime.limits.maxTurnDurationMs / 60_000)} min limit`
+          : `${checkpointCheck.repairAttempt ?? 0}/${checkpointCheck.maxRepairAttempts ?? runtime.limits.maxRepairAttempts} repairs used`,
       status: checkpointCheck.repairStatus === "started" ? "running" : "failed",
       output: undefined,
       evidence: undefined,
       action: {
         label: "Repair",
         disabled:
-          checkActionPending || checkpointCheck.repairStatus === "started",
+          checkActionPending ||
+          checkpointCheck.repairStatus === "started" ||
+          (checkpointCheck.repairAttempt ?? 0) >=
+            (checkpointCheck.maxRepairAttempts ??
+              runtime.limits.maxRepairAttempts),
         onClick: () => {
           setCheckActionPending(true)
           setPromptError(null)
@@ -458,6 +477,47 @@ function WorkspaceScreen() {
       checks={checkItems}
       entries={entries}
       permissionRequests={permissionRequests}
+      questions={runtime.questions}
+      queuedMessages={runtime.queuedMessages}
+      runtimeLimits={runtime.limits}
+      turnActive={runtime.status === "running"}
+      turnInterrupted={runtime.status === "interrupted"}
+      activeTurnStartedAt={runtime.activeTurnStartedAt}
+      answeringQuestionId={answeringQuestionId}
+      cancelTurnPending={cancelTurnPending}
+      onAnswerQuestion={async (
+        questionId,
+        answer: Record<string, WorkspaceQuestionValue>
+      ) => {
+        setAnsweringQuestionId(questionId)
+        setPromptError(null)
+        try {
+          await answerQuestion({ data: { workspaceId, questionId, answer } })
+          await router.invalidate()
+        } catch (cause) {
+          setPromptError(
+            cause instanceof Error
+              ? cause.message
+              : "The agent question answer could not be sent"
+          )
+        } finally {
+          setAnsweringQuestionId(null)
+        }
+      }}
+      onCancelTurn={async () => {
+        setCancelTurnPending(true)
+        setPromptError(null)
+        try {
+          await cancelTurn({ data: { workspaceId } })
+          await router.invalidate()
+        } catch (cause) {
+          setPromptError(
+            cause instanceof Error ? cause.message : "Turn cancellation failed"
+          )
+        } finally {
+          setCancelTurnPending(false)
+        }
+      }}
       replyingPermissionId={replyingPermissionId}
       onPermissionReply={async (requestId, reply) => {
         setReplyingPermissionId(requestId)
@@ -579,28 +639,32 @@ function WorkspaceScreen() {
             }
           : undefined
       }
-      onCheckpoint={async () => {
-        setCheckpointPending(true)
-        setPromptError(null)
-        try {
-          await checkpoint({
-            data: {
-              workspaceId,
-              idempotencyKey: checkpointKey,
-              message: "Checkpoint Workspace changes",
-            },
-          })
-          setCheckpointKey(crypto.randomUUID())
-          await router.invalidate()
-        } catch (cause) {
-          setPromptError(
-            cause instanceof Error ? cause.message : "Checkpoint failed"
-          )
-        } finally {
-          setCheckpointPending(false)
-        }
-      }}
-      onSubmitPrompt={async (text, model) => {
+      onCheckpoint={
+        workspace.status !== "archived"
+          ? async () => {
+              setCheckpointPending(true)
+              setPromptError(null)
+              try {
+                await checkpoint({
+                  data: {
+                    workspaceId,
+                    idempotencyKey: checkpointKey,
+                    message: "Checkpoint Workspace changes",
+                  },
+                })
+                setCheckpointKey(crypto.randomUUID())
+                await router.invalidate()
+              } catch (cause) {
+                setPromptError(
+                  cause instanceof Error ? cause.message : "Checkpoint failed"
+                )
+              } finally {
+                setCheckpointPending(false)
+              }
+            }
+          : undefined
+      }
+      onSubmitPrompt={async (text, model, delivery) => {
         setPromptPending(true)
         setPromptError(null)
         const optimisticId = `optimistic-${crypto.randomUUID()}`
@@ -609,12 +673,19 @@ function WorkspaceScreen() {
             id: optimisticId,
             kind: "user",
             body: text,
-            meta: "You",
+            meta:
+              delivery === "steer"
+                ? "You · steering"
+                : delivery === "queue"
+                  ? "You · queued"
+                  : "You",
           },
         ])
 
         try {
-          const response = await prompt({ data: { workspaceId, text, model } })
+          const response = await prompt({
+            data: { workspaceId, text, model, delivery },
+          })
           modelSelectionChanged.current = false
           setSelectedModel(response.selectedModel)
           setModelNotice(response.modelNotice)
@@ -650,17 +721,23 @@ function WorkspaceScreen() {
                 ? "error"
                 : item.status === "running"
                   ? "running"
-                  : item.status === "ready"
-                    ? "ready"
-                    : "waiting",
+                  : item.status === "archived"
+                    ? "archived"
+                    : item.status === "ready"
+                      ? "ready"
+                      : "waiting",
           })),
       }))}
       promptDisabled={
-        runtime.status === "provisioning" || runtime.status === "error"
+        runtime.status === "provisioning" ||
+        runtime.status === "error" ||
+        workspace.status === "archived"
       }
       promptError={promptError}
       promptPending={promptPending}
       restartPending={restartPending}
+      archivePending={archivePending}
+      discardPending={discardPending}
       workspaceError={
         runtime.status === "error"
           ? (workspace.errorSummary ?? "Workspace startup failed")
@@ -679,6 +756,40 @@ function WorkspaceScreen() {
           )
         } finally {
           setRestartPending(false)
+        }
+      }}
+      onArchiveWorkspace={
+        workspace.status !== "archived"
+          ? async () => {
+              setArchivePending(true)
+              setPromptError(null)
+              try {
+                await archive({ data: { workspaceId } })
+                await router.invalidate()
+              } catch (cause) {
+                setPromptError(
+                  cause instanceof Error
+                    ? cause.message
+                    : "Workspace archive failed"
+                )
+              } finally {
+                setArchivePending(false)
+              }
+            }
+          : undefined
+      }
+      onDiscardWorkspace={async () => {
+        setDiscardPending(true)
+        setPromptError(null)
+        try {
+          await discard({ data: { workspaceId } })
+          await router.navigate({ to: "/" })
+        } catch (cause) {
+          setPromptError(
+            cause instanceof Error ? cause.message : "Workspace discard failed"
+          )
+        } finally {
+          setDiscardPending(false)
         }
       }}
     />

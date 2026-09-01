@@ -85,6 +85,60 @@ export const WaitingForAgent: Story = {
   },
 }
 
+export const TurnControls: Story = {
+  args: {
+    turnActive: true,
+    activeTurnStartedAt: Date.now() - 4 * 60 * 1000,
+    runtimeLimits: {
+      maxQueuedMessages: 5,
+      maxTurnDurationMs: 15 * 60 * 1000,
+      maxCheckAttempts: 3,
+      maxRepairAttempts: 2,
+    },
+    queuedMessages: [
+      {
+        id: "queued-1",
+        text: "After this, add the empty state for a new Project.",
+        createdAt: Date.now(),
+        delivery: "queue",
+      },
+    ],
+    questions: [
+      {
+        id: "question-1",
+        title: "Choose the default visibility",
+        status: "pending",
+        answer: null,
+        fields: [
+          {
+            key: "visibility",
+            title: "Project visibility",
+            description: "The agent will use this for the new repository.",
+            required: true,
+            type: "string",
+            options: [
+              { value: "private", label: "Private" },
+              { value: "public", label: "Public" },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+}
+
+export const InterruptedTurn: Story = {
+  args: {
+    turnInterrupted: true,
+    runtimeLimits: {
+      maxQueuedMessages: 5,
+      maxTurnDurationMs: 15 * 60 * 1000,
+      maxCheckAttempts: 3,
+      maxRepairAttempts: 2,
+    },
+  },
+}
+
 export const BrowserError: Story = {
   args: {
     browser: {
