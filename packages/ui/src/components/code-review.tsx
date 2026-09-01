@@ -17,6 +17,12 @@ index 33fae1d..bfd041e 100644
 +  )
  }`
 
+const commentGutterStyles = `
+[data-column-number] {
+  padding-right: calc(1ch + 1lh + 4px);
+}
+`
+
 type CodeReviewProps = {
   patch: string
   className?: string
@@ -98,6 +104,7 @@ function CodeReview({
                 onLineSelected?.(range ? { ...range, file } : null),
               overflow: "wrap",
               stickyHeader: true,
+              unsafeCSS: onLineSelected ? commentGutterStyles : undefined,
             }}
             renderAnnotation={(annotation) =>
               renderAnnotation?.(annotation.metadata)
