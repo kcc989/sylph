@@ -247,6 +247,52 @@ export const workspace = sqliteTable(
   ]
 )
 
+export const skillInstallation = sqliteTable(
+  "skill_installation",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    projectId: text("project_id").references(() => project.id, {
+      onDelete: "cascade",
+    }),
+    scope: text("scope").notNull(),
+    targetId: text("target_id").notNull(),
+    catalogId: text("catalog_id").notNull(),
+    source: text("source").notNull(),
+    sourceUrl: text("source_url").notNull(),
+    sourceHash: text("source_hash"),
+    name: text("name").notNull(),
+    description: text("description"),
+    disableModelInvocation: integer("disable_model_invocation", {
+      mode: "boolean",
+    })
+      .notNull()
+      .default(false),
+    userInvokable: integer("user_invokable", { mode: "boolean" })
+      .notNull()
+      .default(true),
+    files: text("files", { mode: "json" })
+      .$type<ReadonlyArray<{ path: string; content: string }>>()
+      .notNull(),
+    installedByUserId: text("installed_by_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at"),
+    updatedAt: timestamp("updated_at"),
+  },
+  (table) => [
+    uniqueIndex("skill_installation_scope_name_unique").on(
+      table.scope,
+      table.targetId,
+      table.name
+    ),
+    index("skill_installation_organization_id_idx").on(table.organizationId),
+    index("skill_installation_project_id_idx").on(table.projectId),
+  ]
+)
+
 export const deployment = sqliteTable(
   "deployment",
   {

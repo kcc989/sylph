@@ -48,4 +48,42 @@ describe("OpenCode key setup", () => {
       )
     ).rejects.toThrow("Provider catalog unavailable")
   })
+
+  test("reloads the runtime when replacing an existing credential", async () => {
+    const requests: string[] = []
+    let connectCount = 0
+    const result = await discoverOpenCodeKeyModels(
+      {
+        fetch: async (url) => {
+          requests.push(url)
+          if (url.endsWith("/evict")) return new Response(null, { status: 204 })
+          connectCount += 1
+          if (connectCount === 1) {
+            return new Response(
+              "Workspace runtime credential store refreshed",
+              { status: 409 }
+            )
+          }
+          return Response.json({
+            models: [
+              {
+                providerId: "cloudflare-workers-ai",
+                modelId: "@cf/openai/gpt-oss-120b",
+                name: "GPT OSS 120B",
+              },
+            ],
+            recommendedModelId: "@cf/openai/gpt-oss-120b",
+          })
+        },
+      },
+      input
+    )
+
+    expect(requests).toEqual([
+      "https://workspace/connect/key",
+      "https://workspace/evict",
+      "https://workspace/connect/key",
+    ])
+    expect(result.recommendedModelId).toBe("@cf/openai/gpt-oss-120b")
+  })
 })

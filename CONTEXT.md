@@ -25,6 +25,12 @@ An Organization member who can work in its Projects and manage their own persona
 **Project**:
 The product a user creates inside an organization. A Project contains one Project Repository and one or more Workspaces.
 
+**Skill**:
+Reusable instructions and supporting resources that guide an Agent. A Skill can allow user slash invocation, model invocation, both, or neither.
+
+**Skill Installation**:
+A durable attachment of a Skill to an Installation or Project. A Project Skill with the same name overrides the Installation Skill for that Project.
+
 **Project Repository**:
 The accepted source history for a Project. A Project has exactly one Project Repository.
 
