@@ -36,6 +36,7 @@ type OnboardingInput = {
 
 export type OnboardingState = {
   organization: Organization | null
+  providerConnected: boolean
   project: Project | null
   workspace: Workspace | null
   completedCount: number
@@ -89,6 +90,7 @@ export const getOnboardingState = ({
 
   return {
     organization,
+    providerConnected,
     project,
     workspace,
     completedCount,

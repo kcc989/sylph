@@ -21,13 +21,15 @@ import {
   decodeSetDefaultModelInputPromise,
   decodeSyncProjectRepositoryResultPromise,
   decodeWorkspaceCheckpointInputPromise,
-  decodeWorkspaceCheckpointList,
   decodeWorkspaceCheckpointResult,
   decodeWorkspaceCheckRunList,
   decodeWorkspacePromptInputPromise,
   decodeWorkspaceRequestInputPromise,
   decodeWorkspaceRebaseResultPromise,
   decodeWorkspaceRepairCheckInputPromise,
+  decodeWorkspaceReviewCommentInputPromise,
+  decodeWorkspaceReviewDecisionInputPromise,
+  decodeWorkspaceReviewResolutionInputPromise,
   decodeWorkspaceRetryCheckInputPromise,
   decodeWorkspaceRuntimeHealth,
   decodeWorkspaceSyncInputPromise,
@@ -36,6 +38,7 @@ import {
   encodeWorkspaceCheckpointList,
   encodeWorkspaceCheckRunList,
   encodeWorkspaceRuntimeHealth,
+  encodeWorkspaceReview,
   encodeWorkspaceVersionControl,
   InitializeWorkspaceRuntime,
   GitCommitId,
@@ -43,6 +46,9 @@ import {
   OrganizationId,
   ProjectId,
   WorkspaceId,
+  WorkspaceReview,
+  WorkspaceReviewActor,
+  WorkspaceReviewComment,
   type WorkspaceCiInput,
   WorkspaceRuntimeHealth,
   parseGitHubRepositoryUrl,
@@ -52,8 +58,9 @@ import { schema } from "@workspace/db"
 import { createServerFn } from "@tanstack/react-start"
 import { getRequest } from "@tanstack/react-start/server"
 import { env, waitUntil } from "cloudflare:workers"
-import { and, count, desc, eq } from "drizzle-orm"
+import { and, count, desc, eq, isNull } from "drizzle-orm"
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1"
+import { alias } from "drizzle-orm/sqlite-core"
 
 import { createRequestAuth } from "@/server/auth.server"
 import { assertInstallationClaimIdentity } from "@/lib/installation-claim"
@@ -82,15 +89,23 @@ import {
 } from "@/lib/provider-models"
 import { discoverOpenCodeKeyModels } from "@/server/opencode-key-setup"
 import { restartDurableWorkspace } from "@/server/workspace-runtime-lifecycle"
-import { workspaceVersionControlRequest } from "@/server/workspace-repository-refresh"
+import {
+  readWorkspaceVersionControlResponse,
+  workspaceVersionControlRequest,
+} from "@/server/workspace-repository-refresh"
 import { serializableWorkspaceRebaseResult } from "@/server/workspace-rebase-result"
 import { serializableWorkspaceCheckpointResult } from "@/server/workspace-checkpoint-result"
 import { recoveryRepositoryEntry } from "@/server/recovery-export"
 import { deploymentWorkflowAlreadyStarted } from "@/server/deployment-records"
+import { requireProjectProviderConnection } from "@/server/project-provider-guard"
 import {
   acceptanceCanStart,
   acceptanceWorkflowRevision,
 } from "@/server/workspace-merge-heads"
+import {
+  reviewAllowsAcceptance,
+  reviewDecisionAfterComment,
+} from "@/server/workspace-review"
 
 const normalizeName = (value: string) =>
   value
@@ -102,6 +117,158 @@ const normalizeName = (value: string) =>
 const subscriptionProviderId = "openai"
 const installationId = "default"
 const installationOrganizationId = "installation-organization"
+const reviewResolver = alias(schema.user, "review_resolver")
+
+const reviewId = (workspaceId: string, commit: string) =>
+  `review:${workspaceId}:${commit}`
+
+const reviewActor = (input: {
+  id: string
+  name: string
+  image: string | null
+}) =>
+  new WorkspaceReviewActor({
+    id: input.id,
+    name: input.name,
+    image: input.image,
+  })
+
+const loadWorkspaceReview = async (
+  database: DrizzleD1Database<typeof schema>,
+  workspaceId: string,
+  commit: GitCommitId
+) => {
+  const review = await database
+    .select({
+      id: schema.workspaceReview.id,
+      decision: schema.workspaceReview.decision,
+      submittedAt: schema.workspaceReview.submittedAt,
+      reviewerId: schema.user.id,
+      reviewerName: schema.user.name,
+      reviewerImage: schema.user.image,
+    })
+    .from(schema.workspaceReview)
+    .leftJoin(
+      schema.user,
+      eq(schema.user.id, schema.workspaceReview.reviewerUserId)
+    )
+    .where(
+      and(
+        eq(schema.workspaceReview.workspaceId, workspaceId),
+        eq(schema.workspaceReview.commit, commit)
+      )
+    )
+    .get()
+  const rows = review
+    ? await database
+        .select({
+          id: schema.workspaceReviewComment.id,
+          file: schema.workspaceReviewComment.file,
+          side: schema.workspaceReviewComment.side,
+          startLine: schema.workspaceReviewComment.startLine,
+          endLine: schema.workspaceReviewComment.endLine,
+          body: schema.workspaceReviewComment.body,
+          createdAt: schema.workspaceReviewComment.createdAt,
+          resolvedAt: schema.workspaceReviewComment.resolvedAt,
+          authorId: schema.user.id,
+          authorName: schema.user.name,
+          authorImage: schema.user.image,
+          resolverId: reviewResolver.id,
+          resolverName: reviewResolver.name,
+          resolverImage: reviewResolver.image,
+        })
+        .from(schema.workspaceReviewComment)
+        .innerJoin(
+          schema.user,
+          eq(schema.user.id, schema.workspaceReviewComment.authorUserId)
+        )
+        .leftJoin(
+          reviewResolver,
+          eq(reviewResolver.id, schema.workspaceReviewComment.resolvedByUserId)
+        )
+        .where(eq(schema.workspaceReviewComment.reviewId, review.id))
+        .orderBy(schema.workspaceReviewComment.createdAt)
+    : []
+  const decision =
+    review?.decision === "approved" || review?.decision === "changes_requested"
+      ? review.decision
+      : "pending"
+
+  return new WorkspaceReview({
+    commit,
+    decision,
+    reviewer:
+      review?.reviewerId && review.reviewerName
+        ? reviewActor({
+            id: review.reviewerId,
+            name: review.reviewerName,
+            image: review.reviewerImage,
+          })
+        : null,
+    submittedAt: review?.submittedAt?.getTime() ?? null,
+    comments: rows.map(
+      (comment) =>
+        new WorkspaceReviewComment({
+          id: comment.id,
+          file: comment.file,
+          side: comment.side === "deletions" ? "deletions" : "additions",
+          startLine: comment.startLine,
+          endLine: comment.endLine,
+          body: comment.body,
+          author: reviewActor({
+            id: comment.authorId,
+            name: comment.authorName,
+            image: comment.authorImage,
+          }),
+          createdAt: comment.createdAt.getTime(),
+          resolvedAt: comment.resolvedAt?.getTime() ?? null,
+          resolvedBy:
+            comment.resolverId && comment.resolverName
+              ? reviewActor({
+                  id: comment.resolverId,
+                  name: comment.resolverName,
+                  image: comment.resolverImage,
+                })
+              : null,
+        })
+    ),
+  })
+}
+
+const reviewableWorkspace = async (
+  database: DrizzleD1Database<typeof schema>,
+  workspaceId: string,
+  userId: string
+) => {
+  const workspace = await database
+    .select({
+      id: schema.workspace.id,
+      forkHead: schema.workspace.forkHead,
+      status: schema.workspace.status,
+    })
+    .from(schema.workspace)
+    .innerJoin(
+      schema.member,
+      and(
+        eq(schema.member.organizationId, schema.workspace.organizationId),
+        eq(schema.member.userId, userId)
+      )
+    )
+    .where(eq(schema.workspace.id, workspaceId))
+    .get()
+
+  if (!workspace) {
+    throw new Error("This Workspace does not exist or you cannot access it")
+  }
+  if (!workspace.forkHead) {
+    throw new Error("Create a Checkpoint before reviewing this Workspace")
+  }
+  if (workspace.status === "merging" || workspace.status === "archived") {
+    throw new Error("This Workspace can no longer be reviewed")
+  }
+
+  return { ...workspace, forkHead: GitCommitId.make(workspace.forkHead) }
+}
 
 const secretsMatch = async (provided: string, expected: string) => {
   const encoder = new TextEncoder()
@@ -774,6 +941,7 @@ export const getDashboard = createServerFn({ method: "GET" }).handler(
         projects: [],
         workspaces: [],
         providerOrganizationIds: [],
+        providerConnected: false,
         hasPersonalProvider: false,
       }
     }
@@ -906,6 +1074,9 @@ export const getDashboard = createServerFn({ method: "GET" }).handler(
           organizationConnections.map((connection) => connection.organizationId)
         ),
       ],
+      providerConnected: Boolean(
+        personalConnection || organizationConnections.length
+      ),
       hasPersonalProvider: Boolean(personalConnection),
       workspaces: workspaces.map((workspace) =>
         workspace.errorSummary && workspace.status === "provisioning"
@@ -1863,15 +2034,10 @@ export const createProject = createServerFn({ method: "POST" })
       throw new Error("You are not a member of this organization")
     }
 
-    const connection = await effectiveConnection(
-      database,
-      data.organizationId,
-      session.user.id
+    const connection = requireProjectProviderConnection(
+      await effectiveConnection(database, data.organizationId, session.user.id)
     )
-
-    const credential = connection
-      ? await connectionCredential(connection)
-      : undefined
+    const credential = await connectionCredential(connection)
 
     if (!data.sourceRepositoryUrl && data.sourceBranch) {
       throw new Error("A source branch requires a GitHub Repository URL")
@@ -1958,17 +2124,15 @@ export const createProject = createServerFn({ method: "POST" })
         organizationId: data.organizationId,
         ownerUserId: session.user.id,
         title: data.name,
-        status: connection ? "provisioning" : "error",
+        status: "provisioning",
         repositoryMode: "fork",
         baseArtifactRepo: artifact.name,
         workspaceArtifactRepo: workspaceArtifact.name,
         baseCommit: prepared.head,
         forkHead: prepared.head,
-        syncStatus: connection ? "hydrating" : "ready",
+        syncStatus: "hydrating",
         mergeStatus: "unreviewed",
-        errorSummary: connection
-          ? null
-          : "Connect an AI provider to start this Workspace",
+        errorSummary: null,
         createdAt: now,
         updatedAt: now,
       })
@@ -1977,18 +2141,6 @@ export const createProject = createServerFn({ method: "POST" })
         .delete(schema.project)
         .where(eq(schema.project.id, projectId))
       throw error
-    }
-
-    if (!connection || !credential) {
-      return {
-        id: workspaceId,
-        projectId,
-        projectSlug,
-        organizationSlug: membership.organizationSlug,
-        repositoryName: artifact.name,
-        status: "error" as const,
-        errorSummary: "Connect an AI provider to start this Workspace",
-      }
     }
 
     try {
@@ -2190,7 +2342,8 @@ export const getWorkspace = createServerFn({ method: "GET" })
       return null
     }
 
-    const workspace = await drizzle(env.DB, { schema })
+    const database = drizzle(env.DB, { schema })
+    const workspace = await database
       .select({
         id: schema.workspace.id,
         projectId: schema.workspace.projectId,
@@ -2212,6 +2365,10 @@ export const getWorkspace = createServerFn({ method: "GET" })
         deliveryMode: schema.project.deliveryMode,
         deliveredCommit: schema.project.deliveredCommit,
         deliveryUrl: schema.project.deliveryUrl,
+        baseCommit: schema.workspace.baseCommit,
+        forkHead: schema.workspace.forkHead,
+        syncStatus: schema.workspace.syncStatus,
+        mergeStatus: schema.workspace.mergeStatus,
         errorSummary: schema.workspace.errorSummary,
       })
       .from(schema.workspace)
@@ -2274,9 +2431,6 @@ export const getWorkspace = createServerFn({ method: "GET" })
     if (!response.ok) {
       throw new Error(await response.text())
     }
-    if (!vcsResponse.ok) {
-      throw new Error(await vcsResponse.text())
-    }
     if (!checksResponse.ok) {
       throw new Error(await checksResponse.text())
     }
@@ -2298,23 +2452,33 @@ export const getWorkspace = createServerFn({ method: "GET" })
       session.user.id,
       conversationModel
     )
-    const vcsPayload = await vcsResponse.json<{
-      vcs: unknown
-      checkpoints: unknown
-    }>()
-    const versionControl = await decodeWorkspaceVersionControl(vcsPayload.vcs)
-    const checkpoints = await decodeWorkspaceCheckpointList(
-      vcsPayload.checkpoints
-    )
+    const { versionControl, checkpoints } =
+      await readWorkspaceVersionControlResponse(vcsResponse, {
+        defaultRef: workspace.defaultBranch,
+        baseCommit: workspace.baseCommit,
+        forkHead: workspace.forkHead,
+        syncStatus: workspace.syncStatus,
+        mergeStatus: workspace.mergeStatus,
+      })
     const checks = await decodeWorkspaceCheckRunList(
       await checksResponse.json()
     )
-    const [encodedVersionControl, encodedCheckpoints, encodedChecks] =
-      await Promise.all([
-        encodeWorkspaceVersionControl(versionControl),
-        encodeWorkspaceCheckpointList(checkpoints),
-        encodeWorkspaceCheckRunList(checks),
-      ])
+    const review = await loadWorkspaceReview(
+      database,
+      data.workspaceId,
+      versionControl.forkHead
+    )
+    const [
+      encodedVersionControl,
+      encodedCheckpoints,
+      encodedChecks,
+      encodedReview,
+    ] = await Promise.all([
+      encodeWorkspaceVersionControl(versionControl),
+      encodeWorkspaceCheckpointList(checkpoints),
+      encodeWorkspaceCheckRunList(checks),
+      encodeWorkspaceReview(review),
+    ])
 
     const runtimeStatus =
       (workspace.status === "error" || workspace.errorSummary) &&
@@ -2331,7 +2495,7 @@ export const getWorkspace = createServerFn({ method: "GET" })
       workspace.status !== "merging" &&
       workspace.status !== "archived"
     ) {
-      await drizzle(env.DB, { schema })
+      await database
         .update(schema.workspace)
         .set({ status, updatedAt: new Date() })
         .where(eq(schema.workspace.id, data.workspaceId))
@@ -2348,6 +2512,12 @@ export const getWorkspace = createServerFn({ method: "GET" })
       versionControl: encodedVersionControl,
       checkpoints: encodedCheckpoints,
       checks: encodedChecks,
+      review: encodedReview,
+      currentReviewer: {
+        id: session.user.id,
+        name: session.user.name,
+        image: session.user.image ?? null,
+      },
       models: connection?.models ?? [],
       selectedModel: connection
         ? { providerId: connection.providerId, modelId: connection.modelId }
@@ -2640,6 +2810,185 @@ export const checkpointWorkspace = createServerFn({ method: "POST" })
     }
   })
 
+export const addWorkspaceReviewComment = createServerFn({ method: "POST" })
+  .validator((input) => decodeWorkspaceReviewCommentInputPromise(input))
+  .handler(async ({ data }) => {
+    const { session } = await currentSession(getRequest())
+    if (!session) throw new Error("Sign in before commenting on a review")
+    if (data.endLine < data.startLine) {
+      throw new Error("The review comment line range is invalid")
+    }
+    const body = data.body.trim()
+    if (!body) throw new Error("Write a comment before adding it")
+
+    const database = drizzle(env.DB, { schema })
+    const workspace = await reviewableWorkspace(
+      database,
+      data.workspaceId,
+      session.user.id
+    )
+    if (workspace.forkHead !== data.commit) {
+      throw new Error("The Workspace changed. Review the latest Checkpoint")
+    }
+    const id = reviewId(data.workspaceId, data.commit)
+    const now = new Date()
+    await database
+      .insert(schema.workspaceReview)
+      .values({
+        id,
+        workspaceId: data.workspaceId,
+        commit: data.commit,
+        decision: "pending",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoNothing()
+    await database.insert(schema.workspaceReviewComment).values({
+      id: crypto.randomUUID(),
+      reviewId: id,
+      file: data.file,
+      side: data.side,
+      startLine: data.startLine,
+      endLine: data.endLine,
+      body,
+      authorUserId: session.user.id,
+      createdAt: now,
+      updatedAt: now,
+    })
+    await database
+      .update(schema.workspaceReview)
+      .set({
+        decision: reviewDecisionAfterComment(),
+        reviewerUserId: null,
+        submittedAt: null,
+        updatedAt: now,
+      })
+      .where(eq(schema.workspaceReview.id, id))
+
+    return encodeWorkspaceReview(
+      await loadWorkspaceReview(database, data.workspaceId, data.commit)
+    )
+  })
+
+export const resolveWorkspaceReviewComment = createServerFn({ method: "POST" })
+  .validator((input) => decodeWorkspaceReviewResolutionInputPromise(input))
+  .handler(async ({ data }) => {
+    const { session } = await currentSession(getRequest())
+    if (!session) throw new Error("Sign in before resolving a review comment")
+    const database = drizzle(env.DB, { schema })
+    const workspace = await reviewableWorkspace(
+      database,
+      data.workspaceId,
+      session.user.id
+    )
+    const comment = await database
+      .select({
+        id: schema.workspaceReviewComment.id,
+        reviewId: schema.workspaceReview.id,
+        commit: schema.workspaceReview.commit,
+      })
+      .from(schema.workspaceReviewComment)
+      .innerJoin(
+        schema.workspaceReview,
+        eq(schema.workspaceReview.id, schema.workspaceReviewComment.reviewId)
+      )
+      .where(
+        and(
+          eq(schema.workspaceReviewComment.id, data.commentId),
+          eq(schema.workspaceReview.workspaceId, data.workspaceId)
+        )
+      )
+      .get()
+    if (!comment || comment.commit !== workspace.forkHead) {
+      throw new Error("This comment is not part of the current review")
+    }
+    const now = new Date()
+    await database
+      .update(schema.workspaceReviewComment)
+      .set({
+        resolvedAt: data.resolved ? now : null,
+        resolvedByUserId: data.resolved ? session.user.id : null,
+        updatedAt: now,
+      })
+      .where(eq(schema.workspaceReviewComment.id, data.commentId))
+    if (!data.resolved) {
+      await database
+        .update(schema.workspaceReview)
+        .set({
+          decision: reviewDecisionAfterComment(),
+          reviewerUserId: null,
+          submittedAt: null,
+          updatedAt: now,
+        })
+        .where(eq(schema.workspaceReview.id, comment.reviewId))
+    }
+
+    return encodeWorkspaceReview(
+      await loadWorkspaceReview(database, data.workspaceId, workspace.forkHead)
+    )
+  })
+
+export const submitWorkspaceReview = createServerFn({ method: "POST" })
+  .validator((input) => decodeWorkspaceReviewDecisionInputPromise(input))
+  .handler(async ({ data }) => {
+    const { session } = await currentSession(getRequest())
+    if (!session) throw new Error("Sign in before submitting a review")
+    const database = drizzle(env.DB, { schema })
+    const workspace = await reviewableWorkspace(
+      database,
+      data.workspaceId,
+      session.user.id
+    )
+    if (workspace.forkHead !== data.commit) {
+      throw new Error("The Workspace changed. Review the latest Checkpoint")
+    }
+    const id = reviewId(data.workspaceId, data.commit)
+    if (data.decision === "approved") {
+      const unresolved = await database
+        .select({ value: count() })
+        .from(schema.workspaceReviewComment)
+        .where(
+          and(
+            eq(schema.workspaceReviewComment.reviewId, id),
+            isNull(schema.workspaceReviewComment.resolvedAt)
+          )
+        )
+        .get()
+      if ((unresolved?.value ?? 0) > 0) {
+        throw new Error("Resolve all review comments before approving")
+      }
+    }
+    const now = new Date()
+    await database
+      .insert(schema.workspaceReview)
+      .values({
+        id,
+        workspaceId: data.workspaceId,
+        commit: data.commit,
+        decision: data.decision,
+        reviewerUserId: session.user.id,
+        submittedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: [
+          schema.workspaceReview.workspaceId,
+          schema.workspaceReview.commit,
+        ],
+        set: {
+          decision: data.decision,
+          reviewerUserId: session.user.id,
+          submittedAt: now,
+          updatedAt: now,
+        },
+      })
+
+    return encodeWorkspaceReview(
+      await loadWorkspaceReview(database, data.workspaceId, data.commit)
+    )
+  })
+
 export const rebaseWorkspace = createServerFn({ method: "POST" })
   .validator((input) => decodeWorkspaceRequestInputPromise(input))
   .handler(async ({ data }) => {
@@ -2887,6 +3236,23 @@ export const acceptWorkspace = createServerFn({ method: "POST" })
         forkHead: versionControl.forkHead,
       },
     })
+    const review = await loadWorkspaceReview(
+      database,
+      data.workspaceId,
+      versionControl.forkHead
+    )
+    if (
+      !reviewAllowsAcceptance({
+        decision: review.decision,
+        reviewCommit: review.commit,
+        forkHead: versionControl.forkHead,
+        unresolvedComments: review.comments.filter(
+          (comment) => comment.resolvedAt === null
+        ).length,
+      })
+    ) {
+      throw new Error("Approve the current Workspace review before accepting")
+    }
 
     const operationId = `${data.workspaceId}-${data.idempotencyKey}`
     const existing = await database

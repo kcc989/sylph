@@ -4,6 +4,7 @@ import { defaultPatch } from "@workspace/ui/components/code-review"
 import {
   BrowserPreview,
   ProjectRail,
+  ReviewNotesSurface,
   ReviewSurface,
   WorkspaceShell,
   fallbackProjects,
@@ -137,6 +138,46 @@ export const ReviewWithPierreDiffs: Story = {
         changedFileCount={4}
         changeSummary="+286 −41"
         patch={defaultPatch}
+      />
+    </div>
+  ),
+}
+
+const reviewer = {
+  id: "reviewer-casey",
+  name: "Casey Collins",
+  image: null,
+}
+
+export const ReviewWorkflow: Story = {
+  render: () => (
+    <div className="h-[720px]">
+      <ReviewNotesSurface
+        currentReviewer={reviewer}
+        onAddComment={async () => true}
+        onResolveComment={async () => undefined}
+        onSubmitReview={async () => undefined}
+        patch={defaultPatch}
+        review={{
+          commit: "bfd041e99a5ce7db0b13822b8e8b742ea3204bf2",
+          decision: "changes_requested",
+          reviewer,
+          submittedAt: Date.now(),
+          comments: [
+            {
+              id: "review-comment-1",
+              file: "apps/web/src/routes/workspaces/$workspaceId.tsx",
+              side: "additions",
+              startLine: 18,
+              endLine: 20,
+              body: "Keep the route loading state visible until the Workspace snapshot has finished loading.",
+              author: reviewer,
+              createdAt: Date.now(),
+              resolvedAt: null,
+              resolvedBy: null,
+            },
+          ],
+        }}
       />
     </div>
   ),

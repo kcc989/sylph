@@ -250,6 +250,9 @@ function HomeScreen() {
       projects={dashboard.projects}
       providerOrganizationIds={dashboard.providerOrganizationIds}
       onVisibilityChange={setOnboardingVisible}
+      required={Boolean(
+        onboardingState.organization && !onboardingState.providerConnected
+      )}
       userId={dashboard.user.id}
       workspaces={dashboard.workspaces}
     />
