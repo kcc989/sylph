@@ -3,8 +3,8 @@ import { existsSync } from "node:fs"
 import { resolve } from "node:path"
 
 const authenticationState = resolve(
-  process.cwd(),
-  "playwright/.auth/release-smoke.json"
+  process.env.SYLPH_SMOKE_AUTH_STATE ??
+    resolve(process.cwd(), "playwright/.auth/release-smoke.json")
 )
 
 export default defineConfig({
