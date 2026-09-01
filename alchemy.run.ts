@@ -86,6 +86,15 @@ export class Website extends Cloudflare.Website.Vite<Website>()(
         GITHUB_CLIENT_SECRET: Config.redacted("GITHUB_CLIENT_SECRET").pipe(
           Config.withDefault(Redacted.make(""))
         ),
+        OAUTH_PROXY_URL: Config.string("OAUTH_PROXY_URL").pipe(
+          Config.withDefault("")
+        ),
+        OAUTH_PROXY_SECRET: Config.redacted("OAUTH_PROXY_SECRET").pipe(
+          Config.withDefault(Redacted.make(""))
+        ),
+        OAUTH_PROXY_TRUSTED_ORIGINS: Config.string(
+          "OAUTH_PROXY_TRUSTED_ORIGINS"
+        ).pipe(Config.withDefault("")),
         REPOS: Repositories,
         CHECK_EVIDENCE: checkEvidence,
         CI_WORKFLOW: Cloudflare.Workflow<WorkspaceCiInput>("CI", {

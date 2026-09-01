@@ -28,6 +28,7 @@
       "version": "0.0.1",
       "dependencies": {
         "@opencode-ai/plugin": "^0.0.0-dev-18308",
+        "@opencode-ai/schema": "0.0.0-dev-18308",
         "@opencode-ai/sdk": "^0.0.0-dev-18308",
         "@tailwindcss/vite": "^4",
         "@tanstack/react-devtools": "latest",

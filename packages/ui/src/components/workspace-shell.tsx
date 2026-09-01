@@ -47,7 +47,7 @@ import {
 } from "lucide-react"
 import { Combobox } from "@base-ui/react/combobox"
 import ReactMarkdown from "react-markdown"
-import { useRef, useState, type ReactNode } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 import {
   useDefaultLayout,
   type PanelImperativeHandle,
@@ -95,6 +95,12 @@ import {
   TooltipTrigger,
 } from "@workspace/ui/components/tooltip"
 import { cn } from "@workspace/ui/lib/utils"
+import {
+  readWorkspaceToolState,
+  writeWorkspaceToolState,
+  type WorkspaceToolTab as WorkspaceTab,
+  type WorkspaceToolTabKind as WorkspaceTabKind,
+} from "@workspace/ui/lib/workspace-tool-state"
 
 type WorkspaceStatus = "running" | "waiting" | "ready" | "archived" | "error"
 
@@ -139,6 +145,11 @@ type ThreadEntry = {
   kind: "user" | "agent" | "tool" | "result"
   title?: string
   body: string
+  skill?: {
+    name: string
+    scope: "installation" | "project"
+    prompt: string
+  }
   meta?: string
   details?: string[]
   artifact?: { label: string; detail: string }
@@ -263,15 +274,14 @@ export type ComposerModel = {
   scope: "personal" | "organization"
 }
 
-type WorkspaceTabKind = "browser" | "changes" | "checks" | "review" | "terminal"
-
-type WorkspaceTab = {
-  id: string
-  kind: WorkspaceTabKind
-  label: string
+export type ComposerSkill = {
+  name: string
+  description: string
+  scope: "installation" | "project"
 }
 
 type WorkspaceShellProps = {
+  workspaceId: string
   canAdminister?: boolean
   organization?: string
   projectName: string
@@ -300,6 +310,7 @@ type WorkspaceShellProps = {
   demo?: boolean
   className?: string
   models?: ReadonlyArray<ComposerModel>
+  skills?: ReadonlyArray<ComposerSkill>
   selectedModel?: { providerId: string; modelId: string } | null
   modelNotice?: string | null
   initialPrompt?: string
@@ -919,6 +930,42 @@ function ResponseMarkdown({ children }: { children: string }) {
   )
 }
 
+function SkillInvocationMessage({ entry }: { entry: ThreadEntry }) {
+  if (!entry.skill) {
+    return (
+      <p className="text-[13px] leading-5 whitespace-pre-wrap text-foreground">
+        {entry.body}
+      </p>
+    )
+  }
+
+  return (
+    <div className="grid justify-items-start gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <span
+          aria-label={`Invoked ${entry.skill.name} Skill`}
+          className="inline-flex h-6 items-center gap-1.5 rounded-[5px] border border-[#ef9b7e]/30 bg-[#ef9b7e]/10 px-2 text-[#ef9b7e]"
+        >
+          <Blocks aria-hidden="true" className="size-3.5" />
+          <span className="font-mono text-[11px] font-medium">
+            /{entry.skill.name}
+          </span>
+        </span>
+        <span className="text-[10px] text-muted-foreground">
+          {entry.skill.scope === "project"
+            ? "Project skill"
+            : "Installation skill"}
+        </span>
+      </div>
+      {entry.skill.prompt && (
+        <p className="text-[13px] leading-5 whitespace-pre-wrap text-foreground">
+          {entry.skill.prompt}
+        </p>
+      )}
+    </div>
+  )
+}
+
 function AgentQuestion({
   question,
   pending,
@@ -1126,6 +1173,7 @@ function AgentThread({
   onRestartWorkspace,
   workspaceError,
   models,
+  skills,
   selectedModel,
   modelNotice,
   onModelChange,
@@ -1162,6 +1210,7 @@ function AgentThread({
   onRestartWorkspace?: () => Promise<void>
   workspaceError?: string | null
   models: ReadonlyArray<ComposerModel>
+  skills: ReadonlyArray<ComposerSkill>
   selectedModel?: { providerId: string; modelId: string } | null
   modelNotice?: string | null
   onModelChange?: (model: { providerId: string; modelId: string }) => void
@@ -1212,13 +1261,13 @@ function AgentThread({
                     )}
                     {entry.kind === "agent" || entry.kind === "result" ? (
                       <ResponseMarkdown>{entry.body}</ResponseMarkdown>
+                    ) : entry.kind === "user" ? (
+                      <SkillInvocationMessage entry={entry} />
                     ) : (
                       <p
                         className={cn(
                           "text-[13px] leading-5 whitespace-pre-wrap",
-                          entry.kind === "user"
-                            ? "text-foreground"
-                            : "text-foreground/80"
+                          "text-foreground/80"
                         )}
                       >
                         {entry.body}
@@ -1438,6 +1487,7 @@ function AgentThread({
         onSubmit={onSubmitPrompt}
         pending={promptPending}
         models={models}
+        skills={skills}
         selectedModel={selectedModel}
         modelNotice={modelNotice}
         onModelChange={onModelChange}
@@ -1584,6 +1634,7 @@ function PromptComposer({
   onSubmit,
   pending = false,
   models,
+  skills,
   selectedModel,
   modelNotice,
   onModelChange,
@@ -1600,6 +1651,7 @@ function PromptComposer({
   ) => Promise<void>
   pending?: boolean
   models: ReadonlyArray<ComposerModel>
+  skills: ReadonlyArray<ComposerSkill>
   selectedModel?: { providerId: string; modelId: string } | null
   modelNotice?: string | null
   onModelChange?: (model: { providerId: string; modelId: string }) => void
@@ -1607,6 +1659,22 @@ function PromptComposer({
   queueFull?: boolean
 }) {
   const [text, setText] = useState(initialPrompt)
+  const [activeSkillIndex, setActiveSkillIndex] = useState(0)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const commandQuery = /^\/([^\s]*)$/.exec(text)?.[1]?.toLocaleLowerCase()
+  const matchingSkills =
+    commandQuery === undefined
+      ? []
+      : skills.filter((skill) =>
+          skill.name.toLocaleLowerCase().includes(commandQuery)
+        )
+
+  useEffect(() => setActiveSkillIndex(0), [commandQuery])
+
+  const selectSkill = (skill: ComposerSkill) => {
+    setText(`/${skill.name} `)
+    textareaRef.current?.focus()
+  }
   const selectedOption = selectedModel
     ? models.find(
         (model) =>
@@ -1627,19 +1695,77 @@ function PromptComposer({
   return (
     <div className="shrink-0 p-3 pt-0">
       <form
-        className="@container mx-auto max-w-3xl border border-white/[.12] bg-[#1c1a18] shadow-[0_16px_45px_rgba(0,0,0,.24)] focus-within:border-[#ef9b7e]/45"
+        className="@container relative mx-auto max-w-3xl border border-white/[.12] bg-[#1c1a18] shadow-[0_16px_45px_rgba(0,0,0,.24)] focus-within:border-[#ef9b7e]/45"
         onSubmit={async (event) => {
           event.preventDefault()
           await submit(turnActive ? "queue" : undefined)
         }}
       >
+        {matchingSkills.length ? (
+          <div
+            aria-label="Skill commands"
+            className="absolute inset-x-[-1px] bottom-[calc(100%+5px)] z-20 max-h-64 overflow-y-auto border border-white/[.12] bg-[#1c1a18] p-1 shadow-[0_16px_45px_rgba(0,0,0,.35)]"
+            role="listbox"
+          >
+            {matchingSkills.map((skill, index) => (
+              <button
+                aria-selected={index === activeSkillIndex}
+                className={cn(
+                  "grid w-full grid-cols-[1.25rem_minmax(0,1fr)_auto] items-start gap-2 px-2 py-2 text-left outline-none hover:bg-white/[.07] focus-visible:bg-white/[.07]",
+                  index === activeSkillIndex && "bg-white/[.07]"
+                )}
+                key={`${skill.scope}/${skill.name}`}
+                onClick={() => selectSkill(skill)}
+                role="option"
+                type="button"
+              >
+                <Blocks className="mt-0.5 size-3.5 text-[#ef9b7e]" />
+                <span className="min-w-0">
+                  <span className="block font-mono text-[11px] text-foreground">
+                    /{skill.name}
+                  </span>
+                  <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
+                    {skill.description}
+                  </span>
+                </span>
+                <span className="pt-0.5 text-[9px] text-muted-foreground uppercase">
+                  {skill.scope}
+                </span>
+              </button>
+            ))}
+          </div>
+        ) : null}
         <Textarea
           aria-label="Message the agent"
           className="min-h-20 resize-none border-0 bg-transparent px-3 py-2.5 text-[13px] shadow-none focus-visible:ring-0"
           disabled={disabled || pending}
+          ref={textareaRef}
           value={text}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={async (event) => {
+            if (matchingSkills.length && event.key === "ArrowDown") {
+              event.preventDefault()
+              setActiveSkillIndex((index) =>
+                Math.min(index + 1, matchingSkills.length - 1)
+              )
+              return
+            }
+            if (matchingSkills.length && event.key === "ArrowUp") {
+              event.preventDefault()
+              setActiveSkillIndex((index) => Math.max(index - 1, 0))
+              return
+            }
+            if (matchingSkills.length && event.key === "Enter") {
+              event.preventDefault()
+              const skill = matchingSkills[activeSkillIndex]
+              if (skill) selectSkill(skill)
+              return
+            }
+            if (matchingSkills.length && event.key === "Escape") {
+              event.preventDefault()
+              setText("")
+              return
+            }
             if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
               event.preventDefault()
               await submit(turnActive ? "queue" : undefined)
@@ -1680,10 +1806,24 @@ function PromptComposer({
             className="hidden @lg:inline-flex"
             size="icon-xs"
             variant="ghost"
+            type="button"
+            onClick={() => {
+              setText("/")
+              textareaRef.current?.focus()
+            }}
           >
             <Terminal />
           </Button>
-          <Button className="hidden @xl:inline-flex" size="xs" variant="ghost">
+          <Button
+            className="hidden @xl:inline-flex"
+            size="xs"
+            type="button"
+            variant="ghost"
+            onClick={() => {
+              setText("/")
+              textareaRef.current?.focus()
+            }}
+          >
             <Blocks /> Skills
           </Button>
           <ModelCombobox
@@ -2513,6 +2653,7 @@ function WorkspaceChat({
   toolPaneOpen,
   workspaceError,
   models,
+  skills,
   selectedModel,
   modelNotice,
   onModelChange,
@@ -2552,6 +2693,7 @@ function WorkspaceChat({
   toolPaneOpen: boolean
   workspaceError?: string | null
   models: ReadonlyArray<ComposerModel>
+  skills: ReadonlyArray<ComposerSkill>
   selectedModel?: { providerId: string; modelId: string } | null
   modelNotice?: string | null
   onModelChange?: (model: { providerId: string; modelId: string }) => void
@@ -2588,6 +2730,7 @@ function WorkspaceChat({
         onRestartWorkspace={onRestartWorkspace}
         workspaceError={workspaceError}
         models={models}
+        skills={skills}
         selectedModel={selectedModel}
         modelNotice={modelNotice}
         onModelChange={onModelChange}
@@ -2788,6 +2931,7 @@ function WorkspaceTabs({
 }
 
 function WorkspaceShell({
+  workspaceId,
   canAdminister = false,
   organization = "Casey’s workspace",
   projectName,
@@ -2815,6 +2959,7 @@ function WorkspaceShell({
   demo = false,
   className,
   models = [],
+  skills = [],
   selectedModel,
   modelNotice,
   onModelChange,
@@ -2858,6 +3003,10 @@ function WorkspaceShell({
   const [tabs, setTabs] = useState<WorkspaceTab[]>(initialWorkspaceTabs)
   const [activeTabId, setActiveTabId] = useState<string | null>(null)
   const [toolPaneOpen, setToolPaneOpen] = useState(false)
+  const [toolPaneSize, setToolPaneSize] = useState(50)
+  const [toolStateWorkspaceId, setToolStateWorkspaceId] = useState<
+    string | null
+  >(null)
   const browserTabNumber = useRef(0)
   const projectRailRef = useRef<PanelImperativeHandle>(null)
   const projectLayout = useDefaultLayout({
@@ -2866,6 +3015,37 @@ function WorkspaceShell({
     panelIds: ["project-navigation", "workspace-area"],
     storage: workspacePanelStorage,
   })
+
+  useEffect(() => {
+    const restored = readWorkspaceToolState(workspacePanelStorage, workspaceId)
+    const restoredTabs = restored?.tabs ?? initialWorkspaceTabs
+    setTabs(restoredTabs)
+    setActiveTabId(restored?.activeTabId ?? null)
+    setToolPaneOpen(restored?.toolPaneOpen ?? false)
+    setToolPaneSize(restored?.toolPaneSize ?? 50)
+    browserTabNumber.current = restoredTabs.reduce((highest, tab) => {
+      const match = /^browser-(\d+)$/.exec(tab.id)
+      return match ? Math.max(highest, Number(match[1])) : highest
+    }, 0)
+    setToolStateWorkspaceId(workspaceId)
+  }, [workspaceId])
+
+  useEffect(() => {
+    if (toolStateWorkspaceId !== workspaceId) return
+    writeWorkspaceToolState(workspacePanelStorage, workspaceId, {
+      tabs,
+      activeTabId,
+      toolPaneOpen,
+      toolPaneSize,
+    })
+  }, [
+    activeTabId,
+    tabs,
+    toolPaneOpen,
+    toolPaneSize,
+    toolStateWorkspaceId,
+    workspaceId,
+  ])
 
   const addBrowserTab = () => {
     browserTabNumber.current += 1
@@ -3027,6 +3207,16 @@ function WorkspaceShell({
               <ResizablePanelGroup
                 className="relative min-h-0 flex-1"
                 id="workspace-content-panes"
+                onLayoutChanged={(layout, meta) => {
+                  const size = layout["workspace-tools"]
+                  if (
+                    meta.isUserInteraction &&
+                    size !== undefined &&
+                    Number.isFinite(size)
+                  ) {
+                    setToolPaneSize(size)
+                  }
+                }}
                 orientation="horizontal"
               >
                 <ResizablePanel id="workspace-chat" minSize="260px">
@@ -3046,6 +3236,7 @@ function WorkspaceShell({
                     onCancelTurn={onCancelTurn}
                     initialPrompt={initialPrompt}
                     models={models}
+                    skills={skills}
                     selectedModel={selectedModel}
                     modelNotice={modelNotice}
                     onModelChange={onModelChange}
@@ -3071,7 +3262,7 @@ function WorkspaceShell({
                     />
                     <ResizablePanel
                       className="bg-background max-md:fixed! max-md:inset-x-1.5! max-md:top-[54px]! max-md:bottom-1.5! max-md:z-50 max-md:h-auto! max-md:w-auto! max-md:max-w-none! max-md:min-w-0! max-md:basis-auto!"
-                      defaultSize="50%"
+                      defaultSize={`${toolPaneSize}%`}
                       id="workspace-tools"
                       maxSize="70%"
                       minSize="260px"

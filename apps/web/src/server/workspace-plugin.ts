@@ -6,6 +6,8 @@ import {
   decodeWorkspaceRunChecksToolInput,
   decodeWorkspaceSyncToolInput,
   decodeWorkspaceWriteFile,
+  decodeSkillResourceInputPromise,
+  SkillResourceJsonSchema,
   WorkspaceCheckStatusToolJsonSchema,
   type WorkspaceCheckRun,
   WorkspaceDeleteFileJsonSchema,
@@ -17,6 +19,8 @@ import {
   WorkspaceWriteFileJsonSchema,
 } from "@workspace/domain"
 import { Plugin } from "@opencode-ai/plugin"
+import { Skill } from "@opencode-ai/schema/skill"
+import { AbsolutePath } from "@opencode-ai/schema/schema"
 
 import {
   applyOpenAIOAuthRequest,
@@ -27,6 +31,11 @@ import {
   normalizeWorkspacePath,
 } from "./workspace-filesystem"
 import { WorkspaceGit } from "./workspace-git"
+import {
+  runtimeSkillContent,
+  runtimeSkillPolicy,
+  type WorkspaceSkillRegistry,
+} from "./workspace-skills"
 
 export const selectWorkspaceVcs = (draft: {
   readonly default?: { set(selection: string): void }
@@ -153,13 +162,42 @@ export const createWorkspacePlugin = (
   workspaceGit: WorkspaceGit,
   openAIOAuth: OpenAIOAuthRequestState,
   permissionBridge: WorkspacePermissionBridge,
+  skills: WorkspaceSkillRegistry,
   actions: WorkspacePluginActions
 ) =>
   Plugin.define({
     id: "sylph-workspace",
     vcs: { id: "sylph", markers: [".git"] },
     async setup(context) {
+      const skillRegistration = await context.skill.transform((draft) => {
+        for (const skill of skills.list()) {
+          const policy = runtimeSkillPolicy(skill)
+          draft.add({
+            id: Skill.ID.make(skill.metadata.name),
+            name: Skill.Name.make(skill.metadata.name),
+            description: skill.metadata.description,
+            slash: policy.slash,
+            autoinvoke: policy.autoinvoke,
+            location: AbsolutePath.make(`/skills/${skill.metadata.name}.md`),
+            content: runtimeSkillContent(skill),
+          })
+        }
+      })
+      skills.connect(() => context.skill.reload())
       const toolRegistration = await context.tool.transform((draft) => {
+        draft.add({
+          name: "skill_read_resource",
+          description:
+            "Read a supporting file from an installed Skill after the Skill instructions reference it.",
+          input: SkillResourceJsonSchema,
+          options: workspaceToolOptions,
+          async execute(input) {
+            const decoded = await decodeSkillResourceInputPromise(input)
+            return {
+              content: skills.read(decoded.skill, decoded.path),
+            }
+          },
+        })
         draft.add({
           name: "workspace_list_files",
           description:
@@ -341,6 +379,7 @@ export const createWorkspacePlugin = (
       return async () => {
         await Promise.all([
           toolRegistration.dispose(),
+          skillRegistration.dispose(),
           agentRegistration.dispose(),
           permissionRegistration.dispose(),
           vcsRegistration.dispose(),

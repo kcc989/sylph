@@ -15,11 +15,13 @@ import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SetupRouteImport } from './routes/setup'
 import { Route as InviteInvitationIdRouteImport } from './routes/invite/$invitationId'
 import { Route as ProjectsNewRouteImport } from './routes/projects/new'
+import { Route as SkillsIndexRouteImport } from './routes/skills/index'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiWorkspacesWorkspaceIdRouteImport } from './routes/api/workspaces/$workspaceId'
 import { Route as ProjectsProjectSlugSettingsRouteImport } from './routes/projects/$projectSlug/settings'
 import { Route as ProjectsProjectSlugWorkspacesWorkspaceIdRouteImport } from './routes/projects/$projectSlug/workspaces/$workspaceId'
 import { Route as ProjectsProjectSlugWorkspacesNewRouteImport } from './routes/projects/$projectSlug/workspaces/new'
+import { Route as SkillsOwnerRepositorySkillRouteImport } from './routes/skills/$owner/$repository/$skill'
 import { Route as ApiWorkspacesWorkspaceIdEvidenceEvidenceIdRouteImport } from './routes/api/workspaces/$workspaceId/evidence/$evidenceId'
 
 const IndexRoute = IndexRouteImport.update({
@@ -52,6 +54,11 @@ const ProjectsNewRoute = ProjectsNewRouteImport.update({
   path: '/projects/new',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SkillsIndexRoute = SkillsIndexRouteImport.update({
+  id: '/skills/',
+  path: '/skills/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -81,6 +88,12 @@ const ProjectsProjectSlugWorkspacesNewRoute =
     path: '/projects/$projectSlug/workspaces/new',
     getParentRoute: () => rootRouteImport,
   } as any)
+const SkillsOwnerRepositorySkillRoute =
+  SkillsOwnerRepositorySkillRouteImport.update({
+    id: '/skills/$owner/$repository/$skill',
+    path: '/skills/$owner/$repository/$skill',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiWorkspacesWorkspaceIdEvidenceEvidenceIdRoute =
   ApiWorkspacesWorkspaceIdEvidenceEvidenceIdRouteImport.update({
     id: '/evidence/$evidenceId',
@@ -95,11 +108,13 @@ export interface FileRoutesByFullPath {
   '/setup': typeof SetupRoute
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/projects/new': typeof ProjectsNewRoute
+  '/skills/': typeof SkillsIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/workspaces/$workspaceId': typeof ApiWorkspacesWorkspaceIdRouteWithChildren
   '/projects/$projectSlug/settings': typeof ProjectsProjectSlugSettingsRoute
   '/projects/$projectSlug/workspaces/$workspaceId': typeof ProjectsProjectSlugWorkspacesWorkspaceIdRoute
   '/projects/$projectSlug/workspaces/new': typeof ProjectsProjectSlugWorkspacesNewRoute
+  '/skills/$owner/$repository/$skill': typeof SkillsOwnerRepositorySkillRoute
   '/api/workspaces/$workspaceId/evidence/$evidenceId': typeof ApiWorkspacesWorkspaceIdEvidenceEvidenceIdRoute
 }
 export interface FileRoutesByTo {
@@ -109,11 +124,13 @@ export interface FileRoutesByTo {
   '/setup': typeof SetupRoute
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/projects/new': typeof ProjectsNewRoute
+  '/skills': typeof SkillsIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/workspaces/$workspaceId': typeof ApiWorkspacesWorkspaceIdRouteWithChildren
   '/projects/$projectSlug/settings': typeof ProjectsProjectSlugSettingsRoute
   '/projects/$projectSlug/workspaces/$workspaceId': typeof ProjectsProjectSlugWorkspacesWorkspaceIdRoute
   '/projects/$projectSlug/workspaces/new': typeof ProjectsProjectSlugWorkspacesNewRoute
+  '/skills/$owner/$repository/$skill': typeof SkillsOwnerRepositorySkillRoute
   '/api/workspaces/$workspaceId/evidence/$evidenceId': typeof ApiWorkspacesWorkspaceIdEvidenceEvidenceIdRoute
 }
 export interface FileRoutesById {
@@ -124,11 +141,13 @@ export interface FileRoutesById {
   '/setup': typeof SetupRoute
   '/invite/$invitationId': typeof InviteInvitationIdRoute
   '/projects/new': typeof ProjectsNewRoute
+  '/skills/': typeof SkillsIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/workspaces/$workspaceId': typeof ApiWorkspacesWorkspaceIdRouteWithChildren
   '/projects/$projectSlug/settings': typeof ProjectsProjectSlugSettingsRoute
   '/projects/$projectSlug/workspaces/$workspaceId': typeof ProjectsProjectSlugWorkspacesWorkspaceIdRoute
   '/projects/$projectSlug/workspaces/new': typeof ProjectsProjectSlugWorkspacesNewRoute
+  '/skills/$owner/$repository/$skill': typeof SkillsOwnerRepositorySkillRoute
   '/api/workspaces/$workspaceId/evidence/$evidenceId': typeof ApiWorkspacesWorkspaceIdEvidenceEvidenceIdRoute
 }
 export interface FileRouteTypes {
@@ -140,11 +159,13 @@ export interface FileRouteTypes {
     | '/setup'
     | '/invite/$invitationId'
     | '/projects/new'
+    | '/skills/'
     | '/api/auth/$'
     | '/api/workspaces/$workspaceId'
     | '/projects/$projectSlug/settings'
     | '/projects/$projectSlug/workspaces/$workspaceId'
     | '/projects/$projectSlug/workspaces/new'
+    | '/skills/$owner/$repository/$skill'
     | '/api/workspaces/$workspaceId/evidence/$evidenceId'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -154,11 +175,13 @@ export interface FileRouteTypes {
     | '/setup'
     | '/invite/$invitationId'
     | '/projects/new'
+    | '/skills'
     | '/api/auth/$'
     | '/api/workspaces/$workspaceId'
     | '/projects/$projectSlug/settings'
     | '/projects/$projectSlug/workspaces/$workspaceId'
     | '/projects/$projectSlug/workspaces/new'
+    | '/skills/$owner/$repository/$skill'
     | '/api/workspaces/$workspaceId/evidence/$evidenceId'
   id:
     | '__root__'
@@ -168,11 +191,13 @@ export interface FileRouteTypes {
     | '/setup'
     | '/invite/$invitationId'
     | '/projects/new'
+    | '/skills/'
     | '/api/auth/$'
     | '/api/workspaces/$workspaceId'
     | '/projects/$projectSlug/settings'
     | '/projects/$projectSlug/workspaces/$workspaceId'
     | '/projects/$projectSlug/workspaces/new'
+    | '/skills/$owner/$repository/$skill'
     | '/api/workspaces/$workspaceId/evidence/$evidenceId'
   fileRoutesById: FileRoutesById
 }
@@ -183,11 +208,13 @@ export interface RootRouteChildren {
   SetupRoute: typeof SetupRoute
   InviteInvitationIdRoute: typeof InviteInvitationIdRoute
   ProjectsNewRoute: typeof ProjectsNewRoute
+  SkillsIndexRoute: typeof SkillsIndexRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiWorkspacesWorkspaceIdRoute: typeof ApiWorkspacesWorkspaceIdRouteWithChildren
   ProjectsProjectSlugSettingsRoute: typeof ProjectsProjectSlugSettingsRoute
   ProjectsProjectSlugWorkspacesWorkspaceIdRoute: typeof ProjectsProjectSlugWorkspacesWorkspaceIdRoute
   ProjectsProjectSlugWorkspacesNewRoute: typeof ProjectsProjectSlugWorkspacesNewRoute
+  SkillsOwnerRepositorySkillRoute: typeof SkillsOwnerRepositorySkillRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -234,6 +261,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjectsNewRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/skills/': {
+      id: '/skills/'
+      path: '/skills'
+      fullPath: '/skills/'
+      preLoaderRoute: typeof SkillsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -269,6 +303,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjectsProjectSlugWorkspacesNewRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/skills/$owner/$repository/$skill': {
+      id: '/skills/$owner/$repository/$skill'
+      path: '/skills/$owner/$repository/$skill'
+      fullPath: '/skills/$owner/$repository/$skill'
+      preLoaderRoute: typeof SkillsOwnerRepositorySkillRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/workspaces/$workspaceId/evidence/$evidenceId': {
       id: '/api/workspaces/$workspaceId/evidence/$evidenceId'
       path: '/evidence/$evidenceId'
@@ -301,12 +342,14 @@ const rootRouteChildren: RootRouteChildren = {
   SetupRoute: SetupRoute,
   InviteInvitationIdRoute: InviteInvitationIdRoute,
   ProjectsNewRoute: ProjectsNewRoute,
+  SkillsIndexRoute: SkillsIndexRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiWorkspacesWorkspaceIdRoute: ApiWorkspacesWorkspaceIdRouteWithChildren,
   ProjectsProjectSlugSettingsRoute: ProjectsProjectSlugSettingsRoute,
   ProjectsProjectSlugWorkspacesWorkspaceIdRoute:
     ProjectsProjectSlugWorkspacesWorkspaceIdRoute,
   ProjectsProjectSlugWorkspacesNewRoute: ProjectsProjectSlugWorkspacesNewRoute,
+  SkillsOwnerRepositorySkillRoute: SkillsOwnerRepositorySkillRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

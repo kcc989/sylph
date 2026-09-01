@@ -11,6 +11,11 @@ const input = new OpenCodeKeySetupInput({
   configuration: { accountId: "account-1" },
 })
 
+const catalog = (modelId: string) => ({
+  models: [{ providerId: "cloudflare-workers-ai", modelId, name: modelId }],
+  recommendedModelId: modelId,
+})
+
 describe("OpenCode key setup", () => {
   test("uses the embedded runtime catalog instead of bootstrap models", async () => {
     const result = await discoverOpenCodeKeyModels(
@@ -18,17 +23,9 @@ describe("OpenCode key setup", () => {
         connectKey: async (received) => {
           expect(received.providerId).toBe("cloudflare-workers-ai")
           expect(received.apiKey).toBe("provider-key")
-          return {
-            models: [
-              {
-                providerId: "cloudflare-workers-ai",
-                modelId: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-                name: "Llama 3.3 70B Instruct fp8 Fast",
-              },
-            ],
-            recommendedModelId: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-          }
+          return catalog("@cf/meta/llama-3.3-70b-instruct-fp8-fast")
         },
+        evict: async () => undefined,
       },
       input
     )
@@ -45,9 +42,33 @@ describe("OpenCode key setup", () => {
           connectKey: async () => {
             throw new Error("Provider catalog unavailable")
           },
+          evict: async () => undefined,
         },
         input
       )
     ).rejects.toThrow("Provider catalog unavailable")
+  })
+
+  test("reloads the runtime when replacing an existing credential", async () => {
+    const calls: string[] = []
+    const result = await discoverOpenCodeKeyModels(
+      {
+        connectKey: async () => {
+          calls.push("connect")
+          if (calls.length === 1) {
+            throw new Error("Workspace runtime credential store refreshed")
+          }
+          return catalog("@cf/openai/gpt-oss-120b")
+        },
+        evict: async () => {
+          calls.push("evict")
+          throw new Error("Durable Object reset")
+        },
+      },
+      input
+    )
+
+    expect(calls).toEqual(["connect", "evict", "connect"])
+    expect(result.recommendedModelId).toBe("@cf/openai/gpt-oss-120b")
   })
 })

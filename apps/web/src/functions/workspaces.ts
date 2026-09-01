@@ -55,6 +55,10 @@ import {
   workspaceMember,
   writableWorkspace,
 } from "@/functions/middleware"
+import {
+  loadInstalledSkills,
+  serializeInstalledSkill,
+} from "@/server/installed-skills"
 import { requireWorkspaceProject } from "@/server/organization-access"
 import {
   prepareProjectRepository,
@@ -71,7 +75,10 @@ import {
   acceptanceWorkflowRevision,
 } from "@/server/workspace-merge-heads"
 import { serializableWorkspaceRebaseResult } from "@/server/workspace-rebase-result"
-import { readWorkspaceVersionControlSnapshot } from "@/server/workspace-repository-refresh"
+import {
+  readWorkspaceVersionControlSnapshot,
+  waitForWorkspaceVersionControl,
+} from "@/server/workspace-repository-refresh"
 import { reviewAllowsAcceptance } from "@/server/workspace-review"
 import { loadWorkspaceReview } from "@/server/workspace-review-store"
 import {
@@ -287,17 +294,25 @@ export const getWorkspace = createServerFn({ method: "GET" })
     }
 
     const runtime = workspaceRuntime(data.workspaceId)
-    const [runtimeSnapshot, versionControlSnapshot, checks] = await Promise.all(
-      [
+    const readVersionControl = () =>
+      runtimeCall(() => runtime.versionControl(true))
+    const [runtimeSnapshot, versionControlSnapshot, checks, skills] =
+      await Promise.all([
         runtimeCall(() => runtime.snapshot()).then(
           decodeWorkspaceRuntimeHealth
         ),
-        runtimeCall(() => runtime.versionControl(true)),
+        workspace.status === "error" || workspace.errorSummary
+          ? readVersionControl()
+          : waitForWorkspaceVersionControl(readVersionControl),
         runtimeCall(() => runtime.listChecks()).then(
           decodeWorkspaceCheckRunList
         ),
-      ]
-    )
+        loadInstalledSkills(
+          env.DB,
+          workspace.organizationId,
+          workspace.projectId
+        ),
+      ])
 
     const separator = runtimeSnapshot.model?.indexOf("/") ?? -1
     const conversationModel =
@@ -381,6 +396,7 @@ export const getWorkspace = createServerFn({ method: "GET" })
         ? { providerId: connection.providerId, modelId: connection.modelId }
         : null,
       modelNotice: connection?.notice ?? null,
+      skills: skills.map(serializeInstalledSkill),
     }
   })
 
