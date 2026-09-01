@@ -247,6 +247,31 @@ export const workspace = sqliteTable(
   ]
 )
 
+export const deployment = sqliteTable(
+  "deployment",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => project.id, { onDelete: "cascade" }),
+    commit: text("commit").notNull(),
+    status: text("status").notNull().default("queued"),
+    productionUrl: text("production_url"),
+    actorUserId: text("actor_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    failureDetails: text("failure_details"),
+    startedAt: integer("started_at", { mode: "timestamp" }),
+    completedAt: integer("completed_at", { mode: "timestamp" }),
+    createdAt: timestamp("created_at"),
+    updatedAt: timestamp("updated_at"),
+  },
+  (table) => [
+    index("deployment_project_id_idx").on(table.projectId),
+    index("deployment_project_commit_idx").on(table.projectId, table.commit),
+  ]
+)
+
 export const repositoryOperation = sqliteTable(
   "repository_operation",
   {

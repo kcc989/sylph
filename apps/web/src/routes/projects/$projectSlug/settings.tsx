@@ -9,14 +9,18 @@ import {
   GitBranch,
   LoaderCircle,
   Plus,
+  Rocket,
+  RotateCcw,
   Settings2,
 } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 
 import { AppShell } from "@/components/app-shell"
 import {
   exportProjectRecovery,
+  deployProjectCommit,
   getDashboard,
+  getProjectDeployments,
   getWorkspaceCreationContext,
   setProjectDeliveryMode,
 } from "@/lib/workspaces"
@@ -31,22 +35,38 @@ export const Route = createFileRoute("/projects/$projectSlug/settings")({
     const context = project
       ? await getWorkspaceCreationContext({ data: { projectId: project.id } })
       : null
-    return { context, dashboard }
+    const deploymentContext = project
+      ? await getProjectDeployments({ data: { projectId: project.id } })
+      : null
+    return { context, dashboard, deploymentContext }
   },
   component: ProjectSettingsScreen,
 })
 
 function ProjectSettingsScreen() {
   const { projectSlug } = Route.useParams()
-  const { context, dashboard } = Route.useLoaderData()
+  const { context, dashboard, deploymentContext } = Route.useLoaderData()
   const router = useRouter()
   const setDeliveryMode = useServerFn(setProjectDeliveryMode)
   const exportRecovery = useServerFn(exportProjectRecovery)
+  const deployCommit = useServerFn(deployProjectCommit)
   const [deliveryPending, setDeliveryPending] = useState(false)
   const [exportPending, setExportPending] = useState(false)
   const [repositoryError, setRepositoryError] = useState<string | null>(null)
+  const [deployPending, setDeployPending] = useState<string | null>(null)
+  const [deployKey, setDeployKey] = useState(() => crypto.randomUUID())
   const { creatingProjectId, creationError, startWorkspace } =
     useWorkspaceCreation()
+
+  useEffect(() => {
+    const pending = deploymentContext?.deployments.some(
+      (deployment) =>
+        deployment.status === "queued" || deployment.status === "running"
+    )
+    if (!pending) return
+    const timer = window.setInterval(() => void router.invalidate(), 3_000)
+    return () => window.clearInterval(timer)
+  }, [deploymentContext?.deployments, router])
 
   if (!context) {
     return (
@@ -115,6 +135,129 @@ function ProjectSettingsScreen() {
                 This is the canonical Repository contained by the Project. Each
                 Workspace receives an isolated fork.
               </p>
+            </div>
+          </div>
+          <div className="grid gap-4 border-b py-6 sm:grid-cols-[180px_1fr]">
+            <div className="flex items-center gap-2 text-xs font-medium">
+              <Rocket className="size-3.5 text-primary" /> Production
+            </div>
+            <div className="min-w-0">
+              {deploymentContext?.acceptedCommits.length ? (
+                <div className="space-y-3">
+                  {deploymentContext.acceptedCommits.map((accepted, index) => (
+                    <div
+                      key={accepted.commit}
+                      className="flex items-center justify-between gap-3 rounded-[8px] border px-3 py-2.5"
+                    >
+                      <div className="min-w-0">
+                        <p className="font-mono text-xs">
+                          {accepted.commit.slice(0, 7)}
+                        </p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {index === 0
+                            ? "Latest Accepted commit"
+                            : "Earlier Accepted commit"}
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant={index === 0 ? "default" : "outline"}
+                        disabled={deployPending !== null}
+                        onClick={async () => {
+                          setDeployPending(accepted.commit)
+                          setRepositoryError(null)
+                          try {
+                            await deployCommit({
+                              data: {
+                                projectId: context.project.id,
+                                commit: accepted.commit,
+                                idempotencyKey: deployKey,
+                              },
+                            })
+                            setDeployKey(crypto.randomUUID())
+                            await router.invalidate()
+                          } catch (cause) {
+                            setRepositoryError(
+                              cause instanceof Error
+                                ? cause.message
+                                : "Deployment could not start"
+                            )
+                          } finally {
+                            setDeployPending(null)
+                          }
+                        }}
+                      >
+                        {deployPending === accepted.commit ? (
+                          <LoaderCircle className="animate-spin" />
+                        ) : index === 0 ? (
+                          <Rocket />
+                        ) : (
+                          <RotateCcw />
+                        )}
+                        {index === 0 ? "Deploy" : "Rollback"}
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs leading-5 text-muted-foreground">
+                  Accept a checked Workspace commit before deploying.
+                </p>
+              )}
+              <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                Deploy publishes the selected Accepted commit. Rollback creates
+                a new Deployment and does not change the Project Repository.
+              </p>
+            </div>
+          </div>
+          <div className="grid gap-4 border-b py-6 sm:grid-cols-[180px_1fr]">
+            <div className="flex items-center gap-2 text-xs font-medium">
+              <RotateCcw className="size-3.5 text-muted-foreground" />{" "}
+              Deployment history
+            </div>
+            <div className="min-w-0">
+              {deploymentContext?.deployments.length ? (
+                <div className="space-y-3">
+                  {deploymentContext.deployments.map((deployment) => (
+                    <div
+                      key={deployment.id}
+                      className="rounded-[8px] border px-3 py-2.5"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="font-mono text-xs">
+                          {deployment.commit.slice(0, 7)}
+                        </p>
+                        <span className="text-xs font-medium capitalize">
+                          {deployment.status}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {deployment.actorName} ·{" "}
+                        {new Date(deployment.createdAt).toLocaleString()}
+                      </p>
+                      {deployment.productionUrl ? (
+                        <a
+                          href={deployment.productionUrl}
+                          className="mt-2 inline-flex text-xs font-medium text-primary hover:underline"
+                          rel="noreferrer"
+                          target="_blank"
+                        >
+                          Open production
+                        </a>
+                      ) : null}
+                      {deployment.failureDetails ? (
+                        <pre className="mt-2 max-h-32 overflow-auto rounded-[6px] bg-muted p-2 font-mono text-[10px] leading-4 whitespace-pre-wrap text-destructive">
+                          {deployment.failureDetails}
+                        </pre>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs leading-5 text-muted-foreground">
+                  No production Deployments yet.
+                </p>
+              )}
             </div>
           </div>
           {context.project.importOriginUrl ? (

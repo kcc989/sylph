@@ -70,6 +70,12 @@ The latest Checkpoint commit in a Workspace fork.
 **Accepted commit**:
 The commit in the Project Repository containing accepted Workspace work.
 
+**Deployment**:
+A durable record of one attempt to publish an Accepted commit to production. A Deployment belongs to a Project and does not change its Project Repository.
+
+**Rollback**:
+A new Deployment of an earlier Accepted commit. A Rollback does not move or rewrite the Project Repository.
+
 **Provider connection**:
 Authorization for one AI provider together with the models currently available through it. An Organization connection is shared with its members; a Personal connection belongs to one User.
 _Avoid_: OpenCode connection

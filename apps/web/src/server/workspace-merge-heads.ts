@@ -16,9 +16,6 @@ export const acceptanceWorkflowRevision = (input: {
   reviewed: { baseCommit: string; forkHead: string }
 }) => input.reviewed
 
-export const productionDeploymentAlreadyStarted = (cause: unknown) =>
-  cause instanceof Error && cause.message.includes("instance.already_exists")
-
 export const configureWorkspaceRemoteForAcceptance = (input: {
   filesystem: MemoryFilesystem
   remote: string

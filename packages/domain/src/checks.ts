@@ -112,6 +112,7 @@ export class WorkspaceCiInput extends Schema.Class<WorkspaceCiInput>(
   kind: WorkspaceCheckKind,
   attempt: Schema.Int,
   repairOnFailure: Schema.Boolean,
+  deploymentId: Schema.NullOr(Schema.NonEmptyString),
   createdAt: Schema.Number,
 }) {}
 

@@ -741,6 +741,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       kind: run.kind,
       attempt: run.attempt,
       repairOnFailure: run.repairOnFailure,
+      deploymentId: null,
       createdAt: run.createdAt,
     }
     const instanceId = `${run.id}-attempt-${run.attempt}`

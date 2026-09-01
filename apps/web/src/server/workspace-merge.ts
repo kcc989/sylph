@@ -3,11 +3,6 @@ import {
   type WorkflowEvent,
   type WorkflowStep,
 } from "cloudflare:workers"
-import {
-  GitCommitId,
-  WorkspaceId,
-  type WorkspaceCiInput,
-} from "@workspace/domain"
 import git from "isomorphic-git"
 import http from "isomorphic-git/http/web"
 import { Effect } from "effect"
@@ -17,7 +12,6 @@ import {
   acceptedOperationUpdateSql,
   configureWorkspaceRemoteForAcceptance,
   mergeWorkspaceHeads,
-  productionDeploymentAlreadyStarted,
 } from "./workspace-merge-heads"
 import {
   GitHubRepositoryLive,
@@ -46,7 +40,6 @@ const authentication = (token: string) => () => ({
 })
 
 type WorkspaceMergeBindings = Omit<Cloudflare.Env, "WORKSPACES"> & {
-  CI_WORKFLOW: Workflow<WorkspaceCiInput>
   DB: D1Database
   REPOSITORY_NAMESPACE: string
   REPOS: Artifacts
@@ -123,56 +116,6 @@ export class WorkspaceMerge extends WorkflowEntrypoint<
             .bind(acceptedCommit, delivery.url, acceptedCommit, input.projectId)
             .run()
         })
-      }
-      try {
-        await step.do("start-production-deployment", async () => {
-          const id = `production-${input.operationId}`
-          const createdAt = Date.now()
-          const workspace = this.env.WORKSPACES.get(
-            this.env.WORKSPACES.idFromName(input.workspaceId)
-          )
-          const response = await workspace.fetch(
-            "https://workspace/checks/production",
-            {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({ id, commit: acceptedCommit, createdAt }),
-            }
-          )
-          if (!response.ok) throw new Error(await response.text())
-          const params: WorkspaceCiInput = {
-            provider: "cloudflare-artifacts",
-            providerData: { namespace: this.env.REPOSITORY_NAMESPACE },
-            event: { type: "push" },
-            owner: this.env.REPOSITORY_NAMESPACE,
-            repo: input.projectRepositoryName,
-            sha: GitCommitId.make(acceptedCommit),
-            remote: "cloudflare",
-            trigger: "push",
-            ref: `refs/heads/${input.defaultRef}`,
-            branch: input.defaultRef,
-            checkRunId: id,
-            workspaceId: WorkspaceId.make(input.workspaceId),
-            checkpointId: null,
-            kind: "production",
-            attempt: 1,
-            repairOnFailure: false,
-            createdAt,
-          }
-          try {
-            await this.env.CI_WORKFLOW.create({
-              id: `${id}-attempt-1`,
-              params,
-            })
-          } catch (cause) {
-            if (!productionDeploymentAlreadyStarted(cause)) throw cause
-          }
-        })
-      } catch (cause) {
-        console.error(
-          "Production deployment could not start",
-          cause instanceof Error ? cause.stack : cause
-        )
       }
       await step.sleep("retain-workspace-fork", "7 days")
       await step.do(

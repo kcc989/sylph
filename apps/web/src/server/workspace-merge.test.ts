@@ -9,7 +9,6 @@ import {
   acceptedOperationUpdateSql,
   configureWorkspaceRemoteForAcceptance,
   mergeWorkspaceHeads,
-  productionDeploymentAlreadyStarted,
 } from "./workspace-merge-heads"
 
 const directory = "/workspace"
@@ -77,14 +76,6 @@ describe("mergeWorkspaceHeads", () => {
       acceptedCommit: "accepted-commit",
       error_summary: null,
     })
-  })
-
-  test("acceptance reuses an existing production deployment", () => {
-    expect(
-      productionDeploymentAlreadyStarted(
-        new Error("(instance.already_exists) Instance already exists")
-      )
-    ).toBeTrue()
   })
 
   test("acceptance prepares the Workspace fork for fetching", async () => {
