@@ -19,6 +19,7 @@ type OnboardingGuideProps = {
   }>
   providerOrganizationIds: ReadonlyArray<string>
   onVisibilityChange?: (visible: boolean) => void
+  required?: boolean
   userId: string
   workspaces: ReadonlyArray<{ id: string; projectId: string }>
 }
@@ -44,10 +45,11 @@ export function OnboardingGuide({
   projects,
   providerOrganizationIds,
   onVisibilityChange,
+  required = false,
   userId,
   workspaces,
 }: OnboardingGuideProps) {
-  const [visible, setVisible] = useState(force)
+  const [visible, setVisible] = useState(force || required)
   const state = getOnboardingState({
     organizations,
     projects,
@@ -57,7 +59,7 @@ export function OnboardingGuide({
   })
 
   useEffect(() => {
-    if (force) {
+    if (force || required) {
       setVisible(true)
       onVisibilityChange?.(true)
       return
@@ -72,7 +74,7 @@ export function OnboardingGuide({
       setVisible(true)
       onVisibilityChange?.(true)
     }
-  }, [force, onVisibilityChange, userId])
+  }, [force, onVisibilityChange, required, userId])
 
   if (!visible) return null
 
@@ -90,8 +92,8 @@ export function OnboardingGuide({
       action: "Claim Installation",
     },
     {
-      title: "Connect an OpenCode provider",
-      body: "Choose a Codex subscription or an OpenCode Zen API key.",
+      title: "Connect an AI provider",
+      body: "Connect a Codex subscription or API key before creating a Project or Workspace.",
       href: state.organization ? "/admin?onboarding=1" : null,
       action: "Connect provider",
     },
@@ -141,14 +143,16 @@ export function OnboardingGuide({
           <span className="font-mono text-[10px] text-muted-foreground">
             {state.completedCount}/4
           </span>
-          <Button
-            aria-label="Dismiss getting started"
-            size="icon-xs"
-            variant="ghost"
-            onClick={dismiss}
-          >
-            <X />
-          </Button>
+          {!required ? (
+            <Button
+              aria-label="Dismiss getting started"
+              size="icon-xs"
+              variant="ghost"
+              onClick={dismiss}
+            >
+              <X />
+            </Button>
+          ) : null}
         </div>
       </header>
       <ol className="divide-y">

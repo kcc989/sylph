@@ -368,19 +368,22 @@ function OrganizationSettingsScreen() {
       topbar="Installation administration"
     >
       <div className="mx-auto w-full max-w-3xl px-5 py-8 sm:px-8 sm:py-10">
-        <Button
-          nativeButton={false}
-          className="mb-6"
-          size="sm"
-          render={
-            <a href={`/projects/new${onboarding ? "?onboarding=1" : ""}`} />
-          }
-        >
-          <Plus />{" "}
-          {onboarding && setup?.providerId
-            ? "Continue to Project"
-            : "New Project"}
-        </Button>
+        {setup?.providerId ? (
+          <Button
+            nativeButton={false}
+            className="mb-6"
+            size="sm"
+            render={
+              <a href={`/projects/new${onboarding ? "?onboarding=1" : ""}`} />
+            }
+          >
+            <Plus /> {onboarding ? "Continue to Project" : "New Project"}
+          </Button>
+        ) : (
+          <p className="mb-6 text-xs leading-5 text-muted-foreground">
+            Connect a provider to unlock Projects and Workspaces.
+          </p>
+        )}
         <section className="flex items-start justify-between gap-6 border-b pb-6">
           <div>
             <h1 className="text-xl font-semibold tracking-[-0.03em]">

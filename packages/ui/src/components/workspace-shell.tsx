@@ -2,7 +2,9 @@
 
 import {
   Activity,
+  Archive,
   ArrowUp,
+  BadgeCheck,
   Blocks,
   Check,
   ChevronDown,
@@ -20,6 +22,8 @@ import {
   ListChecks,
   Maximize2,
   MessageSquare,
+  MessageCircle,
+  MessagesSquare,
   Monitor,
   MoreHorizontal,
   PanelLeftClose,
@@ -30,11 +34,14 @@ import {
   Play,
   Plus,
   RefreshCw,
+  RotateCcw,
   Search,
   Settings2,
   ShieldCheck,
   Smartphone,
+  Square,
   Terminal,
+  Trash2,
   AtSign,
   X,
 } from "lucide-react"
@@ -48,8 +55,18 @@ import {
 import remarkGfm from "remark-gfm"
 
 import { Badge } from "@workspace/ui/components/badge"
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from "@workspace/ui/components/avatar"
 import { Button } from "@workspace/ui/components/button"
-import { CodeReview } from "@workspace/ui/components/code-review"
+import {
+  CodeReview,
+  type CodeReviewAnnotation,
+  type CodeReviewSelection,
+  type CodeReviewSide,
+} from "@workspace/ui/components/code-review"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -78,8 +95,14 @@ import {
   TooltipTrigger,
 } from "@workspace/ui/components/tooltip"
 import { cn } from "@workspace/ui/lib/utils"
+import {
+  readWorkspaceToolState,
+  writeWorkspaceToolState,
+  type WorkspaceToolTab as WorkspaceTab,
+  type WorkspaceToolTabKind as WorkspaceTabKind,
+} from "@workspace/ui/lib/workspace-tool-state"
 
-type WorkspaceStatus = "running" | "waiting" | "ready" | "error"
+type WorkspaceStatus = "running" | "waiting" | "ready" | "archived" | "error"
 
 const workspacePanelStorage = {
   getItem: (name: string) => {
@@ -140,6 +163,50 @@ type WorkspacePermissionRequest = {
   canSave: boolean
 }
 
+type WorkspaceQuestionValue = string | number | boolean | ReadonlyArray<string>
+
+type WorkspaceQuestion = {
+  id: string
+  title: string
+  status: "pending" | "answered" | "cancelled"
+  fields: ReadonlyArray<{
+    key: string
+    title?: string
+    description?: string
+    required?: boolean
+    type:
+      | "string"
+      | "number"
+      | "integer"
+      | "boolean"
+      | "multiselect"
+      | "external"
+    options: ReadonlyArray<{
+      value: string
+      label: string
+      description?: string
+    }>
+    placeholder?: string
+    url?: string
+    defaultValue?: WorkspaceQuestionValue
+  }>
+  answer: Record<string, WorkspaceQuestionValue> | null
+}
+
+type WorkspaceQueuedMessage = {
+  id: string
+  text: string
+  createdAt: number
+  delivery: "queue" | "steer"
+}
+
+type WorkspaceRuntimeLimits = {
+  maxQueuedMessages: number
+  maxTurnDurationMs: number
+  maxCheckAttempts: number
+  maxRepairAttempts: number
+}
+
 type BrowserState = {
   url: string
   title: string
@@ -164,6 +231,41 @@ type CheckItem = {
   }
 }
 
+type WorkspaceReviewActor = {
+  id: string
+  name: string
+  image: string | null
+}
+
+type WorkspaceReviewComment = {
+  id: string
+  file: string
+  side: CodeReviewSide
+  startLine: number
+  endLine: number
+  body: string
+  author: WorkspaceReviewActor
+  createdAt: number
+  resolvedAt: number | null
+  resolvedBy: WorkspaceReviewActor | null
+}
+
+type WorkspaceReview = {
+  commit: string
+  decision: "pending" | "approved" | "changes_requested"
+  reviewer: WorkspaceReviewActor | null
+  submittedAt: number | null
+  comments: ReadonlyArray<WorkspaceReviewComment>
+}
+
+type WorkspaceReviewCommentDraft = {
+  file: string
+  side: CodeReviewSide
+  startLine: number
+  endLine: number
+  body: string
+}
+
 export type ComposerModel = {
   providerId: string
   modelId: string
@@ -178,15 +280,8 @@ export type ComposerSkill = {
   scope: "installation" | "project"
 }
 
-type WorkspaceTabKind = "browser" | "changes" | "checks" | "review" | "terminal"
-
-type WorkspaceTab = {
-  id: string
-  kind: WorkspaceTabKind
-  label: string
-}
-
 type WorkspaceShellProps = {
+  workspaceId: string
   canAdminister?: boolean
   organization?: string
   projectName: string
@@ -205,6 +300,11 @@ type WorkspaceShellProps = {
     message: string
     createdAt: number
   }>
+  review?: WorkspaceReview
+  reviewPatch?: string
+  currentReviewer?: WorkspaceReviewActor
+  reviewPending?: boolean
+  reviewError?: string | null
   previewContent?: ReactNode
   agentControllingBrowser?: boolean
   demo?: boolean
@@ -218,16 +318,35 @@ type WorkspaceShellProps = {
   promptError?: string | null
   promptPending?: boolean
   permissionRequests?: ReadonlyArray<WorkspacePermissionRequest>
+  questions?: ReadonlyArray<WorkspaceQuestion>
+  queuedMessages?: ReadonlyArray<WorkspaceQueuedMessage>
+  runtimeLimits?: WorkspaceRuntimeLimits
+  turnActive?: boolean
+  turnInterrupted?: boolean
+  activeTurnStartedAt?: number | null
+  answeringQuestionId?: string | null
   replyingPermissionId?: string | null
   checkpointPending?: boolean
   acceptPending?: boolean
   restartPending?: boolean
+  cancelTurnPending?: boolean
+  archivePending?: boolean
+  discardPending?: boolean
   rebasePending?: boolean
   onAccept?: () => Promise<void>
+  onAddReviewComment?: (
+    comment: WorkspaceReviewCommentDraft
+  ) => Promise<boolean>
   onCheckpoint?: () => Promise<void>
   onSubmitPrompt?: (
     text: string,
-    model: { providerId: string; modelId: string }
+    model: { providerId: string; modelId: string },
+    delivery?: "queue" | "steer"
+  ) => Promise<void>
+  onCancelTurn?: () => Promise<void>
+  onAnswerQuestion?: (
+    questionId: string,
+    answer: Record<string, WorkspaceQuestionValue>
   ) => Promise<void>
   onPermissionReply?: (
     requestId: string,
@@ -235,7 +354,14 @@ type WorkspaceShellProps = {
   ) => Promise<void>
   onModelChange?: (model: { providerId: string; modelId: string }) => void
   onRestartWorkspace?: () => Promise<void>
+  onArchiveWorkspace?: () => Promise<void>
+  onDiscardWorkspace?: () => Promise<void>
   onRebase?: () => Promise<void>
+  onResolveReviewComment?: (
+    commentId: string,
+    resolved: boolean
+  ) => Promise<void>
+  onSubmitReview?: (decision: "approved" | "changes_requested") => Promise<void>
   workspaceError?: string | null
 }
 
@@ -361,6 +487,7 @@ const statusStyles = {
   running: "text-[var(--sylph-live)]",
   waiting: "text-amber-400",
   ready: "text-muted-foreground",
+  archived: "text-muted-foreground/50",
   error: "text-destructive",
 } satisfies Record<WorkspaceStatus, string>
 
@@ -606,6 +733,10 @@ function WorkspaceTopbar({
   acceptPending,
   onRestartWorkspace,
   restartPending,
+  onArchiveWorkspace,
+  archivePending,
+  onDiscardWorkspace,
+  discardPending,
   onRebase,
   rebasePending,
 }: {
@@ -627,6 +758,10 @@ function WorkspaceTopbar({
   acceptPending: boolean
   onRestartWorkspace?: () => Promise<void>
   restartPending: boolean
+  onArchiveWorkspace?: () => Promise<void>
+  archivePending: boolean
+  onDiscardWorkspace?: () => Promise<void>
+  discardPending: boolean
   onRebase?: () => Promise<void>
   rebasePending: boolean
 }) {
@@ -749,6 +884,37 @@ function WorkspaceTopbar({
               )}
               Restart runtime
             </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={!onArchiveWorkspace || archivePending}
+              onClick={() => void onArchiveWorkspace?.()}
+            >
+              {archivePending ? (
+                <LoaderCircle className="animate-spin motion-reduce:animate-none" />
+              ) : (
+                <Archive />
+              )}
+              Archive Workspace
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              disabled={!onDiscardWorkspace || discardPending}
+              onClick={() => {
+                if (
+                  window.confirm(
+                    `Discard ${workspaceName}? Its fork, Working copy, and Conversation will be permanently removed.`
+                  )
+                ) {
+                  void onDiscardWorkspace?.()
+                }
+              }}
+            >
+              {discardPending ? (
+                <LoaderCircle className="animate-spin motion-reduce:animate-none" />
+              ) : (
+                <Trash2 />
+              )}
+              Discard Workspace
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -800,16 +966,209 @@ function SkillInvocationMessage({ entry }: { entry: ThreadEntry }) {
   )
 }
 
+function AgentQuestion({
+  question,
+  pending,
+  onAnswer,
+}: {
+  question: WorkspaceQuestion
+  pending: boolean
+  onAnswer?: (
+    questionId: string,
+    answer: Record<string, WorkspaceQuestionValue>
+  ) => Promise<void>
+}) {
+  if (question.status !== "pending") {
+    return (
+      <article className="min-w-0 border border-white/[.1] bg-white/[.025] px-3.5 py-3">
+        <div className="flex items-center gap-2">
+          <CircleHelp className="size-4 shrink-0 text-muted-foreground" />
+          <h3 className="min-w-0 flex-1 text-[13px] font-medium">
+            {question.title}
+          </h3>
+          <span className="text-[10px] text-muted-foreground">
+            {question.status === "answered" ? "Answered" : "Cancelled"}
+          </span>
+        </div>
+        {question.answer ? (
+          <dl className="mt-3 grid gap-2 border-t border-white/[.07] pt-3">
+            {Object.entries(question.answer).map(([key, value]) => (
+              <div className="grid gap-0.5 sm:grid-cols-[10rem_1fr]" key={key}>
+                <dt className="text-[10px] text-muted-foreground">{key}</dt>
+                <dd className="min-w-0 text-[12px] break-words text-foreground/80">
+                  {Array.isArray(value) ? value.join(", ") : String(value)}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        ) : null}
+      </article>
+    )
+  }
+
+  return (
+    <form
+      className="min-w-0 border border-[#ef9b7e]/30 bg-[#ef9b7e]/[.055] px-3.5 py-3"
+      onSubmit={(event) => {
+        event.preventDefault()
+        const form = new FormData(event.currentTarget)
+        const answer: Record<string, WorkspaceQuestionValue> = {}
+        for (const field of question.fields) {
+          if (field.type === "external") continue
+          if (field.type === "multiselect") {
+            answer[field.key] = form.getAll(field.key).map(String)
+            continue
+          }
+          if (field.type === "boolean") {
+            answer[field.key] = form.get(field.key) === "true"
+            continue
+          }
+          const value = String(form.get(field.key) ?? "")
+          answer[field.key] =
+            field.type === "number" || field.type === "integer"
+              ? Number(value)
+              : value
+        }
+        void onAnswer?.(question.id, answer)
+      }}
+    >
+      <div className="flex items-start gap-3">
+        <CircleHelp className="mt-0.5 size-4 shrink-0 text-[#ef9b7e]" />
+        <div className="min-w-0 flex-1">
+          <h3 className="text-[13px] font-medium">{question.title}</h3>
+          <div className="mt-3 grid gap-3">
+            {question.fields.map((field) => (
+              <fieldset className="min-w-0" key={field.key}>
+                <label
+                  className="block text-[11px] font-medium text-foreground/85"
+                  htmlFor={`${question.id}-${field.key}`}
+                >
+                  {field.title ?? field.key}
+                  {field.required ? (
+                    <span className="text-[#ef9b7e]"> *</span>
+                  ) : null}
+                </label>
+                {field.description ? (
+                  <p className="mt-0.5 text-[10px] leading-4 text-muted-foreground">
+                    {field.description}
+                  </p>
+                ) : null}
+                {field.type === "external" ? (
+                  <a
+                    className="mt-1.5 inline-flex min-h-8 items-center text-[11px] font-medium text-[#ef9b7e] underline decoration-[#ef9b7e]/40 underline-offset-4 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                    href={field.url}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    Open required context
+                  </a>
+                ) : field.type === "boolean" ? (
+                  <input
+                    className="mt-2 size-4 accent-[#ef9b7e]"
+                    defaultChecked={field.defaultValue === true}
+                    id={`${question.id}-${field.key}`}
+                    name={field.key}
+                    type="checkbox"
+                    value="true"
+                  />
+                ) : field.type === "multiselect" ? (
+                  <div className="mt-1.5 grid gap-1.5">
+                    {field.options.map((option) => (
+                      <label
+                        className="flex min-w-0 items-start gap-2 text-[11px] text-foreground/80"
+                        key={option.value}
+                      >
+                        <input
+                          className="mt-0.5 size-4 shrink-0 accent-[#ef9b7e]"
+                          defaultChecked={
+                            Array.isArray(field.defaultValue) &&
+                            field.defaultValue.includes(option.value)
+                          }
+                          name={field.key}
+                          type="checkbox"
+                          value={option.value}
+                        />
+                        <span className="min-w-0">
+                          {option.label}
+                          {option.description ? (
+                            <span className="block text-[10px] text-muted-foreground">
+                              {option.description}
+                            </span>
+                          ) : null}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                ) : field.options.length ? (
+                  <select
+                    className="mt-1.5 h-9 w-full rounded-[5px] border border-white/[.12] bg-[#171614] px-2 text-base text-foreground outline-none focus:border-[#ef9b7e]/60 focus:ring-2 focus:ring-[#ef9b7e]/20 sm:text-xs"
+                    defaultValue={String(field.defaultValue ?? "")}
+                    id={`${question.id}-${field.key}`}
+                    name={field.key}
+                    required={field.required}
+                  >
+                    <option disabled value="">
+                      Select an answer
+                    </option>
+                    {field.options.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    className="mt-1.5 h-9 w-full rounded-[5px] border border-white/[.12] bg-black/20 px-2 text-base text-foreground outline-none placeholder:text-muted-foreground focus:border-[#ef9b7e]/60 focus:ring-2 focus:ring-[#ef9b7e]/20 sm:text-xs"
+                    defaultValue={String(field.defaultValue ?? "")}
+                    id={`${question.id}-${field.key}`}
+                    name={field.key}
+                    placeholder={field.placeholder}
+                    required={field.required}
+                    step={field.type === "integer" ? 1 : undefined}
+                    type={
+                      field.type === "number" || field.type === "integer"
+                        ? "number"
+                        : "text"
+                    }
+                  />
+                )}
+              </fieldset>
+            ))}
+          </div>
+          <div className="mt-3 flex justify-end">
+            <Button disabled={pending} size="sm" type="submit">
+              {pending ? (
+                <LoaderCircle className="animate-spin motion-reduce:animate-none" />
+              ) : null}
+              Answer agent
+            </Button>
+          </div>
+        </div>
+      </div>
+    </form>
+  )
+}
+
 function AgentThread({
   entries,
   permissionRequests,
+  questions,
+  queuedMessages,
+  runtimeLimits,
+  turnActive,
+  turnInterrupted,
+  activeTurnStartedAt,
+  answeringQuestionId,
   replyingPermissionId,
   onPermissionReply,
+  onAnswerQuestion,
+  onCancelTurn,
   initialPrompt,
   onSubmitPrompt,
   promptDisabled,
   promptError,
   promptPending,
+  cancelTurnPending,
   restartPending,
   onRestartWorkspace,
   workspaceError,
@@ -821,11 +1180,23 @@ function AgentThread({
 }: {
   entries: ThreadEntry[]
   permissionRequests: ReadonlyArray<WorkspacePermissionRequest>
+  questions: ReadonlyArray<WorkspaceQuestion>
+  queuedMessages: ReadonlyArray<WorkspaceQueuedMessage>
+  runtimeLimits?: WorkspaceRuntimeLimits
+  turnActive: boolean
+  turnInterrupted: boolean
+  activeTurnStartedAt?: number | null
+  answeringQuestionId?: string | null
   replyingPermissionId?: string | null
   onPermissionReply?: (
     requestId: string,
     reply: "once" | "always" | "reject"
   ) => Promise<void>
+  onAnswerQuestion?: (
+    questionId: string,
+    answer: Record<string, WorkspaceQuestionValue>
+  ) => Promise<void>
+  onCancelTurn?: () => Promise<void>
   initialPrompt?: string
   onSubmitPrompt?: (
     text: string,
@@ -834,6 +1205,7 @@ function AgentThread({
   promptDisabled?: boolean
   promptError?: string | null
   promptPending?: boolean
+  cancelTurnPending?: boolean
   restartPending?: boolean
   onRestartWorkspace?: () => Promise<void>
   workspaceError?: string | null
@@ -998,6 +1370,40 @@ function AgentThread({
                   </MessageScrollerItem>
                 )
               })}
+              {questions.map((question) => (
+                <MessageScrollerItem
+                  className="py-2 last:pb-4"
+                  key={question.id}
+                  messageId={question.id}
+                >
+                  <AgentQuestion
+                    onAnswer={onAnswerQuestion}
+                    pending={answeringQuestionId === question.id}
+                    question={question}
+                  />
+                </MessageScrollerItem>
+              ))}
+              {queuedMessages.map((message, index) => (
+                <MessageScrollerItem
+                  className="py-1 last:pb-4"
+                  key={message.id}
+                  messageId={message.id}
+                >
+                  <article className="flex min-w-0 items-start gap-2 border border-white/[.08] bg-white/[.025] px-3 py-2">
+                    <MessagesSquare className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[11px] leading-4 break-words text-foreground/75">
+                        {message.text}
+                      </p>
+                      <p className="mt-1 text-[9px] text-muted-foreground">
+                        {message.delivery === "steer"
+                          ? "Steering active Turn"
+                          : `Queued ${index + 1} of ${runtimeLimits?.maxQueuedMessages ?? queuedMessages.length}`}
+                      </p>
+                    </div>
+                  </article>
+                </MessageScrollerItem>
+              ))}
             </MessageScrollerContent>
           </MessageScrollerViewport>
           <MessageScrollerButton />
@@ -1028,6 +1434,52 @@ function AgentThread({
           ) : null}
         </div>
       ) : null}
+      {turnInterrupted && !workspaceError ? (
+        <div
+          className="mx-auto mb-3 flex w-[calc(100%-1.5rem)] max-w-3xl items-start gap-2 border border-amber-400/25 bg-amber-400/[.055] px-3 py-2.5"
+          role="status"
+        >
+          <CircleAlert className="mt-0.5 size-4 shrink-0 text-amber-300" />
+          <p className="min-w-0 text-[11px] leading-4 text-foreground/80">
+            The last Turn was interrupted. Files and Conversation history are
+            safe. Send a new message to continue from the current Working copy.
+          </p>
+        </div>
+      ) : null}
+      {turnActive ? (
+        <div
+          className="mx-auto mb-2 flex w-[calc(100%-1.5rem)] max-w-3xl flex-wrap items-center gap-2 border border-white/[.09] bg-white/[.025] px-3 py-2"
+          role="status"
+        >
+          <LoaderCircle className="size-3.5 animate-spin text-[#ef9b7e] motion-reduce:animate-none" />
+          <span className="text-[11px] text-foreground/80">Agent working</span>
+          <span className="font-mono text-[9px] text-muted-foreground">
+            {runtimeLimits
+              ? `${Math.round(runtimeLimits.maxTurnDurationMs / 60_000)} min limit · ${queuedMessages.length}/${runtimeLimits.maxQueuedMessages} queued`
+              : "Turn active"}
+          </span>
+          {activeTurnStartedAt ? (
+            <span className="hidden font-mono text-[9px] text-muted-foreground sm:inline">
+              started {new Date(activeTurnStartedAt).toLocaleTimeString()}
+            </span>
+          ) : null}
+          <Button
+            className="ml-auto"
+            disabled={cancelTurnPending}
+            onClick={onCancelTurn}
+            size="xs"
+            type="button"
+            variant="outline"
+          >
+            {cancelTurnPending ? (
+              <LoaderCircle className="animate-spin motion-reduce:animate-none" />
+            ) : (
+              <Square />
+            )}
+            Cancel Turn
+          </Button>
+        </div>
+      ) : null}
       <PromptComposer
         disabled={promptDisabled}
         error={promptError}
@@ -1039,6 +1491,12 @@ function AgentThread({
         selectedModel={selectedModel}
         modelNotice={modelNotice}
         onModelChange={onModelChange}
+        turnActive={turnActive}
+        queueFull={
+          runtimeLimits
+            ? queuedMessages.length >= runtimeLimits.maxQueuedMessages
+            : false
+        }
       />
     </section>
   )
@@ -1180,13 +1638,16 @@ function PromptComposer({
   selectedModel,
   modelNotice,
   onModelChange,
+  turnActive = false,
+  queueFull = false,
 }: {
   disabled?: boolean
   error?: string | null
   initialPrompt?: string
   onSubmit?: (
     text: string,
-    model: { providerId: string; modelId: string }
+    model: { providerId: string; modelId: string },
+    delivery?: "queue" | "steer"
   ) => Promise<void>
   pending?: boolean
   models: ReadonlyArray<ComposerModel>
@@ -1194,6 +1655,8 @@ function PromptComposer({
   selectedModel?: { providerId: string; modelId: string } | null
   modelNotice?: string | null
   onModelChange?: (model: { providerId: string; modelId: string }) => void
+  turnActive?: boolean
+  queueFull?: boolean
 }) {
   const [text, setText] = useState(initialPrompt)
   const [activeSkillIndex, setActiveSkillIndex] = useState(0)
@@ -1220,11 +1683,12 @@ function PromptComposer({
       )
     : null
 
-  const submit = async () => {
+  const submit = async (delivery?: "queue" | "steer") => {
     const prompt = text.trim()
 
     if (!prompt || disabled || pending || !onSubmit || !selectedModel) return
-    await onSubmit(prompt, selectedModel)
+    if (delivery === "queue" && queueFull) return
+    await onSubmit(prompt, selectedModel, delivery)
     setText("")
   }
 
@@ -1234,7 +1698,7 @@ function PromptComposer({
         className="@container relative mx-auto max-w-3xl border border-white/[.12] bg-[#1c1a18] shadow-[0_16px_45px_rgba(0,0,0,.24)] focus-within:border-[#ef9b7e]/45"
         onSubmit={async (event) => {
           event.preventDefault()
-          await submit()
+          await submit(turnActive ? "queue" : undefined)
         }}
       >
         {matchingSkills.length ? (
@@ -1304,13 +1768,15 @@ function PromptComposer({
             }
             if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
               event.preventDefault()
-              await submit()
+              await submit(turnActive ? "queue" : undefined)
             }
           }}
           placeholder={
             disabled
-              ? "OpenCode is still provisioning this Workspace"
-              : "Ask OpenCode to create or change the Project"
+              ? "This Workspace is not accepting messages"
+              : turnActive
+                ? "Queue the next message or steer the active Turn"
+                : "Ask OpenCode to create or change the Project"
           }
         />
         {error ? (
@@ -1361,7 +1827,7 @@ function PromptComposer({
             <Blocks /> Skills
           </Button>
           <ModelCombobox
-            disabled={pending || models.length === 0}
+            disabled={pending || turnActive || models.length === 0}
             models={models}
             selectedOption={selectedOption ?? null}
             onModelChange={onModelChange}
@@ -1369,15 +1835,52 @@ function PromptComposer({
           <span className="hidden text-[10px] whitespace-nowrap text-muted-foreground @2xl:inline">
             ⌘ ↵
           </span>
-          <Button
-            aria-label="Send message"
-            className="bg-[#ef9b7e] text-[#241613] hover:bg-[#f4af98]"
-            disabled={disabled || pending || !text.trim() || !selectedModel}
-            size="icon-sm"
-            type="submit"
-          >
-            {pending ? <LoaderCircle className="animate-spin" /> : <ArrowUp />}
-          </Button>
+          {turnActive ? (
+            <>
+              <Button
+                disabled={disabled || pending || !text.trim() || !selectedModel}
+                onClick={() => void submit("steer")}
+                size="xs"
+                type="button"
+                variant="outline"
+              >
+                <ArrowUp /> Steer
+              </Button>
+              <Button
+                className="bg-[#ef9b7e] text-[#241613] hover:bg-[#f4af98]"
+                disabled={
+                  disabled ||
+                  pending ||
+                  queueFull ||
+                  !text.trim() ||
+                  !selectedModel
+                }
+                size="xs"
+                type="submit"
+              >
+                {pending ? (
+                  <LoaderCircle className="animate-spin" />
+                ) : (
+                  <MessagesSquare />
+                )}
+                Queue
+              </Button>
+            </>
+          ) : (
+            <Button
+              aria-label="Send message"
+              className="bg-[#ef9b7e] text-[#241613] hover:bg-[#f4af98]"
+              disabled={disabled || pending || !text.trim() || !selectedModel}
+              size="icon-sm"
+              type="submit"
+            >
+              {pending ? (
+                <LoaderCircle className="animate-spin" />
+              ) : (
+                <ArrowUp />
+              )}
+            </Button>
+          )}
         </div>
       </form>
     </div>
@@ -1675,15 +2178,394 @@ function ChecksSurface({ checks }: { checks: CheckItem[] }) {
   )
 }
 
-function ReviewNotesSurface() {
+const reviewerInitials = (name: string) =>
+  name
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase()
+
+function ReviewerIdentity({
+  actor,
+  detail,
+}: {
+  actor: WorkspaceReviewActor
+  detail?: string
+}) {
   return (
-    <section className="grid size-full place-items-center bg-background px-6 text-center">
-      <div className="max-w-sm">
-        <Check className="mx-auto mb-3 size-5 text-muted-foreground" />
-        <h2 className="text-sm font-medium">No review notes yet</h2>
-        <p className="mt-1 text-xs leading-5 text-muted-foreground">
-          Select changed lines to leave notes or hand the change to your editor.
+    <div className="flex min-w-0 items-center gap-2">
+      <Avatar size="sm">
+        {actor.image ? <AvatarImage alt="" src={actor.image} /> : null}
+        <AvatarFallback>{reviewerInitials(actor.name)}</AvatarFallback>
+      </Avatar>
+      <div className="min-w-0">
+        <p className="truncate text-[11px] font-medium text-foreground">
+          {actor.name}
         </p>
+        {detail ? (
+          <p className="truncate text-[9px] text-muted-foreground">{detail}</p>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+function ReviewCommentCard({
+  comment,
+  pending,
+  onResolve,
+}: {
+  comment: WorkspaceReviewComment
+  pending: boolean
+  onResolve?: (commentId: string, resolved: boolean) => Promise<void>
+}) {
+  const resolved = comment.resolvedAt !== null
+
+  return (
+    <article
+      className={cn(
+        "border border-white/[.09] bg-[#1a1917] text-left font-sans shadow-[0_5px_16px_rgba(0,0,0,.2)]",
+        resolved && "opacity-65"
+      )}
+    >
+      <header className="flex items-center gap-2 border-b border-white/[.07] px-2.5 py-2">
+        <ReviewerIdentity actor={comment.author} />
+        <span className="ml-auto font-mono text-[9px] text-muted-foreground">
+          {comment.startLine === comment.endLine
+            ? `L${comment.startLine}`
+            : `L${comment.startLine}–${comment.endLine}`}
+        </span>
+      </header>
+      <p className="px-2.5 py-2 text-[11px] leading-5 wrap-break-word whitespace-pre-wrap text-foreground/85">
+        {comment.body}
+      </p>
+      <footer className="flex items-center gap-2 border-t border-white/[.06] px-2.5 py-1.5">
+        <span
+          className={cn(
+            "text-[9px]",
+            resolved ? "text-[var(--sylph-live)]" : "text-muted-foreground"
+          )}
+        >
+          {resolved
+            ? `Resolved${comment.resolvedBy ? ` by ${comment.resolvedBy.name}` : ""}`
+            : "Open"}
+        </span>
+        <Button
+          className="ml-auto h-6 px-2 text-[9px]"
+          disabled={pending || !onResolve}
+          onClick={() => void onResolve?.(comment.id, !resolved)}
+          size="xs"
+          variant="ghost"
+        >
+          {resolved ? <RotateCcw /> : <Check />}
+          {resolved ? "Reopen" : "Resolve"}
+        </Button>
+      </footer>
+    </article>
+  )
+}
+
+function ReviewComposer({
+  selection,
+  pending,
+  onCancel,
+  onSubmit,
+}: {
+  selection: CodeReviewSelection
+  pending: boolean
+  onCancel: () => void
+  onSubmit?: (comment: WorkspaceReviewCommentDraft) => Promise<boolean>
+}) {
+  const [body, setBody] = useState("")
+  const side = selection.endSide ?? selection.side ?? "additions"
+  const sameSide =
+    !selection.side || !selection.endSide || selection.side === side
+  const startLine = sameSide
+    ? Math.min(selection.start, selection.end)
+    : selection.end
+  const endLine = sameSide
+    ? Math.max(selection.start, selection.end)
+    : selection.end
+
+  return (
+    <div className="border border-[var(--sylph-coral)]/35 bg-[#1a1917] p-2.5 font-sans shadow-[0_6px_20px_rgba(0,0,0,.28)]">
+      <div className="mb-2 flex items-center gap-2 font-mono text-[9px] text-muted-foreground">
+        <MessageCircle className="size-3 text-[var(--sylph-coral)]" />
+        {selection.file} ·{" "}
+        {startLine === endLine ? `L${startLine}` : `L${startLine}–${endLine}`}
+      </div>
+      <Textarea
+        aria-label="Review comment"
+        autoFocus
+        className="min-h-20 resize-y bg-black/20 text-base md:text-xs"
+        disabled={pending}
+        maxLength={5_000}
+        onChange={(event) => setBody(event.target.value)}
+        placeholder="Leave a clear, actionable comment"
+        value={body}
+      />
+      <div className="mt-2 flex justify-end gap-1.5">
+        <Button disabled={pending} onClick={onCancel} size="xs" variant="ghost">
+          Cancel
+        </Button>
+        <Button
+          disabled={pending || !body.trim() || !onSubmit}
+          onClick={() =>
+            void onSubmit?.({
+              file: selection.file,
+              side,
+              startLine,
+              endLine,
+              body: body.trim(),
+            }).then((saved) => {
+              if (saved) onCancel()
+            })
+          }
+          size="xs"
+        >
+          {pending ? (
+            <LoaderCircle className="animate-spin motion-reduce:animate-none" />
+          ) : (
+            <MessageCircle />
+          )}
+          Add comment
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function ReviewNotesSurface({
+  patch,
+  review,
+  currentReviewer,
+  pending = false,
+  error,
+  onAddComment,
+  onResolveComment,
+  onSubmitReview,
+}: {
+  patch?: string
+  review?: WorkspaceReview
+  currentReviewer?: WorkspaceReviewActor
+  pending?: boolean
+  error?: string | null
+  onAddComment?: (comment: WorkspaceReviewCommentDraft) => Promise<boolean>
+  onResolveComment?: (commentId: string, resolved: boolean) => Promise<void>
+  onSubmitReview?: (decision: "approved" | "changes_requested") => Promise<void>
+}) {
+  const [selectionState, setSelectionState] = useState<{
+    commit: string
+    selection: CodeReviewSelection
+  } | null>(null)
+  const selection =
+    review && selectionState?.commit === review.commit
+      ? selectionState.selection
+      : null
+
+  if (!patch || !review || !currentReviewer) {
+    return (
+      <section className="grid size-full place-items-center bg-background px-6 text-center">
+        <div className="max-w-sm">
+          <Check className="mx-auto mb-3 size-5 text-muted-foreground" />
+          <h2 className="text-sm font-medium">No checkpoint to review</h2>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            Create a Checkpoint to comment on changed lines and submit a review.
+          </p>
+        </div>
+      </section>
+    )
+  }
+
+  const unresolvedComments = review.comments.filter(
+    (comment) => comment.resolvedAt === null
+  )
+  const annotations: CodeReviewAnnotation[] = review.comments.map(
+    (comment) => ({
+      id: comment.id,
+      file: comment.file,
+      side: comment.side,
+      lineNumber: comment.endLine,
+    })
+  )
+  if (selection) {
+    annotations.push({
+      id: "review-composer",
+      file: selection.file,
+      side: selection.endSide ?? selection.side ?? "additions",
+      lineNumber: selection.end,
+    })
+  }
+  const decisionLabel = {
+    pending: "Review pending",
+    approved: "Approved",
+    changes_requested: "Changes requested",
+  }[review.decision]
+
+  return (
+    <section className="@container flex size-full min-h-0 flex-col bg-background">
+      <header className="flex min-h-11 shrink-0 flex-wrap items-center gap-2 border-b bg-[#171614] px-3 py-1.5">
+        {review.decision === "approved" ? (
+          <BadgeCheck className="size-4 text-[var(--sylph-live)]" />
+        ) : (
+          <MessageCircle className="size-4 text-[var(--sylph-coral)]" />
+        )}
+        <div className="min-w-0">
+          <h2 className="text-xs font-medium">
+            Review {review.commit.slice(0, 7)}
+          </h2>
+          <p className="text-[9px] text-muted-foreground">
+            Select changed lines or use + in the gutter to comment.
+          </p>
+        </div>
+        <Badge
+          className={cn(
+            "ml-auto rounded-[4px] px-1.5 text-[9px]",
+            review.decision === "approved" &&
+              "border-[var(--sylph-live)]/30 text-[var(--sylph-live)]",
+            review.decision === "changes_requested" &&
+              "border-[var(--sylph-coral)]/40 text-[var(--sylph-coral)]"
+          )}
+          variant="outline"
+        >
+          {decisionLabel}
+        </Badge>
+      </header>
+      <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_minmax(13rem,40%)] @2xl:grid-cols-[minmax(0,1fr)_17rem] @2xl:grid-rows-1">
+        <CodeReview
+          annotations={annotations}
+          className="h-full min-h-0 border-b border-white/[.08] @2xl:border-r @2xl:border-b-0"
+          onLineSelected={(nextSelection) =>
+            setSelectionState(
+              nextSelection
+                ? { commit: review.commit, selection: nextSelection }
+                : null
+            )
+          }
+          patch={patch}
+          renderAnnotation={(annotation) => {
+            if (annotation.id === "review-composer" && selection) {
+              return (
+                <ReviewComposer
+                  onCancel={() => setSelectionState(null)}
+                  onSubmit={onAddComment}
+                  pending={pending}
+                  selection={selection}
+                />
+              )
+            }
+            const comment = review.comments.find(
+              (candidate) => candidate.id === annotation.id
+            )
+            return comment ? (
+              <ReviewCommentCard
+                comment={comment}
+                onResolve={onResolveComment}
+                pending={pending}
+              />
+            ) : null
+          }}
+          selectedLines={selection}
+        />
+        <aside className="flex min-h-0 flex-col bg-[#171614]">
+          <div className="border-b border-white/[.07] p-3">
+            <ReviewerIdentity actor={currentReviewer} detail="Reviewing as" />
+            {review.reviewer ? (
+              <div className="mt-3 border-t border-white/[.06] pt-3">
+                <ReviewerIdentity
+                  actor={review.reviewer}
+                  detail={`${decisionLabel}${
+                    review.submittedAt
+                      ? ` · ${new Intl.DateTimeFormat(undefined, {
+                          month: "short",
+                          day: "numeric",
+                        }).format(review.submittedAt)}`
+                      : ""
+                  }`}
+                />
+              </div>
+            ) : null}
+          </div>
+          <div className="min-h-0 flex-1 overflow-auto p-3">
+            <div className="mb-2 flex items-center gap-2 text-[10px] text-muted-foreground">
+              <span>{review.comments.length} comments</span>
+              <span>·</span>
+              <span>{unresolvedComments.length} open</span>
+            </div>
+            {review.comments.length ? (
+              <div className="space-y-2">
+                {review.comments.map((comment) => (
+                  <div
+                    className="border-b border-white/[.06] pb-2 text-[10px] last:border-b-0"
+                    key={comment.id}
+                  >
+                    <p className="truncate font-mono text-[9px] text-[var(--sylph-coral)]">
+                      {comment.file} · L{comment.startLine}
+                    </p>
+                    <p
+                      className={cn(
+                        "mt-1 line-clamp-2 leading-4 text-foreground/75",
+                        comment.resolvedAt &&
+                          "text-muted-foreground line-through"
+                      )}
+                    >
+                      {comment.body}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[10px] leading-4 text-muted-foreground">
+                No comments. Select a changed line when the review needs a note.
+              </p>
+            )}
+          </div>
+          <footer className="shrink-0 border-t border-white/[.08] p-3">
+            {error ? (
+              <p
+                className="mb-2 text-[10px] leading-4 text-red-300"
+                role="alert"
+              >
+                {error}
+              </p>
+            ) : null}
+            <Button
+              className="w-full justify-center"
+              disabled={pending || !onSubmitReview}
+              onClick={() => void onSubmitReview?.("changes_requested")}
+              size="sm"
+              variant="outline"
+            >
+              {pending ? (
+                <LoaderCircle className="animate-spin motion-reduce:animate-none" />
+              ) : (
+                <MessageCircle />
+              )}
+              Request changes
+            </Button>
+            <Button
+              className="mt-1.5 w-full justify-center bg-[var(--sylph-live)] text-[#11100f] hover:bg-[var(--sylph-live)]/90"
+              disabled={
+                pending || unresolvedComments.length > 0 || !onSubmitReview
+              }
+              onClick={() => void onSubmitReview?.("approved")}
+              size="sm"
+              title={
+                unresolvedComments.length
+                  ? "Resolve all comments before approving"
+                  : undefined
+              }
+            >
+              {pending ? (
+                <LoaderCircle className="animate-spin motion-reduce:animate-none" />
+              ) : (
+                <BadgeCheck />
+              )}
+              Approve
+            </Button>
+          </footer>
+        </aside>
       </div>
     </section>
   )
@@ -1748,8 +2630,17 @@ function WorkspaceToolToggle({
 function WorkspaceChat({
   entries,
   permissionRequests,
+  questions,
+  queuedMessages,
+  runtimeLimits,
+  turnActive,
+  turnInterrupted,
+  activeTurnStartedAt,
+  answeringQuestionId,
   replyingPermissionId,
   onPermissionReply,
+  onAnswerQuestion,
+  onCancelTurn,
   initialPrompt,
   onToggleTools,
   onSubmitPrompt,
@@ -1757,6 +2648,7 @@ function WorkspaceChat({
   promptDisabled,
   promptError,
   promptPending,
+  cancelTurnPending,
   restartPending,
   toolPaneOpen,
   workspaceError,
@@ -1768,21 +2660,35 @@ function WorkspaceChat({
 }: {
   entries: ThreadEntry[]
   permissionRequests: ReadonlyArray<WorkspacePermissionRequest>
+  questions: ReadonlyArray<WorkspaceQuestion>
+  queuedMessages: ReadonlyArray<WorkspaceQueuedMessage>
+  runtimeLimits?: WorkspaceRuntimeLimits
+  turnActive: boolean
+  turnInterrupted: boolean
+  activeTurnStartedAt?: number | null
+  answeringQuestionId?: string | null
   replyingPermissionId?: string | null
   onPermissionReply?: (
     requestId: string,
     reply: "once" | "always" | "reject"
   ) => Promise<void>
+  onAnswerQuestion?: (
+    questionId: string,
+    answer: Record<string, WorkspaceQuestionValue>
+  ) => Promise<void>
+  onCancelTurn?: () => Promise<void>
   initialPrompt?: string
   onToggleTools: () => void
   onSubmitPrompt?: (
     text: string,
-    model: { providerId: string; modelId: string }
+    model: { providerId: string; modelId: string },
+    delivery?: "queue" | "steer"
   ) => Promise<void>
   onRestartWorkspace?: () => Promise<void>
   promptDisabled?: boolean
   promptError?: string | null
   promptPending?: boolean
+  cancelTurnPending?: boolean
   restartPending?: boolean
   toolPaneOpen: boolean
   workspaceError?: string | null
@@ -1803,13 +2709,23 @@ function WorkspaceChat({
       <AgentThread
         entries={entries}
         permissionRequests={permissionRequests}
+        questions={questions}
+        queuedMessages={queuedMessages}
+        runtimeLimits={runtimeLimits}
+        turnActive={turnActive}
+        turnInterrupted={turnInterrupted}
+        activeTurnStartedAt={activeTurnStartedAt}
+        answeringQuestionId={answeringQuestionId}
         replyingPermissionId={replyingPermissionId}
         onPermissionReply={onPermissionReply}
+        onAnswerQuestion={onAnswerQuestion}
+        onCancelTurn={onCancelTurn}
         initialPrompt={initialPrompt}
         onSubmitPrompt={onSubmitPrompt}
         promptDisabled={promptDisabled}
         promptError={promptError}
         promptPending={promptPending}
+        cancelTurnPending={cancelTurnPending}
         restartPending={restartPending}
         onRestartWorkspace={onRestartWorkspace}
         workspaceError={workspaceError}
@@ -1834,8 +2750,16 @@ function WorkspaceTabs({
   onCloseTab,
   onDismiss,
   onOpenTool,
+  onAddReviewComment,
+  onResolveReviewComment,
+  onSubmitReview,
   patch,
   previewContent,
+  review,
+  reviewPatch,
+  currentReviewer,
+  reviewPending,
+  reviewError,
   tabs,
 }: {
   activeTabId: string | null
@@ -1848,8 +2772,21 @@ function WorkspaceTabs({
   onCloseTab: (tabId: string) => void
   onDismiss: () => void
   onOpenTool: (kind: WorkspaceTabKind) => void
+  onAddReviewComment?: (
+    comment: WorkspaceReviewCommentDraft
+  ) => Promise<boolean>
+  onResolveReviewComment?: (
+    commentId: string,
+    resolved: boolean
+  ) => Promise<void>
+  onSubmitReview?: (decision: "approved" | "changes_requested") => Promise<void>
   patch?: string
   previewContent?: ReactNode
+  review?: WorkspaceReview
+  reviewPatch?: string
+  currentReviewer?: WorkspaceReviewActor
+  reviewPending?: boolean
+  reviewError?: string | null
   tabs: WorkspaceTab[]
 }) {
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0]
@@ -1975,7 +2912,18 @@ function WorkspaceTabs({
         {activeTab?.kind === "checks" ? (
           <ChecksSurface checks={checks} />
         ) : null}
-        {activeTab?.kind === "review" ? <ReviewNotesSurface /> : null}
+        {activeTab?.kind === "review" ? (
+          <ReviewNotesSurface
+            currentReviewer={currentReviewer}
+            error={reviewError}
+            onAddComment={onAddReviewComment}
+            onResolveComment={onResolveReviewComment}
+            onSubmitReview={onSubmitReview}
+            patch={reviewPatch}
+            pending={reviewPending}
+            review={review}
+          />
+        ) : null}
         {activeTab?.kind === "terminal" ? <TerminalSurface /> : null}
       </div>
     </div>
@@ -1983,6 +2931,7 @@ function WorkspaceTabs({
 }
 
 function WorkspaceShell({
+  workspaceId,
   canAdminister = false,
   organization = "Casey’s workspace",
   projectName,
@@ -2000,6 +2949,11 @@ function WorkspaceShell({
   changeSummary = "No changes",
   changedFileCount = 0,
   checkpointHistory = [],
+  review,
+  reviewPatch,
+  currentReviewer,
+  reviewPending = false,
+  reviewError,
   previewContent,
   agentControllingBrowser = false,
   demo = false,
@@ -2015,16 +2969,33 @@ function WorkspaceShell({
   promptError,
   promptPending = false,
   permissionRequests = [],
+  questions = [],
+  queuedMessages = [],
+  runtimeLimits,
+  turnActive = false,
+  turnInterrupted = false,
+  activeTurnStartedAt,
+  answeringQuestionId,
   replyingPermissionId,
   checkpointPending = false,
   acceptPending = false,
   restartPending = false,
+  cancelTurnPending = false,
+  archivePending = false,
+  discardPending = false,
   rebasePending = false,
   onCheckpoint,
   onAccept,
+  onAddReviewComment,
   onPermissionReply,
+  onAnswerQuestion,
+  onCancelTurn,
   onRestartWorkspace,
+  onArchiveWorkspace,
+  onDiscardWorkspace,
   onRebase,
+  onResolveReviewComment,
+  onSubmitReview,
   workspaceError,
 }: WorkspaceShellProps) {
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false)
@@ -2032,6 +3003,10 @@ function WorkspaceShell({
   const [tabs, setTabs] = useState<WorkspaceTab[]>(initialWorkspaceTabs)
   const [activeTabId, setActiveTabId] = useState<string | null>(null)
   const [toolPaneOpen, setToolPaneOpen] = useState(false)
+  const [toolPaneSize, setToolPaneSize] = useState(50)
+  const [toolStateWorkspaceId, setToolStateWorkspaceId] = useState<
+    string | null
+  >(null)
   const browserTabNumber = useRef(0)
   const projectRailRef = useRef<PanelImperativeHandle>(null)
   const projectLayout = useDefaultLayout({
@@ -2040,6 +3015,37 @@ function WorkspaceShell({
     panelIds: ["project-navigation", "workspace-area"],
     storage: workspacePanelStorage,
   })
+
+  useEffect(() => {
+    const restored = readWorkspaceToolState(workspacePanelStorage, workspaceId)
+    const restoredTabs = restored?.tabs ?? initialWorkspaceTabs
+    setTabs(restoredTabs)
+    setActiveTabId(restored?.activeTabId ?? null)
+    setToolPaneOpen(restored?.toolPaneOpen ?? false)
+    setToolPaneSize(restored?.toolPaneSize ?? 50)
+    browserTabNumber.current = restoredTabs.reduce((highest, tab) => {
+      const match = /^browser-(\d+)$/.exec(tab.id)
+      return match ? Math.max(highest, Number(match[1])) : highest
+    }, 0)
+    setToolStateWorkspaceId(workspaceId)
+  }, [workspaceId])
+
+  useEffect(() => {
+    if (toolStateWorkspaceId !== workspaceId) return
+    writeWorkspaceToolState(workspacePanelStorage, workspaceId, {
+      tabs,
+      activeTabId,
+      toolPaneOpen,
+      toolPaneSize,
+    })
+  }, [
+    activeTabId,
+    tabs,
+    toolPaneOpen,
+    toolPaneSize,
+    toolStateWorkspaceId,
+    workspaceId,
+  ])
 
   const addBrowserTab = () => {
     browserTabNumber.current += 1
@@ -2157,7 +3163,7 @@ function WorkspaceShell({
                 }}
                 onOpenTerminal={() => openTool("terminal")}
                 onCheckpoint={onCheckpoint}
-                checkpointDisabled={changedFileCount === 0}
+                checkpointDisabled={changedFileCount === 0 || !onCheckpoint}
                 checkpointPending={checkpointPending}
                 onAccept={onAccept}
                 acceptDisabled={
@@ -2166,6 +3172,10 @@ function WorkspaceShell({
                 acceptPending={acceptPending}
                 onRestartWorkspace={onRestartWorkspace}
                 restartPending={restartPending}
+                onArchiveWorkspace={onArchiveWorkspace}
+                archivePending={archivePending}
+                onDiscardWorkspace={onDiscardWorkspace}
+                discardPending={discardPending}
                 onRebase={onRebase}
                 rebasePending={rebasePending}
                 projectName={projectName}
@@ -2197,14 +3207,33 @@ function WorkspaceShell({
               <ResizablePanelGroup
                 className="relative min-h-0 flex-1"
                 id="workspace-content-panes"
+                onLayoutChanged={(layout, meta) => {
+                  const size = layout["workspace-tools"]
+                  if (
+                    meta.isUserInteraction &&
+                    size !== undefined &&
+                    Number.isFinite(size)
+                  ) {
+                    setToolPaneSize(size)
+                  }
+                }}
                 orientation="horizontal"
               >
                 <ResizablePanel id="workspace-chat" minSize="260px">
                   <WorkspaceChat
                     entries={entries}
                     permissionRequests={permissionRequests}
+                    questions={questions}
+                    queuedMessages={queuedMessages}
+                    runtimeLimits={runtimeLimits}
+                    turnActive={turnActive}
+                    turnInterrupted={turnInterrupted}
+                    activeTurnStartedAt={activeTurnStartedAt}
+                    answeringQuestionId={answeringQuestionId}
                     replyingPermissionId={replyingPermissionId}
                     onPermissionReply={onPermissionReply}
+                    onAnswerQuestion={onAnswerQuestion}
+                    onCancelTurn={onCancelTurn}
                     initialPrompt={initialPrompt}
                     models={models}
                     skills={skills}
@@ -2216,6 +3245,7 @@ function WorkspaceShell({
                     promptDisabled={promptDisabled}
                     promptError={promptError}
                     promptPending={promptPending}
+                    cancelTurnPending={cancelTurnPending}
                     restartPending={restartPending}
                     toolPaneOpen={toolPaneOpen}
                     onRestartWorkspace={onRestartWorkspace}
@@ -2232,7 +3262,7 @@ function WorkspaceShell({
                     />
                     <ResizablePanel
                       className="bg-background max-md:fixed! max-md:inset-x-1.5! max-md:top-[54px]! max-md:bottom-1.5! max-md:z-50 max-md:h-auto! max-md:w-auto! max-md:max-w-none! max-md:min-w-0! max-md:basis-auto!"
-                      defaultSize="50%"
+                      defaultSize={`${toolPaneSize}%`}
                       id="workspace-tools"
                       maxSize="70%"
                       minSize="260px"
@@ -2248,8 +3278,16 @@ function WorkspaceShell({
                         onCloseTab={closeTab}
                         onDismiss={() => setToolPaneOpen(false)}
                         onOpenTool={openTool}
+                        onAddReviewComment={onAddReviewComment}
+                        onResolveReviewComment={onResolveReviewComment}
+                        onSubmitReview={onSubmitReview}
                         patch={patch}
                         previewContent={previewContent}
+                        review={review}
+                        reviewPatch={reviewPatch}
+                        currentReviewer={currentReviewer}
+                        reviewPending={reviewPending}
+                        reviewError={reviewError}
                         tabs={tabs}
                       />
                     </ResizablePanel>
@@ -2269,6 +3307,7 @@ export {
   BrowserPreview,
   CheckList,
   ProjectRail,
+  ReviewNotesSurface,
   ReviewSurface,
   WorkspaceTabs,
   WorkspaceShell,
@@ -2282,6 +3321,14 @@ export type {
   CheckItem,
   ProjectGroup,
   ThreadEntry,
+  WorkspaceReview,
+  WorkspaceReviewActor,
+  WorkspaceReviewComment,
+  WorkspaceReviewCommentDraft,
+  WorkspaceQuestion,
+  WorkspaceQuestionValue,
+  WorkspaceQueuedMessage,
+  WorkspaceRuntimeLimits,
   WorkspacePermissionRequest,
   WorkspaceItem,
   WorkspaceShellProps,

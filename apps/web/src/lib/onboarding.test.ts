@@ -22,6 +22,7 @@ describe("getOnboardingState", () => {
     })
 
     expect(state.completedCount).toBe(0)
+    expect(state.providerConnected).toBe(false)
     expect(state.statuses).toEqual([
       "current",
       "upcoming",
@@ -40,10 +41,30 @@ describe("getOnboardingState", () => {
     })
 
     expect(state.completedCount).toBe(2)
+    expect(state.providerConnected).toBe(true)
     expect(state.statuses).toEqual([
       "complete",
       "complete",
       "current",
+      "upcoming",
+    ])
+  })
+
+  test("keeps provider connection current even when legacy Projects exist", () => {
+    const state = getOnboardingState({
+      organizations: [organization],
+      projects: [project],
+      workspaces: [workspace],
+      providerOrganizationIds: [],
+      hasPersonalProvider: false,
+    })
+
+    expect(state.providerConnected).toBe(false)
+    expect(state.completedCount).toBe(1)
+    expect(state.statuses).toEqual([
+      "complete",
+      "current",
+      "upcoming",
       "upcoming",
     ])
   })

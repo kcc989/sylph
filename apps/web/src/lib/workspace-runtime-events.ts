@@ -82,4 +82,11 @@ export const workspaceEventNeedsSnapshot = (event: WorkspaceRuntimeEvent) =>
   event.type === "session.execution.failed" ||
   event.type === "session.execution.interrupted" ||
   event.type === "session.tool.success" ||
-  event.type === "session.tool.failed"
+  event.type === "session.tool.failed" ||
+  event.type === "session.inbox.enqueued" ||
+  event.type === "session.inbox.delivered" ||
+  event.type === "session.inbox.cancelled" ||
+  event.type === "session.inbox.delivery.changed" ||
+  event.type === "form.created" ||
+  event.type === "form.replied" ||
+  event.type === "form.cancelled"

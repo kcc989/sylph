@@ -8,6 +8,7 @@ export const WorkspaceStatus = Schema.Literals([
   "running",
   "waiting",
   "idle",
+  "interrupted",
   "merging",
   "archived",
   "error",
@@ -226,6 +227,7 @@ export class WorkspacePromptInput extends Schema.Class<WorkspacePromptInput>(
   workspaceId: WorkspaceId,
   text: Schema.NonEmptyString,
   model: Schema.optional(ModelSelection),
+  delivery: Schema.optional(Schema.Literals(["queue", "steer"])),
 }) {}
 
 export class WorkspaceRuntimePromptInput extends Schema.Class<WorkspaceRuntimePromptInput>(
@@ -235,6 +237,62 @@ export class WorkspaceRuntimePromptInput extends Schema.Class<WorkspaceRuntimePr
   text: Schema.NonEmptyString,
   model: ModelSelection,
   credential: OpenCodeCredential,
+  delivery: Schema.optional(Schema.Literals(["queue", "steer"])),
+}) {}
+
+export const WorkspaceQuestionValue = Schema.Union([
+  Schema.String,
+  Schema.Number,
+  Schema.Boolean,
+  Schema.Array(Schema.String),
+])
+export type WorkspaceQuestionValue = typeof WorkspaceQuestionValue.Type
+
+export class WorkspaceQuestionOption extends Schema.Class<WorkspaceQuestionOption>(
+  "@sylph/domain/WorkspaceQuestionOption"
+)({
+  value: Schema.String,
+  label: Schema.String,
+  description: Schema.optional(Schema.String),
+}) {}
+
+export class WorkspaceQuestionField extends Schema.Class<WorkspaceQuestionField>(
+  "@sylph/domain/WorkspaceQuestionField"
+)({
+  key: Schema.NonEmptyString,
+  title: Schema.optional(Schema.String),
+  description: Schema.optional(Schema.String),
+  required: Schema.optional(Schema.Boolean),
+  type: Schema.Literals([
+    "string",
+    "number",
+    "integer",
+    "boolean",
+    "multiselect",
+    "external",
+  ]),
+  options: Schema.Array(WorkspaceQuestionOption),
+  placeholder: Schema.optional(Schema.String),
+  url: Schema.optional(Schema.String),
+  defaultValue: Schema.optional(WorkspaceQuestionValue),
+}) {}
+
+export class WorkspaceAgentQuestion extends Schema.Class<WorkspaceAgentQuestion>(
+  "@sylph/domain/WorkspaceAgentQuestion"
+)({
+  id: Schema.NonEmptyString,
+  title: Schema.NonEmptyString,
+  status: Schema.Literals(["pending", "answered", "cancelled"]),
+  fields: Schema.Array(WorkspaceQuestionField),
+  answer: Schema.NullOr(Schema.Record(Schema.String, WorkspaceQuestionValue)),
+}) {}
+
+export class WorkspaceQuestionReplyInput extends Schema.Class<WorkspaceQuestionReplyInput>(
+  "@sylph/domain/WorkspaceQuestionReplyInput"
+)({
+  workspaceId: WorkspaceId,
+  questionId: Schema.NonEmptyString,
+  answer: Schema.Record(Schema.String, WorkspaceQuestionValue),
 }) {}
 
 export const WorkspacePermissionReply = Schema.Literals([
@@ -306,6 +364,13 @@ export class WorkspaceRequestInput extends Schema.Class<WorkspaceRequestInput>(
   workspaceId: WorkspaceId,
 }) {}
 
+export class WorkspaceTurnCancelInput extends Schema.Class<WorkspaceTurnCancelInput>(
+  "@sylph/domain/WorkspaceTurnCancelInput"
+)({
+  workspaceId: WorkspaceId,
+  continueQueued: Schema.optional(Schema.Boolean),
+}) {}
+
 export class RestartWorkspaceInput extends Schema.Class<RestartWorkspaceInput>(
   "@sylph/domain/RestartWorkspaceInput"
 )({
@@ -317,6 +382,7 @@ export const WorkspaceRuntimeStatus = Schema.Literals([
   "provisioning",
   "ready",
   "running",
+  "interrupted",
   "error",
 ])
 export type WorkspaceRuntimeStatus = typeof WorkspaceRuntimeStatus.Type
@@ -335,6 +401,24 @@ export class WorkspaceRuntimeMessage extends Schema.Class<WorkspaceRuntimeMessag
   error: Schema.NullOr(Schema.String),
 }) {}
 
+export class WorkspaceQueuedMessage extends Schema.Class<WorkspaceQueuedMessage>(
+  "@sylph/domain/WorkspaceQueuedMessage"
+)({
+  id: Schema.NonEmptyString,
+  text: Schema.String,
+  createdAt: Schema.Number,
+  delivery: Schema.Literals(["queue", "steer"]),
+}) {}
+
+export class WorkspaceRuntimeLimits extends Schema.Class<WorkspaceRuntimeLimits>(
+  "@sylph/domain/WorkspaceRuntimeLimits"
+)({
+  maxQueuedMessages: Schema.Int,
+  maxTurnDurationMs: Schema.Int,
+  maxCheckAttempts: Schema.Int,
+  maxRepairAttempts: Schema.Int,
+}) {}
+
 export class WorkspaceRuntimeHealth extends Schema.Class<WorkspaceRuntimeHealth>(
   "@sylph/domain/WorkspaceRuntimeHealth"
 )({
@@ -344,7 +428,14 @@ export class WorkspaceRuntimeHealth extends Schema.Class<WorkspaceRuntimeHealth>
   model: Schema.NullOr(Schema.NonEmptyString),
   files: Schema.Array(Schema.NonEmptyString),
   messages: Schema.Array(WorkspaceRuntimeMessage),
+  queuedMessages: Schema.Array(WorkspaceQueuedMessage),
+  questions: Schema.Array(WorkspaceAgentQuestion),
   permissions: Schema.Array(WorkspacePermissionAskedEventData),
+  lastTurnOutcome: Schema.NullOr(
+    Schema.Literals(["succeeded", "failed", "interrupted"])
+  ),
+  activeTurnStartedAt: Schema.NullOr(Schema.Number),
+  limits: WorkspaceRuntimeLimits,
   opencode: Schema.Struct({ healthy: Schema.Boolean }),
 }) {}
 
@@ -460,6 +551,9 @@ export const decodeWorkspaceRuntimePromptInputPromise =
 export const decodeWorkspacePermissionReplyInputPromise =
   Schema.decodeUnknownPromise(WorkspacePermissionReplyInput)
 
+export const decodeWorkspaceQuestionReplyInputPromise =
+  Schema.decodeUnknownPromise(WorkspaceQuestionReplyInput)
+
 export const decodeWorkspaceRuntimeEventPromise = Schema.decodeUnknownPromise(
   WorkspaceRuntimeEvent
 )
@@ -479,6 +573,9 @@ export const decodeWorkspaceTextEndedEventDataPromise =
 export const decodeWorkspaceRequestInputPromise = Schema.decodeUnknownPromise(
   WorkspaceRequestInput
 )
+
+export const decodeWorkspaceTurnCancelInputPromise =
+  Schema.decodeUnknownPromise(WorkspaceTurnCancelInput)
 
 export const decodeRestartWorkspaceInputPromise = Schema.decodeUnknownPromise(
   RestartWorkspaceInput

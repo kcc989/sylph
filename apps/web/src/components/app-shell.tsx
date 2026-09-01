@@ -62,6 +62,7 @@ type AppShellDashboard = {
   installation: { canAdminister: boolean }
   organizations: ReadonlyArray<Organization>
   projects: ReadonlyArray<Project>
+  providerConnected: boolean
   workspaces: ReadonlyArray<Workspace>
 }
 
@@ -306,23 +307,25 @@ function ProjectNavigation({
                   <span className="min-w-0 flex-1 truncate">
                     {project.name}
                   </span>
-                  <Button
-                    aria-label={
-                      creatingProjectId === project.id
-                        ? `Creating Workspace in ${project.name}`
-                        : `New Workspace in ${project.name}`
-                    }
-                    size="icon-xs"
-                    variant="ghost"
-                    disabled={creatingProjectId !== null}
-                    onClick={() => void startWorkspace(project)}
-                  >
-                    {creatingProjectId === project.id ? (
-                      <LoaderCircle className="animate-spin" />
-                    ) : (
-                      <Plus />
-                    )}
-                  </Button>
+                  {dashboard.providerConnected ? (
+                    <Button
+                      aria-label={
+                        creatingProjectId === project.id
+                          ? `Creating Workspace in ${project.name}`
+                          : `New Workspace in ${project.name}`
+                      }
+                      size="icon-xs"
+                      variant="ghost"
+                      disabled={creatingProjectId !== null}
+                      onClick={() => void startWorkspace(project)}
+                    >
+                      {creatingProjectId === project.id ? (
+                        <LoaderCircle className="animate-spin" />
+                      ) : (
+                        <Plus />
+                      )}
+                    </Button>
+                  ) : null}
                   <DropdownMenu>
                     <DropdownMenuTrigger
                       aria-label={`Open ${project.name} menu`}
@@ -331,17 +334,19 @@ function ProjectNavigation({
                       <MoreHorizontal className="size-3.5" />
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-44">
-                      <DropdownMenuItem
-                        disabled={creatingProjectId !== null}
-                        onClick={() => void startWorkspace(project)}
-                      >
-                        {creatingProjectId === project.id ? (
-                          <LoaderCircle className="animate-spin" />
-                        ) : (
-                          <Plus />
-                        )}
-                        New Workspace
-                      </DropdownMenuItem>
+                      {dashboard.providerConnected ? (
+                        <DropdownMenuItem
+                          disabled={creatingProjectId !== null}
+                          onClick={() => void startWorkspace(project)}
+                        >
+                          {creatingProjectId === project.id ? (
+                            <LoaderCircle className="animate-spin" />
+                          ) : (
+                            <Plus />
+                          )}
+                          New Workspace
+                        </DropdownMenuItem>
+                      ) : null}
                       <DropdownMenuItem
                         onClick={() =>
                           window.location.assign(`${basePath}/settings`)

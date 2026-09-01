@@ -1,4 +1,9 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
+import {
+  createFileRoute,
+  Link,
+  redirect,
+  useNavigate,
+} from "@tanstack/react-router"
 import { useServerFn } from "@tanstack/react-start"
 import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
@@ -33,6 +38,10 @@ export const Route = createFileRoute("/projects/new")({
     const setup = organization
       ? await getOpenCodeSetup({ data: { organizationId: organization.id } })
       : null
+
+    if (organization && !setup?.providerId) {
+      throw redirect({ to: "/admin", search: { onboarding: true } })
+    }
 
     return { dashboard, organization, setup }
   },
@@ -113,16 +122,6 @@ function NewProjectScreen() {
           sourceBranch: repository?.defaultBranch,
         },
       })
-      if (
-        result.status === "error" &&
-        result.errorSummary === "Connect an AI provider to start this Workspace"
-      ) {
-        await navigate({
-          to: "/projects/$projectSlug/settings",
-          params: { projectSlug: result.projectSlug },
-        })
-        return
-      }
       await navigate({
         to: "/projects/$projectSlug/workspaces/$workspaceId",
         params: {
@@ -162,15 +161,9 @@ function NewProjectScreen() {
             <form className="mt-7 grid gap-5" onSubmit={handleSubmit}>
               <div className="flex items-center justify-between gap-4 border-y py-3">
                 <div>
-                  <p className="text-sm font-medium">
-                    {setup?.providerId
-                      ? "Default provider"
-                      : "AI provider not connected"}
-                  </p>
+                  <p className="text-sm font-medium">Default provider</p>
                   <p className="text-xs text-muted-foreground">
-                    {setup?.providerId
-                      ? `${setup.providerId}/${setup.modelId}`
-                      : "Repository setup works now. Connect before starting the Workspace."}
+                    {setup?.providerId}/{setup?.modelId}
                   </p>
                 </div>
                 <Button
@@ -179,7 +172,7 @@ function NewProjectScreen() {
                   size="sm"
                   render={<Link to="/admin" search={{ onboarding }} />}
                 >
-                  {setup?.providerId ? "Change" : "Connect"}
+                  Change
                 </Button>
               </div>
               <fieldset className="grid gap-2">
