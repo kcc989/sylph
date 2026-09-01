@@ -442,6 +442,8 @@ function WorkspaceScreen() {
 
   return (
     <WorkspaceShell
+      key={workspaceId}
+      workspaceId={workspaceId}
       canAdminister={dashboard.installation.canAdminister}
       organization={workspace.organizationName}
       projectName={workspace.projectName}

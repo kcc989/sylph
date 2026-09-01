@@ -52,6 +52,7 @@ const meta = {
     viewport: { defaultViewport: "responsive" },
   },
   args: {
+    workspaceId: "storybook-workspace",
     organization: "Folk Hero",
     projectName: "Sylph",
     repositoryName: "sylph",
