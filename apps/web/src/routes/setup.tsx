@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { useServerFn } from "@tanstack/react-start"
+import { failureMessage } from "@workspace/domain"
 import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
@@ -8,7 +9,7 @@ import { type FormEvent, useState } from "react"
 
 import { AppShell } from "@/components/app-shell"
 import { authClient } from "@/lib/auth-client"
-import { claimInstallation, getDashboard } from "@/lib/workspaces"
+import { claimInstallation, getDashboard } from "@/functions/installation"
 
 export const Route = createFileRoute("/setup")({
   loader: () => getDashboard(),
@@ -37,11 +38,7 @@ function InstallationSetupScreen() {
       })
       window.location.assign("/admin?onboarding=1")
     } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "The Installation could not be claimed"
-      )
+      setError(failureMessage(cause, "The Installation could not be claimed"))
       setPending(false)
     }
   }

@@ -10,6 +10,7 @@ import {
   GitCommitId,
   decodeWorkspaceCheckRun,
   decodeWorkspaceCiInput,
+  encodeWorkspaceCheckUpdateSync,
   WorkspaceCiInput,
   WorkspaceCheckDiagnostic,
   WorkspaceCheckEvidence,
@@ -21,6 +22,7 @@ import {
 import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers"
 import type { CiBindings } from "@cloudflare/ci/worker"
 import { checkStage } from "./workspace-checks"
+import type { WorkspaceDO } from "./workspace-do"
 import { previewRetention, removePreviewWorker } from "./preview-lifecycle"
 import {
   deploymentFailedSql,
@@ -34,7 +36,7 @@ type WorkspaceCiBindings = CiBindings & {
   CHECK_EVIDENCE: R2Bucket
   DB: D1Database
   PREVIEW_RETENTION_SECONDS: string
-  WORKSPACES: DurableObjectNamespace
+  WORKSPACES: DurableObjectNamespace<WorkspaceDO>
 }
 
 type CiRunnerLogs = {
@@ -302,19 +304,11 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
           const workspace = this.env.WORKSPACES.get(
             this.env.WORKSPACES.idFromName(input.workspaceId)
           )
-          const response = await workspace.fetch(
-            "https://workspace/checks/repair",
-            {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({
-                workspaceId: input.workspaceId,
-                runId: input.checkRunId,
-                idempotencyKey: `${input.checkRunId}:automatic-repair`,
-              }),
-            }
-          )
-          if (!response.ok) throw new Error(await response.text())
+          await workspace.repairCheck({
+            workspaceId: input.workspaceId,
+            runId: input.checkRunId,
+            idempotencyKey: `${input.checkRunId}:automatic-repair`,
+          })
         })
       }
     }
@@ -469,20 +463,14 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
       const workspace = this.env.WORKSPACES.get(
         this.env.WORKSPACES.idFromName(updated.workspaceId)
       )
-      const response = await workspace.fetch(
-        "https://workspace/checks/update",
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(
-            new WorkspaceCheckUpdate({
-              callbackId: `${updated.id}:${updated.attempt}:${label}`,
-              run: updated,
-            })
-          ),
-        }
+      await workspace.applyCheckUpdate(
+        encodeWorkspaceCheckUpdateSync(
+          new WorkspaceCheckUpdate({
+            callbackId: `${updated.id}:${updated.attempt}:${label}`,
+            run: updated,
+          })
+        )
       )
-      if (!response.ok) throw new Error(await response.text())
       return JSON.stringify(updated)
     })
     return decodeWorkspaceCheckRun(JSON.parse(payload))

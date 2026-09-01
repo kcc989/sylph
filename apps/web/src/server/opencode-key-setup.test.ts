@@ -15,9 +15,10 @@ describe("OpenCode key setup", () => {
   test("uses the embedded runtime catalog instead of bootstrap models", async () => {
     const result = await discoverOpenCodeKeyModels(
       {
-        fetch: async (_url, request) => {
-          expect(request?.method).toBe("POST")
-          return Response.json({
+        connectKey: async (received) => {
+          expect(received.providerId).toBe("cloudflare-workers-ai")
+          expect(received.apiKey).toBe("provider-key")
+          return {
             models: [
               {
                 providerId: "cloudflare-workers-ai",
@@ -26,7 +27,7 @@ describe("OpenCode key setup", () => {
               },
             ],
             recommendedModelId: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-          })
+          }
         },
       },
       input
@@ -41,8 +42,9 @@ describe("OpenCode key setup", () => {
     await expect(
       discoverOpenCodeKeyModels(
         {
-          fetch: async () =>
-            new Response("Provider catalog unavailable", { status: 502 }),
+          connectKey: async () => {
+            throw new Error("Provider catalog unavailable")
+          },
         },
         input
       )

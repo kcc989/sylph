@@ -1,10 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router"
-import { schema } from "@workspace/db"
 import { env } from "cloudflare:workers"
-import { and, eq } from "drizzle-orm"
-import { drizzle } from "drizzle-orm/d1"
 
-import { createRequestAuth } from "@/server/auth.server"
+import { accessibleWorkspace } from "@/server/organization-access"
+import { createRequestSession } from "@/server/request-session"
 
 export const Route = createFileRoute(
   "/api/workspaces/$workspaceId/evidence/$evidenceId"
@@ -12,21 +10,13 @@ export const Route = createFileRoute(
   server: {
     handlers: {
       GET: async ({ request, params }) => {
-        const auth = createRequestAuth(request, env)
-        const session = await auth.api.getSession({ headers: request.headers })
+        const { session, database } = await createRequestSession(request)
         if (!session) return new Response("Not found", { status: 404 })
-        const workspace = await drizzle(env.DB, { schema })
-          .select({ id: schema.workspace.id })
-          .from(schema.workspace)
-          .innerJoin(
-            schema.member,
-            and(
-              eq(schema.member.organizationId, schema.workspace.organizationId),
-              eq(schema.member.userId, session.user.id)
-            )
-          )
-          .where(eq(schema.workspace.id, params.workspaceId))
-          .get()
+        const workspace = await accessibleWorkspace(
+          database,
+          params.workspaceId,
+          session.user.id
+        )
         if (!workspace) return new Response("Not found", { status: 404 })
         const object = await env.CHECK_EVIDENCE.get(
           `${params.workspaceId}/${params.evidenceId}`

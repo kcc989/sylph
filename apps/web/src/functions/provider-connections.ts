@@ -1,0 +1,552 @@
+import { createServerFn } from "@tanstack/react-start"
+import { schema } from "@workspace/db"
+import {
+  decodeDisconnectOpenCodeConnectionInputPromise,
+  decodeOpenCodeKeySetupInputPromise,
+  decodeOpenCodeSubscriptionAttemptPromise,
+  decodeOpenCodeSubscriptionRuntimeStatusPromise,
+  decodeOpenCodeSubscriptionStartInputPromise,
+  decodeOpenCodeSubscriptionStatusInputPromise,
+  decodeOrganizationRequestInputPromise,
+  decodeSetDefaultModelInputPromise,
+  encodeOpenCodeSubscriptionStartInputSync,
+  encodeOpenCodeSubscriptionStatusInputSync,
+  InvalidRequest,
+  OpenCodeSubscriptionStatus,
+  WorkspaceRuntimeFailure,
+} from "@workspace/domain"
+import { env } from "cloudflare:workers"
+import { and, desc, eq } from "drizzle-orm"
+
+import { connectionManager, organizationMember } from "@/functions/middleware"
+import { providerName } from "@/lib/model-selection"
+import { encodeKeyCredential } from "@/lib/provider-credential"
+import { encryptCredential } from "@/server/credentials.server"
+import { discoverOpenCodeKeyModels } from "@/server/opencode-key-setup"
+import { isOrganizationAdmin } from "@/server/organization-access"
+import {
+  connectionRuntimeName,
+  effectiveConnection,
+  saveProviderModels,
+  subscriptionProviderId,
+} from "@/server/provider-connections"
+import { runtimeCall, workspaceRuntime } from "@/server/workspace-runtime"
+
+export const getOpenCodeSetup = createServerFn({ method: "GET" })
+  .middleware([organizationMember])
+  .validator((input) => decodeOrganizationRequestInputPromise(input))
+  .handler(async ({ data, context }) => {
+    const { database, membership, user } = context
+
+    const organizationConnections = await database
+      .select({
+        providerId: schema.openCodeConnection.providerId,
+        authMethod: schema.openCodeConnection.authMethod,
+      })
+      .from(schema.openCodeConnection)
+      .where(eq(schema.openCodeConnection.organizationId, data.organizationId))
+      .orderBy(schema.openCodeConnection.providerId)
+
+    const personalConnections = await database
+      .select({
+        providerId: schema.userOpenCodeConnection.providerId,
+        authMethod: schema.userOpenCodeConnection.authMethod,
+      })
+      .from(schema.userOpenCodeConnection)
+      .where(eq(schema.userOpenCodeConnection.userId, user.id))
+      .orderBy(schema.userOpenCodeConnection.providerId)
+
+    const effective = await effectiveConnection(
+      database,
+      data.organizationId,
+      user.id
+    )
+
+    const organizationModelCounts = await database
+      .select({
+        providerId: schema.organizationProviderModel.providerId,
+        modelId: schema.organizationProviderModel.modelId,
+        name: schema.organizationProviderModel.name,
+      })
+      .from(schema.organizationProviderModel)
+      .where(
+        eq(schema.organizationProviderModel.organizationId, data.organizationId)
+      )
+    const personalModelCounts = await database
+      .select({
+        providerId: schema.userProviderModel.providerId,
+        modelId: schema.userProviderModel.modelId,
+        name: schema.userProviderModel.name,
+      })
+      .from(schema.userProviderModel)
+      .where(eq(schema.userProviderModel.userId, user.id))
+    const organizationDefault = await database
+      .select({
+        providerId: schema.organizationModelPreference.providerId,
+        modelId: schema.organizationModelPreference.modelId,
+      })
+      .from(schema.organizationModelPreference)
+      .where(
+        eq(
+          schema.organizationModelPreference.organizationId,
+          data.organizationId
+        )
+      )
+      .get()
+    const personalDefault = await database
+      .select({
+        providerId: schema.userModelPreference.providerId,
+        modelId: schema.userModelPreference.modelId,
+      })
+      .from(schema.userModelPreference)
+      .where(eq(schema.userModelPreference.userId, user.id))
+      .get()
+
+    const members = await database
+      .select({
+        id: schema.member.id,
+        name: schema.user.name,
+        email: schema.user.email,
+        role: schema.member.role,
+      })
+      .from(schema.member)
+      .innerJoin(schema.user, eq(schema.member.userId, schema.user.id))
+      .where(eq(schema.member.organizationId, data.organizationId))
+      .orderBy(schema.user.name)
+
+    const invitations = isOrganizationAdmin(membership.role)
+      ? await database
+          .select({
+            id: schema.invitation.id,
+            email: schema.invitation.email,
+            role: schema.invitation.role,
+            status: schema.invitation.status,
+          })
+          .from(schema.invitation)
+          .where(eq(schema.invitation.organizationId, data.organizationId))
+          .orderBy(desc(schema.invitation.createdAt))
+      : []
+
+    return {
+      providerId: effective?.providerId ?? null,
+      modelId: effective?.modelId ?? null,
+      modelName: effective?.modelName ?? null,
+      models: effective?.models ?? [],
+      modelNotice: effective?.notice ?? null,
+      organizationDefault: organizationDefault ?? null,
+      personalDefault: personalDefault ?? null,
+      organizationModels: organizationModelCounts.map((model) => ({
+        ...model,
+        providerName: providerName(model.providerId),
+        scope: "organization" as const,
+      })),
+      authMethod: effective?.authMethod ?? null,
+      role: membership.role,
+      canManageOrganization: isOrganizationAdmin(membership.role),
+      organizationConnections: organizationConnections.map((connection) => ({
+        ...connection,
+        availableModelCount: organizationModelCounts.filter(
+          (model) => model.providerId === connection.providerId
+        ).length,
+      })),
+      personalConnections: personalConnections.map((connection) => ({
+        ...connection,
+        availableModelCount: personalModelCounts.filter(
+          (model) => model.providerId === connection.providerId
+        ).length,
+      })),
+      members,
+      invitations,
+    }
+  })
+
+export const setDefaultModel = createServerFn({ method: "POST" })
+  .middleware([connectionManager])
+  .validator((input) => decodeSetDefaultModelInputPromise(input))
+  .handler(async ({ data, context }) => {
+    const { database, user } = context
+    const model =
+      data.scope === "organization"
+        ? await database
+            .select({ modelId: schema.organizationProviderModel.modelId })
+            .from(schema.organizationProviderModel)
+            .where(
+              and(
+                eq(
+                  schema.organizationProviderModel.organizationId,
+                  data.organizationId
+                ),
+                eq(
+                  schema.organizationProviderModel.providerId,
+                  data.providerId
+                ),
+                eq(schema.organizationProviderModel.modelId, data.modelId)
+              )
+            )
+            .get()
+        : await database
+            .select({ modelId: schema.userProviderModel.modelId })
+            .from(schema.userProviderModel)
+            .where(
+              and(
+                eq(schema.userProviderModel.userId, user.id),
+                eq(schema.userProviderModel.providerId, data.providerId),
+                eq(schema.userProviderModel.modelId, data.modelId)
+              )
+            )
+            .get()
+
+    const organizationModel =
+      data.scope === "user" && !model
+        ? await database
+            .select({ modelId: schema.organizationProviderModel.modelId })
+            .from(schema.organizationProviderModel)
+            .where(
+              and(
+                eq(
+                  schema.organizationProviderModel.organizationId,
+                  data.organizationId
+                ),
+                eq(
+                  schema.organizationProviderModel.providerId,
+                  data.providerId
+                ),
+                eq(schema.organizationProviderModel.modelId, data.modelId)
+              )
+            )
+            .get()
+        : null
+
+    if (!model && !organizationModel) {
+      throw new InvalidRequest({ message: "This model is not available" })
+    }
+
+    if (data.scope === "organization") {
+      await database
+        .insert(schema.organizationModelPreference)
+        .values({
+          organizationId: data.organizationId,
+          providerId: data.providerId,
+          modelId: data.modelId,
+          configuredByUserId: user.id,
+        })
+        .onConflictDoUpdate({
+          target: schema.organizationModelPreference.organizationId,
+          set: {
+            providerId: data.providerId,
+            modelId: data.modelId,
+            configuredByUserId: user.id,
+            updatedAt: new Date(),
+          },
+        })
+    } else {
+      await database
+        .insert(schema.userModelPreference)
+        .values({
+          userId: user.id,
+          providerId: data.providerId,
+          modelId: data.modelId,
+        })
+        .onConflictDoUpdate({
+          target: schema.userModelPreference.userId,
+          set: {
+            providerId: data.providerId,
+            modelId: data.modelId,
+            updatedAt: new Date(),
+          },
+        })
+    }
+
+    return { providerId: data.providerId, modelId: data.modelId }
+  })
+
+export const disconnectOpenCodeConnection = createServerFn({ method: "POST" })
+  .middleware([connectionManager])
+  .validator((input) => decodeDisconnectOpenCodeConnectionInputPromise(input))
+  .handler(async ({ data, context }) => {
+    const { database, user } = context
+    if (data.scope === "organization") {
+      await database
+        .delete(schema.openCodeConnection)
+        .where(
+          and(
+            eq(schema.openCodeConnection.organizationId, data.organizationId),
+            eq(schema.openCodeConnection.providerId, data.providerId)
+          )
+        )
+      await database
+        .delete(schema.organizationProviderModel)
+        .where(
+          and(
+            eq(
+              schema.organizationProviderModel.organizationId,
+              data.organizationId
+            ),
+            eq(schema.organizationProviderModel.providerId, data.providerId)
+          )
+        )
+      await database
+        .delete(schema.organizationModelPreference)
+        .where(
+          and(
+            eq(
+              schema.organizationModelPreference.organizationId,
+              data.organizationId
+            ),
+            eq(schema.organizationModelPreference.providerId, data.providerId)
+          )
+        )
+    } else {
+      await database
+        .delete(schema.userOpenCodeConnection)
+        .where(
+          and(
+            eq(schema.userOpenCodeConnection.userId, user.id),
+            eq(schema.userOpenCodeConnection.providerId, data.providerId)
+          )
+        )
+      await database
+        .delete(schema.userProviderModel)
+        .where(
+          and(
+            eq(schema.userProviderModel.userId, user.id),
+            eq(schema.userProviderModel.providerId, data.providerId)
+          )
+        )
+      await database
+        .delete(schema.userModelPreference)
+        .where(
+          and(
+            eq(schema.userModelPreference.userId, user.id),
+            eq(schema.userModelPreference.providerId, data.providerId)
+          )
+        )
+    }
+
+    return { providerId: data.providerId }
+  })
+
+export const saveOpenCodeSetup = createServerFn({ method: "POST" })
+  .middleware([connectionManager])
+  .validator((input) => decodeOpenCodeKeySetupInputPromise(input))
+  .handler(async ({ data, context }) => {
+    const { database, user } = context
+    const runtime = workspaceRuntime(
+      connectionRuntimeName(data.organizationId, user.id, data.scope)
+    )
+    const result = await runtimeCall(() =>
+      discoverOpenCodeKeyModels(runtime, data)
+    )
+
+    const credential = await encryptCredential(
+      encodeKeyCredential(data.apiKey, data.configuration),
+      env.CREDENTIAL_ENCRYPTION_KEY
+    )
+    const now = new Date()
+    if (data.scope === "organization") {
+      await database
+        .insert(schema.openCodeConnection)
+        .values({
+          organizationId: data.organizationId,
+          configuredByUserId: user.id,
+          providerId: data.providerId,
+          authMethod: "api-key",
+          encryptedCredential: credential.encrypted,
+          encryptionIv: credential.iv,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoUpdate({
+          target: [
+            schema.openCodeConnection.organizationId,
+            schema.openCodeConnection.providerId,
+          ],
+          set: {
+            configuredByUserId: user.id,
+            authMethod: "api-key",
+            encryptedCredential: credential.encrypted,
+            encryptionIv: credential.iv,
+            updatedAt: now,
+          },
+        })
+    } else {
+      await database
+        .insert(schema.userOpenCodeConnection)
+        .values({
+          userId: user.id,
+          providerId: data.providerId,
+          authMethod: "api-key",
+          encryptedCredential: credential.encrypted,
+          encryptionIv: credential.iv,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoUpdate({
+          target: [
+            schema.userOpenCodeConnection.userId,
+            schema.userOpenCodeConnection.providerId,
+          ],
+          set: {
+            authMethod: "api-key",
+            encryptedCredential: credential.encrypted,
+            encryptionIv: credential.iv,
+            updatedAt: now,
+          },
+        })
+    }
+
+    const availableModelCount = await saveProviderModels({
+      database,
+      organizationId: data.organizationId,
+      userId: user.id,
+      scope: data.scope,
+      providerId: data.providerId,
+      models: result.models,
+      recommendedModelId: result.recommendedModelId,
+    })
+
+    return { providerId: data.providerId, availableModelCount }
+  })
+
+export const startOpenCodeSubscription = createServerFn({ method: "POST" })
+  .middleware([connectionManager])
+  .validator((input) => decodeOpenCodeSubscriptionStartInputPromise(input))
+  .handler(async ({ data, context }) => {
+    const runtime = workspaceRuntime(
+      connectionRuntimeName(data.organizationId, context.user.id, data.scope)
+    )
+    const attempt = await decodeOpenCodeSubscriptionAttemptPromise(
+      await runtimeCall(() =>
+        runtime.startSubscriptionSignIn(
+          encodeOpenCodeSubscriptionStartInputSync(data)
+        )
+      )
+    )
+
+    return {
+      attemptId: attempt.attemptId,
+      url: attempt.url,
+      instructions: attempt.instructions,
+      expiresAt: attempt.expiresAt,
+    }
+  })
+
+export const getOpenCodeSubscriptionStatus = createServerFn({ method: "POST" })
+  .middleware([connectionManager])
+  .validator((input) => decodeOpenCodeSubscriptionStatusInputPromise(input))
+  .handler(async ({ data, context }) => {
+    const { database, user } = context
+    const runtime = workspaceRuntime(
+      connectionRuntimeName(data.organizationId, user.id, data.scope)
+    )
+    const result = await decodeOpenCodeSubscriptionRuntimeStatusPromise(
+      await runtimeCall(() =>
+        runtime.subscriptionSignInStatus(
+          encodeOpenCodeSubscriptionStatusInputSync(data)
+        )
+      )
+    )
+
+    if (result.status !== "complete") {
+      const status = new OpenCodeSubscriptionStatus({
+        status: result.status,
+        message: result.message,
+      })
+
+      return { status: status.status, message: status.message }
+    }
+
+    if (!result.credential || result.credential.type !== "oauth") {
+      throw new WorkspaceRuntimeFailure({
+        message: "OpenCode completed sign-in without a subscription",
+      })
+    }
+    if (!result.models) {
+      throw new WorkspaceRuntimeFailure({
+        message: "OpenCode completed sign-in without a model catalog",
+      })
+    }
+
+    const encrypted = await encryptCredential(
+      JSON.stringify(result.credential),
+      env.CREDENTIAL_ENCRYPTION_KEY
+    )
+    const now = new Date()
+    if (data.scope === "organization") {
+      await database
+        .insert(schema.openCodeConnection)
+        .values({
+          organizationId: data.organizationId,
+          configuredByUserId: user.id,
+          providerId: subscriptionProviderId,
+          authMethod: "chatgpt-subscription",
+          encryptedCredential: encrypted.encrypted,
+          encryptionIv: encrypted.iv,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoUpdate({
+          target: [
+            schema.openCodeConnection.organizationId,
+            schema.openCodeConnection.providerId,
+          ],
+          set: {
+            configuredByUserId: user.id,
+            authMethod: "chatgpt-subscription",
+            encryptedCredential: encrypted.encrypted,
+            encryptionIv: encrypted.iv,
+            updatedAt: now,
+          },
+        })
+    } else {
+      await database
+        .insert(schema.userOpenCodeConnection)
+        .values({
+          userId: user.id,
+          providerId: subscriptionProviderId,
+          authMethod: "chatgpt-subscription",
+          encryptedCredential: encrypted.encrypted,
+          encryptionIv: encrypted.iv,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoUpdate({
+          target: [
+            schema.userOpenCodeConnection.userId,
+            schema.userOpenCodeConnection.providerId,
+          ],
+          set: {
+            authMethod: "chatgpt-subscription",
+            encryptedCredential: encrypted.encrypted,
+            encryptionIv: encrypted.iv,
+            updatedAt: now,
+          },
+        })
+    }
+
+    await saveProviderModels({
+      database,
+      organizationId: data.organizationId,
+      userId: user.id,
+      scope: data.scope,
+      providerId: subscriptionProviderId,
+      models: result.models,
+      recommendedModelId: result.recommendedModelId ?? null,
+    })
+
+    return { status: "complete" as const, message: undefined }
+  })
+
+export const cancelOpenCodeSubscription = createServerFn({ method: "POST" })
+  .middleware([connectionManager])
+  .validator((input) => decodeOpenCodeSubscriptionStatusInputPromise(input))
+  .handler(async ({ data, context }) => {
+    const runtime = workspaceRuntime(
+      connectionRuntimeName(data.organizationId, context.user.id, data.scope)
+    )
+    await runtimeCall(() =>
+      runtime.cancelSubscriptionSignIn(
+        encodeOpenCodeSubscriptionStatusInputSync(data)
+      )
+    )
+  })

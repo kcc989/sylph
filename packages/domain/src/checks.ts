@@ -222,3 +222,35 @@ export const decodeWorkspaceRepairCheckInputPromise =
   Schema.decodeUnknownPromise(WorkspaceRepairCheckInput)
 export const decodeWorkspaceSyncInputPromise =
   Schema.decodeUnknownPromise(WorkspaceSyncInput)
+
+export class WorkspaceCheckUpdateResult extends Schema.Class<WorkspaceCheckUpdateResult>(
+  "@sylph/domain/WorkspaceCheckUpdateResult"
+)({
+  applied: Schema.Boolean,
+}) {}
+
+export class WorkspaceRepairResult extends Schema.Class<WorkspaceRepairResult>(
+  "@sylph/domain/WorkspaceRepairResult"
+)({
+  started: Schema.Boolean,
+}) {}
+
+export const decodeWorkspaceRepairResultPromise = Schema.decodeUnknownPromise(
+  WorkspaceRepairResult
+)
+export const decodeWorkspaceSyncResultPromise =
+  Schema.decodeUnknownPromise(WorkspaceSyncResult)
+export const encodeWorkspaceCheckRunSync = Schema.encodeSync(WorkspaceCheckRun)
+export const encodeWorkspaceCheckRunListSync = Schema.encodeSync(
+  WorkspaceCheckRunList
+)
+export const encodeWorkspaceSyncResultSync =
+  Schema.encodeSync(WorkspaceSyncResult)
+export const encodeWorkspaceCheckUpdateSync =
+  Schema.encodeSync(WorkspaceCheckUpdate)
+export const encodeWorkspaceRetryCheckInputSync = Schema.encodeSync(
+  WorkspaceRetryCheckInput
+)
+export const encodeWorkspaceRepairCheckInputSync = Schema.encodeSync(
+  WorkspaceRepairCheckInput
+)

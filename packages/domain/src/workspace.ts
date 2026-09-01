@@ -603,3 +603,48 @@ export const decodeWorkspaceWriteFile = Schema.decodeUnknownPromise(
 
 export const decodeMagicLinkRequest =
   Schema.decodeUnknownPromise(MagicLinkRequest)
+
+export class WorkspaceTurnCancelResult extends Schema.Class<WorkspaceTurnCancelResult>(
+  "@sylph/domain/WorkspaceTurnCancelResult"
+)({
+  interrupted: Schema.Boolean,
+}) {}
+
+export const decodeWorkspaceTurnCancelResultPromise =
+  Schema.decodeUnknownPromise(WorkspaceTurnCancelResult)
+export const encodeInitializeWorkspaceRuntimeSync = Schema.encodeSync(
+  InitializeWorkspaceRuntime
+)
+export const encodeWorkspaceRuntimeHealthSync = Schema.encodeSync(
+  WorkspaceRuntimeHealth
+)
+export const encodeWorkspaceRuntimePromptInputSync = Schema.encodeSync(
+  WorkspaceRuntimePromptInput
+)
+export const encodeOpenCodeConnectionResultSync = Schema.encodeSync(
+  OpenCodeConnectionResult
+)
+export const encodeOpenCodeSubscriptionAttemptSync = Schema.encodeSync(
+  OpenCodeSubscriptionAttempt
+)
+export const encodeOpenCodeSubscriptionRuntimeStatusSync = Schema.encodeSync(
+  OpenCodeSubscriptionRuntimeStatus
+)
+export const encodeOpenCodeKeySetupInputSync = Schema.encodeSync(
+  OpenCodeKeySetupInput
+)
+export const encodeOpenCodeSubscriptionStartInputSync = Schema.encodeSync(
+  OpenCodeSubscriptionStartInput
+)
+export const encodeOpenCodeSubscriptionStatusInputSync = Schema.encodeSync(
+  OpenCodeSubscriptionStatusInput
+)
+export const encodeWorkspaceTurnCancelInputSync = Schema.encodeSync(
+  WorkspaceTurnCancelInput
+)
+export const encodeWorkspaceQuestionReplyInputSync = Schema.encodeSync(
+  WorkspaceQuestionReplyInput
+)
+export const encodeWorkspacePermissionReplyInputSync = Schema.encodeSync(
+  WorkspacePermissionReplyInput
+)

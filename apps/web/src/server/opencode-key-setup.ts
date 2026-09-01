@@ -1,22 +1,20 @@
 import {
   decodeOpenCodeConnectionResultPromise,
+  encodeOpenCodeKeySetupInputSync,
+  type OpenCodeConnectionResult,
   type OpenCodeKeySetupInput,
 } from "@workspace/domain"
 
 interface OpenCodeKeySetupRuntime {
-  readonly fetch: (input: string, init?: RequestInit) => Promise<Response>
+  readonly connectKey: (
+    input: typeof OpenCodeKeySetupInput.Encoded
+  ) => Promise<typeof OpenCodeConnectionResult.Encoded>
 }
 
 export const discoverOpenCodeKeyModels = async (
   runtime: OpenCodeKeySetupRuntime,
   input: OpenCodeKeySetupInput
-) => {
-  const response = await runtime.fetch("https://workspace/connect/key", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(input),
-  })
-
-  if (!response.ok) throw new Error(await response.text())
-  return decodeOpenCodeConnectionResultPromise(await response.json())
-}
+) =>
+  decodeOpenCodeConnectionResultPromise(
+    await runtime.connectKey(encodeOpenCodeKeySetupInputSync(input))
+  )

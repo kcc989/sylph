@@ -2,6 +2,7 @@ import { createFileRoute, Link, useRouter } from "@tanstack/react-router"
 import {
   decodeWorkspaceRuntimeEventPromise,
   type WorkspacePermissionReply,
+  failureMessage,
 } from "@workspace/domain"
 import { useServerFn } from "@tanstack/react-start"
 import { Button } from "@workspace/ui/components/button"
@@ -16,25 +17,27 @@ import {
 import { useEffect, useRef, useState } from "react"
 
 import { validateOnboardingSearch } from "@/lib/onboarding"
+import { getDashboard } from "@/functions/installation"
+import {
+  addWorkspaceReviewComment,
+  resolveWorkspaceReviewComment,
+  submitWorkspaceReview,
+} from "@/functions/review"
 import {
   acceptWorkspace,
-  addWorkspaceReviewComment,
   answerWorkspaceQuestion,
   archiveWorkspace,
   cancelWorkspaceTurn,
   checkpointWorkspace,
   discardWorkspace,
-  getDashboard,
   getWorkspace,
   promptWorkspace,
   rebaseWorkspace,
   repairWorkspaceCheck,
-  resolveWorkspaceReviewComment,
   restartWorkspace,
   retryWorkspaceCheck,
   syncWorkspaceProject,
-  submitWorkspaceReview,
-} from "@/lib/workspaces"
+} from "@/functions/workspaces"
 import { useWorkspaceCreation } from "@/lib/use-workspace-creation"
 import {
   applyWorkspaceRuntimeEvent,
@@ -320,9 +323,7 @@ function WorkspaceScreen() {
                       })
                       .catch((cause) =>
                         setPromptError(
-                          cause instanceof Error
-                            ? cause.message
-                            : "Check retry failed"
+                          failureMessage(cause, "Check retry failed")
                         )
                       )
                       .finally(() => setCheckActionPending(false))
@@ -365,9 +366,7 @@ function WorkspaceScreen() {
               await router.invalidate()
             })
             .catch((cause) =>
-              setPromptError(
-                cause instanceof Error ? cause.message : "Repair turn failed"
-              )
+              setPromptError(failureMessage(cause, "Repair turn failed"))
             )
             .finally(() => setCheckActionPending(false))
         },
@@ -390,11 +389,7 @@ function WorkspaceScreen() {
           void syncProject({ data: { workspaceId } })
             .then(async () => router.invalidate())
             .catch((cause) =>
-              setPromptError(
-                cause instanceof Error
-                  ? cause.message
-                  : "Repository update failed"
-              )
+              setPromptError(failureMessage(cause, "Repository update failed"))
             )
             .finally(() => setCheckActionPending(false))
         },
@@ -429,11 +424,7 @@ function WorkspaceScreen() {
       await router.invalidate()
       return true
     } catch (cause) {
-      setReviewError(
-        cause instanceof Error
-          ? cause.message
-          : "The review could not be updated"
-      )
+      setReviewError(failureMessage(cause, "The review could not be updated"))
       return false
     } finally {
       setReviewPending(false)
@@ -496,9 +487,7 @@ function WorkspaceScreen() {
           await router.invalidate()
         } catch (cause) {
           setPromptError(
-            cause instanceof Error
-              ? cause.message
-              : "The agent question answer could not be sent"
+            failureMessage(cause, "The agent question answer could not be sent")
           )
         } finally {
           setAnsweringQuestionId(null)
@@ -511,9 +500,7 @@ function WorkspaceScreen() {
           await cancelTurn({ data: { workspaceId } })
           await router.invalidate()
         } catch (cause) {
-          setPromptError(
-            cause instanceof Error ? cause.message : "Turn cancellation failed"
-          )
+          setPromptError(failureMessage(cause, "Turn cancellation failed"))
         } finally {
           setCancelTurnPending(false)
         }
@@ -545,9 +532,7 @@ function WorkspaceScreen() {
           })
         } catch (cause) {
           setPromptError(
-            cause instanceof Error
-              ? cause.message
-              : "The permission response could not be sent"
+            failureMessage(cause, "The permission response could not be sent")
           )
         } finally {
           setReplyingPermissionId(null)
@@ -610,9 +595,7 @@ function WorkspaceScreen() {
                 setAcceptKey(crypto.randomUUID())
                 await router.invalidate()
               } catch (cause) {
-                setPromptError(
-                  cause instanceof Error ? cause.message : "Accept failed"
-                )
+                setPromptError(failureMessage(cause, "Accept failed"))
               } finally {
                 setAcceptPending(false)
               }
@@ -630,9 +613,7 @@ function WorkspaceScreen() {
                 await rebase({ data: { workspaceId } })
                 await router.invalidate()
               } catch (cause) {
-                setPromptError(
-                  cause instanceof Error ? cause.message : "Rebase failed"
-                )
+                setPromptError(failureMessage(cause, "Rebase failed"))
               } finally {
                 setRebasePending(false)
               }
@@ -655,9 +636,7 @@ function WorkspaceScreen() {
                 setCheckpointKey(crypto.randomUUID())
                 await router.invalidate()
               } catch (cause) {
-                setPromptError(
-                  cause instanceof Error ? cause.message : "Checkpoint failed"
-                )
+                setPromptError(failureMessage(cause, "Checkpoint failed"))
               } finally {
                 setCheckpointPending(false)
               }
@@ -694,9 +673,7 @@ function WorkspaceScreen() {
         } catch (cause) {
           setOptimisticEntries([])
           setPromptError(
-            cause instanceof Error
-              ? cause.message
-              : "The assistant could not start the turn"
+            failureMessage(cause, "The assistant could not start the turn")
           )
         } finally {
           setPromptPending(false)
@@ -751,9 +728,7 @@ function WorkspaceScreen() {
           await restart({ data: { workspaceId, model: selectedModel } })
           await router.invalidate()
         } catch (cause) {
-          setPromptError(
-            cause instanceof Error ? cause.message : "Workspace restart failed"
-          )
+          setPromptError(failureMessage(cause, "Workspace restart failed"))
         } finally {
           setRestartPending(false)
         }
@@ -768,9 +743,7 @@ function WorkspaceScreen() {
                 await router.invalidate()
               } catch (cause) {
                 setPromptError(
-                  cause instanceof Error
-                    ? cause.message
-                    : "Workspace archive failed"
+                  failureMessage(cause, "Workspace archive failed")
                 )
               } finally {
                 setArchivePending(false)
@@ -785,9 +758,7 @@ function WorkspaceScreen() {
           await discard({ data: { workspaceId } })
           await router.navigate({ to: "/" })
         } catch (cause) {
-          setPromptError(
-            cause instanceof Error ? cause.message : "Workspace discard failed"
-          )
+          setPromptError(failureMessage(cause, "Workspace discard failed"))
         } finally {
           setDiscardPending(false)
         }

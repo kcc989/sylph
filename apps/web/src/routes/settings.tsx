@@ -1,5 +1,6 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router"
 import { useServerFn } from "@tanstack/react-start"
+import { failureMessage } from "@workspace/domain"
 import { Button } from "@workspace/ui/components/button"
 import {
   decodeModelOption,
@@ -9,11 +10,11 @@ import { ArrowRight, ShieldCheck } from "lucide-react"
 import { useState } from "react"
 
 import { AppShell } from "@/components/app-shell"
+import { getDashboard } from "@/functions/installation"
 import {
-  getDashboard,
   getOpenCodeSetup,
   setDefaultModel,
-} from "@/lib/workspaces"
+} from "@/functions/provider-connections"
 
 export const Route = createFileRoute("/settings")({
   loader: async () => {
@@ -89,9 +90,7 @@ function UserSettingsScreen() {
                     await router.invalidate()
                   } catch (cause) {
                     setError(
-                      cause instanceof Error
-                        ? cause.message
-                        : "Could not save the default model"
+                      failureMessage(cause, "Could not save the default model")
                     )
                   } finally {
                     setPending(false)

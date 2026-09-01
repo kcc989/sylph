@@ -1,6 +1,7 @@
 export * from "./ids"
 export * from "./checks"
 export * from "./deployments"
+export * from "./errors"
 export * from "./github-import"
 export * from "./review"
 export * from "./version-control"

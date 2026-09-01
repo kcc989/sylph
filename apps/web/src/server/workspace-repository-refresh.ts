@@ -1,10 +1,9 @@
 import {
   decodeWorkspaceCheckpointList,
   decodeWorkspaceVersionControl,
+  decodeWorkspaceVersionControlSnapshot,
+  type WorkspaceVersionControlSnapshot,
 } from "@workspace/domain"
-
-export const workspaceVersionControlRequest = () =>
-  "https://workspace/vcs?refresh=1"
 
 export const readCurrentProjectHead = <Value>(read: () => Promise<Value>) =>
   read()
@@ -17,28 +16,17 @@ type PersistedWorkspaceVersionControl = {
   mergeStatus: string
 }
 
-export const readWorkspaceVersionControlResponse = async (
-  response: Response,
+export const readWorkspaceVersionControlSnapshot = async (
+  snapshot: typeof WorkspaceVersionControlSnapshot.Encoded | null,
   persisted: PersistedWorkspaceVersionControl
 ) => {
-  if (response.ok) {
-    const payload = await response.json<{
-      vcs: unknown
-      checkpoints: unknown
-    }>()
-    return {
-      versionControl: await decodeWorkspaceVersionControl(payload.vcs),
-      checkpoints: await decodeWorkspaceCheckpointList(payload.checkpoints),
-    }
+  if (snapshot) {
+    const decoded = await decodeWorkspaceVersionControlSnapshot(snapshot)
+    return { versionControl: decoded.vcs, checkpoints: decoded.checkpoints }
   }
 
-  const message = await response.text()
-  if (
-    message.trim() !== "Workspace version control is not initialized" ||
-    !persisted.baseCommit ||
-    !persisted.forkHead
-  ) {
-    throw new Error(message)
+  if (!persisted.baseCommit || !persisted.forkHead) {
+    throw new Error("Workspace version control is not initialized")
   }
 
   return {

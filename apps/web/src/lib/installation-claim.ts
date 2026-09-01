@@ -1,3 +1,5 @@
+import { InstallationClaimRejected } from "@workspace/domain"
+
 type InstallationClaimAccount = {
   email: string
   emailVerified: boolean
@@ -10,9 +12,13 @@ export const assertInstallationClaimIdentity = (
   confirmedEmail: string
 ) => {
   if (!account.emailVerified) {
-    throw new Error("Verify your email before claiming this Installation")
+    throw new InstallationClaimRejected({
+      message: "Verify your email before claiming this Installation",
+    })
   }
   if (normalizeEmail(confirmedEmail) !== normalizeEmail(account.email)) {
-    throw new Error("The confirmed email does not match your signed-in account")
+    throw new InstallationClaimRejected({
+      message: "The confirmed email does not match your signed-in account",
+    })
   }
 }

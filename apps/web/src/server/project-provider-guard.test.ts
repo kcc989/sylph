@@ -1,9 +1,13 @@
 import { describe, expect, test } from "bun:test"
+import { ProviderConnectionRequired } from "@workspace/domain"
 
 import { requireProjectProviderConnection } from "./project-provider-guard"
 
 describe("Project provider gate", () => {
   test("rejects Project creation before any provider is connected", () => {
+    expect(() => requireProjectProviderConnection(null)).toThrow(
+      ProviderConnectionRequired
+    )
     expect(() => requireProjectProviderConnection(null)).toThrow(
       "Connect an AI provider before creating a Project"
     )

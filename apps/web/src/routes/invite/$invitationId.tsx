@@ -4,7 +4,7 @@ import { Check, Code2, LoaderCircle, Mail } from "lucide-react"
 import { useState } from "react"
 
 import { authClient } from "@/lib/auth-client"
-import { getDashboard } from "@/lib/workspaces"
+import { getDashboard } from "@/functions/installation"
 
 export const Route = createFileRoute("/invite/$invitationId")({
   loader: () => getDashboard(),
