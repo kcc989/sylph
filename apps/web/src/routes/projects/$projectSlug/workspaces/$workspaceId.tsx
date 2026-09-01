@@ -17,15 +17,18 @@ import { useEffect, useRef, useState } from "react"
 import { validateOnboardingSearch } from "@/lib/onboarding"
 import {
   acceptWorkspace,
+  addWorkspaceReviewComment,
   checkpointWorkspace,
   getDashboard,
   getWorkspace,
   promptWorkspace,
   rebaseWorkspace,
   repairWorkspaceCheck,
+  resolveWorkspaceReviewComment,
   restartWorkspace,
   retryWorkspaceCheck,
   syncWorkspaceProject,
+  submitWorkspaceReview,
 } from "@/lib/workspaces"
 import { useWorkspaceCreation } from "@/lib/use-workspace-creation"
 import {
@@ -60,14 +63,19 @@ function WorkspaceScreen() {
   const prompt = useServerFn(promptWorkspace)
   const checkpoint = useServerFn(checkpointWorkspace)
   const accept = useServerFn(acceptWorkspace)
+  const addReviewComment = useServerFn(addWorkspaceReviewComment)
   const restart = useServerFn(restartWorkspace)
   const rebase = useServerFn(rebaseWorkspace)
   const retryCheck = useServerFn(retryWorkspaceCheck)
   const repairCheck = useServerFn(repairWorkspaceCheck)
+  const resolveReviewComment = useServerFn(resolveWorkspaceReviewComment)
   const syncProject = useServerFn(syncWorkspaceProject)
+  const submitReview = useServerFn(submitWorkspaceReview)
   const [promptPending, setPromptPending] = useState(false)
   const [checkpointPending, setCheckpointPending] = useState(false)
   const [acceptPending, setAcceptPending] = useState(false)
+  const [reviewPending, setReviewPending] = useState(false)
+  const [reviewError, setReviewError] = useState<string | null>(null)
   const [checkpointKey, setCheckpointKey] = useState(() => crypto.randomUUID())
   const [acceptKey, setAcceptKey] = useState(() => crypto.randomUUID())
   const [restartPending, setRestartPending] = useState(false)
@@ -394,6 +402,25 @@ function WorkspaceScreen() {
     )
   }
 
+  const runReviewMutation = async (mutation: () => Promise<object>) => {
+    setReviewPending(true)
+    setReviewError(null)
+    try {
+      await mutation()
+      await router.invalidate()
+      return true
+    } catch (cause) {
+      setReviewError(
+        cause instanceof Error
+          ? cause.message
+          : "The review could not be updated"
+      )
+      return false
+    } finally {
+      setReviewPending(false)
+    }
+  }
+
   return (
     <WorkspaceShell
       canAdminister={dashboard.installation.canAdminister}
@@ -414,6 +441,13 @@ function WorkspaceScreen() {
       }}
       changedFileCount={workingChanges.length}
       checkpointHistory={result.checkpoints}
+      review={result.review}
+      reviewPatch={result.versionControl.branch
+        .map((change) => change.patch)
+        .join("\n")}
+      currentReviewer={result.currentReviewer}
+      reviewPending={reviewPending}
+      reviewError={reviewError}
       changeSummary={
         workingChanges.length ? `+${additions} −${deletions}` : "No changes"
       }
@@ -459,6 +493,33 @@ function WorkspaceScreen() {
           setReplyingPermissionId(null)
         }
       }}
+      onAddReviewComment={(comment) =>
+        runReviewMutation(() =>
+          addReviewComment({
+            data: {
+              workspaceId,
+              commit: result.review.commit,
+              ...comment,
+            },
+          })
+        )
+      }
+      onResolveReviewComment={(commentId, resolved) =>
+        runReviewMutation(() =>
+          resolveReviewComment({ data: { workspaceId, commentId, resolved } })
+        ).then(() => undefined)
+      }
+      onSubmitReview={(decision) =>
+        runReviewMutation(() =>
+          submitReview({
+            data: {
+              workspaceId,
+              commit: result.review.commit,
+              decision,
+            },
+          })
+        ).then(() => undefined)
+      }
       initialPrompt={
         onboarding && runtime.messages.length === 0
           ? "Make one small, useful improvement to this starter project. Explain the change, write the files, and leave it ready for review."
@@ -475,6 +536,7 @@ function WorkspaceScreen() {
       onAccept={
         result.versionControl.branch.length > 0 &&
         currentCheckpointPassed &&
+        result.review.decision === "approved" &&
         !result.versionControl.projectChanged &&
         workspace.status !== "merging" &&
         workspace.status !== "archived"

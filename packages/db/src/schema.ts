@@ -247,6 +247,58 @@ export const workspace = sqliteTable(
   ]
 )
 
+export const workspaceReview = sqliteTable(
+  "workspace_review",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    commit: text("commit").notNull(),
+    decision: text("decision").notNull().default("pending"),
+    reviewerUserId: text("reviewer_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    submittedAt: integer("submitted_at", { mode: "timestamp" }),
+    createdAt: timestamp("created_at"),
+    updatedAt: timestamp("updated_at"),
+  },
+  (table) => [
+    uniqueIndex("workspace_review_revision_unique").on(
+      table.workspaceId,
+      table.commit
+    ),
+    index("workspace_review_workspace_id_idx").on(table.workspaceId),
+  ]
+)
+
+export const workspaceReviewComment = sqliteTable(
+  "workspace_review_comment",
+  {
+    id: text("id").primaryKey(),
+    reviewId: text("review_id")
+      .notNull()
+      .references(() => workspaceReview.id, { onDelete: "cascade" }),
+    file: text("file").notNull(),
+    side: text("side").notNull(),
+    startLine: integer("start_line").notNull(),
+    endLine: integer("end_line").notNull(),
+    body: text("body").notNull(),
+    authorUserId: text("author_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    resolvedAt: integer("resolved_at", { mode: "timestamp" }),
+    resolvedByUserId: text("resolved_by_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at"),
+    updatedAt: timestamp("updated_at"),
+  },
+  (table) => [
+    index("workspace_review_comment_review_id_idx").on(table.reviewId),
+  ]
+)
+
 export const deployment = sqliteTable(
   "deployment",
   {
