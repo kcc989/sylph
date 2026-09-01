@@ -1,5 +1,6 @@
 import {
   AgentSessionId,
+  decodeWorkspaceArchiveInputPromise,
   decodeWorkspaceCheckUpdatePromise,
   decodeWorkspaceProductionCheckInputPromise,
   decodeWorkspaceRepairCheckInputPromise,
@@ -27,18 +28,24 @@ import {
   WorkspaceQuestionOption,
   type WorkspaceRuntimeMessage,
   GitCommitId,
+  ProjectId,
+  WorkspaceCheckEvidence,
   WorkspaceCheckRun,
   type WorkspaceCiInput,
   type WorkspaceCheckStageName,
+  type WorkspaceDiffScope,
   WorkspaceId,
   resolveSkillInvocation,
+  WorkspacePreviewResult,
+  WorkspaceProductionDeployment,
+  WorkspaceProductionStatus,
 } from "@workspace/domain"
 import type { OpenCodeWorkerd } from "@opencode-ai/sdk/workerd"
 import { InvalidRequestError } from "@opencode-ai/protocol/errors"
 import { DurableObject } from "cloudflare:workers"
 import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/durable-sqlite"
-import { sqliteTable, text } from "drizzle-orm/sqlite-core"
+import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { Schema } from "effect"
 
 import { workspaceEventResponse } from "./workspace-event-stream"
@@ -60,13 +67,37 @@ import type { OpenAIOAuthRequestState } from "./opencode-oauth-request"
 import { activateWorkspacePrompt } from "./workspace-prompt-activation"
 import { workspaceRuntimeStatus } from "./workspace-runtime-status"
 import {
+  automaticRepairIdempotencyKey,
   checkStage,
+  maxWorkspaceAutomaticRepairs,
   maxWorkspaceCheckAttempts,
   maxWorkspaceRepairAttempts,
   WorkspaceChecks,
+  WorkspaceRepairLimitReached,
+  type WorkspaceRepairSource,
 } from "./workspace-checks"
 import { loadInstalledSkills } from "./installed-skills"
 import { createWorkspaceSkillRegistry } from "./workspace-skills"
+import {
+  checkFailedNotification,
+  checkPassedNotification,
+  checkRepairPrompt,
+  isTerminalCheckStatus,
+  repairDisabledReason,
+} from "./workspace-check-notification"
+import {
+  browserEvidenceIds,
+  browserResult,
+  browserTargetUrl,
+  bytesFromBase64,
+  evidenceUrl,
+  previewForBrowser,
+} from "./workspace-browser"
+import { workspaceDiff } from "./workspace-diff"
+import {
+  reviewDecisionFromRow,
+  workspaceMergeRequest,
+} from "./workspace-merge-request"
 const checkpointCheckStages: WorkspaceCheckStageName[] = [
   "install",
   "typecheck",
@@ -100,6 +131,7 @@ const appWorkspaceState = sqliteTable("app_workspace_state", {
   modelId: text("model_id"),
   credentialFingerprint: text("credential_fingerprint"),
   sessionId: text("session_id"),
+  archivedAt: integer("archived_at"),
 })
 
 const credentialFingerprint = async (credential: OpenCodeCredential) => {
@@ -219,15 +251,33 @@ const subscriptionMethodId = "chatgpt-headless"
 const subscriptionCredentialLabel = "Sylph connection"
 
 interface WorkspaceBindings extends Cloudflare.Env {
+  BROWSER: BrowserRun
+  CHECK_EVIDENCE: R2Bucket
   CI_WORKFLOW: Workflow<WorkspaceCiInput>
   DB: D1Database
   REPOSITORY_NAMESPACE: string
   REPOS: Artifacts
 }
 
+const readOnlyMessage = "Archived Workspaces are read-only"
+
+type ReviewStateRow = {
+  decision: string | null
+  unresolved: number
+}
+type WorkspaceStatusRow = { status: string }
+type AcceptedCommitRow = { commit: string }
+type DeploymentRow = {
+  id: string
+  commit: string
+  status: string
+  productionUrl: string | null
+  createdAt: number
+}
+
 export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   readonly #database
-  readonly #opencode
+  readonly #opencode: Promise<OpenCodeWorkerd.Interface>
   readonly #filesystem
   readonly #workspaceGit
   readonly #checks
@@ -272,13 +322,11 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
                 this.#permissionBridge,
                 this.#skills,
                 {
+                  assertWritable: () => this.#assertWritable(),
                   runChecks: async (input) => {
                     try {
                       const state = this.#requiredState()
-                      const result = await this.#workspaceGit.checkpoint({
-                        idempotencyKey: crypto.randomUUID(),
-                        message: input.message,
-                      })
+                      const result = await this.#agentCheckpoint(input.message)
                       return await this.#startCheckpointCheck(
                         state.workspaceId,
                         result.checkpoint.id,
@@ -295,6 +343,13 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
                   },
                   checkStatus: async () => this.#checks.list(),
                   syncProject: async () => this.#syncProjectAndCheck(),
+                  checkpoint: async (input) =>
+                    this.#agentCheckpoint(input.message),
+                  diff: async (scope) => this.#diff(scope),
+                  requestMerge: async () => this.#requestMerge(),
+                  preview: async () => this.#preview(),
+                  production: async () => this.#production(),
+                  browser: async (input) => this.#browser(input),
                 }
               ),
             ],
@@ -331,7 +386,8 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           provider_id TEXT,
           model_id TEXT,
           credential_fingerprint TEXT,
-          session_id TEXT
+          session_id TEXT,
+          archived_at INTEGER
         )
       `)
       const columns = context.storage.sql
@@ -362,6 +418,11 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       if (!columns.includes("credential_fingerprint")) {
         context.storage.sql.exec(
           "ALTER TABLE app_workspace_state ADD COLUMN credential_fingerprint TEXT"
+        )
+      }
+      if (!columns.includes("archived_at")) {
+        context.storage.sql.exec(
+          "ALTER TABLE app_workspace_state ADD COLUMN archived_at INTEGER"
         )
       }
 
@@ -526,10 +587,12 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         const input = await decodeWorkspaceCheckpointInputPromise(
           await request.json()
         )
+        this.#assertWritable()
         const result = await this.#workspaceGit.checkpoint({
           idempotencyKey: input.idempotencyKey,
           message: input.message,
         })
+        await this.#recordVersionControl(true)
         const state = this.#requiredState()
         const check = await this.#startCheckpointCheck(
           state.workspaceId,
@@ -548,7 +611,56 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         const update = await decodeWorkspaceCheckUpdatePromise(
           await request.json()
         )
-        return Response.json({ applied: this.#checks.apply(update) })
+        const previous = this.#checks.get(update.run.id)
+        const applied = this.#checks.apply(update)
+        if (applied && previous?.status !== update.run.status) {
+          await this.#afterCheckUpdate(opencode, update.run).catch((cause) =>
+            console.error(
+              "Workspace check notification failed",
+              cause instanceof Error ? cause.stack : cause
+            )
+          )
+        }
+        return Response.json({ applied })
+      }
+
+      if (request.method === "POST" && url.pathname === "/archive") {
+        const input = await decodeWorkspaceArchiveInputPromise(
+          await request.json()
+        )
+        const state = this.#database.select().from(appWorkspaceState).get()
+        if (!state) return Response.json({ archivedAt: null })
+        if (state.workspaceId !== input.workspaceId) {
+          return new Response("Archive belongs to another Workspace", {
+            status: 409,
+          })
+        }
+        const archivedAt = state.archivedAt ?? Date.now()
+        if (state.sessionId && state.archivedAt === null) {
+          const sessionId = state.sessionId
+          await opencode.sessions
+            .interrupt({ sessionID: sessionId, continue: false })
+            .catch(() => undefined)
+          const inbox = await opencode.sessions.inbox.list({
+            sessionID: sessionId,
+          })
+          await Promise.all(
+            inbox.map((item) =>
+              opencode.sessions.inbox.cancel({
+                sessionID: sessionId,
+                inboxID: item.id,
+              })
+            )
+          )
+          await this.ctx.storage.deleteAlarm()
+        }
+        this.#database.update(appWorkspaceState).set({ archivedAt }).run()
+        await this.env.DB.prepare(
+          "UPDATE agent_sessions SET status = 'archived', archived_at = unixepoch(), updated_at = unixepoch() WHERE workspace_id = ?"
+        )
+          .bind(state.workspaceId)
+          .run()
+        return Response.json({ archivedAt })
       }
 
       if (request.method === "POST" && url.pathname === "/checks/production") {
@@ -591,6 +703,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         const state = this.#requiredState()
         if (input.workspaceId !== state.workspaceId)
           throw new Error("Check retry belongs to another Workspace")
+        this.#assertWritable()
         const run = this.#checks.retry(input.runId, input.idempotencyKey)
         await this.#startWorkflow(run)
         return Response.json(run)
@@ -603,32 +716,26 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         const state = this.#requiredState()
         if (input.workspaceId !== state.workspaceId)
           throw new Error("Check repair belongs to another Workspace")
-        this.#checks.requestRepair(input.runId, input.idempotencyKey)
-        const run = this.#checks.takeRepair(input.runId)
-        if (!run) return Response.json({ started: false })
-        if (!state.sessionId)
-          throw new Error("OpenCode session is not initialized")
-        const diagnostics = run.diagnostics
-          .map(
-            (diagnostic) =>
-              `${diagnostic.stage}: ${diagnostic.summary}\n${diagnostic.output}`
-          )
-          .join("\n\n")
-          .slice(-12_000)
-        await opencode.sessions.prompt({
-          sessionID: state.sessionId,
-          text: `Repair the failures from Check ${run.id} without weakening validation. Inspect the current Working copy, make the smallest correct changes, then run Workspace checks again.\n\n${diagnostics}`,
-        })
-        await this.#scheduleTurnLimit()
-        return Response.json({ started: true })
+        this.#assertWritable()
+        const repair = await this.#startRepairTurn(
+          opencode,
+          input.runId,
+          input.idempotencyKey,
+          "manual"
+        )
+        return Response.json(repair)
       }
 
       if (request.method === "POST" && url.pathname === "/update-project") {
+        this.#assertWritable()
         return Response.json(await this.#syncProjectAndCheck())
       }
 
       if (request.method === "POST" && url.pathname === "/rebase") {
-        return Response.json(await this.#workspaceGit.rebase())
+        this.#assertWritable()
+        const result = await this.#workspaceGit.rebase()
+        await this.#recordVersionControl(false)
+        return Response.json(result)
       }
 
       if (request.method === "GET" && url.pathname === "/vcs") {
@@ -655,6 +762,9 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           return new Response("OpenCode session is not initialized", {
             status: 409,
           })
+        }
+        if (state.archivedAt !== null) {
+          return new Response(readOnlyMessage, { status: 409 })
         }
         const sessionId = state.sessionId
         const nextCredentialFingerprint = await credentialFingerprint(
@@ -748,6 +858,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           input.text,
           this.#skills.list()
         )
+        this.#checks.resetAutomaticRepairs(`prompt:${Date.now()}`)
         await opencode.sessions.prompt({
           sessionID: sessionId,
           text: invocation
@@ -839,6 +950,9 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
             status: 409,
           })
         }
+        if (state.archivedAt !== null) {
+          return new Response(readOnlyMessage, { status: 409 })
+        }
 
         await opencode.permission.reply({
           sessionID: state.sessionId,
@@ -859,6 +973,9 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           return new Response("Agent question belongs to another Workspace", {
             status: 409,
           })
+        }
+        if (state.archivedAt !== null) {
+          return new Response(readOnlyMessage, { status: 409 })
         }
         await opencode.form.reply({
           sessionID: state.sessionId,
@@ -918,6 +1035,338 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     return state
   }
 
+  #isArchived() {
+    const state = this.#database.select().from(appWorkspaceState).get()
+    return state?.archivedAt !== null && state?.archivedAt !== undefined
+  }
+
+  #assertWritable() {
+    if (this.#isArchived()) throw new Error(readOnlyMessage)
+  }
+
+  async #agentCheckpoint(message: string) {
+    this.#assertWritable()
+    const result = await this.#workspaceGit.checkpoint({
+      idempotencyKey: crypto.randomUUID(),
+      message,
+    })
+    await this.#recordVersionControl(true)
+    return result
+  }
+
+  async #recordVersionControl(checkpointed: boolean) {
+    const state = this.#requiredState()
+    const versionControl = await this.#workspaceGit.versionControl()
+    await this.env.DB.prepare(
+      checkpointed
+        ? "UPDATE workspace SET base_commit = ?, fork_head = ?, sync_status = ?, merge_status = ?, latest_checkpoint_at = unixepoch(), error_summary = NULL, updated_at = unixepoch() WHERE id = ?"
+        : "UPDATE workspace SET base_commit = ?, fork_head = ?, sync_status = ?, merge_status = ?, updated_at = unixepoch() WHERE id = ?"
+    )
+      .bind(
+        versionControl.baseCommit,
+        versionControl.forkHead,
+        versionControl.syncStatus,
+        versionControl.mergeStatus,
+        state.workspaceId
+      )
+      .run()
+    return versionControl
+  }
+
+  async #promptSession(opencode: OpenCodeWorkerd.Interface, text: string) {
+    const state = this.#requiredState()
+    if (!state.sessionId) throw new Error("OpenCode session is not initialized")
+    if (state.archivedAt !== null) return false
+    const sessionId = state.sessionId
+    const active = await opencode.sessions.active()
+    const turnActive = Boolean(active[sessionId])
+    await opencode.sessions.prompt({
+      sessionID: sessionId,
+      text,
+      delivery: turnActive ? "queue" : null,
+    })
+    if (!turnActive) await this.#scheduleTurnLimit()
+    return true
+  }
+
+  async #afterCheckUpdate(
+    opencode: OpenCodeWorkerd.Interface,
+    run: WorkspaceCheckRun
+  ) {
+    if (run.kind !== "checkpoint" || !isTerminalCheckStatus(run.status)) return
+    if (this.#isArchived()) return
+    if (run.status === "passed") {
+      await this.#promptSession(opencode, checkPassedNotification(run))
+      return
+    }
+    if (run.repairOnFailure) {
+      const repair = await this.#startRepairTurn(
+        opencode,
+        run.id,
+        automaticRepairIdempotencyKey(run.id),
+        "automatic"
+      )
+      if (repair.started) return
+      await this.#promptSession(
+        opencode,
+        checkFailedNotification(run, { reason: repair.reason })
+      )
+      return
+    }
+    await this.#promptSession(
+      opencode,
+      checkFailedNotification(run, { reason: repairDisabledReason })
+    )
+  }
+
+  async #startRepairTurn(
+    opencode: OpenCodeWorkerd.Interface,
+    runId: string,
+    idempotencyKey: string,
+    source: WorkspaceRepairSource
+  ) {
+    try {
+      this.#checks.requestRepair(runId, idempotencyKey, source)
+    } catch (cause) {
+      if (cause instanceof WorkspaceRepairLimitReached) {
+        this.#checks.recordRepairNotice(runId, cause.message)
+        return { started: false, reason: cause.message }
+      }
+      throw cause
+    }
+    const run = this.#checks.takeRepair(runId)
+    if (!run) {
+      return {
+        started: false,
+        reason: "A repair turn already started for this Check.",
+      }
+    }
+    const prompted = await this.#promptSession(opencode, checkRepairPrompt(run))
+    return prompted
+      ? { started: true, reason: "" }
+      : { started: false, reason: readOnlyMessage }
+  }
+
+  async #diff(scope: WorkspaceDiffScope) {
+    return workspaceDiff(await this.#workspaceGit.versionControl(), scope)
+  }
+
+  async #requestMerge() {
+    const opencode = await this.#opencode
+    const state = this.#requiredState()
+    const versionControl = await this.#workspaceGit.versionControl(true)
+    const [statusRow, reviewRow, active] = await Promise.all([
+      this.env.DB.prepare("SELECT status FROM workspace WHERE id = ?")
+        .bind(state.workspaceId)
+        .first<WorkspaceStatusRow>(),
+      this.env.DB.prepare(
+        'SELECT review.decision AS decision, (SELECT COUNT(*) FROM workspace_review_comment comment WHERE comment.review_id = review.id AND comment.resolved_at IS NULL) AS unresolved FROM workspace_review review WHERE review.workspace_id = ? AND review."commit" = ?'
+      )
+        .bind(state.workspaceId, versionControl.forkHead)
+        .first<ReviewStateRow>(),
+      opencode.sessions.active(),
+    ])
+    return workspaceMergeRequest({
+      versionControl,
+      checks: this.#checks.list(),
+      workspaceStatus: statusRow?.status ?? "ready",
+      reviewDecision: reviewDecisionFromRow(reviewRow?.decision),
+      unresolvedComments: reviewRow?.unresolved ?? 0,
+      turnActive: Boolean(state.sessionId && active[state.sessionId]),
+    })
+  }
+
+  async #preview() {
+    const state = this.#requiredState()
+    const versionControl = await this.#workspaceGit.versionControl()
+    const current =
+      this.#checks
+        .list()
+        .find(
+          (run) =>
+            run.kind === "checkpoint" && run.commit === versionControl.forkHead
+        ) ?? null
+    if (current?.previewUrl) {
+      return new WorkspacePreviewResult({
+        status: "ready",
+        commit: versionControl.forkHead,
+        checkId: current.id,
+        previewUrl: current.previewUrl,
+        evidence: current.evidence,
+        detail: "The Preview for the current Checkpoint is reachable.",
+      })
+    }
+    if (current && current.status === "failed") {
+      return new WorkspacePreviewResult({
+        status: "failed",
+        commit: versionControl.forkHead,
+        checkId: current.id,
+        previewUrl: null,
+        evidence: current.evidence,
+        detail:
+          "The current Checkpoint failed its Check. Read workspace_check_status, repair the failure, and run Workspace checks again.",
+      })
+    }
+    if (current) {
+      return new WorkspacePreviewResult({
+        status: "pending",
+        commit: versionControl.forkHead,
+        checkId: current.id,
+        previewUrl: null,
+        evidence: [],
+        detail:
+          "The Check for the current Checkpoint is still running. Sylph will deliver its result to this Conversation.",
+      })
+    }
+    if (versionControl.working.length) {
+      this.#assertWritable()
+      const checkpoint = await this.#agentCheckpoint("Preview Checkpoint")
+      const run = await this.#startCheckpointCheck(
+        state.workspaceId,
+        checkpoint.checkpoint.id,
+        checkpoint.checkpoint.commit,
+        false
+      )
+      return new WorkspacePreviewResult({
+        status: "pending",
+        commit: run.commit,
+        checkId: run.id,
+        previewUrl: null,
+        evidence: [],
+        detail:
+          "Created a Checkpoint and started its Check. Sylph will deliver the Preview URL to this Conversation when it is ready.",
+      })
+    }
+    const checkpoint = this.#workspaceGit
+      .checkpoints()
+      .find((candidate) => candidate.commit === versionControl.forkHead)
+    if (!checkpoint) {
+      throw new Error(
+        "Nothing to preview yet. Change files, then run workspace_run_checks to build the first Preview."
+      )
+    }
+    this.#assertWritable()
+    const run = await this.#startCheckpointCheck(
+      state.workspaceId,
+      checkpoint.id,
+      checkpoint.commit,
+      false
+    )
+    return new WorkspacePreviewResult({
+      status: "pending",
+      commit: run.commit,
+      checkId: run.id,
+      previewUrl: null,
+      evidence: [],
+      detail:
+        "Started the Check for the current Checkpoint. Sylph will deliver the Preview URL to this Conversation when it is ready.",
+    })
+  }
+
+  async #production() {
+    const state = this.#requiredState()
+    const [accepted, deployments] = await Promise.all([
+      this.env.DB.prepare(
+        'SELECT accepted_commit AS "commit" FROM workspace WHERE project_id = ? AND accepted_commit IS NOT NULL ORDER BY archived_at DESC'
+      )
+        .bind(state.projectId)
+        .all<AcceptedCommitRow>(),
+      this.env.DB.prepare(
+        'SELECT id, "commit", status, production_url AS productionUrl, created_at AS createdAt FROM deployment WHERE project_id = ? ORDER BY created_at DESC LIMIT 10'
+      )
+        .bind(state.projectId)
+        .all<DeploymentRow>(),
+    ])
+    return new WorkspaceProductionStatus({
+      acceptedCommits: [
+        ...new Set(accepted.results.map((row) => row.commit)),
+      ].map((commit) => GitCommitId.make(commit)),
+      deployments: deployments.results.map(
+        (row) =>
+          new WorkspaceProductionDeployment({
+            id: row.id,
+            commit: GitCommitId.make(row.commit),
+            status: row.status,
+            productionUrl: row.productionUrl,
+            createdAt: row.createdAt * 1000,
+          })
+      ),
+      instructions:
+        "Production deploys and rollbacks require an Admin to confirm the exact Accepted commit in Project settings. Ask the user to deploy; the agent cannot.",
+    })
+  }
+
+  async #browser(input: { path?: string; url?: string; fullPage: boolean }) {
+    const state = this.#requiredState()
+    const versionControl = await this.#workspaceGit.versionControl()
+    const preview = previewForBrowser(
+      this.#checks.list(),
+      versionControl.forkHead
+    )
+    const target = browserTargetUrl({
+      previewUrl: preview.previewUrl,
+      path: input.path,
+      url: input.url,
+    })
+    const response = await this.env.BROWSER.quickAction("snapshot", {
+      url: target,
+      formats: ["markdown", "screenshot", "accessibilityTree"],
+      viewport: { width: 1440, height: 900 },
+      gotoOptions: { waitUntil: "networkidle2", timeout: 60_000 },
+      screenshotOptions: { type: "png", fullPage: input.fullPage },
+      cacheTTL: 0,
+    })
+    if (!response.ok) throw new Error(await response.text())
+    const snapshot = await response.json<BrowserRunSnapshotSuccessResponse>()
+    const screenshot = snapshot.result.screenshot
+    if (!screenshot) throw new Error("Browser Run returned no screenshot")
+    const accessibility = JSON.stringify(
+      snapshot.result.accessibilityTree ?? null
+    )
+    const createdAt = Date.now()
+    const ids = browserEvidenceIds({
+      runId: preview.run.id,
+      sequence: createdAt,
+    })
+    await Promise.all([
+      this.env.CHECK_EVIDENCE.put(
+        `${state.workspaceId}/${ids.screenshot}`,
+        bytesFromBase64(screenshot),
+        { httpMetadata: { contentType: "image/png" } }
+      ),
+      this.env.CHECK_EVIDENCE.put(
+        `${state.workspaceId}/${ids.accessibility}`,
+        accessibility,
+        { httpMetadata: { contentType: "application/json" } }
+      ),
+    ])
+    const path = new URL(target).pathname
+    const evidence = [
+      new WorkspaceCheckEvidence({
+        id: ids.screenshot,
+        kind: "screenshot",
+        label: `Agent browser ${path}`,
+        url: evidenceUrl(state.workspaceId, ids.screenshot),
+        createdAt,
+      }),
+      new WorkspaceCheckEvidence({
+        id: ids.accessibility,
+        kind: "accessibility",
+        label: `Agent accessibility ${path}`,
+        url: evidenceUrl(state.workspaceId, ids.accessibility),
+        createdAt,
+      }),
+    ]
+    this.#checks.addEvidence(preview.run.id, evidence)
+    return browserResult({
+      url: target,
+      run: preview.run,
+      markdown: snapshot.result.markdown ?? "",
+      accessibility,
+      evidence,
+    })
+  }
+
   async #startCheckpointCheck(
     workspaceId: string,
     checkpointId: string,
@@ -970,7 +1419,9 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       ref: `refs/heads/${versionControl.defaultRef}`,
       branch: versionControl.defaultRef,
       checkRunId: run.id,
+      projectId: ProjectId.make(state.projectId),
       workspaceId: run.workspaceId,
+      agentSessionId: state.sessionId,
       checkpointId: run.checkpointId,
       kind: run.kind,
       attempt: run.attempt,
@@ -994,20 +1445,10 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   }
 
   async #syncProjectAndCheck() {
+    this.#assertWritable()
     const result = await this.#workspaceGit.syncProject()
     const state = this.#requiredState()
-    const versionControl = await this.#workspaceGit.versionControl()
-    await this.env.DB.prepare(
-      "UPDATE workspace SET base_commit = ?, fork_head = ?, sync_status = ?, merge_status = ?, updated_at = unixepoch() WHERE id = ?"
-    )
-      .bind(
-        versionControl.baseCommit,
-        versionControl.forkHead,
-        versionControl.syncStatus,
-        versionControl.mergeStatus,
-        state.workspaceId
-      )
-      .run()
+    const versionControl = await this.#recordVersionControl(false)
     if (result.status !== "updated") return result
     const checkpoint = this.#workspaceGit
       .checkpoints()
@@ -1073,6 +1514,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         providerId: input.providerId,
         modelId: input.modelId,
         sessionId: existing?.sessionId,
+        archivedAt: input.archivedAt ?? existing?.archivedAt ?? null,
       })
       .onConflictDoUpdate({
         target: appWorkspaceState.workspaceId,
@@ -1084,6 +1526,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           repositoryRemote: input.repositoryRemote,
           providerId: input.providerId,
           modelId: input.modelId,
+          archivedAt: input.archivedAt ?? existing?.archivedAt ?? null,
         },
       })
       .run()
@@ -1145,6 +1588,17 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       sessionId = session.id
       this.#database.update(appWorkspaceState).set({ sessionId }).run()
     }
+    await this.env.DB.prepare(
+      "INSERT INTO agent_sessions (id, workspace_id, opencode_session_id, title, status, model_override, created_at, updated_at) VALUES (?, ?, ?, ?, 'ready', ?, unixepoch(), unixepoch()) ON CONFLICT(id) DO UPDATE SET title = excluded.title, model_override = excluded.model_override, updated_at = unixepoch()"
+    )
+      .bind(
+        sessionId,
+        input.workspaceId,
+        sessionId,
+        input.projectName,
+        `${input.providerId}/${input.modelId}`
+      )
+      .run()
 
     try {
       await opencode.sessions.switchModel({
@@ -1358,7 +1812,10 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           maxTurnDurationMs,
           maxCheckAttempts: maxWorkspaceCheckAttempts,
           maxRepairAttempts: maxWorkspaceRepairAttempts,
+          maxAutomaticRepairs: maxWorkspaceAutomaticRepairs,
         },
+        automaticRepairsUsed: this.#checks.automaticRepairsUsed(),
+        archivedAt: state?.archivedAt ?? null,
         opencode: health,
       }
     }
@@ -1440,7 +1897,10 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         maxTurnDurationMs,
         maxCheckAttempts: maxWorkspaceCheckAttempts,
         maxRepairAttempts: maxWorkspaceRepairAttempts,
+        maxAutomaticRepairs: maxWorkspaceAutomaticRepairs,
       },
+      automaticRepairsUsed: this.#checks.automaticRepairsUsed(),
+      archivedAt: state.archivedAt,
       opencode: health,
     }
   }

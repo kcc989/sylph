@@ -7,11 +7,25 @@ import {
   type WorkspacePermissionEvaluation,
   workspaceDeleteToolOptions,
   workspaceMutationPermissions,
+  workspaceSystemPrompt,
   workspaceToolOptions,
   workspaceWriteToolOptions,
 } from "./workspace-plugin"
 
 describe("Workspace plugin", () => {
+  test("tells the agent about the browser and the delivery tools", () => {
+    expect(workspaceSystemPrompt).toContain("workspace_browser")
+    expect(workspaceSystemPrompt).toContain("workspace_checkpoint")
+    expect(workspaceSystemPrompt).toContain("workspace_diff")
+    expect(workspaceSystemPrompt).toContain("workspace_request_merge")
+    expect(workspaceSystemPrompt).toContain("workspace_preview")
+    expect(workspaceSystemPrompt).toContain("workspace_production")
+    expect(workspaceSystemPrompt).toContain("delivers the Check result")
+    expect(workspaceSystemPrompt).not.toContain(
+      "browser control is unavailable"
+    )
+  })
+
   test("tolerates a Workerd VCS draft without a default selector", () => {
     expect(selectWorkspaceVcs({})).toBeUndefined()
   })

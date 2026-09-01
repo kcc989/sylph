@@ -1,5 +1,7 @@
 import {
   type ConnectionScope,
+  decodeCiRunRecordList,
+  decodeCiRunSummary,
   decodeProjectDeployInputPromise,
   decodeWorkspaceAcceptInputPromise,
   decodeCreateWorkspaceInputPromise,
@@ -35,6 +37,7 @@ import {
   decodeWorkspaceRuntimeHealth,
   decodeWorkspaceSyncInputPromise,
   decodeWorkspaceVersionControl,
+  encodeCiRunRecordList,
   encodeGitHubRepositoryInfo,
   encodeWorkspaceCheckpointList,
   encodeWorkspaceCheckRunList,
@@ -53,6 +56,7 @@ import {
   type WorkspaceCiInput,
   WorkspaceRuntimeHealth,
   parseGitHubRepositoryUrl,
+  productionDeployConfirmed,
 } from "@workspace/domain"
 import { Effect } from "effect"
 import { schema } from "@workspace/db"
@@ -103,6 +107,10 @@ import { serializableWorkspaceRebaseResult } from "@/server/workspace-rebase-res
 import { serializableWorkspaceCheckpointResult } from "@/server/workspace-checkpoint-result"
 import { recoveryRepositoryEntry } from "@/server/recovery-export"
 import { deploymentWorkflowAlreadyStarted } from "@/server/deployment-records"
+import {
+  workspaceRetentionInstanceId,
+  type WorkspaceRetentionInput,
+} from "@/server/workspace-fork-retention"
 import { requireProjectProviderConnection } from "@/server/project-provider-guard"
 import {
   acceptanceCanStart,
@@ -1480,7 +1488,7 @@ export const getProjectDeployments = createServerFn({ method: "GET" })
       .where(eq(schema.project.id, data.projectId))
       .get()
     if (!project) return null
-    const [acceptedRows, deployments] = await Promise.all([
+    const [acceptedRows, deployments, checkRows] = await Promise.all([
       database
         .select({
           commit: schema.workspace.acceptedCommit,
@@ -1508,7 +1516,48 @@ export const getProjectDeployments = createServerFn({ method: "GET" })
         )
         .where(eq(schema.deployment.projectId, data.projectId))
         .orderBy(desc(schema.deployment.createdAt)),
+      database
+        .select({
+          id: schema.ciRun.id,
+          projectId: schema.ciRun.projectId,
+          workspaceId: schema.ciRun.workspaceId,
+          workspaceTitle: schema.workspace.title,
+          commit: schema.ciRun.commitSha,
+          kind: schema.ciRun.kind,
+          status: schema.ciRun.status,
+          summaryJson: schema.ciRun.summaryJson,
+          startedAt: schema.ciRun.startedAt,
+          finishedAt: schema.ciRun.finishedAt,
+          createdAt: schema.ciRun.createdAt,
+        })
+        .from(schema.ciRun)
+        .innerJoin(
+          schema.workspace,
+          eq(schema.workspace.id, schema.ciRun.workspaceId)
+        )
+        .where(eq(schema.ciRun.projectId, data.projectId))
+        .orderBy(desc(schema.ciRun.createdAt))
+        .limit(20),
     ])
+    const checks = await encodeCiRunRecordList(
+      await decodeCiRunRecordList(
+        checkRows.map((row) => ({
+          id: row.id,
+          projectId: row.projectId,
+          workspaceId: row.workspaceId,
+          workspaceTitle: row.workspaceTitle,
+          commit: row.commit,
+          kind: row.kind,
+          status: row.status,
+          summary: row.summaryJson
+            ? decodeCiRunSummary(JSON.parse(row.summaryJson))
+            : null,
+          startedAt: row.startedAt?.getTime() ?? null,
+          finishedAt: row.finishedAt?.getTime() ?? null,
+          createdAt: row.createdAt.getTime(),
+        }))
+      )
+    )
     const acceptedCommits = Array.from(
       new Map(
         acceptedRows
@@ -1518,7 +1567,7 @@ export const getProjectDeployments = createServerFn({ method: "GET" })
           .map((row) => [row.commit, row])
       ).values()
     )
-    return { acceptedCommits, deployments }
+    return { acceptedCommits, deployments, checks }
   })
 
 export const deployProjectCommit = createServerFn({ method: "POST" })
@@ -1526,12 +1575,18 @@ export const deployProjectCommit = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const { session } = await currentSession(getRequest())
     if (!session) throw new Error("Sign in before deploying a Project")
+    if (!productionDeployConfirmed(data)) {
+      throw new Error(
+        "Confirm the exact Accepted commit before deploying to production"
+      )
+    }
     const database = drizzle(env.DB, { schema })
     const accepted = await database
       .select({
         workspaceId: schema.workspace.id,
         repositoryName: schema.project.artifactRepo,
         defaultRef: schema.project.defaultBranch,
+        memberRole: schema.member.role,
       })
       .from(schema.workspace)
       .innerJoin(
@@ -1554,6 +1609,11 @@ export const deployProjectCommit = createServerFn({ method: "POST" })
       .get()
     if (!accepted) {
       throw new Error("Only an Accepted commit can be deployed")
+    }
+    if (!isOrganizationAdmin(accepted.memberRole)) {
+      throw new Error(
+        "Only Organization Admins can deploy or roll back production"
+      )
     }
     const deploymentId = `${data.projectId}-${data.idempotencyKey}`
     const existing = await database
@@ -1584,7 +1644,9 @@ export const deployProjectCommit = createServerFn({ method: "POST" })
       ref: `refs/heads/${accepted.defaultRef}`,
       branch: accepted.defaultRef,
       checkRunId: deploymentId,
+      projectId: data.projectId,
       workspaceId: WorkspaceId.make(accepted.workspaceId),
+      agentSessionId: null,
       checkpointId: null,
       kind: "production",
       attempt: 1,
@@ -1681,7 +1743,12 @@ export const exportProjectRecovery = createServerFn({ method: "POST" })
         acceptedCommit: schema.workspace.acceptedCommit,
       })
       .from(schema.workspace)
-      .where(eq(schema.workspace.projectId, project.id))
+      .where(
+        and(
+          eq(schema.workspace.projectId, project.id),
+          isNull(schema.workspace.forkDeletedAt)
+        )
+      )
     const repositories = makeCloudflareArtifactsRepositoryStore(env.REPOS)
     const entries = await Promise.all(
       [
@@ -2564,6 +2631,7 @@ export const restartWorkspace = createServerFn({ method: "POST" })
         projectRepositoryRemote: schema.project.artifactRemote,
         defaultRef: schema.project.defaultBranch,
         baseCommit: schema.workspace.baseCommit,
+        archivedAt: schema.workspace.archivedAt,
       })
       .from(schema.workspace)
       .innerJoin(
@@ -2622,6 +2690,10 @@ export const restartWorkspace = createServerFn({ method: "POST" })
       providerId: connection.providerId,
       modelId: connection.modelId,
       credential,
+      archivedAt:
+        workspace.status === "archived"
+          ? (workspace.archivedAt?.getTime() ?? Date.now())
+          : null,
     })
 
     await database
@@ -2801,7 +2873,11 @@ export const archiveWorkspace = createServerFn({ method: "POST" })
     if (!session) throw new Error("Sign in before archiving a Workspace")
     const database = drizzle(env.DB, { schema })
     const workspace = await database
-      .select({ id: schema.workspace.id, status: schema.workspace.status })
+      .select({
+        id: schema.workspace.id,
+        status: schema.workspace.status,
+        repositoryName: schema.workspace.workspaceArtifactRepo,
+      })
       .from(schema.workspace)
       .innerJoin(
         schema.member,
@@ -2825,23 +2901,35 @@ export const archiveWorkspace = createServerFn({ method: "POST" })
     const runtime = env.WORKSPACES.get(
       env.WORKSPACES.idFromName(data.workspaceId)
     )
-    const cancellation = await runtime.fetch("https://workspace/turn/cancel", {
+    const lock = await runtime.fetch("https://workspace/archive", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...data, continueQueued: false }),
+      body: JSON.stringify({ workspaceId: data.workspaceId }),
     })
-    if (!cancellation.ok && cancellation.status !== 409) {
-      throw new Error(await cancellation.text())
-    }
+    if (!lock.ok) throw new Error(await lock.text())
 
+    const archivedAt = new Date()
     await database
       .update(schema.workspace)
       .set({
         status: "archived",
-        archivedAt: new Date(),
-        updatedAt: new Date(),
+        archivedAt,
+        updatedAt: archivedAt,
       })
       .where(eq(schema.workspace.id, data.workspaceId))
+    const retention: WorkspaceRetentionInput = {
+      workspaceId: data.workspaceId,
+      workspaceRepositoryName: workspace.repositoryName,
+      archivedAt: Math.floor(archivedAt.getTime() / 1000),
+    }
+    try {
+      await env.RETENTION.create({
+        id: workspaceRetentionInstanceId(retention),
+        params: retention,
+      })
+    } catch (cause) {
+      if (!deploymentWorkflowAlreadyStarted(cause)) throw cause
+    }
     return { status: "archived" as const }
   })
 

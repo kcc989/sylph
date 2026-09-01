@@ -153,13 +153,14 @@ Never persist an Artifacts access token in D1 or Durable Object SQLite. Use the 
 
 The OpenCode host must not depend on a long-lived local process or terminal. Replace shell-oriented work with typed tools supplied by an Effect plugin:
 
-- `ci.run`: install, type-check, lint, test, or build a commit.
-- `ci.status`: read the current run state and its concise diagnostics.
-- `artifact.checkpoint`: write the working tree and create a commit.
-- `artifact.diff`: compare the workspace head with its base.
-- `artifact.merge`: request or perform the accepted merge.
-- `deploy.preview`: run the preview pipeline for a commit.
-- `deploy.production`: deploy the project's accepted default-branch commit.
+- `ci.run` (`workspace_run_checks`): install, type-check, lint, test, build, preview, and verify a commit.
+- `ci.status` (`workspace_check_status`): read the current run state and its concise diagnostics.
+- `artifact.checkpoint` (`workspace_checkpoint`): write the working tree and create a commit without CI.
+- `artifact.diff` (`workspace_diff`): compare the working copy or the workspace head with its base.
+- `artifact.merge` (`workspace_request_merge`): report acceptance readiness; a User performs the merge.
+- `deploy.preview` (`workspace_preview`): find or build the preview for the current checkpoint.
+- `deploy.production` (`workspace_production`): read production history; an Admin confirms deploys.
+- `workspace_browser`: drive the preview in a Cloudflare browser and capture evidence.
 
 An Artifacts push event starts a Cloudflare CI Workflow. Each command runs in a Sandbox-backed, retryable Workflow step. Store dependency snapshots in R2 through the CI SDK.
 
@@ -170,6 +171,10 @@ Each Project repository must define `typecheck`, `lint`, `test`, `build`, `sylph
 Do not keep a Durable Object request open while CI runs. `ci.run` should checkpoint the tree, create a run, and return its ID. When the Workflow completes, it calls the `WorkspaceDO`. The object appends a product event and sends a synthetic OpenCode message with the result. A resume policy can start a repair turn when the user enabled automatic repair.
 
 This callback must be idempotent. Key it by the Workflow instance ID and attempt number.
+
+The object owns the resume policy. Automatic repair is bounded twice: each Check accepts at most two repair turns, and the Workspace accepts at most three automatic repair turns in a row. A User prompt or a passing Check restores the Workspace budget; when it is exhausted, the agent is told the Check failed and waits for direction. See [ADR 0004](./docs/adr/0004-workspace-owned-check-loop.md).
+
+The agent also gets the Preview browser. `workspace_browser` opens a path on the current Preview through the Cloudflare Browser Run binding, returns the rendered markdown and accessibility tree, and stores a screenshot as Check evidence. The tool refuses every origin other than the Preview.
 
 ## Adapting bb's schema
 
@@ -405,7 +410,7 @@ Every step needs an idempotency key based on the workspace ID.
 2. Require a passing policy-selected CI run.
 3. Merge the workspace result into the project default branch.
 4. Start the production pipeline for a production merge.
-5. Mark the workspace merged and retain it for a short recovery period.
+5. Mark the workspace merged and retain its fork for `WORKSPACE_FORK_RETENTION_SECONDS` (seven days by default). Archived, unaccepted workspaces follow the same retention through the `WorkspaceRetention` Workflow, and archive locks the runtime read-only.
 
 ## UI plan
 
