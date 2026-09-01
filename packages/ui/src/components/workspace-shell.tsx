@@ -47,7 +47,7 @@ import {
 } from "lucide-react"
 import { Combobox } from "@base-ui/react/combobox"
 import ReactMarkdown from "react-markdown"
-import { useRef, useState, type ReactNode } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 import {
   useDefaultLayout,
   type PanelImperativeHandle,
@@ -95,6 +95,12 @@ import {
   TooltipTrigger,
 } from "@workspace/ui/components/tooltip"
 import { cn } from "@workspace/ui/lib/utils"
+import {
+  readWorkspaceToolState,
+  writeWorkspaceToolState,
+  type WorkspaceToolTab as WorkspaceTab,
+  type WorkspaceToolTabKind as WorkspaceTabKind,
+} from "@workspace/ui/lib/workspace-tool-state"
 
 type WorkspaceStatus = "running" | "waiting" | "ready" | "archived" | "error"
 
@@ -263,15 +269,8 @@ export type ComposerModel = {
   scope: "personal" | "organization"
 }
 
-type WorkspaceTabKind = "browser" | "changes" | "checks" | "review" | "terminal"
-
-type WorkspaceTab = {
-  id: string
-  kind: WorkspaceTabKind
-  label: string
-}
-
 type WorkspaceShellProps = {
+  workspaceId: string
   canAdminister?: boolean
   organization?: string
   projectName: string
@@ -2788,6 +2787,7 @@ function WorkspaceTabs({
 }
 
 function WorkspaceShell({
+  workspaceId,
   canAdminister = false,
   organization = "Casey’s workspace",
   projectName,
@@ -2858,6 +2858,10 @@ function WorkspaceShell({
   const [tabs, setTabs] = useState<WorkspaceTab[]>(initialWorkspaceTabs)
   const [activeTabId, setActiveTabId] = useState<string | null>(null)
   const [toolPaneOpen, setToolPaneOpen] = useState(false)
+  const [toolPaneSize, setToolPaneSize] = useState(50)
+  const [toolStateWorkspaceId, setToolStateWorkspaceId] = useState<
+    string | null
+  >(null)
   const browserTabNumber = useRef(0)
   const projectRailRef = useRef<PanelImperativeHandle>(null)
   const projectLayout = useDefaultLayout({
@@ -2866,6 +2870,37 @@ function WorkspaceShell({
     panelIds: ["project-navigation", "workspace-area"],
     storage: workspacePanelStorage,
   })
+
+  useEffect(() => {
+    const restored = readWorkspaceToolState(workspacePanelStorage, workspaceId)
+    const restoredTabs = restored?.tabs ?? initialWorkspaceTabs
+    setTabs(restoredTabs)
+    setActiveTabId(restored?.activeTabId ?? null)
+    setToolPaneOpen(restored?.toolPaneOpen ?? false)
+    setToolPaneSize(restored?.toolPaneSize ?? 50)
+    browserTabNumber.current = restoredTabs.reduce((highest, tab) => {
+      const match = /^browser-(\d+)$/.exec(tab.id)
+      return match ? Math.max(highest, Number(match[1])) : highest
+    }, 0)
+    setToolStateWorkspaceId(workspaceId)
+  }, [workspaceId])
+
+  useEffect(() => {
+    if (toolStateWorkspaceId !== workspaceId) return
+    writeWorkspaceToolState(workspacePanelStorage, workspaceId, {
+      tabs,
+      activeTabId,
+      toolPaneOpen,
+      toolPaneSize,
+    })
+  }, [
+    activeTabId,
+    tabs,
+    toolPaneOpen,
+    toolPaneSize,
+    toolStateWorkspaceId,
+    workspaceId,
+  ])
 
   const addBrowserTab = () => {
     browserTabNumber.current += 1
@@ -3027,6 +3062,16 @@ function WorkspaceShell({
               <ResizablePanelGroup
                 className="relative min-h-0 flex-1"
                 id="workspace-content-panes"
+                onLayoutChanged={(layout, meta) => {
+                  const size = layout["workspace-tools"]
+                  if (
+                    meta.isUserInteraction &&
+                    size !== undefined &&
+                    Number.isFinite(size)
+                  ) {
+                    setToolPaneSize(size)
+                  }
+                }}
                 orientation="horizontal"
               >
                 <ResizablePanel id="workspace-chat" minSize="260px">
@@ -3071,7 +3116,7 @@ function WorkspaceShell({
                     />
                     <ResizablePanel
                       className="bg-background max-md:fixed! max-md:inset-x-1.5! max-md:top-[54px]! max-md:bottom-1.5! max-md:z-50 max-md:h-auto! max-md:w-auto! max-md:max-w-none! max-md:min-w-0! max-md:basis-auto!"
-                      defaultSize="50%"
+                      defaultSize={`${toolPaneSize}%`}
                       id="workspace-tools"
                       maxSize="70%"
                       minSize="260px"
