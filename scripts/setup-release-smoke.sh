@@ -187,6 +187,10 @@ finish() {
 TOTAL_STAGES=5
 ENV_FILE="${SYLPH_SMOKE_ENV_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/sylph/release-smoke.env}"
 mkdir -p "$(dirname "$ENV_FILE")"
+ALCHEMY_PROFILE="${ALCHEMY_PROFILE:-$(_existing ALCHEMY_PROFILE || true)}"
+if [[ -n "$ALCHEMY_PROFILE" ]]; then
+  export ALCHEMY_PROFILE
+fi
 
 banner "Sylph release-smoke setup"
 
@@ -307,7 +311,7 @@ pause "The R2 credentials are ready. Press Enter to deploy the fixed test URL."
 stage "OAuth proxy and GitHub App"
 say "Deploy the permanent proxy URL, then register that single callback with GitHub."
 export ALLOW_TEST_MAGIC_LINKS BETTER_AUTH_SECRET CF_TOKEN CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_API_TOKEN CREDENTIAL_ENCRYPTION_KEY INSTALLATION_CLAIM_SECRET R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY
-bun alchemy deploy --stage "$SYLPH_OAUTH_PROXY_STAGE"
+bun alchemy deploy --env-file "$ENV_FILE" --stage "$SYLPH_OAUTH_PROXY_STAGE"
 ask OAUTH_PROXY_URL "Paste the permanent proxy website URL without a trailing slash:"
 OAUTH_PROXY_URL="${OAUTH_PROXY_URL%/}"
 write_env OAUTH_PROXY_URL "$OAUTH_PROXY_URL"
@@ -327,13 +331,13 @@ ask_secret GITHUB_CLIENT_SECRET "Paste the GitHub Client Secret:"
 write_env GITHUB_CLIENT_ID "$GITHUB_CLIENT_ID"
 write_env GITHUB_CLIENT_SECRET "$GITHUB_CLIENT_SECRET"
 export GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET OAUTH_PROXY_SECRET OAUTH_PROXY_TRUSTED_ORIGINS OAUTH_PROXY_URL
-bun alchemy deploy --stage "$SYLPH_OAUTH_PROXY_STAGE"
+bun alchemy deploy --env-file "$ENV_FILE" --stage "$SYLPH_OAUTH_PROXY_STAGE"
 step "Open Install App in the GitHub App sidebar. Install it on the dedicated test account or organization and select only the test repositories."
 pause "The GitHub App is installed and the permanent OAuth proxy is ready. Press Enter to continue."
 
 stage "Initial authentication"
 say "The first headed smoke run stores GitHub browser state for later headless runs."
-bun alchemy deploy --stage "$SYLPH_SMOKE_STAGE"
+bun alchemy deploy --env-file "$ENV_FILE" --stage "$SYLPH_SMOKE_STAGE"
 ask SYLPH_SMOKE_BASE_URL "Paste the branch test website URL without a trailing slash:"
 SYLPH_SMOKE_BASE_URL="${SYLPH_SMOKE_BASE_URL%/}"
 write_env SYLPH_SMOKE_BASE_URL "$SYLPH_SMOKE_BASE_URL"

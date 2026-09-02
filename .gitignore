@@ -23,3 +23,4 @@ todos.json
 playwright/.auth
 playwright-report/release-smoke
 test-results/release-smoke
+.dev.vars

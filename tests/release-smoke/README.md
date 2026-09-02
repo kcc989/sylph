@@ -14,6 +14,12 @@ Provision the reusable credentials once:
 
 Each branch stage reuses the resulting credentials from `~/.config/sylph/release-smoke.env`. It does not require another GitHub App or callback change. Set `SYLPH_SMOKE_ENV_FILE` when the shared configuration belongs elsewhere.
 
+Alchemy reads the checkout's `.env` before the process environment, so deploy every smoke stage with the shared file instead of relying on exported variables:
+
+```sh
+bun alchemy deploy --env-file ~/.config/sylph/release-smoke.env --stage release-smoke
+```
+
 Install Chromium once:
 
 ```sh
