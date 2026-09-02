@@ -4,15 +4,17 @@ This test exercises a fresh deployed Installation through the public browser int
 
 `setup → claim → provider → Project → Workspace → prompt → permission → checkpoint → accept → eviction/restart`
 
-Use a fresh Cloudflare stage behind the permanent OAuth proxy and GitHub App created by the setup wizard. The test intentionally fails if the branch Installation is already claimed.
+Use a fresh Cloudflare stage behind the permanent production OAuth proxy and GitHub App created by the setup wizard. The test intentionally fails if the branch Installation is already claimed.
 
-Provision the reusable credentials once:
+Configure production once with `./scripts/setup.sh`. Then provision the reusable smoke credentials:
 
 ```sh
 ./scripts/setup-release-smoke.sh
 ```
 
-Each branch stage reuses the resulting credentials from `~/.config/sylph/release-smoke.env`. It does not require another GitHub App or callback change. Set `SYLPH_SMOKE_ENV_FILE` when the shared configuration belongs elsewhere.
+Each branch stage reuses the resulting credentials and production OAuth bridge values from `~/.config/sylph/release-smoke.env`. It does not create or deploy production resources and does not require another GitHub App or callback change. Set `SYLPH_SMOKE_ENV_FILE` when the shared configuration belongs elsewhere.
+
+The production setup wizard publishes the reusable credentials to GitHub. [Deploy production](../../.github/workflows/deploy-production.yml) deploys the fixed Alchemy `prod` stage on changes to `main` and by manual dispatch.
 
 Alchemy reads the checkout's `.env` before the process environment, so deploy every smoke stage with the shared file instead of relying on exported variables:
 

@@ -24,6 +24,7 @@ TOTAL_STAGES=0
 
 _STAGE_INDEX=0
 ENV_FILE="${ENV_FILE:-.env}"
+USE_EXISTING_ENV_VALUES="${USE_EXISTING_ENV_VALUES:-true}"
 WRITTEN_ENV=()    # KEYs written to ENV_FILE this run
 WRITTEN_SECRET=() # secret NAMEs set this run
 SKIPPED=()        # things we couldn't do (e.g. gh missing)
@@ -32,7 +33,8 @@ SKIPPED=()        # things we couldn't do (e.g. gh missing)
 # output isn't a terminal, so piped logs stay readable.
 _clear() {
   [[ -t 1 ]] || return 0
-  if command -v tput >/dev/null 2>&1; then tput clear; else printf '\033[2J\033[3J\033[H'; fi
+  if command -v tput >/dev/null 2>&1 && tput clear 2>/dev/null; then return 0; fi
+  printf '\033[2J\033[3J\033[H'
 }
 
 # banner "Title" shows the opening frame: what this wizard does.
@@ -90,6 +92,7 @@ confirm() {
 
 # _existing KEY: current value of KEY in ENV_FILE, if any.
 _existing() {
+  [[ "$USE_EXISTING_ENV_VALUES" == "true" ]] || return 1
   [[ -f "$ENV_FILE" ]] || return 1
   local line; line=$(grep -E "^${1}=" "$ENV_FILE" | tail -n1) || return 1
   printf '%s' "${line#*=}"
@@ -184,9 +187,21 @@ finish() {
 # Replace the example below. Set TOTAL_STAGES to match the stages you write.
 # ──────────────────────────────────────────────────────────────────────────
 
-TOTAL_STAGES=6
+TOTAL_STAGES=7
 
 banner "Sylph Installation setup"
+
+if [[ -f "$ENV_FILE" ]]; then
+  say "Setup found existing values in $ENV_FILE."
+  if confirm "Reuse these values as defaults?"; then
+    USE_EXISTING_ENV_VALUES="true"
+    note "Existing values will be reused when you leave an answer blank."
+  else
+    USE_EXISTING_ENV_VALUES="false"
+    note "Existing values will be ignored. New answers will replace matching values in $ENV_FILE."
+  fi
+  pause "Press Enter to continue."
+fi
 
 stage "Cloudflare account"
 say "Sylph deploys to your Cloudflare account through Alchemy."
@@ -198,7 +213,7 @@ pause "Cloudflare is connected and dependencies are installed. Press Enter to co
 
 stage "Installation secrets"
 say "We'll generate the secrets that protect sessions, provider credentials, and the one-time Installation claim."
-for key in BETTER_AUTH_SECRET CREDENTIAL_ENCRYPTION_KEY INSTALLATION_CLAIM_SECRET; do
+for key in BETTER_AUTH_SECRET CREDENTIAL_ENCRYPTION_KEY INSTALLATION_CLAIM_SECRET OAUTH_PROXY_SECRET; do
   current=$(_existing "$key" || true)
   if [[ -z "$current" ]]; then
     current=$(openssl rand -hex 32)
@@ -212,10 +227,14 @@ pause "Secrets are ready. Press Enter to deploy the bootstrap configuration."
 stage "Cloudflare CI credentials"
 say "Cloudflare CI needs a deployment token and R2 credentials inside its isolated Sandbox."
 open_url "https://dash.cloudflare.com/profile/api-tokens"
-step "Create a token for Sylph CI. Start with Edit Cloudflare Workers and add any permissions required by your Projects' preview and production scripts. Limit it to this Installation's account."
+step "Choose Create Custom Token and name it Sylph CI."
+step "Under Account permissions, add Account Settings Read, Account API Tokens Write, Workers Scripts Write, D1 Write, Workers R2 Storage Write, Containers Write, Workers CI Write, Workers AI Read, and Workers AI Write."
+step "Under Account Resources, choose Include, Specific account, then select only this Sylph Installation's account. Do not add zone resources."
 step "Create the token, then copy its value. Cloudflare shows it only once."
 ask_secret CF_TOKEN "Paste the Cloudflare CI API token:"
 write_env CF_TOKEN "$CF_TOKEN"
+CLOUDFLARE_API_TOKEN="$CF_TOKEN"
+write_env CLOUDFLARE_API_TOKEN "$CLOUDFLARE_API_TOKEN"
 open_url "https://dash.cloudflare.com/?to=/:account/r2/api-tokens"
 step "Create an Account API token with Object Read & Write access to all buckets so the first deployment can create and use the generated Check backup bucket."
 step "Copy the Account ID, Access Key ID, and Secret Access Key. Cloudflare shows the secret only once."
@@ -234,6 +253,11 @@ step "Copy the website URL printed by Alchemy."
 ask SYLPH_URL "Paste the Sylph URL without a trailing slash:"
 SYLPH_URL="${SYLPH_URL%/}"
 write_env SYLPH_URL "$SYLPH_URL"
+OAUTH_PROXY_URL="$SYLPH_URL"
+write_env OAUTH_PROXY_URL "$OAUTH_PROXY_URL"
+step "Choose a narrow HTTPS wildcard that matches only branch preview origins, such as https://sylph-*.your-subdomain.workers.dev."
+ask OAUTH_PROXY_TRUSTED_ORIGINS "Paste the trusted branch origin pattern:"
+write_env OAUTH_PROXY_TRUSTED_ORIGINS "$OAUTH_PROXY_TRUSTED_ORIGINS"
 
 stage "GitHub App"
 say "Create one GitHub App for sign-in and repository-scoped Project access."
@@ -254,6 +278,20 @@ write_env GITHUB_CLIENT_ID "$GITHUB_CLIENT_ID"
 write_env GITHUB_CLIENT_SECRET "$GITHUB_CLIENT_SECRET"
 step "Open Install App in the GitHub App sidebar, install it, and grant the repositories Sylph should access."
 pause "The GitHub App is installed and its repositories are selected. Press Enter to continue."
+
+stage "Production automation"
+say "Publish the production configuration used by GitHub Actions."
+if confirm "Publish production secrets and variables to this GitHub repository?"; then
+  for name in BETTER_AUTH_SECRET CF_TOKEN CLOUDFLARE_API_TOKEN CREDENTIAL_ENCRYPTION_KEY GITHUB_CLIENT_SECRET INSTALLATION_CLAIM_SECRET OAUTH_PROXY_SECRET R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY; do
+    set_secret "$name" "${!name}"
+  done
+  for name in CLOUDFLARE_ACCOUNT_ID GITHUB_CLIENT_ID OAUTH_PROXY_TRUSTED_ORIGINS OAUTH_PROXY_URL; do
+    set_var "$name" "${!name}"
+  done
+else
+  warn "Production automation was not configured. Run this setup again before relying on Deploy production."
+fi
+pause "Production automation is ready. Press Enter to continue."
 
 stage "Launch and claim"
 say "Redeploy with GitHub authentication, then claim the Installation with your own account."

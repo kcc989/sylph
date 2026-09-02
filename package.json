@@ -15,7 +15,7 @@
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
     "typecheck": "turbo typecheck && tsc --noEmit",
-    "test": "bun test tools/oxlint/anti-slop/tests && turbo test",
+    "test": "bun test tools/oxlint/anti-slop/tests tools/wizard/tests && turbo test",
     "smoke:release": "playwright test --config playwright.release-smoke.config.ts",
     "smoke:release:install": "playwright install chromium",
     "deploy": "alchemy deploy",

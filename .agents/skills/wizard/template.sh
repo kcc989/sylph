@@ -24,6 +24,7 @@ TOTAL_STAGES=0
 
 _STAGE_INDEX=0
 ENV_FILE="${ENV_FILE:-.env}"
+USE_EXISTING_ENV_VALUES="${USE_EXISTING_ENV_VALUES:-true}"
 WRITTEN_ENV=()    # KEYs written to ENV_FILE this run
 WRITTEN_SECRET=() # secret NAMEs set this run
 SKIPPED=()        # things we couldn't do (e.g. gh missing)
@@ -32,7 +33,8 @@ SKIPPED=()        # things we couldn't do (e.g. gh missing)
 # output isn't a terminal, so piped logs stay readable.
 _clear() {
   [[ -t 1 ]] || return 0
-  if command -v tput >/dev/null 2>&1; then tput clear; else printf '\033[2J\033[3J\033[H'; fi
+  if command -v tput >/dev/null 2>&1 && tput clear 2>/dev/null; then return 0; fi
+  printf '\033[2J\033[3J\033[H'
 }
 
 # banner "Title" shows the opening frame: what this wizard does.
@@ -90,6 +92,7 @@ confirm() {
 
 # _existing KEY: current value of KEY in ENV_FILE, if any.
 _existing() {
+  [[ "$USE_EXISTING_ENV_VALUES" == "true" ]] || return 1
   [[ -f "$ENV_FILE" ]] || return 1
   local line; line=$(grep -E "^${1}=" "$ENV_FILE" | tail -n1) || return 1
   printf '%s' "${line#*=}"

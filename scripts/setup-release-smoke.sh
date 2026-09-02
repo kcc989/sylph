@@ -24,6 +24,7 @@ TOTAL_STAGES=0
 
 _STAGE_INDEX=0
 ENV_FILE="${ENV_FILE:-.env}"
+USE_EXISTING_ENV_VALUES="${USE_EXISTING_ENV_VALUES:-true}"
 WRITTEN_ENV=()    # KEYs written to ENV_FILE this run
 WRITTEN_SECRET=() # secret NAMEs set this run
 SKIPPED=()        # things we couldn't do (e.g. gh missing)
@@ -32,7 +33,8 @@ SKIPPED=()        # things we couldn't do (e.g. gh missing)
 # output isn't a terminal, so piped logs stay readable.
 _clear() {
   [[ -t 1 ]] || return 0
-  if command -v tput >/dev/null 2>&1; then tput clear; else printf '\033[2J\033[3J\033[H'; fi
+  if command -v tput >/dev/null 2>&1 && tput clear 2>/dev/null; then return 0; fi
+  printf '\033[2J\033[3J\033[H'
 }
 
 # banner "Title" shows the opening frame: what this wizard does.
@@ -90,6 +92,7 @@ confirm() {
 
 # _existing KEY: current value of KEY in ENV_FILE, if any.
 _existing() {
+  [[ "$USE_EXISTING_ENV_VALUES" == "true" ]] || return 1
   [[ -f "$ENV_FILE" ]] || return 1
   local line; line=$(grep -E "^${1}=" "$ENV_FILE" | tail -n1) || return 1
   printf '%s' "${line#*=}"
@@ -195,18 +198,15 @@ fi
 banner "Sylph release-smoke setup"
 
 stage "Test identity"
-say "Use one permanent OAuth proxy and a separate fresh stage for branch tests."
-ask SYLPH_OAUTH_PROXY_STAGE "Permanent OAuth proxy stage [release-smoke-auth]:"
-SYLPH_OAUTH_PROXY_STAGE="${SYLPH_OAUTH_PROXY_STAGE:-release-smoke-auth}"
+say "Use the production deployment as the permanent OAuth proxy and a fresh stage for branch tests."
 ask SYLPH_SMOKE_STAGE "Initial branch test stage [release-smoke]:"
 SYLPH_SMOKE_STAGE="${SYLPH_SMOKE_STAGE:-release-smoke}"
 ask SYLPH_SMOKE_ADMIN_EMAIL "Verified email for the dedicated GitHub test account:"
-write_env SYLPH_OAUTH_PROXY_STAGE "$SYLPH_OAUTH_PROXY_STAGE"
 write_env SYLPH_SMOKE_STAGE "$SYLPH_SMOKE_STAGE"
 write_env SYLPH_SMOKE_ADMIN_EMAIL "$SYLPH_SMOKE_ADMIN_EMAIL"
 SYLPH_SMOKE_AUTH_STATE="${SYLPH_SMOKE_AUTH_STATE:-$(dirname "$ENV_FILE")/release-smoke-auth.json}"
 write_env SYLPH_SMOKE_AUTH_STATE "$SYLPH_SMOKE_AUTH_STATE"
-for key in BETTER_AUTH_SECRET CREDENTIAL_ENCRYPTION_KEY INSTALLATION_CLAIM_SECRET OAUTH_PROXY_SECRET; do
+for key in BETTER_AUTH_SECRET CREDENTIAL_ENCRYPTION_KEY INSTALLATION_CLAIM_SECRET; do
   current=$(_existing "$key" || true)
   if [[ -z "$current" ]]; then
     current=$(openssl rand -hex 32)
@@ -219,16 +219,28 @@ write_env ALLOW_TEST_MAGIC_LINKS "$ALLOW_TEST_MAGIC_LINKS"
 pause "The test identity and Installation secrets are ready. Press Enter to continue."
 
 stage "Cloudflare service account"
-say "Create one durable account-owned token for this test Installation."
-open_url "https://dash.cloudflare.com/?to=/:account/api-tokens"
-step "Create an account-owned custom token. This requires Super Administrator access."
-step "Limit Account Resources to the Cloudflare account used for release-smoke."
-step "Add Account Settings Read, Account API Tokens Write, Workers Scripts Write, D1 Write, Workers R2 Storage Write, Containers Write, Workers CI Write, Workers AI Read, and Workers AI Write."
-step "Create the token and copy it now. Cloudflare shows it only once."
-ask CLOUDFLARE_ACCOUNT_ID "Paste the Cloudflare Account ID:"
-ask_secret CLOUDFLARE_API_TOKEN "Paste the account-owned API token:"
+CLOUDFLARE_ACCOUNT_ID=$(_existing CLOUDFLARE_ACCOUNT_ID || true)
+CLOUDFLARE_API_TOKEN=$(_existing CLOUDFLARE_API_TOKEN || true)
+if [[ -n "$CLOUDFLARE_ACCOUNT_ID" && -n "$CLOUDFLARE_API_TOKEN" ]]; then
+  note "Reusing the Cloudflare account ID and API token stored in $ENV_FILE."
+else
+  if [[ -z "$CLOUDFLARE_ACCOUNT_ID" ]]; then
+    ask CLOUDFLARE_ACCOUNT_ID "Paste the Cloudflare Account ID:"
+  fi
+  if [[ -z "$CLOUDFLARE_API_TOKEN" ]]; then
+    say "Create one durable account-owned token for this test Installation."
+    open_url "https://dash.cloudflare.com/?to=/:account/api-tokens"
+    step "Create an account-owned custom token. This requires Super Administrator access."
+    step "Limit Account Resources to the Cloudflare account used for release-smoke."
+    step "Add Account Settings Read, Account API Tokens Write, Workers Scripts Write, D1 Write, Workers R2 Storage Write, Containers Write, Workers CI Write, Workers AI Read, and Workers AI Write."
+    step "Create the token and copy it now. Cloudflare shows it only once."
+    ask_secret CLOUDFLARE_API_TOKEN "Paste the account-owned API token:"
+  fi
+fi
 write_env CLOUDFLARE_ACCOUNT_ID "$CLOUDFLARE_ACCOUNT_ID"
 write_env CLOUDFLARE_API_TOKEN "$CLOUDFLARE_API_TOKEN"
+CF_TOKEN="$CLOUDFLARE_API_TOKEN"
+CLOUDFLARE_WORKERS_AI_TOKEN="$CLOUDFLARE_API_TOKEN"
 write_env CF_TOKEN "$CLOUDFLARE_API_TOKEN"
 write_env CLOUDFLARE_WORKERS_AI_TOKEN "$CLOUDFLARE_API_TOKEN"
 pause "The reusable Cloudflare token is ready. Press Enter to continue."
@@ -246,17 +258,17 @@ else
   permission_response=$(curl --silent --show-error \
     --get \
     --header "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-    --data-urlencode "name=Workers R2 Storage Bucket Item Write" \
-    --data-urlencode "scope=com.cloudflare.edge.r2.bucket" \
+    --data-urlencode "name=Workers R2 Storage Write" \
+    --data-urlencode "scope=com.cloudflare.api.account" \
     "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/tokens/permission_groups")
   R2_PERMISSION_GROUP_ID=$(printf '%s' "$permission_response" | bun -e '
     const body = JSON.parse(await Bun.stdin.text())
     const group = body.result?.find(
-      (entry) => entry.name === "Workers R2 Storage Bucket Item Write"
+      (entry) => entry.name === "Workers R2 Storage Write"
     )
     if (!body.success || !group?.id) {
       const detail = body.errors?.map((error) => error.message).join("; ")
-      console.error(detail || "Cloudflare did not return the R2 object-write permission group")
+      console.error(detail || "Cloudflare did not return the R2 account-write permission group")
       process.exit(1)
     }
     process.stdout.write(group.id)
@@ -268,12 +280,9 @@ else
     process.stdout.write(JSON.stringify({
       name: `Sylph release-smoke R2 ${new Date().toISOString()}`,
       policies: [{
-        id: crypto.randomUUID().replaceAll("-", ""),
         effect: "allow",
         resources: {
-          [`com.cloudflare.api.account.${accountId}`]: {
-            "com.cloudflare.edge.r2.bucket.*": "*"
-          }
+          [`com.cloudflare.api.account.${accountId}`]: "*"
         },
         permission_groups: [{ id: permissionGroupId }]
       }]
@@ -306,34 +315,22 @@ else
   write_env R2_ACCESS_KEY_ID "$R2_ACCESS_KEY_ID"
   write_env R2_SECRET_ACCESS_KEY "$R2_SECRET_ACCESS_KEY"
 fi
-pause "The R2 credentials are ready. Press Enter to deploy the fixed test URL."
+pause "The R2 credentials are ready. Press Enter to configure the OAuth bridge."
 
-stage "OAuth proxy and GitHub App"
-say "Deploy the permanent proxy URL, then register that single callback with GitHub."
-export ALLOW_TEST_MAGIC_LINKS BETTER_AUTH_SECRET CF_TOKEN CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_API_TOKEN CREDENTIAL_ENCRYPTION_KEY INSTALLATION_CLAIM_SECRET R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY
-bun alchemy deploy --env-file "$ENV_FILE" --stage "$SYLPH_OAUTH_PROXY_STAGE"
+stage "Production OAuth bridge"
+say "Copy the OAuth bridge values from the production setup. This file reuses them for every smoke stage."
 ask OAUTH_PROXY_URL "Paste the permanent proxy website URL without a trailing slash:"
 OAUTH_PROXY_URL="${OAUTH_PROXY_URL%/}"
 write_env OAUTH_PROXY_URL "$OAUTH_PROXY_URL"
-step "Choose a narrow HTTPS wildcard that matches only branch preview origins, such as https://sylph-*.test-account.workers.dev."
 ask OAUTH_PROXY_TRUSTED_ORIGINS "Paste the trusted branch origin pattern:"
 write_env OAUTH_PROXY_TRUSTED_ORIGINS "$OAUTH_PROXY_TRUSTED_ORIGINS"
-open_url "https://github.com/settings/apps/new"
-step "Create a private GitHub App with a unique name for this release-smoke Installation."
-step "Set Homepage URL to $OAUTH_PROXY_URL"
-step "Set Callback URL to $OAUTH_PROXY_URL/api/auth/callback/github"
-step "Enable Request user authorization during installation and disable the webhook."
-step "Set Contents and Pull requests repository permissions to Read and write."
-step "Set Email addresses account permission to Read-only, then create the App."
-ask GITHUB_CLIENT_ID "Paste the GitHub Client ID:"
-step "Generate a client secret and copy it now."
-ask_secret GITHUB_CLIENT_SECRET "Paste the GitHub Client Secret:"
+ask GITHUB_CLIENT_ID "Paste the production GitHub Client ID:"
+ask_secret GITHUB_CLIENT_SECRET "Paste the production GitHub Client Secret:"
+ask_secret OAUTH_PROXY_SECRET "Paste the production OAuth proxy secret:"
 write_env GITHUB_CLIENT_ID "$GITHUB_CLIENT_ID"
 write_env GITHUB_CLIENT_SECRET "$GITHUB_CLIENT_SECRET"
-export GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET OAUTH_PROXY_SECRET OAUTH_PROXY_TRUSTED_ORIGINS OAUTH_PROXY_URL
-bun alchemy deploy --env-file "$ENV_FILE" --stage "$SYLPH_OAUTH_PROXY_STAGE"
-step "Open Install App in the GitHub App sidebar. Install it on the dedicated test account or organization and select only the test repositories."
-pause "The GitHub App is installed and the permanent OAuth proxy is ready. Press Enter to continue."
+write_env OAUTH_PROXY_SECRET "$OAUTH_PROXY_SECRET"
+pause "The production OAuth bridge is ready. Press Enter to deploy the smoke stage."
 
 stage "Initial authentication"
 say "The first headed smoke run stores GitHub browser state for later headless runs."
@@ -343,14 +340,16 @@ SYLPH_SMOKE_BASE_URL="${SYLPH_SMOKE_BASE_URL%/}"
 write_env SYLPH_SMOKE_BASE_URL "$SYLPH_SMOKE_BASE_URL"
 note "Do not claim the Installation in a normal browser. The smoke test must claim the fresh Installation."
 step "In another terminal, run: set -a; source $ENV_FILE; set +a"
-if grep -q 'OPENROUTER_API_KEY' tests/release-smoke/vertical-slice.spec.ts; then
-  warn "This checkout's smoke test still requires OpenRouter. Update it to consume CLOUDFLARE_WORKERS_AI_TOKEN before running the Workers AI smoke path."
-  pause "Provisioning is complete. Press Enter to finish."
+OPENROUTER_API_KEY=$(_existing OPENROUTER_API_KEY || true)
+if [[ -n "$OPENROUTER_API_KEY" ]]; then
+  note "Reusing the OpenRouter API key stored in $ENV_FILE."
 else
-  step "Run the first smoke test headed: bun run smoke:release -- --headed"
-  step "Complete GitHub authentication when Playwright opens GitHub."
-  step "Later fresh-Installation runs reuse $SYLPH_SMOKE_AUTH_STATE."
-  pause "Press Enter after the first headed run has saved its browser state."
+  ask_secret OPENROUTER_API_KEY "Paste the OpenRouter API key:"
+  write_env OPENROUTER_API_KEY "$OPENROUTER_API_KEY"
 fi
+step "Run the first smoke test headed: bun run smoke:release -- --headed"
+step "Complete GitHub authentication when Playwright opens GitHub."
+step "Later fresh-Installation runs reuse $SYLPH_SMOKE_AUTH_STATE."
+pause "Press Enter after the first headed run has saved its browser state."
 
 finish
