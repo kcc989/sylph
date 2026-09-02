@@ -31,23 +31,14 @@ test("setup through eviction recovery", async ({ page }, testInfo) => {
   testInfo.annotations.push({ type: "baseURL", description: baseURL })
 
   await test.step("setup and claim the fresh Installation", async () => {
-    await page.goto("/setup")
-    const github = page.getByRole("button", { name: "Continue with GitHub" })
+    await page.goto("/")
+    const magicLink = page.getByRole("button", {
+      name: "Send test magic link",
+    })
 
-    if (await github.isVisible()) {
-      await github.click()
-      if (new URL(page.url()).origin !== new URL(baseURL).origin) {
-        process.stdout.write(
-          "Complete GitHub authentication in the opened browser window.\n"
-        )
-      }
-      await page.waitForURL(`${baseURL}/setup`, { timeout: 10 * 60 * 1000 })
-      await mkdir(dirname(authenticationState), { recursive: true })
-      await page.context().storageState({ path: authenticationState })
-    } else {
-      await page.getByRole("link", { name: "Return to sign in" }).click()
+    if (await magicLink.isVisible()) {
       await page.getByLabel("Email").fill(adminEmail)
-      await page.getByRole("button", { name: "Send test magic link" }).click()
+      await magicLink.click()
       await page
         .getByRole("link", { name: "Open local test magic link" })
         .click()
@@ -55,6 +46,24 @@ test("setup through eviction recovery", async ({ page }, testInfo) => {
         (url) => url.origin === new URL(baseURL).origin && url.pathname === "/"
       )
       await page.goto("/setup")
+    } else {
+      await page.goto("/setup")
+      const github = page.getByRole("button", { name: "Continue with GitHub" })
+      if (!(await github.isVisible())) {
+        await expect(
+          page.getByRole("heading", { name: "Claim this Installation" })
+        ).toBeVisible()
+      } else {
+        await github.click()
+        if (new URL(page.url()).origin !== new URL(baseURL).origin) {
+          process.stdout.write(
+            "Complete GitHub authentication in the opened browser window.\n"
+          )
+        }
+        await page.waitForURL(`${baseURL}/setup`, { timeout: 10 * 60 * 1000 })
+        await mkdir(dirname(authenticationState), { recursive: true })
+        await page.context().storageState({ path: authenticationState })
+      }
     }
 
     await expect(
