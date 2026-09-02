@@ -1,34 +1,5 @@
 import {
   AgentSessionId,
-  decodeWorkspaceArchiveInputPromise,
-  decodeWorkspaceCheckUpdatePromise,
-  decodeWorkspaceRepairCheckInputPromise,
-  decodeWorkspaceRetryCheckInputPromise,
-  decodeInitializeWorkspaceRuntime,
-  decodeOpenCodeCredentialPromise,
-  decodeOpenCodeKeySetupInputPromise,
-  decodeOpenCodeSubscriptionStartInputPromise,
-  decodeOpenCodeSubscriptionStatusInputPromise,
-  decodePrepareProjectRepositoryInputPromise,
-  decodeSyncProjectRepositoryInputPromise,
-  decodeWorkspacePermissionReplyInputPromise,
-  decodeWorkspaceQuestionReplyInputPromise,
-  decodeWorkspaceCheckpointInputPromise,
-  decodeWorkspaceRuntimeEventPromise,
-  decodeWorkspaceRuntimePromptInputPromise,
-  decodeWorkspaceTurnCancelInputPromise,
-  encodeOpenCodeConnectionResultSync,
-  encodeOpenCodeSubscriptionAttemptSync,
-  encodeOpenCodeSubscriptionRuntimeStatusSync,
-  encodePrepareProjectRepositoryResultSync,
-  encodeSyncProjectRepositoryResultSync,
-  encodeWorkspaceCheckRunListSync,
-  encodeWorkspaceCheckRunSync,
-  encodeWorkspaceCheckpointResultSync,
-  encodeWorkspaceRebaseResultSync,
-  encodeWorkspaceRuntimeHealthSync,
-  encodeWorkspaceSyncResultSync,
-  encodeWorkspaceVersionControlSnapshotSync,
   InitializeWorkspaceRuntime,
   OpenCodeConnectionResult,
   OpenCodeKeySetupInput,
@@ -39,7 +10,7 @@ import {
   PrepareProjectRepositoryInput,
   PrepareProjectRepositoryResult,
   SyncProjectRepositoryInput,
-  type OpenCodeCredential,
+  OpenCodeCredential,
   WorkspaceRuntimeEvent,
   WorkspaceAgentQuestion,
   WorkspaceCheckpointInput,
@@ -64,13 +35,27 @@ import {
   WorkspaceCheckEvidence,
   WorkspaceCheckRun,
   type WorkspaceCiInput,
-  type WorkspaceCheckStageName,
   type WorkspaceDiffScope,
   WorkspaceId,
   resolveSkillInvocation,
   WorkspacePreviewResult,
   WorkspaceProductionDeployment,
   WorkspaceProductionStatus,
+  InvalidRequest,
+  isServerFailure,
+  PreconditionFailed,
+  serializeServerFailure,
+  WorkspaceArchiveResult,
+  WorkspaceCheckUpdateResult,
+  WorkspaceReadOnly,
+  WorkspaceRepairResult,
+  WorkspaceRuntimeFailure,
+  WorkspaceSkillReloadResult,
+  WorkspaceTurnCancelResult,
+  SyncProjectRepositoryResult,
+  WorkspaceCheckRunList,
+  WorkspaceCheckpointResult,
+  WorkspaceRebaseResult,
 } from "@workspace/domain"
 import type { OpenCodeWorkerd } from "@opencode-ai/sdk/workerd"
 import { InvalidRequestError } from "@opencode-ai/protocol/errors"
@@ -96,14 +81,13 @@ import {
   OpenCodeCredentialReloadRequired,
 } from "./opencode-key-credential"
 import type { OpenAIOAuthRequestState } from "./opencode-oauth-request"
-import { activateWorkspacePrompt } from "./workspace-prompt-activation"
 import { workspaceRuntimeStatus } from "./workspace-runtime-status"
 import {
   automaticRepairIdempotencyKey,
-  checkStage,
   maxWorkspaceAutomaticRepairs,
   maxWorkspaceCheckAttempts,
   maxWorkspaceRepairAttempts,
+  newCheckRun,
   WorkspaceChecks,
   WorkspaceRepairLimitReached,
   type WorkspaceRepairSource,
@@ -130,15 +114,83 @@ import {
   reviewDecisionFromRow,
   workspaceMergeRequest,
 } from "./workspace-merge-request"
-const checkpointCheckStages: WorkspaceCheckStageName[] = [
-  "install",
-  "typecheck",
-  "lint",
-  "test",
-  "build",
-  "preview",
-  "browser",
-]
+
+const decodeInitializeWorkspaceRuntime = Schema.decodeUnknownPromise(
+  InitializeWorkspaceRuntime
+)
+const decodeOpenCodeCredentialPromise =
+  Schema.decodeUnknownPromise(OpenCodeCredential)
+const decodeOpenCodeKeySetupInputPromise = Schema.decodeUnknownPromise(
+  OpenCodeKeySetupInput
+)
+const decodeOpenCodeSubscriptionStartInputPromise = Schema.decodeUnknownPromise(
+  OpenCodeSubscriptionStartInput
+)
+const decodeOpenCodeSubscriptionStatusInputPromise =
+  Schema.decodeUnknownPromise(OpenCodeSubscriptionStatusInput)
+const decodePrepareProjectRepositoryInputPromise = Schema.decodeUnknownPromise(
+  PrepareProjectRepositoryInput
+)
+const decodeSyncProjectRepositoryInputPromise = Schema.decodeUnknownPromise(
+  SyncProjectRepositoryInput
+)
+const decodeWorkspaceArchiveInputPromise = Schema.decodeUnknownPromise(
+  WorkspaceArchiveInput
+)
+const decodeWorkspaceCheckUpdatePromise =
+  Schema.decodeUnknownPromise(WorkspaceCheckUpdate)
+const decodeWorkspaceCheckpointInputPromise = Schema.decodeUnknownPromise(
+  WorkspaceCheckpointInput
+)
+const decodeWorkspacePermissionReplyInputPromise = Schema.decodeUnknownPromise(
+  WorkspacePermissionReplyInput
+)
+const decodeWorkspaceQuestionReplyInputPromise = Schema.decodeUnknownPromise(
+  WorkspaceQuestionReplyInput
+)
+const decodeWorkspaceRepairCheckInputPromise = Schema.decodeUnknownPromise(
+  WorkspaceRepairCheckInput
+)
+const decodeWorkspaceRetryCheckInputPromise = Schema.decodeUnknownPromise(
+  WorkspaceRetryCheckInput
+)
+const decodeWorkspaceRuntimeEventPromise = Schema.decodeUnknownPromise(
+  WorkspaceRuntimeEvent
+)
+const decodeWorkspaceRuntimePromptInputPromise = Schema.decodeUnknownPromise(
+  WorkspaceRuntimePromptInput
+)
+const decodeWorkspaceTurnCancelInputPromise = Schema.decodeUnknownPromise(
+  WorkspaceTurnCancelInput
+)
+const encodeOpenCodeConnectionResultSync = Schema.encodeSync(
+  OpenCodeConnectionResult
+)
+const encodeOpenCodeSubscriptionAttemptSync = Schema.encodeSync(
+  OpenCodeSubscriptionAttempt
+)
+const encodeOpenCodeSubscriptionRuntimeStatusSync = Schema.encodeSync(
+  OpenCodeSubscriptionRuntimeStatus
+)
+const encodePrepareProjectRepositoryResultSync = Schema.encodeSync(
+  PrepareProjectRepositoryResult
+)
+const encodeSyncProjectRepositoryResultSync = Schema.encodeSync(
+  SyncProjectRepositoryResult
+)
+const encodeWorkspaceCheckRunListSync = Schema.encodeSync(WorkspaceCheckRunList)
+const encodeWorkspaceCheckRunSync = Schema.encodeSync(WorkspaceCheckRun)
+const encodeWorkspaceCheckpointResultSync = Schema.encodeSync(
+  WorkspaceCheckpointResult
+)
+const encodeWorkspaceRebaseResultSync = Schema.encodeSync(WorkspaceRebaseResult)
+const encodeWorkspaceRuntimeHealthSync = Schema.encodeSync(
+  WorkspaceRuntimeHealth
+)
+const encodeWorkspaceSyncResultSync = Schema.encodeSync(WorkspaceSyncResult)
+const encodeWorkspaceVersionControlSnapshotSync = Schema.encodeSync(
+  WorkspaceVersionControlSnapshot
+)
 const maxQueuedMessages = 5
 const maxTurnDurationMs = 15 * 60 * 1000
 
@@ -290,7 +342,15 @@ interface WorkspaceBindings extends Cloudflare.Env {
 }
 
 const readOnlyMessage = "Archived Workspaces are read-only"
-const archiveResult = (archivedAt: number | null) => ({ archivedAt })
+const readOnly = () =>
+  new WorkspaceReadOnly({ message: readOnlyMessage, status: "archived" })
+const notInitialized = (message: string) =>
+  new WorkspaceRuntimeFailure({ message, reason: "not_initialized" })
+const encodeArchiveResult = Schema.encodeSync(WorkspaceArchiveResult)
+const encodeCheckUpdateResult = Schema.encodeSync(WorkspaceCheckUpdateResult)
+const encodeRepairResult = Schema.encodeSync(WorkspaceRepairResult)
+const encodeTurnCancelResult = Schema.encodeSync(WorkspaceTurnCancelResult)
+const encodeSkillReloadResult = Schema.encodeSync(WorkspaceSkillReloadResult)
 
 type ReviewStateRow = {
   decision: string | null
@@ -699,7 +759,9 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           )
         )
       }
-      return { applied }
+      return encodeCheckUpdateResult(
+        new WorkspaceCheckUpdateResult({ applied })
+      )
     })
   }
 
@@ -708,9 +770,15 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       const data = await decodeWorkspaceArchiveInputPromise(input)
       const opencode = await this.#opencode
       const state = this.#database.select().from(appWorkspaceState).get()
-      if (!state) return archiveResult(null)
+      if (!state) {
+        return encodeArchiveResult(
+          new WorkspaceArchiveResult({ archivedAt: null })
+        )
+      }
       if (state.workspaceId !== data.workspaceId) {
-        throw new Error("Archive belongs to another Workspace")
+        throw new InvalidRequest({
+          message: "Archive belongs to another Workspace",
+        })
       }
       const archivedAt = state.archivedAt ?? Date.now()
       if (state.sessionId && state.archivedAt === null) {
@@ -737,7 +805,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       )
         .bind(state.workspaceId)
         .run()
-      return archiveResult(archivedAt)
+      return encodeArchiveResult(new WorkspaceArchiveResult({ archivedAt }))
     })
   }
 
@@ -747,7 +815,9 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       await this.#opencode
       const state = this.#requiredState()
       if (data.workspaceId !== state.workspaceId) {
-        throw new Error("Check retry belongs to another Workspace")
+        throw new InvalidRequest({
+          message: "Check retry belongs to another Workspace",
+        })
       }
       this.#assertWritable()
       const run = this.#checks.retry(data.runId, data.idempotencyKey)
@@ -762,7 +832,9 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       const opencode = await this.#opencode
       const state = this.#requiredState()
       if (data.workspaceId !== state.workspaceId) {
-        throw new Error("Check repair belongs to another Workspace")
+        throw new InvalidRequest({
+          message: "Check repair belongs to another Workspace",
+        })
       }
       this.#assertWritable()
       const repair = await this.#startRepairTurn(
@@ -771,7 +843,9 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         data.idempotencyKey,
         "manual"
       )
-      return { started: repair.started }
+      return encodeRepairResult(
+        new WorkspaceRepairResult({ started: repair.started })
+      )
     })
   }
 
@@ -814,12 +888,12 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       const state = this.#database.select().from(appWorkspaceState).get()
 
       if (!state || state.workspaceId !== data.workspaceId) {
-        throw new Error("Workspace runtime is not initialized")
+        throw notInitialized("Workspace runtime is not initialized")
       }
       if (!state.sessionId) {
-        throw new Error("OpenCode session is not initialized")
+        throw notInitialized("OpenCode session is not initialized")
       }
-      if (state.archivedAt !== null) throw new Error(readOnlyMessage)
+      if (state.archivedAt !== null) throw readOnly()
       const sessionId = state.sessionId
       const nextCredentialFingerprint = await credentialFingerprint(
         data.credential
@@ -827,19 +901,23 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       const activeSessions = await opencode.sessions.active()
       const turnActive = Boolean(activeSessions[sessionId])
       if (turnActive && !data.delivery) {
-        throw new Error("Choose queue or steer while an agent Turn is active")
+        throw new PreconditionFailed({
+          message: "Choose queue or steer while an agent Turn is active",
+        })
       }
       if (!turnActive && data.delivery === "steer") {
-        throw new Error("There is no active Turn to steer")
+        throw new PreconditionFailed({
+          message: "There is no active Turn to steer",
+        })
       }
       if (
         turnActive &&
         (state.providerId !== data.model.providerId ||
           state.modelId !== data.model.modelId)
       ) {
-        throw new Error(
-          "Wait for the active Turn to finish before changing models"
-        )
+        throw new PreconditionFailed({
+          message: "Wait for the active Turn to finish before changing models",
+        })
       }
       if (data.delivery === "queue") {
         const inbox = await opencode.sessions.inbox.list({
@@ -849,32 +927,27 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           (item) => item.type === "user" && item.delivery === "queue"
         )
         if (queued.length >= maxQueuedMessages) {
-          throw new Error(
-            `This Conversation already has ${maxQueuedMessages} queued messages`
-          )
+          throw new PreconditionFailed({
+            message: `This Conversation already has ${maxQueuedMessages} queued messages`,
+          })
         }
       }
 
       try {
         if (!turnActive) {
-          await activateWorkspacePrompt({
-            refreshCredential:
-              state.credentialFingerprint === nextCredentialFingerprint
-                ? undefined
-                : () =>
-                    this.#installCredential(
-                      opencode,
-                      data.model.providerId,
-                      data.credential
-                    ),
-            switchModel: () =>
-              opencode.sessions.switchModel({
-                sessionID: sessionId,
-                model: {
-                  providerID: data.model.providerId,
-                  id: data.model.modelId,
-                },
-              }),
+          if (state.credentialFingerprint !== nextCredentialFingerprint) {
+            await this.#installCredential(
+              opencode,
+              data.model.providerId,
+              data.credential
+            )
+          }
+          await opencode.sessions.switchModel({
+            sessionID: sessionId,
+            model: {
+              providerID: data.model.providerId,
+              id: data.model.modelId,
+            },
           })
         }
         this.#database
@@ -921,9 +994,15 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       const data = await decodeWorkspaceTurnCancelInputPromise(input)
       const opencode = await this.#opencode
       const state = this.#database.select().from(appWorkspaceState).get()
-      if (!state?.sessionId) return { interrupted: false }
+      if (!state?.sessionId) {
+        return encodeTurnCancelResult(
+          new WorkspaceTurnCancelResult({ interrupted: false })
+        )
+      }
       if (state.workspaceId !== data.workspaceId) {
-        throw new Error("Turn belongs to another Workspace")
+        throw new InvalidRequest({
+          message: "Turn belongs to another Workspace",
+        })
       }
       const sessionId = state.sessionId
       const result = await opencode.sessions.interrupt({
@@ -944,7 +1023,9 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         )
         await this.ctx.storage.deleteAlarm()
       }
-      return { interrupted: result.interrupted }
+      return encodeTurnCancelResult(
+        new WorkspaceTurnCancelResult({ interrupted: result.interrupted })
+      )
     })
   }
 
@@ -959,7 +1040,9 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           state.projectId
         )
       )
-      return { skills: this.#skills.list().length }
+      return encodeSkillReloadResult(
+        new WorkspaceSkillReloadResult({ skills: this.#skills.list().length })
+      )
     })
   }
 
@@ -970,12 +1053,12 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       const state = this.#database.select().from(appWorkspaceState).get()
 
       if (!state || state.workspaceId !== data.workspaceId) {
-        throw new Error("Workspace runtime is not initialized")
+        throw notInitialized("Workspace runtime is not initialized")
       }
       if (!state.sessionId) {
-        throw new Error("OpenCode session is not initialized")
+        throw notInitialized("OpenCode session is not initialized")
       }
-      if (state.archivedAt !== null) throw new Error(readOnlyMessage)
+      if (state.archivedAt !== null) throw readOnly()
 
       await opencode.permission.reply({
         sessionID: state.sessionId,
@@ -993,9 +1076,11 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       const opencode = await this.#opencode
       const state = this.#requiredState()
       if (state.workspaceId !== data.workspaceId || !state.sessionId) {
-        throw new Error("Agent question belongs to another Workspace")
+        throw new InvalidRequest({
+          message: "Agent question belongs to another Workspace",
+        })
       }
-      if (state.archivedAt !== null) throw new Error(readOnlyMessage)
+      if (state.archivedAt !== null) throw readOnly()
       await opencode.form.reply({
         sessionID: state.sessionId,
         formID: data.questionId,
@@ -1037,7 +1122,16 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       return await operation()
     } catch (error) {
       if (error instanceof OpenCodeCredentialReloadRequired) {
-        throw new Error("Workspace runtime credential store refreshed")
+        throw new Error(
+          serializeServerFailure(
+            new WorkspaceRuntimeFailure({
+              message: "Workspace runtime credential store refreshed",
+            })
+          )
+        )
+      }
+      if (isServerFailure(error)) {
+        throw new Error(serializeServerFailure(error))
       }
       console.error(
         "Workspace runtime request failed",
@@ -1049,7 +1143,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
 
   #requiredState() {
     const state = this.#database.select().from(appWorkspaceState).get()
-    if (!state) throw new Error("Workspace runtime is not initialized")
+    if (!state) throw notInitialized("Workspace runtime is not initialized")
     return state
   }
 
@@ -1059,7 +1153,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   }
 
   #assertWritable() {
-    if (this.#isArchived()) throw new Error(readOnlyMessage)
+    if (this.#isArchived()) throw readOnly()
   }
 
   async #agentCheckpoint(message: string) {
@@ -1093,7 +1187,9 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
 
   async #promptSession(opencode: OpenCodeWorkerd.Interface, text: string) {
     const state = this.#requiredState()
-    if (!state.sessionId) throw new Error("OpenCode session is not initialized")
+    if (!state.sessionId) {
+      throw notInitialized("OpenCode session is not initialized")
+    }
     if (state.archivedAt !== null) return false
     const sessionId = state.sessionId
     const active = await opencode.sessions.active()
@@ -1394,28 +1490,15 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     const id = `check-${checkpointId}`
     const existing = this.#checks.get(id)
     if (existing) return existing
-    const createdAt = Date.now()
-    const run = new WorkspaceCheckRun({
+    const run = newCheckRun({
       id,
-      workspaceId: WorkspaceId.make(workspaceId),
+      workspaceId,
       checkpointId,
-      commit: GitCommitId.make(commit),
+      commit,
       kind: "checkpoint",
-      status: "queued",
       attempt: 1,
-      maxAttempts: maxWorkspaceCheckAttempts,
       repairOnFailure,
-      repairStatus: repairOnFailure ? "available" : "disabled",
-      repairAttempt: 0,
-      maxRepairAttempts: maxWorkspaceRepairAttempts,
-      previewUrl: null,
-      stages: checkpointCheckStages.map((name) =>
-        checkStage(name, "queued", "Waiting")
-      ),
-      diagnostics: [],
-      evidence: [],
-      createdAt,
-      updatedAt: createdAt,
+      createdAt: Date.now(),
     })
     this.#checks.create(run)
     await this.#startWorkflow(run)

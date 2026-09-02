@@ -1,3 +1,5 @@
+import type { PromiseFsClient } from "isomorphic-git"
+
 const workspaceRoot = "/workspace"
 const defaultFileLimit = 5 * 1024 * 1024
 const defaultRepositoryLimit = 50 * 1024 * 1024
@@ -15,6 +17,14 @@ interface WorkspaceSql {
 
 export interface WorkspaceStorage {
   sql: WorkspaceSql
+}
+
+export interface WorkspaceGitFilesystem extends PromiseFsClient {
+  clear(): void
+  writeFile(
+    path: string,
+    content: string | Uint8Array | ArrayBuffer
+  ): Promise<void>
 }
 type EncodingOption = string | { encoding?: string | null } | null | undefined
 type FileContentRow = {
@@ -72,7 +82,7 @@ export const normalizeWorkspacePath = (value: string) => {
   return segments.join("/")
 }
 
-export class WorkspaceFilesystem {
+export class WorkspaceFilesystem implements WorkspaceGitFilesystem {
   readonly promises
   readonly #storage: WorkspaceStorage
   readonly #fileLimit: number

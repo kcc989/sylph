@@ -11,11 +11,6 @@ export const acceptedOperationUpdateSql =
 export const acceptanceCanStart = (mergeStatus: string) =>
   mergeStatus === "ready" || mergeStatus === "error"
 
-export const acceptanceWorkflowRevision = (input: {
-  persisted: { baseCommit: string; forkHead: string }
-  reviewed: { baseCommit: string; forkHead: string }
-}) => input.reviewed
-
 export const configureWorkspaceRemoteForAcceptance = (input: {
   filesystem: MemoryFilesystem
   remote: string

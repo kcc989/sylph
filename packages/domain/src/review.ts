@@ -79,11 +79,3 @@ export class WorkspaceReviewDecisionInput extends Schema.Class<WorkspaceReviewDe
   commit: GitCommitId,
   decision: Schema.Literals(["approved", "changes_requested"]),
 }) {}
-
-export const decodeWorkspaceReviewCommentInputPromise =
-  Schema.decodeUnknownPromise(WorkspaceReviewCommentInput)
-export const decodeWorkspaceReviewResolutionInputPromise =
-  Schema.decodeUnknownPromise(WorkspaceReviewResolutionInput)
-export const decodeWorkspaceReviewDecisionInputPromise =
-  Schema.decodeUnknownPromise(WorkspaceReviewDecisionInput)
-export const encodeWorkspaceReview = Schema.encodePromise(WorkspaceReview)

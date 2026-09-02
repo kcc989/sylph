@@ -1,11 +1,23 @@
 import {
-  decodeWorkspacePermissionAskedEventDataPromise,
-  decodeWorkspacePermissionRepliedEventDataPromise,
-  decodeWorkspaceTextDeltaEventDataPromise,
-  decodeWorkspaceTextEndedEventDataPromise,
   type WorkspaceRuntimeEvent,
+  WorkspacePermissionAskedEventData,
+  WorkspacePermissionRepliedEventData,
+  WorkspaceTextDeltaEventData,
+  WorkspaceTextEndedEventData,
 } from "@workspace/domain"
 import type { WorkspacePermissionRequest } from "@workspace/ui/components/workspace-shell"
+import { Schema } from "effect"
+
+const decodeWorkspacePermissionAskedEventDataPromise =
+  Schema.decodeUnknownPromise(WorkspacePermissionAskedEventData)
+const decodeWorkspacePermissionRepliedEventDataPromise =
+  Schema.decodeUnknownPromise(WorkspacePermissionRepliedEventData)
+const decodeWorkspaceTextDeltaEventDataPromise = Schema.decodeUnknownPromise(
+  WorkspaceTextDeltaEventData
+)
+const decodeWorkspaceTextEndedEventDataPromise = Schema.decodeUnknownPromise(
+  WorkspaceTextEndedEventData
+)
 
 export type WorkspaceLiveState = {
   partialMessages: Record<string, string>

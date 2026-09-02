@@ -1,19 +1,15 @@
 import { createServerFn } from "@tanstack/react-start"
 import { schema } from "@workspace/db"
 import {
-  decodeDisconnectOpenCodeConnectionInputPromise,
-  decodeOpenCodeKeySetupInputPromise,
-  decodeOpenCodeSubscriptionAttemptPromise,
-  decodeOpenCodeSubscriptionRuntimeStatusPromise,
-  decodeOpenCodeSubscriptionStartInputPromise,
-  decodeOpenCodeSubscriptionStatusInputPromise,
-  decodeOrganizationRequestInputPromise,
-  decodeSetDefaultModelInputPromise,
-  encodeOpenCodeSubscriptionStartInputSync,
-  encodeOpenCodeSubscriptionStatusInputSync,
   InvalidRequest,
   OpenCodeSubscriptionStatus,
   WorkspaceRuntimeFailure,
+  DisconnectOpenCodeConnectionInput,
+  OpenCodeKeySetupInput,
+  OpenCodeSubscriptionStartInput,
+  OpenCodeSubscriptionStatusInput,
+  OrganizationRequestInput,
+  SetDefaultModelInput,
 } from "@workspace/domain"
 import { env } from "cloudflare:workers"
 import { and, desc, eq } from "drizzle-orm"
@@ -22,7 +18,6 @@ import { connectionManager, organizationMember } from "@/functions/middleware"
 import { providerName } from "@/lib/model-selection"
 import { encodeKeyCredential } from "@/lib/provider-credential"
 import { encryptCredential } from "@/server/credentials.server"
-import { discoverOpenCodeKeyModels } from "@/server/opencode-key-setup"
 import { isOrganizationAdmin } from "@/server/organization-access"
 import {
   connectionRuntimeName,
@@ -30,7 +25,24 @@ import {
   saveProviderModels,
   subscriptionProviderId,
 } from "@/server/provider-connections"
-import { runtimeCall, workspaceRuntime } from "@/server/workspace-runtime"
+import { workspaceRuntime } from "@/server/workspace-runtime"
+import { Schema } from "effect"
+
+const decodeDisconnectOpenCodeConnectionInputPromise =
+  Schema.decodeUnknownPromise(DisconnectOpenCodeConnectionInput)
+const decodeOpenCodeKeySetupInputPromise = Schema.decodeUnknownPromise(
+  OpenCodeKeySetupInput
+)
+const decodeOpenCodeSubscriptionStartInputPromise = Schema.decodeUnknownPromise(
+  OpenCodeSubscriptionStartInput
+)
+const decodeOpenCodeSubscriptionStatusInputPromise =
+  Schema.decodeUnknownPromise(OpenCodeSubscriptionStatusInput)
+const decodeOrganizationRequestInputPromise = Schema.decodeUnknownPromise(
+  OrganizationRequestInput
+)
+const decodeSetDefaultModelInputPromise =
+  Schema.decodeUnknownPromise(SetDefaultModelInput)
 
 export const getOpenCodeSetup = createServerFn({ method: "GET" })
   .middleware([organizationMember])
@@ -334,9 +346,7 @@ export const saveOpenCodeSetup = createServerFn({ method: "POST" })
     const runtime = workspaceRuntime(
       connectionRuntimeName(data.organizationId, user.id, data.scope)
     )
-    const result = await runtimeCall(() =>
-      discoverOpenCodeKeyModels(runtime, data)
-    )
+    const result = await runtime.connectKey(data)
 
     const credential = await encryptCredential(
       encodeKeyCredential(data.apiKey, data.configuration),
@@ -415,13 +425,7 @@ export const startOpenCodeSubscription = createServerFn({ method: "POST" })
     const runtime = workspaceRuntime(
       connectionRuntimeName(data.organizationId, context.user.id, data.scope)
     )
-    const attempt = await decodeOpenCodeSubscriptionAttemptPromise(
-      await runtimeCall(() =>
-        runtime.startSubscriptionSignIn(
-          encodeOpenCodeSubscriptionStartInputSync(data)
-        )
-      )
-    )
+    const attempt = await runtime.startSubscriptionSignIn(data)
 
     return {
       attemptId: attempt.attemptId,
@@ -439,13 +443,7 @@ export const getOpenCodeSubscriptionStatus = createServerFn({ method: "POST" })
     const runtime = workspaceRuntime(
       connectionRuntimeName(data.organizationId, user.id, data.scope)
     )
-    const result = await decodeOpenCodeSubscriptionRuntimeStatusPromise(
-      await runtimeCall(() =>
-        runtime.subscriptionSignInStatus(
-          encodeOpenCodeSubscriptionStatusInputSync(data)
-        )
-      )
-    )
+    const result = await runtime.subscriptionSignInStatus(data)
 
     if (result.status !== "complete") {
       const status = new OpenCodeSubscriptionStatus({
@@ -544,9 +542,5 @@ export const cancelOpenCodeSubscription = createServerFn({ method: "POST" })
     const runtime = workspaceRuntime(
       connectionRuntimeName(data.organizationId, context.user.id, data.scope)
     )
-    await runtimeCall(() =>
-      runtime.cancelSubscriptionSignIn(
-        encodeOpenCodeSubscriptionStatusInputSync(data)
-      )
-    )
+    await runtime.cancelSubscriptionSignIn(data)
   })

@@ -2,30 +2,30 @@ import { createServerFn } from "@tanstack/react-start"
 import { schema } from "@workspace/db"
 import {
   AccessDenied,
-  decodeCiRunRecordList,
-  decodeCiRunSummary,
-  decodeCreateProjectInputPromise,
-  decodeGitHubRepositoryLookupInputPromise,
-  decodeProjectDeliveryModeInputPromise,
-  decodeProjectDeployInputPromise,
-  decodeProjectRequestInputPromise,
-  encodeCiRunRecordList,
-  encodeGitHubRepositoryInfo,
   failureMessage,
   GitCommitId,
   InitializeWorkspaceRuntime,
   InvalidRequest,
   parseGitHubRepositoryUrl,
   PreconditionFailed,
+  ProviderConnectionRequired,
   productionDeployConfirmed,
   PrepareProjectRepositoryInput,
   ProjectId,
   WorkspaceId,
   type WorkspaceCiInput,
+  CiRunRecordList,
+  CiRunSummary,
+  CreateProjectInput,
+  GitHubRepositoryInfo,
+  GitHubRepositoryLookupInput,
+  ProjectDeliveryModeInput,
+  ProjectDeployInput,
+  ProjectRequestInput,
 } from "@workspace/domain"
 import { env } from "cloudflare:workers"
 import { and, desc, eq, isNull } from "drizzle-orm"
-import { Effect } from "effect"
+import { Effect, Schema } from "effect"
 
 import { organizationMember, projectMember } from "@/functions/middleware"
 import { deploymentWorkflowAlreadyStarted } from "@/server/deployment-records"
@@ -33,22 +33,34 @@ import {
   GitHubRepositoryLive,
   GitHubRepositoryService,
 } from "@/server/github-repository-service"
-import {
-  githubUserAccessToken,
-  prepareProjectRepository,
-} from "@/server/project-repository-sync"
+import { githubUserAccessToken } from "@/server/project-repository-sync"
 import {
   isOrganizationAdmin,
   requireOrganizationMembership,
 } from "@/server/organization-access"
-import { requireProjectProviderConnection } from "@/server/project-provider-guard"
 import {
   connectionCredential,
   effectiveConnection,
 } from "@/server/provider-connections"
-import { recoveryRepositoryEntry } from "@/server/recovery-export"
-import { makeCloudflareArtifactsRepositoryStore } from "@/server/repository-store"
-import { initializeWorkspaceRuntime } from "@/server/workspace-runtime"
+import { repositoryStore } from "@/server/repositories"
+import { workspaceRuntime } from "@/server/workspace-runtime"
+
+const decodeCiRunRecordList = Schema.decodeUnknownPromise(CiRunRecordList)
+const decodeCiRunSummary = Schema.decodeUnknownSync(CiRunSummary)
+const decodeCreateProjectInputPromise =
+  Schema.decodeUnknownPromise(CreateProjectInput)
+const decodeGitHubRepositoryLookupInputPromise = Schema.decodeUnknownPromise(
+  GitHubRepositoryLookupInput
+)
+const decodeProjectDeliveryModeInputPromise = Schema.decodeUnknownPromise(
+  ProjectDeliveryModeInput
+)
+const decodeProjectDeployInputPromise =
+  Schema.decodeUnknownPromise(ProjectDeployInput)
+const decodeProjectRequestInputPromise =
+  Schema.decodeUnknownPromise(ProjectRequestInput)
+const encodeCiRunRecordList = Schema.encodePromise(CiRunRecordList)
+const encodeGitHubRepositoryInfo = Schema.encodePromise(GitHubRepositoryInfo)
 
 const normalizeName = (value: string) =>
   value
@@ -307,7 +319,7 @@ export const exportProjectRecovery = createServerFn({ method: "POST" })
           isNull(schema.workspace.forkDeletedAt)
         )
       )
-    const repositories = makeCloudflareArtifactsRepositoryStore(env.REPOS)
+    const repositories = repositoryStore()
     const entries = await Promise.all(
       [
         {
@@ -331,7 +343,13 @@ export const exportProjectRecovery = createServerFn({ method: "POST" })
           ),
           Effect.runPromise(repositories.head(entry.repositoryName)),
         ])
-        return recoveryRepositoryEntry(entry, repository, access, headCommit)
+        return {
+          ...entry,
+          forkHead: entry.kind === "workspace" ? headCommit : entry.forkHead,
+          headCommit,
+          repository,
+          access,
+        }
       })
     )
     return {
@@ -371,9 +389,16 @@ export const createProject = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { database, membership, user } = context
 
-    const connection = requireProjectProviderConnection(
-      await effectiveConnection(database, data.organizationId, user.id)
+    const connection = await effectiveConnection(
+      database,
+      data.organizationId,
+      user.id
     )
+    if (!connection) {
+      throw new ProviderConnectionRequired({
+        message: "Connect an AI provider before creating a Project",
+      })
+    }
     const credential = await connectionCredential(connection)
 
     if (!data.sourceRepositoryUrl && data.sourceBranch) {
@@ -405,7 +430,7 @@ export const createProject = createServerFn({ method: "POST" })
     const projectId = ProjectId.make(crypto.randomUUID())
     const workspaceId = WorkspaceId.make(crypto.randomUUID())
     const repositoryName = `${membership.organizationSlug}-${projectSlug.slice(0, 28)}-${projectId.replaceAll("-", "").slice(0, 12)}`
-    const repositories = makeCloudflareArtifactsRepositoryStore(env.REPOS)
+    const repositories = repositoryStore()
     const createdArtifact = await Effect.runPromise(
       repositories.create({
         name: repositoryName,
@@ -419,8 +444,7 @@ export const createProject = createServerFn({ method: "POST" })
       repositories.inspect(createdArtifact.name)
     )
     const workspaceRepositoryName = `${repositoryName.slice(0, 44)}-${workspaceId.replaceAll("-", "").slice(0, 12)}`
-    const prepared = await prepareProjectRepository(
-      workspaceId,
+    const prepared = await workspaceRuntime(workspaceId).prepareProject(
       new PrepareProjectRepositoryInput({
         repositoryName: artifact.name,
         repositoryRemote: artifact.remote,
@@ -487,8 +511,7 @@ export const createProject = createServerFn({ method: "POST" })
     }
 
     try {
-      await initializeWorkspaceRuntime(
-        workspaceId,
+      await workspaceRuntime(workspaceId).initialize(
         new InitializeWorkspaceRuntime({
           organizationId: data.organizationId,
           projectId,

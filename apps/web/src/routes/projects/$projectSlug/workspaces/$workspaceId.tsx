@@ -2,13 +2,16 @@ import {
   createFileRoute,
   type ErrorComponentProps,
   Link,
+  notFound,
+  redirect,
   useRouter,
 } from "@tanstack/react-router"
 import {
-  decodeWorkspaceRuntimeEventPromise,
+  failureTag,
+  isRuntimeNotInitialized,
   resolveSkillInvocation,
   type WorkspacePermissionReply,
-  failureMessage,
+  WorkspaceRuntimeEvent,
 } from "@workspace/domain"
 import { useServerFn } from "@tanstack/react-start"
 import { Button } from "@workspace/ui/components/button"
@@ -20,7 +23,8 @@ import {
   type WorkspaceQuestionValue,
   WorkspaceShell,
 } from "@workspace/ui/components/workspace-shell"
-import { useEffect, useRef, useState } from "react"
+import { isWorkspaceCommandPending } from "@workspace/ui/lib/workspace-commands"
+import { useCallback, useEffect, useRef, useState } from "react"
 
 import { validateOnboardingSearch } from "@/lib/onboarding"
 import { getDashboard } from "@/functions/installation"
@@ -44,12 +48,19 @@ import {
   retryWorkspaceCheck,
   syncWorkspaceProject,
 } from "@/functions/workspaces"
+import { useWorkspaceCommands } from "@/lib/use-workspace-commands"
 import { useWorkspaceCreation } from "@/lib/use-workspace-creation"
+import { Schema } from "effect"
+
 import {
   applyWorkspaceRuntimeEvent,
   emptyWorkspaceLiveState,
   workspaceEventNeedsSnapshot,
 } from "@/lib/workspace-runtime-events"
+
+const decodeWorkspaceRuntimeEventPromise = Schema.decodeUnknownPromise(
+  WorkspaceRuntimeEvent
+)
 
 export const Route = createFileRoute(
   "/projects/$projectSlug/workspaces/$workspaceId"
@@ -61,43 +72,71 @@ export const Route = createFileRoute(
       getDashboard(),
       getWorkspace({
         data: { workspaceId: params.workspaceId },
+      }).catch((cause) => {
+        if (failureTag(cause) === "AuthenticationRequired") {
+          throw redirect({ to: "/" })
+        }
+        throw cause
       }),
     ])
-    const matches = result?.workspace.projectSlug === params.projectSlug
-    return { dashboard, result: matches ? result : null }
+    if (result.workspace.projectSlug !== params.projectSlug) throw notFound()
+    return { dashboard, result }
   },
   component: WorkspaceScreen,
   errorComponent: WorkspaceLoadError,
 })
 
+const loadErrorCopy = (error: Error) => {
+  if (failureTag(error) === "AccessDenied") {
+    return {
+      title: "Workspace unavailable",
+      body: "This Workspace does not exist or you cannot access it.",
+      retry: false,
+    }
+  }
+  if (isRuntimeNotInitialized(error)) {
+    return {
+      title: "Workspace is starting",
+      body: "Version control is still initializing. Try again in a moment.",
+      retry: true,
+    }
+  }
+  return {
+    title: "Workspace unavailable",
+    body: "Sylph could not load this Workspace. Retry or return to Project settings.",
+    retry: true,
+  }
+}
+
 function WorkspaceLoadError({ error, reset }: ErrorComponentProps) {
   const { projectSlug } = Route.useParams()
   const router = useRouter()
-  const initializing = error.message.includes(
-    "Workspace version control is not initialized"
-  )
+  const copy = loadErrorCopy(error)
 
   return (
     <main className="grid min-h-svh place-items-center bg-background px-5 text-foreground">
       <Card className="w-full max-w-lg">
         <CardContent className="py-10 text-center">
-          <h1 className="text-lg font-semibold">
-            {initializing ? "Workspace is starting" : "Workspace unavailable"}
-          </h1>
+          <h1 className="text-lg font-semibold">{copy.title}</h1>
           <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            {initializing
-              ? "Version control is still initializing. Try again in a moment."
-              : "Sylph could not load this Workspace. Retry or return to Project settings."}
+            {copy.body}
           </p>
           <div className="mt-5 flex justify-center gap-2">
-            <Button
-              onClick={() => {
-                reset()
-                void router.invalidate()
-              }}
-            >
-              Try again
-            </Button>
+            {copy.retry ? null : (
+              <Button nativeButton={false} render={<Link to="/" />}>
+                Return to projects
+              </Button>
+            )}
+            {copy.retry ? (
+              <Button
+                onClick={() => {
+                  reset()
+                  void router.invalidate()
+                }}
+              >
+                Try again
+              </Button>
+            ) : null}
             <Button
               nativeButton={false}
               render={
@@ -137,37 +176,25 @@ function WorkspaceScreen() {
   const resolveReviewComment = useServerFn(resolveWorkspaceReviewComment)
   const syncProject = useServerFn(syncWorkspaceProject)
   const submitReview = useServerFn(submitWorkspaceReview)
-  const [promptPending, setPromptPending] = useState(false)
-  const [cancelTurnPending, setCancelTurnPending] = useState(false)
-  const [archivePending, setArchivePending] = useState(false)
-  const [discardPending, setDiscardPending] = useState(false)
-  const [answeringQuestionId, setAnsweringQuestionId] = useState<string | null>(
-    null
+  const refresh = useCallback(() => router.invalidate(), [router])
+  const commands = useWorkspaceCommands(refresh)
+  const checkActionPending = isWorkspaceCommandPending(
+    commands.pending,
+    "check"
   )
-  const [checkpointPending, setCheckpointPending] = useState(false)
-  const [acceptPending, setAcceptPending] = useState(false)
-  const [reviewPending, setReviewPending] = useState(false)
-  const [reviewError, setReviewError] = useState<string | null>(null)
   const [checkpointKey, setCheckpointKey] = useState(() => crypto.randomUUID())
   const [acceptKey, setAcceptKey] = useState(() => crypto.randomUUID())
-  const [restartPending, setRestartPending] = useState(false)
-  const [rebasePending, setRebasePending] = useState(false)
-  const [checkActionPending, setCheckActionPending] = useState(false)
   const [retryKey, setRetryKey] = useState(() => crypto.randomUUID())
   const [repairKey, setRepairKey] = useState(() => crypto.randomUUID())
-  const [promptError, setPromptError] = useState<string | null>(null)
   const [liveState, setLiveState] = useState(emptyWorkspaceLiveState)
   const liveStateRef = useRef(liveState)
-  const [replyingPermissionId, setReplyingPermissionId] = useState<
-    string | null
-  >(null)
   const [optimisticEntries, setOptimisticEntries] = useState<ThreadEntry[]>([])
   const [selectedModel, setSelectedModel] = useState(
-    result?.selectedModel ?? null
+    result.selectedModel ?? null
   )
   const modelSelectionChanged = useRef(false)
   const modelSelectionWorkspaceId = useRef(workspaceId)
-  const [modelNotice, setModelNotice] = useState(result?.modelNotice ?? null)
+  const [modelNotice, setModelNotice] = useState(result.modelNotice ?? null)
   const { creatingProjectId, startWorkspace } = useWorkspaceCreation()
 
   useEffect(() => {
@@ -219,34 +246,15 @@ function WorkspaceScreen() {
     }
 
     if (workspaceChanged || !modelSelectionChanged.current) {
-      setSelectedModel(result?.selectedModel ?? null)
-      setModelNotice(result?.modelNotice ?? null)
+      setSelectedModel(result.selectedModel ?? null)
+      setModelNotice(result.modelNotice ?? null)
     }
   }, [
-    result?.modelNotice,
-    result?.selectedModel?.modelId,
-    result?.selectedModel?.providerId,
+    result.modelNotice,
+    result.selectedModel?.modelId,
+    result.selectedModel?.providerId,
     workspaceId,
   ])
-
-  if (!result) {
-    return (
-      <main className="grid min-h-svh place-items-center bg-background px-5 text-foreground">
-        <div className="w-full max-w-lg">
-          <Card>
-            <CardContent className="grid justify-items-center gap-3 py-12 text-center">
-              <p className="text-sm text-muted-foreground">
-                This Workspace does not exist or you cannot access it.
-              </p>
-              <Button nativeButton={false} render={<Link to="/" />}>
-                Return to projects
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-      </main>
-    )
-  }
 
   const { runtime, workspace } = result
   const matchedSkill = (text: string) => {
@@ -378,25 +386,20 @@ function WorkspaceScreen() {
                   label: "Retry",
                   disabled: checkActionPending,
                   onClick: () => {
-                    setCheckActionPending(true)
-                    setPromptError(null)
-                    void retryCheck({
-                      data: {
-                        workspaceId,
-                        runId: checkpointCheck.id,
-                        idempotencyKey: retryKey,
-                      },
-                    })
-                      .then(async () => {
+                    void commands.run(
+                      "check",
+                      async () => {
+                        await retryCheck({
+                          data: {
+                            workspaceId,
+                            runId: checkpointCheck.id,
+                            idempotencyKey: retryKey,
+                          },
+                        })
                         setRetryKey(crypto.randomUUID())
-                        await router.invalidate()
-                      })
-                      .catch((cause) =>
-                        setPromptError(
-                          failureMessage(cause, "Check retry failed")
-                        )
-                      )
-                      .finally(() => setCheckActionPending(false))
+                      },
+                      "Check retry failed"
+                    )
                   },
                 }
               : undefined,
@@ -423,23 +426,20 @@ function WorkspaceScreen() {
             (checkpointCheck.maxRepairAttempts ??
               runtime.limits.maxRepairAttempts),
         onClick: () => {
-          setCheckActionPending(true)
-          setPromptError(null)
-          void repairCheck({
-            data: {
-              workspaceId,
-              runId: checkpointCheck.id,
-              idempotencyKey: repairKey,
-            },
-          })
-            .then(async () => {
+          void commands.run(
+            "check",
+            async () => {
+              await repairCheck({
+                data: {
+                  workspaceId,
+                  runId: checkpointCheck.id,
+                  idempotencyKey: repairKey,
+                },
+              })
               setRepairKey(crypto.randomUUID())
-              await router.invalidate()
-            })
-            .catch((cause) =>
-              setPromptError(failureMessage(cause, "Repair turn failed"))
-            )
-            .finally(() => setCheckActionPending(false))
+            },
+            "Repair turn failed"
+          )
         },
       },
     })
@@ -455,14 +455,13 @@ function WorkspaceScreen() {
         label: "Update",
         disabled: checkActionPending || workingChanges.length > 0,
         onClick: () => {
-          setCheckActionPending(true)
-          setPromptError(null)
-          void syncProject({ data: { workspaceId } })
-            .then(async () => router.invalidate())
-            .catch((cause) =>
-              setPromptError(failureMessage(cause, "Repository update failed"))
-            )
-            .finally(() => setCheckActionPending(false))
+          void commands.run(
+            "check",
+            async () => {
+              await syncProject({ data: { workspaceId } })
+            },
+            "Repository update failed"
+          )
         },
       },
     })
@@ -487,20 +486,14 @@ function WorkspaceScreen() {
     )
   }
 
-  const runReviewMutation = async (mutation: () => Promise<object>) => {
-    setReviewPending(true)
-    setReviewError(null)
-    try {
-      await mutation()
-      await router.invalidate()
-      return true
-    } catch (cause) {
-      setReviewError(failureMessage(cause, "The review could not be updated"))
-      return false
-    } finally {
-      setReviewPending(false)
-    }
-  }
+  const runReviewMutation = (mutation: () => Promise<object>) =>
+    commands.run(
+      "review",
+      async () => {
+        await mutation()
+      },
+      "The review could not be updated"
+    )
 
   return (
     <WorkspaceShell
@@ -529,15 +522,12 @@ function WorkspaceScreen() {
         .map((change) => change.patch)
         .join("\n")}
       currentReviewer={result.currentReviewer}
-      reviewPending={reviewPending}
-      reviewError={reviewError}
       changeSummary={
         workingChanges.length ? `+${additions} −${deletions}` : "No changes"
       }
       patch={workingChanges.map((change) => change.patch).join("\n")}
-      checkpointPending={checkpointPending}
-      acceptPending={acceptPending}
-      rebasePending={rebasePending}
+      pending={commands.pending}
+      commandError={commands.error}
       checks={checkItems}
       entries={entries}
       permissionRequests={permissionRequests}
@@ -547,69 +537,56 @@ function WorkspaceScreen() {
       turnActive={runtime.status === "running"}
       turnInterrupted={runtime.status === "interrupted"}
       activeTurnStartedAt={runtime.activeTurnStartedAt}
-      answeringQuestionId={answeringQuestionId}
-      cancelTurnPending={cancelTurnPending}
       onAnswerQuestion={async (
         questionId,
         answer: Record<string, WorkspaceQuestionValue>
       ) => {
-        setAnsweringQuestionId(questionId)
-        setPromptError(null)
-        try {
-          await answerQuestion({ data: { workspaceId, questionId, answer } })
-          await router.invalidate()
-        } catch (cause) {
-          setPromptError(
-            failureMessage(cause, "The agent question answer could not be sent")
-          )
-        } finally {
-          setAnsweringQuestionId(null)
-        }
+        await commands.run(
+          "answerQuestion",
+          async () => {
+            await answerQuestion({ data: { workspaceId, questionId, answer } })
+          },
+          "The agent question answer could not be sent",
+          { target: questionId }
+        )
       }}
       onCancelTurn={async () => {
-        setCancelTurnPending(true)
-        setPromptError(null)
-        try {
-          await cancelTurn({ data: { workspaceId } })
-          await router.invalidate()
-        } catch (cause) {
-          setPromptError(failureMessage(cause, "Turn cancellation failed"))
-        } finally {
-          setCancelTurnPending(false)
-        }
+        await commands.run(
+          "cancelTurn",
+          async () => {
+            await cancelTurn({ data: { workspaceId } })
+          },
+          "Turn cancellation failed"
+        )
       }}
-      replyingPermissionId={replyingPermissionId}
       onPermissionReply={async (requestId, reply) => {
-        setReplyingPermissionId(requestId)
-        setPromptError(null)
-        try {
-          const response = await fetch(
-            `/api/workspaces/${encodeURIComponent(workspaceId)}`,
-            {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({
-                workspaceId,
-                requestId,
-                reply: reply satisfies WorkspacePermissionReply,
-              }),
-            }
-          )
-          if (!response.ok) throw new Error(await response.text())
-          setLiveState((state) => {
-            const permissionRequests = { ...state.permissionRequests }
-            delete permissionRequests[requestId]
-            const next = { ...state, permissionRequests }
-            liveStateRef.current = next
-            return next
-          })
-        } catch (cause) {
-          setPromptError(
-            failureMessage(cause, "The permission response could not be sent")
-          )
-        } finally {
-          setReplyingPermissionId(null)
-        }
+        await commands.run(
+          "permissionReply",
+          async () => {
+            const response = await fetch(
+              `/api/workspaces/${encodeURIComponent(workspaceId)}`,
+              {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  workspaceId,
+                  requestId,
+                  reply: reply satisfies WorkspacePermissionReply,
+                }),
+              }
+            )
+            if (!response.ok) throw new Error(await response.text())
+            setLiveState((state) => {
+              const permissionRequests = { ...state.permissionRequests }
+              delete permissionRequests[requestId]
+              const next = { ...state, permissionRequests }
+              liveStateRef.current = next
+              return next
+            })
+          },
+          "The permission response could not be sent",
+          { target: requestId, refresh: false }
+        )
       }}
       onAddReviewComment={(comment) =>
         runReviewMutation(() =>
@@ -666,19 +643,16 @@ function WorkspaceScreen() {
         workspace.status !== "merging" &&
         workspace.status !== "archived"
           ? async () => {
-              setAcceptPending(true)
-              setPromptError(null)
-              try {
-                await accept({
-                  data: { workspaceId, idempotencyKey: acceptKey },
-                })
-                setAcceptKey(crypto.randomUUID())
-                await router.invalidate()
-              } catch (cause) {
-                setPromptError(failureMessage(cause, "Accept failed"))
-              } finally {
-                setAcceptPending(false)
-              }
+              await commands.run(
+                "accept",
+                async () => {
+                  await accept({
+                    data: { workspaceId, idempotencyKey: acceptKey },
+                  })
+                  setAcceptKey(crypto.randomUUID())
+                },
+                "Accept failed"
+              )
             }
           : undefined
       }
@@ -687,45 +661,37 @@ function WorkspaceScreen() {
         workspace.status !== "merging" &&
         workspace.status !== "archived"
           ? async () => {
-              setRebasePending(true)
-              setPromptError(null)
-              try {
-                await rebase({ data: { workspaceId } })
-                await router.invalidate()
-              } catch (cause) {
-                setPromptError(failureMessage(cause, "Rebase failed"))
-              } finally {
-                setRebasePending(false)
-              }
+              await commands.run(
+                "rebase",
+                async () => {
+                  await rebase({ data: { workspaceId } })
+                },
+                "Rebase failed"
+              )
             }
           : undefined
       }
       onCheckpoint={
         workspace.status !== "archived"
           ? async () => {
-              setCheckpointPending(true)
-              setPromptError(null)
-              try {
-                await checkpoint({
-                  data: {
-                    workspaceId,
-                    idempotencyKey: checkpointKey,
-                    message: "Checkpoint Workspace changes",
-                  },
-                })
-                setCheckpointKey(crypto.randomUUID())
-                await router.invalidate()
-              } catch (cause) {
-                setPromptError(failureMessage(cause, "Checkpoint failed"))
-              } finally {
-                setCheckpointPending(false)
-              }
+              await commands.run(
+                "checkpoint",
+                async () => {
+                  await checkpoint({
+                    data: {
+                      workspaceId,
+                      idempotencyKey: checkpointKey,
+                      message: "Checkpoint Workspace changes",
+                    },
+                  })
+                  setCheckpointKey(crypto.randomUUID())
+                },
+                "Checkpoint failed"
+              )
             }
           : undefined
       }
       onSubmitPrompt={async (text, model, delivery) => {
-        setPromptPending(true)
-        setPromptError(null)
         const optimisticId = `optimistic-${crypto.randomUUID()}`
         setOptimisticEntries([
           {
@@ -742,23 +708,21 @@ function WorkspaceScreen() {
           },
         ])
 
-        try {
-          const response = await prompt({
-            data: { workspaceId, text, model, delivery },
-          })
-          modelSelectionChanged.current = false
-          setSelectedModel(response.selectedModel)
-          setModelNotice(response.modelNotice)
-          await router.invalidate()
-          setOptimisticEntries([])
-        } catch (cause) {
-          setOptimisticEntries([])
-          setPromptError(
-            failureMessage(cause, "The assistant could not start the turn")
-          )
-        } finally {
-          setPromptPending(false)
-        }
+        await commands.run(
+          "prompt",
+          async () => {
+            const response = await prompt({
+              data: { workspaceId, text, model, delivery },
+            })
+            modelSelectionChanged.current = false
+            setSelectedModel(response.selectedModel)
+            setModelNotice(response.modelNotice)
+            await refresh()
+          },
+          "The assistant could not start the turn",
+          { refresh: false }
+        )
+        setOptimisticEntries([])
       }}
       projects={dashboard.projects.map((project) => ({
         id: project.id,
@@ -791,58 +755,43 @@ function WorkspaceScreen() {
         runtime.status === "error" ||
         workspace.status === "archived"
       }
-      promptError={promptError}
-      promptPending={promptPending}
-      restartPending={restartPending}
-      archivePending={archivePending}
-      discardPending={discardPending}
       workspaceError={
         runtime.status === "error"
           ? (workspace.errorSummary ?? "Workspace startup failed")
           : null
       }
       onRestartWorkspace={async () => {
-        setRestartPending(true)
-        setPromptError(null)
-
-        try {
-          await restart({ data: { workspaceId, model: selectedModel } })
-          await router.invalidate()
-        } catch (cause) {
-          setPromptError(failureMessage(cause, "Workspace restart failed"))
-        } finally {
-          setRestartPending(false)
-        }
+        await commands.run(
+          "restart",
+          async () => {
+            await restart({ data: { workspaceId, model: selectedModel } })
+          },
+          "Workspace restart failed"
+        )
       }}
       onArchiveWorkspace={
         workspace.status !== "archived"
           ? async () => {
-              setArchivePending(true)
-              setPromptError(null)
-              try {
-                await archive({ data: { workspaceId } })
-                await router.invalidate()
-              } catch (cause) {
-                setPromptError(
-                  failureMessage(cause, "Workspace archive failed")
-                )
-              } finally {
-                setArchivePending(false)
-              }
+              await commands.run(
+                "archive",
+                async () => {
+                  await archive({ data: { workspaceId } })
+                },
+                "Workspace archive failed"
+              )
             }
           : undefined
       }
       onDiscardWorkspace={async () => {
-        setDiscardPending(true)
-        setPromptError(null)
-        try {
-          await discard({ data: { workspaceId } })
-          await router.navigate({ to: "/" })
-        } catch (cause) {
-          setPromptError(failureMessage(cause, "Workspace discard failed"))
-        } finally {
-          setDiscardPending(false)
-        }
+        await commands.run(
+          "discard",
+          async () => {
+            await discard({ data: { workspaceId } })
+            await router.navigate({ to: "/" })
+          },
+          "Workspace discard failed",
+          { refresh: false }
+        )
       }}
     />
   )

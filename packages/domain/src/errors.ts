@@ -64,6 +64,7 @@ export class WorkspaceRuntimeFailure extends Schema.TaggedError<WorkspaceRuntime
   "WorkspaceRuntimeFailure",
   {
     message: Schema.String,
+    reason: Schema.optional(Schema.Literal("not_initialized")),
   }
 ) {}
 
@@ -91,3 +92,30 @@ export const failureMessage = (cause: unknown, fallback: string) =>
 
 export const failureTag = (cause: unknown): ServerFailureTag | null =>
   isServerFailure(cause) ? cause._tag : null
+
+export const isRuntimeNotInitialized = (cause: unknown) =>
+  isServerFailure(cause) &&
+  cause._tag === "WorkspaceRuntimeFailure" &&
+  cause.reason === "not_initialized"
+
+const failureEnvelopePrefix = "@sylph/failure:"
+
+export const serializeServerFailure = (failure: ServerFailure) =>
+  `${failureEnvelopePrefix}${JSON.stringify(encodeServerFailure(failure))}`
+
+export const parseServerFailure = (message: string): ServerFailure | null => {
+  if (!message.startsWith(failureEnvelopePrefix)) return null
+  try {
+    return decodeServerFailure(
+      JSON.parse(message.slice(failureEnvelopePrefix.length))
+    )
+  } catch {
+    return null
+  }
+}
+
+export const runtimeFailure = (cause: unknown): ServerFailure => {
+  if (isServerFailure(cause)) return cause
+  const message = failureMessage(cause, "Workspace runtime failed")
+  return parseServerFailure(message) ?? new WorkspaceRuntimeFailure({ message })
+}
