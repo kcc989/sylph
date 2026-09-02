@@ -44,6 +44,17 @@ test("setup through eviction recovery", async ({ page }, testInfo) => {
       await page.waitForURL(`${baseURL}/setup`, { timeout: 10 * 60 * 1000 })
       await mkdir(dirname(authenticationState), { recursive: true })
       await page.context().storageState({ path: authenticationState })
+    } else {
+      await page.getByRole("link", { name: "Return to sign in" }).click()
+      await page.getByLabel("Email").fill(adminEmail)
+      await page.getByRole("button", { name: "Send test magic link" }).click()
+      await page
+        .getByRole("link", { name: "Open local test magic link" })
+        .click()
+      await page.waitForURL(
+        (url) => url.origin === new URL(baseURL).origin && url.pathname === "/"
+      )
+      await page.goto("/setup")
     }
 
     await expect(
@@ -56,28 +67,26 @@ test("setup through eviction recovery", async ({ page }, testInfo) => {
     await page.waitForURL(/\/admin\?onboarding=1$/)
   })
 
-  await test.step("connect OpenRouter and select the release model", async () => {
+  await test.step("connect OpenRouter", async () => {
     await page.getByRole("tab", { name: "Organization" }).click()
     await page.getByRole("button", { name: "Add provider" }).click()
     await page.getByRole("button", { name: /OpenRouter/ }).click()
     await page.getByLabel("OpenRouter API key").fill(openRouterKey)
     await page.getByRole("button", { name: "Connect provider" }).click()
-    await expect(
-      page.getByRole("region", { name: "Connected AI providers" })
-    ).toContainText("OpenRouter")
-    await page
-      .getByLabel("Organization default model")
-      .selectOption({ label: `OpenRouter · ${modelName}` })
+    await page.waitForURL(/\/projects\/new\?onboarding=1$/)
   })
 
   await test.step("create a Project and its initial Workspace", async () => {
-    await page.getByRole("link", { name: "New Project" }).click()
     await page.getByLabel("Project name").fill(projectName)
     await page.getByRole("button", { name: "Create Project" }).click()
     await page.waitForURL(/\/projects\/[^/]+\/workspaces\/[^/?]+/)
     await expect(
       page.getByRole("textbox", { name: "Message the agent" })
     ).toBeEnabled()
+    await page.getByRole("combobox", { name: "Model for next turn" }).click()
+    await page
+      .getByRole("option", { name: `${modelName}, OpenRouter`, exact: true })
+      .click()
   })
 
   await test.step("prompt, approve the mutation, and verify its result", async () => {
@@ -98,23 +107,10 @@ test("setup through eviction recovery", async ({ page }, testInfo) => {
     })
   })
 
-  await test.step("checkpoint and accept the Workspace", async () => {
+  await test.step("checkpoint the Workspace", async () => {
     const checkpoint = page.getByRole("button", { name: "Checkpoint" })
     await expect(checkpoint).toBeEnabled()
     await checkpoint.click()
-    const accept = page.getByRole("button", { name: "Accept" })
-    await expect(accept).toBeEnabled()
-    await accept.click()
-    await page.goto("/")
-    await expect
-      .poll(
-        async () => {
-          await page.reload()
-          return page.getByText("archived", { exact: true }).count()
-        },
-        { timeout: 3 * 60 * 1000 }
-      )
-      .toBeGreaterThan(0)
   })
 
   await test.step("evict, restart, and recover the durable Workspace", async () => {
@@ -137,6 +133,22 @@ test("setup through eviction recovery", async ({ page }, testInfo) => {
     await expect(page.getByRole("log")).toContainText(proofMarker, {
       timeout: 3 * 60 * 1000,
     })
+  })
+
+  await test.step("accept and archive the Workspace", async () => {
+    const accept = page.getByRole("button", { name: "Accept" })
+    await expect(accept).toBeEnabled()
+    await accept.click()
+    await page.goto("/")
+    await expect
+      .poll(
+        async () => {
+          await page.reload()
+          return page.getByText("archived", { exact: true }).count()
+        },
+        { timeout: 3 * 60 * 1000 }
+      )
+      .toBeGreaterThan(0)
   })
 
   await testInfo.attach("release-smoke-evidence", {
