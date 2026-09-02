@@ -3,12 +3,9 @@ import { useServerFn } from "@tanstack/react-start"
 import type { ConnectionScope, OpenCodeKeyProviderId } from "@workspace/domain"
 import { failureMessage } from "@workspace/domain"
 import { Button } from "@workspace/ui/components/button"
-import {
-  decodeModelOption,
-  encodeModelOption,
-} from "@workspace/ui/lib/model-option"
 import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
+import { ModelCombobox } from "@workspace/ui/components/model-combobox"
 import {
   ArrowRight,
   Copy,
@@ -528,18 +525,13 @@ function OrganizationSettingsScreen() {
                 <p className="text-xs leading-5 text-muted-foreground">
                   Used when a member has not chosen a personal default.
                 </p>
-                <select
+                <ModelCombobox
                   id="organization-default-model"
-                  className="h-10 rounded-[8px] border bg-background px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                  ariaLabel="Organization default model"
                   disabled={defaultPending}
-                  value={
-                    setup.organizationDefault
-                      ? encodeModelOption(setup.organizationDefault)
-                      : ""
-                  }
-                  onChange={async (event) => {
-                    const model = decodeModelOption(event.target.value)
-                    if (!model) return
+                  models={setup.organizationModels}
+                  value={setup.organizationDefault}
+                  onValueChange={async (model) => {
                     setDefaultPending(true)
                     setError(null)
                     try {
@@ -563,16 +555,7 @@ function OrganizationSettingsScreen() {
                       setDefaultPending(false)
                     }
                   }}
-                >
-                  {setup.organizationModels.map((model) => (
-                    <option
-                      key={`${model.providerId}/${model.modelId}`}
-                      value={encodeModelOption(model)}
-                    >
-                      {model.providerName} · {model.name}
-                    </option>
-                  ))}
-                </select>
+                />
               </div>
             ) : null}
           </section>

@@ -7,7 +7,6 @@ import {
   BadgeCheck,
   Blocks,
   Check,
-  ChevronDown,
   ChevronRight,
   CircleHelp,
   CircleAlert,
@@ -35,7 +34,6 @@ import {
   Plus,
   RefreshCw,
   RotateCcw,
-  Search,
   Settings2,
   ShieldCheck,
   Smartphone,
@@ -45,7 +43,6 @@ import {
   AtSign,
   X,
 } from "lucide-react"
-import { Combobox } from "@base-ui/react/combobox"
 import ReactMarkdown from "react-markdown"
 import { useEffect, useRef, useState, type ReactNode } from "react"
 import {
@@ -61,6 +58,7 @@ import {
   AvatarImage,
 } from "@workspace/ui/components/avatar"
 import { Button } from "@workspace/ui/components/button"
+import { ModelCombobox as SharedModelCombobox } from "@workspace/ui/components/model-combobox"
 import {
   CodeReview,
   type CodeReviewAnnotation,
@@ -1514,117 +1512,17 @@ function ModelCombobox({
   selectedOption: ComposerModel | null
   onModelChange?: (model: { providerId: string; modelId: string }) => void
 }) {
-  const [open, setOpen] = useState(false)
-  const [query, setQuery] = useState("")
-
   return (
-    <Combobox.Root<ComposerModel>
-      autoHighlight
+    <SharedModelCombobox
+      align="end"
+      ariaLabel="Model for next turn"
       disabled={disabled}
-      filter={(option, value) => {
-        const normalized = value.trim().toLocaleLowerCase()
-        if (!normalized) return true
-        return `${option.name} ${option.providerName}`
-          .toLocaleLowerCase()
-          .includes(normalized)
-      }}
-      inputValue={query}
-      isItemEqualToValue={(option, value) =>
-        option.providerId === value.providerId &&
-        option.modelId === value.modelId
-      }
-      items={models}
-      itemToStringLabel={(option) => option.name}
-      onInputValueChange={setQuery}
-      onOpenChange={(nextOpen) => {
-        setOpen(nextOpen)
-        if (!nextOpen) setQuery("")
-      }}
-      onValueChange={(option) => {
-        if (!option) return
-        setQuery("")
-        onModelChange?.({
-          providerId: option.providerId,
-          modelId: option.modelId,
-        })
-      }}
-      open={open}
+      models={models}
+      onValueChange={onModelChange}
+      side="top"
+      triggerClassName="ml-auto h-7 flex-1 rounded-[5px] border-white/[.12] bg-white/[.045] px-2 text-[11px] hover:bg-white/[.07] focus-visible:border-ring focus-visible:ring-ring/50"
       value={selectedOption}
-    >
-      <Combobox.Trigger
-        aria-label="Model for next turn"
-        className="ml-auto flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-[5px] border border-white/[.12] bg-white/[.045] px-2 text-[11px] text-foreground outline-none hover:bg-white/[.07] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        <Tooltip>
-          <TooltipTrigger
-            render={<span />}
-            className="min-w-0 flex-1 truncate text-left"
-          >
-            {selectedOption?.name ?? "Select model"}
-          </TooltipTrigger>
-          {selectedOption ? (
-            <TooltipContent className="max-w-80" side="top">
-              {selectedOption.name}
-            </TooltipContent>
-          ) : null}
-        </Tooltip>
-        <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
-      </Combobox.Trigger>
-      <Combobox.Portal>
-        <Combobox.Positioner
-          align="end"
-          className="isolate z-50"
-          side="top"
-          sideOffset={4}
-        >
-          <Combobox.Popup
-            initialFocus
-            className="dark w-[min(24rem,calc(100vw-1.5rem))] overflow-hidden rounded-[6px] bg-[#1c1a18] text-[#f4efe8] shadow-md ring-1 ring-white/10 outline-none"
-          >
-            <div className="relative border-b border-white/[.08] p-2">
-              <Search className="pointer-events-none absolute top-1/2 left-4 size-3.5 -translate-y-1/2 text-muted-foreground" />
-              <Combobox.Input
-                aria-label="Search models"
-                className="h-9 w-full rounded-[5px] border border-white/[.1] bg-black/20 pr-3 pl-9 text-base text-foreground outline-none placeholder:text-muted-foreground focus:border-[#ef9b7e]/60 focus:ring-2 focus:ring-[#ef9b7e]/20 sm:text-sm"
-                placeholder="Search models…"
-              />
-            </div>
-            <Combobox.Empty className="px-3 py-8 text-center text-xs text-muted-foreground">
-              No matching models
-            </Combobox.Empty>
-            <Combobox.List className="max-h-72 overflow-y-auto p-1">
-              {(option: ComposerModel, index: number) => (
-                <Combobox.Item
-                  aria-label={`${option.name}, ${option.providerName}`}
-                  className="grid min-w-0 cursor-default grid-cols-[minmax(0,1fr)_5rem_1rem] items-center gap-2 rounded-[4px] px-2 py-1.5 text-xs outline-none data-highlighted:bg-white/[.08]"
-                  index={index}
-                  key={`${option.providerId}/${option.modelId}/${option.scope}`}
-                  value={option}
-                >
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={<span />}
-                      className="min-w-0 truncate text-left text-foreground"
-                    >
-                      {option.name}
-                    </TooltipTrigger>
-                    <TooltipContent className="max-w-80" side="left">
-                      {option.name}
-                    </TooltipContent>
-                  </Tooltip>
-                  <span className="w-20 truncate text-right text-[10px] text-muted-foreground">
-                    {option.providerName}
-                  </span>
-                  <Combobox.ItemIndicator className="grid size-4 place-items-center">
-                    <Check className="size-3.5" />
-                  </Combobox.ItemIndicator>
-                </Combobox.Item>
-              )}
-            </Combobox.List>
-          </Combobox.Popup>
-        </Combobox.Positioner>
-      </Combobox.Portal>
-    </Combobox.Root>
+    />
   )
 }
 
