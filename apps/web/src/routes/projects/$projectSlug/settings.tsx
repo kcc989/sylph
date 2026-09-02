@@ -8,6 +8,7 @@ import {
   FolderGit2,
   GitFork,
   GitBranch,
+  ListChecks,
   LoaderCircle,
   Plus,
   Rocket,
@@ -55,7 +56,9 @@ function ProjectSettingsScreen() {
   const [exportPending, setExportPending] = useState(false)
   const [repositoryError, setRepositoryError] = useState<string | null>(null)
   const [deployPending, setDeployPending] = useState<string | null>(null)
+  const [confirmingCommit, setConfirmingCommit] = useState<string | null>(null)
   const [deployKey, setDeployKey] = useState(() => crypto.randomUUID())
+  const canDeploy = dashboard.installation.canAdminister
   const { creatingProjectId, creationError, startWorkspace } =
     useWorkspaceCreation()
 
@@ -145,61 +148,110 @@ function ProjectSettingsScreen() {
             <div className="min-w-0">
               {deploymentContext?.acceptedCommits.length ? (
                 <div className="space-y-3">
-                  {deploymentContext.acceptedCommits.map((accepted, index) => (
-                    <div
-                      key={accepted.commit}
-                      className="flex items-center justify-between gap-3 rounded-[8px] border px-3 py-2.5"
-                    >
-                      <div className="min-w-0">
-                        <p className="font-mono text-xs">
-                          {accepted.commit.slice(0, 7)}
-                        </p>
-                        <p className="mt-0.5 text-xs text-muted-foreground">
-                          {index === 0
-                            ? "Latest Accepted commit"
-                            : "Earlier Accepted commit"}
-                        </p>
-                      </div>
-                      <Button
-                        size="sm"
-                        variant={index === 0 ? "default" : "outline"}
-                        disabled={deployPending !== null}
-                        onClick={async () => {
-                          setDeployPending(accepted.commit)
-                          setRepositoryError(null)
-                          try {
-                            await deployCommit({
-                              data: {
-                                projectId: context.project.id,
-                                commit: accepted.commit,
-                                idempotencyKey: deployKey,
-                              },
-                            })
-                            setDeployKey(crypto.randomUUID())
-                            await router.invalidate()
-                          } catch (cause) {
-                            setRepositoryError(
-                              failureMessage(
-                                cause,
-                                "Deployment could not start"
-                              )
-                            )
-                          } finally {
-                            setDeployPending(null)
-                          }
-                        }}
+                  {deploymentContext.acceptedCommits.map((accepted, index) => {
+                    const action = index === 0 ? "Deploy" : "Rollback"
+                    const confirming = confirmingCommit === accepted.commit
+                    return (
+                      <div
+                        key={accepted.commit}
+                        className="rounded-[8px] border px-3 py-2.5"
                       >
-                        {deployPending === accepted.commit ? (
-                          <LoaderCircle className="animate-spin" />
-                        ) : index === 0 ? (
-                          <Rocket />
-                        ) : (
-                          <RotateCcw />
-                        )}
-                        {index === 0 ? "Deploy" : "Rollback"}
-                      </Button>
-                    </div>
-                  ))}
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="font-mono text-xs">
+                              {accepted.commit.slice(0, 7)}
+                            </p>
+                            <p className="mt-0.5 text-xs text-muted-foreground">
+                              {index === 0
+                                ? "Latest Accepted commit"
+                                : "Earlier Accepted commit"}
+                            </p>
+                          </div>
+                          {canDeploy ? (
+                            <Button
+                              size="sm"
+                              variant={index === 0 ? "default" : "outline"}
+                              disabled={deployPending !== null || confirming}
+                              onClick={() => {
+                                setRepositoryError(null)
+                                setConfirmingCommit(accepted.commit)
+                              }}
+                            >
+                              {deployPending === accepted.commit ? (
+                                <LoaderCircle className="animate-spin" />
+                              ) : index === 0 ? (
+                                <Rocket />
+                              ) : (
+                                <RotateCcw />
+                              )}
+                              {action}
+                            </Button>
+                          ) : null}
+                        </div>
+                        {confirming ? (
+                          <div
+                            role="group"
+                            aria-label={`Confirm ${action.toLowerCase()} of ${accepted.commit.slice(0, 7)}`}
+                            className="mt-3 rounded-[6px] border border-primary/40 bg-primary/5 px-3 py-2.5"
+                          >
+                            <p className="text-xs leading-5">
+                              {action} Accepted commit{" "}
+                              <span className="font-mono">
+                                {accepted.commit.slice(0, 7)}
+                              </span>{" "}
+                              to production? This replaces the live Deployment
+                              for every user of this Project.
+                            </p>
+                            <div className="mt-2 flex gap-2">
+                              <Button
+                                size="sm"
+                                disabled={deployPending !== null}
+                                onClick={async () => {
+                                  setDeployPending(accepted.commit)
+                                  setRepositoryError(null)
+                                  try {
+                                    await deployCommit({
+                                      data: {
+                                        projectId: context.project.id,
+                                        commit: accepted.commit,
+                                        confirmedCommit: accepted.commit,
+                                        idempotencyKey: deployKey,
+                                      },
+                                    })
+                                    setDeployKey(crypto.randomUUID())
+                                    setConfirmingCommit(null)
+                                    await router.invalidate()
+                                  } catch (cause) {
+                                    setRepositoryError(
+                                      failureMessage(
+                                        cause,
+                                        "Deployment could not start"
+                                      )
+                                    )
+                                  } finally {
+                                    setDeployPending(null)
+                                  }
+                                }}
+                              >
+                                {deployPending === accepted.commit ? (
+                                  <LoaderCircle className="animate-spin" />
+                                ) : null}
+                                Confirm {action.toLowerCase()}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                disabled={deployPending !== null}
+                                onClick={() => setConfirmingCommit(null)}
+                              >
+                                Cancel
+                              </Button>
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    )
+                  })}
                 </div>
               ) : (
                 <p className="text-xs leading-5 text-muted-foreground">
@@ -207,8 +259,9 @@ function ProjectSettingsScreen() {
                 </p>
               )}
               <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                Deploy publishes the selected Accepted commit. Rollback creates
-                a new Deployment and does not change the Project Repository.
+                {canDeploy
+                  ? "Deploy publishes the selected Accepted commit after you confirm it. Rollback creates a new Deployment and does not change the Project Repository."
+                  : "Only Organization Admins can deploy or roll back production. Ask an Admin to confirm a Deployment from this page."}
               </p>
             </div>
           </div>
@@ -258,6 +311,44 @@ function ProjectSettingsScreen() {
               ) : (
                 <p className="text-xs leading-5 text-muted-foreground">
                   No production Deployments yet.
+                </p>
+              )}
+            </div>
+          </div>
+          <div className="grid gap-4 border-b py-6 sm:grid-cols-[180px_1fr]">
+            <div className="flex items-center gap-2 text-xs font-medium">
+              <ListChecks className="size-3.5 text-muted-foreground" /> Check
+              history
+            </div>
+            <div className="min-w-0">
+              {deploymentContext?.checks.length ? (
+                <ul className="divide-y rounded-[8px] border">
+                  {deploymentContext.checks.map((check) => (
+                    <li
+                      key={check.id}
+                      className="flex flex-wrap items-center justify-between gap-2 px-3 py-2"
+                    >
+                      <div className="min-w-0">
+                        <p className="font-mono text-xs">
+                          {check.commit.slice(0, 7)}{" "}
+                          <span className="font-sans text-muted-foreground">
+                            {check.kind}
+                          </span>
+                        </p>
+                        <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                          {check.workspaceTitle} ·{" "}
+                          {new Date(check.createdAt).toLocaleString()}
+                        </p>
+                      </div>
+                      <span className="text-xs font-medium capitalize">
+                        {check.status}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-xs leading-5 text-muted-foreground">
+                  No Checks have run for this Project yet.
                 </p>
               )}
             </div>

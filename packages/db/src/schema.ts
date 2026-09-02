@@ -237,6 +237,7 @@ export const workspace = sqliteTable(
     mergeStatus: text("merge_status").notNull().default("unreviewed"),
     latestCheckpointAt: integer("latest_checkpoint_at", { mode: "timestamp" }),
     archivedAt: integer("archived_at", { mode: "timestamp" }),
+    forkDeletedAt: integer("fork_deleted_at", { mode: "timestamp" }),
     errorSummary: text("error_summary"),
     createdAt: timestamp("created_at"),
     updatedAt: timestamp("updated_at"),
@@ -290,6 +291,62 @@ export const skillInstallation = sqliteTable(
     ),
     index("skill_installation_organization_id_idx").on(table.organizationId),
     index("skill_installation_project_id_idx").on(table.projectId),
+  ]
+)
+
+export const agentSession = sqliteTable(
+  "agent_sessions",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    opencodeSessionId: text("opencode_session_id").notNull(),
+    parentSessionId: text("parent_session_id"),
+    title: text("title").notNull(),
+    status: text("status").notNull().default("ready"),
+    modelOverride: text("model_override"),
+    reasoningOverride: text("reasoning_override"),
+    latestAttentionAt: integer("latest_attention_at", { mode: "timestamp" }),
+    lastReadAt: integer("last_read_at", { mode: "timestamp" }),
+    archivedAt: integer("archived_at", { mode: "timestamp" }),
+    createdAt: timestamp("created_at"),
+    updatedAt: timestamp("updated_at"),
+  },
+  (table) => [
+    index("agent_sessions_workspace_id_idx").on(table.workspaceId),
+    uniqueIndex("agent_sessions_opencode_session_unique").on(
+      table.workspaceId,
+      table.opencodeSessionId
+    ),
+  ]
+)
+
+export const ciRun = sqliteTable(
+  "ci_runs",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => project.id, { onDelete: "cascade" }),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    agentSessionId: text("agent_session_id"),
+    workflowInstanceId: text("workflow_instance_id").notNull(),
+    commitSha: text("commit_sha").notNull(),
+    kind: text("kind").notNull(),
+    status: text("status").notNull().default("queued"),
+    summaryJson: text("summary_json"),
+    startedAt: integer("started_at", { mode: "timestamp" }),
+    finishedAt: integer("finished_at", { mode: "timestamp" }),
+    createdAt: timestamp("created_at"),
+    updatedAt: timestamp("updated_at"),
+  },
+  (table) => [
+    index("ci_runs_project_created_idx").on(table.projectId, table.createdAt),
+    index("ci_runs_workspace_id_idx").on(table.workspaceId),
+    index("ci_runs_commit_sha_idx").on(table.commitSha),
   ]
 )
 

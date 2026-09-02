@@ -174,7 +174,10 @@ describe("Project and runtime inputs", () => {
         maxQueuedMessages: 5,
         maxCheckAttempts: 3,
         maxRepairAttempts: 2,
+        maxAutomaticRepairs: 3,
       },
+      automaticRepairsUsed: 0,
+      archivedAt: null,
       permissions: [
         {
           id: "permission-1",

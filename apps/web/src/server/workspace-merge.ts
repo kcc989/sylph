@@ -17,6 +17,10 @@ import {
   GitHubRepositoryLive,
   GitHubRepositoryService,
 } from "./github-repository-service"
+import {
+  forkDeletedSql,
+  workspaceForkRetention,
+} from "./workspace-fork-retention"
 
 export interface WorkspaceMergeInput {
   operationId: string
@@ -43,6 +47,7 @@ type WorkspaceMergeBindings = Omit<Cloudflare.Env, "WORKSPACES"> & {
   DB: D1Database
   REPOSITORY_NAMESPACE: string
   REPOS: Artifacts
+  WORKSPACE_FORK_RETENTION_SECONDS: string
   WORKSPACES: DurableObjectNamespace
 }
 
@@ -117,7 +122,10 @@ export class WorkspaceMerge extends WorkflowEntrypoint<
             .run()
         })
       }
-      await step.sleep("retain-workspace-fork", "7 days")
+      await step.sleep(
+        "retain-workspace-fork",
+        workspaceForkRetention(this.env.WORKSPACE_FORK_RETENTION_SECONDS)
+      )
       await step.do(
         "delete-workspace-fork",
         { retries: { limit: 5, delay: "1 minute", backoff: "exponential" } },
@@ -125,6 +133,9 @@ export class WorkspaceMerge extends WorkflowEntrypoint<
           await this.env.REPOS.delete(input.workspaceRepositoryName)
         }
       )
+      await step.do("record-fork-deletion", async () => {
+        await this.env.DB.prepare(forkDeletedSql).bind(input.workspaceId).run()
+      })
       return { status: "merged", acceptedCommit, delivery, deliveryError }
     } catch (cause) {
       const conflict =

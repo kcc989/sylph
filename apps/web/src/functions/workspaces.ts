@@ -49,6 +49,12 @@ import { env, waitUntil } from "cloudflare:workers"
 import { and, count, eq } from "drizzle-orm"
 import { Effect } from "effect"
 
+import { deploymentWorkflowAlreadyStarted } from "@/server/deployment-records"
+import {
+  workspaceRetentionInstanceId,
+  type WorkspaceRetentionInput,
+} from "@/server/workspace-fork-retention"
+
 import {
   projectMember,
   requestSession,
@@ -448,6 +454,10 @@ export const restartWorkspace = createServerFn({ method: "POST" })
       providerId: connection.providerId,
       modelId: connection.modelId,
       credential,
+      archivedAt:
+        workspace.status === "archived"
+          ? (workspace.archivedAt?.getTime() ?? Date.now())
+          : null,
     })
 
     await database
@@ -580,24 +590,33 @@ export const archiveWorkspace = createServerFn({ method: "POST" })
     if (workspace.status === "archived") return { status: "archived" as const }
 
     await runtimeCall(() =>
-      workspaceRuntime(data.workspaceId).cancelTurn(
-        encodeWorkspaceTurnCancelInputSync(
-          new WorkspaceTurnCancelInput({
-            workspaceId: data.workspaceId,
-            continueQueued: false,
-          })
-        )
-      )
+      workspaceRuntime(data.workspaceId).archive({
+        workspaceId: data.workspaceId,
+      })
     )
 
+    const archivedAt = new Date()
     await database
       .update(schema.workspace)
       .set({
         status: "archived",
-        archivedAt: new Date(),
-        updatedAt: new Date(),
+        archivedAt,
+        updatedAt: archivedAt,
       })
       .where(eq(schema.workspace.id, data.workspaceId))
+    const retention: WorkspaceRetentionInput = {
+      workspaceId: data.workspaceId,
+      workspaceRepositoryName: workspace.repositoryName,
+      archivedAt: Math.floor(archivedAt.getTime() / 1000),
+    }
+    try {
+      await env.RETENTION.create({
+        id: workspaceRetentionInstanceId(retention),
+        params: retention,
+      })
+    } catch (cause) {
+      if (!deploymentWorkflowAlreadyStarted(cause)) throw cause
+    }
     return { status: "archived" as const }
   })
 

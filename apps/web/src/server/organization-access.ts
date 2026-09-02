@@ -156,6 +156,7 @@ export const accessibleWorkspace = (
       syncStatus: schema.workspace.syncStatus,
       mergeStatus: schema.workspace.mergeStatus,
       errorSummary: schema.workspace.errorSummary,
+      archivedAt: schema.workspace.archivedAt,
     })
     .from(schema.workspace)
     .innerJoin(

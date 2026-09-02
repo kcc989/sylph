@@ -3,6 +3,7 @@ import * as Cloudflare from "alchemy/Cloudflare"
 import type { WorkspaceDO } from "./apps/web/src/server/workspace-do"
 import type { WorkspaceCiInput } from "@workspace/domain"
 import type { WorkspaceMergeInput } from "./apps/web/src/server/workspace-merge"
+import type { WorkspaceRetentionInput } from "./apps/web/src/server/workspace-retention"
 import type { CiSandbox } from "@cloudflare/ci/worker"
 import * as Config from "effect/Config"
 import * as Effect from "effect/Effect"
@@ -105,6 +106,13 @@ export class Website extends Cloudflare.Website.Vite<Website>()(
         MERGES: Cloudflare.Workflow<WorkspaceMergeInput>("WorkspaceMerge", {
           className: "WorkspaceMerge",
         }),
+        RETENTION: Cloudflare.Workflow<WorkspaceRetentionInput>(
+          "WorkspaceRetention",
+          { className: "WorkspaceRetention" }
+        ),
+        WORKSPACE_FORK_RETENTION_SECONDS: Config.string(
+          "WORKSPACE_FORK_RETENTION_SECONDS"
+        ).pipe(Config.withDefault("")),
         WORKSPACES: Cloudflare.DurableObject<WorkspaceDO>("Workspaces", {
           className: "WorkspaceDO",
           scriptName: workspaceRuntime.workerName,

@@ -219,6 +219,7 @@ export class InitializeWorkspaceRuntime extends Schema.Class<InitializeWorkspace
   providerId: Schema.NonEmptyString,
   modelId: Schema.NonEmptyString,
   credential: OpenCodeCredential,
+  archivedAt: Schema.optional(Schema.NullOr(Schema.Number)),
 }) {}
 
 export class WorkspacePromptInput extends Schema.Class<WorkspacePromptInput>(
@@ -417,6 +418,7 @@ export class WorkspaceRuntimeLimits extends Schema.Class<WorkspaceRuntimeLimits>
   maxTurnDurationMs: Schema.Int,
   maxCheckAttempts: Schema.Int,
   maxRepairAttempts: Schema.Int,
+  maxAutomaticRepairs: Schema.Int,
 }) {}
 
 export class WorkspaceRuntimeHealth extends Schema.Class<WorkspaceRuntimeHealth>(
@@ -436,6 +438,8 @@ export class WorkspaceRuntimeHealth extends Schema.Class<WorkspaceRuntimeHealth>
   ),
   activeTurnStartedAt: Schema.NullOr(Schema.Number),
   limits: WorkspaceRuntimeLimits,
+  automaticRepairsUsed: Schema.Int,
+  archivedAt: Schema.NullOr(Schema.Number),
   opencode: Schema.Struct({ healthy: Schema.Boolean }),
 }) {}
 

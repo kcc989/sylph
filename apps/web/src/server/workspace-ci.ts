@@ -30,6 +30,7 @@ import {
   deploymentSucceededSql,
   productionUrl,
 } from "./deployment-records"
+import { ciRunUpsertBindings, ciRunUpsertSql } from "./ci-run-records"
 
 type WorkspaceCiBindings = CiBindings & {
   BROWSER: BrowserRun
@@ -61,6 +62,19 @@ const productionStages: WorkspaceCheckStageName[] = [
 const stageNames = new Map<string, WorkspaceCheckStageName>(
   [...checkpointStages, ...productionStages].map((name) => [name, name])
 )
+
+export const installCacheInputs = [
+  "package.json",
+  "**/package.json",
+  "bun.lock",
+  "bun.lockb",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  "yarn.lock",
+  ".yarnrc.yml",
+  "package-lock.json",
+  ".npmrc",
+]
 
 const installCommand = [
   "if [ -f bun.lock ] || [ -f bun.lockb ]; then bun install --frozen-lockfile",
@@ -118,6 +132,9 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
   ) {
     const input = decodeWorkspaceCiInput(event.payload)
     let run = this.#initialRun(input)
+    this.#projectId = input.projectId
+    this.#agentSessionId = input.agentSessionId ?? null
+    this.#workflowInstanceId = event.instanceId
     run = await this.#publish(step, "run-started", run, {
       status: "running",
     })
@@ -134,7 +151,7 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
         name: "install",
         command: installCommand,
         cache: {
-          inputs: ["**/*"],
+          inputs: installCacheInputs,
         },
       })
       run = install.run
@@ -299,20 +316,12 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
             .run()
         })
       }
-      if (input.repairOnFailure) {
-        await step.do("start-agent-repair", async () => {
-          const workspace = this.env.WORKSPACES.get(
-            this.env.WORKSPACES.idFromName(input.workspaceId)
-          )
-          await workspace.repairCheck({
-            workspaceId: input.workspaceId,
-            runId: input.checkRunId,
-            idempotencyKey: `${input.checkRunId}:automatic-repair`,
-          })
-        })
-      }
     }
   }
+
+  #projectId = ""
+  #agentSessionId: string | null = null
+  #workflowInstanceId = ""
 
   #initialRun(input: WorkspaceCiInput) {
     const stages =
@@ -459,6 +468,16 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
         ...changes,
         updatedAt: Date.now(),
       })
+      await this.env.DB.prepare(ciRunUpsertSql)
+        .bind(
+          ...ciRunUpsertBindings({
+            run: updated,
+            projectId: this.#projectId,
+            agentSessionId: this.#agentSessionId,
+            workflowInstanceId: this.#workflowInstanceId,
+          })
+        )
+        .run()
       if (updated.kind === "production") return JSON.stringify(updated)
       const workspace = this.env.WORKSPACES.get(
         this.env.WORKSPACES.idFromName(updated.workspaceId)

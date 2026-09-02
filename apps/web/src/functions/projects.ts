@@ -1,11 +1,15 @@
 import { createServerFn } from "@tanstack/react-start"
 import { schema } from "@workspace/db"
 import {
+  AccessDenied,
+  decodeCiRunRecordList,
+  decodeCiRunSummary,
   decodeCreateProjectInputPromise,
   decodeGitHubRepositoryLookupInputPromise,
   decodeProjectDeliveryModeInputPromise,
   decodeProjectDeployInputPromise,
   decodeProjectRequestInputPromise,
+  encodeCiRunRecordList,
   encodeGitHubRepositoryInfo,
   failureMessage,
   GitCommitId,
@@ -13,13 +17,14 @@ import {
   InvalidRequest,
   parseGitHubRepositoryUrl,
   PreconditionFailed,
+  productionDeployConfirmed,
   PrepareProjectRepositoryInput,
   ProjectId,
   WorkspaceId,
   type WorkspaceCiInput,
 } from "@workspace/domain"
 import { env } from "cloudflare:workers"
-import { and, desc, eq } from "drizzle-orm"
+import { and, desc, eq, isNull } from "drizzle-orm"
 import { Effect } from "effect"
 
 import { organizationMember, projectMember } from "@/functions/middleware"
@@ -32,6 +37,10 @@ import {
   githubUserAccessToken,
   prepareProjectRepository,
 } from "@/server/project-repository-sync"
+import {
+  isOrganizationAdmin,
+  requireOrganizationMembership,
+} from "@/server/organization-access"
 import { requireProjectProviderConnection } from "@/server/project-provider-guard"
 import {
   connectionCredential,
@@ -86,7 +95,7 @@ export const getProjectDeployments = createServerFn({ method: "GET" })
   .validator((input) => decodeProjectRequestInputPromise(input))
   .handler(async ({ data, context }) => {
     const { database } = context
-    const [acceptedRows, deployments] = await Promise.all([
+    const [acceptedRows, deployments, checkRows] = await Promise.all([
       database
         .select({
           commit: schema.workspace.acceptedCommit,
@@ -114,7 +123,48 @@ export const getProjectDeployments = createServerFn({ method: "GET" })
         )
         .where(eq(schema.deployment.projectId, data.projectId))
         .orderBy(desc(schema.deployment.createdAt)),
+      database
+        .select({
+          id: schema.ciRun.id,
+          projectId: schema.ciRun.projectId,
+          workspaceId: schema.ciRun.workspaceId,
+          workspaceTitle: schema.workspace.title,
+          commit: schema.ciRun.commitSha,
+          kind: schema.ciRun.kind,
+          status: schema.ciRun.status,
+          summaryJson: schema.ciRun.summaryJson,
+          startedAt: schema.ciRun.startedAt,
+          finishedAt: schema.ciRun.finishedAt,
+          createdAt: schema.ciRun.createdAt,
+        })
+        .from(schema.ciRun)
+        .innerJoin(
+          schema.workspace,
+          eq(schema.workspace.id, schema.ciRun.workspaceId)
+        )
+        .where(eq(schema.ciRun.projectId, data.projectId))
+        .orderBy(desc(schema.ciRun.createdAt))
+        .limit(20),
     ])
+    const checks = await encodeCiRunRecordList(
+      await decodeCiRunRecordList(
+        checkRows.map((row) => ({
+          id: row.id,
+          projectId: row.projectId,
+          workspaceId: row.workspaceId,
+          workspaceTitle: row.workspaceTitle,
+          commit: row.commit,
+          kind: row.kind,
+          status: row.status,
+          summary: row.summaryJson
+            ? decodeCiRunSummary(JSON.parse(row.summaryJson))
+            : null,
+          startedAt: row.startedAt?.getTime() ?? null,
+          finishedAt: row.finishedAt?.getTime() ?? null,
+          createdAt: row.createdAt.getTime(),
+        }))
+      )
+    )
     const acceptedCommits = Array.from(
       new Map(
         acceptedRows
@@ -124,7 +174,7 @@ export const getProjectDeployments = createServerFn({ method: "GET" })
           .map((row) => [row.commit, row])
       ).values()
     )
-    return { acceptedCommits, deployments }
+    return { acceptedCommits, deployments, checks }
   })
 
 export const deployProjectCommit = createServerFn({ method: "POST" })
@@ -132,6 +182,23 @@ export const deployProjectCommit = createServerFn({ method: "POST" })
   .validator((input) => decodeProjectDeployInputPromise(input))
   .handler(async ({ data, context }) => {
     const { database, project, user } = context
+    if (!productionDeployConfirmed(data)) {
+      throw new PreconditionFailed({
+        message:
+          "Confirm the exact Accepted commit before deploying to production",
+      })
+    }
+    const membership = await requireOrganizationMembership(
+      database,
+      project.organizationId,
+      user.id
+    )
+    if (!isOrganizationAdmin(membership.role)) {
+      throw new AccessDenied({
+        message: "Only Organization Admins can deploy or roll back production",
+        resource: "project",
+      })
+    }
     const accepted = await database
       .select({ workspaceId: schema.workspace.id })
       .from(schema.workspace)
@@ -176,7 +243,9 @@ export const deployProjectCommit = createServerFn({ method: "POST" })
       ref: `refs/heads/${project.defaultBranch}`,
       branch: project.defaultBranch,
       checkRunId: deploymentId,
+      projectId: data.projectId,
       workspaceId: WorkspaceId.make(accepted.workspaceId),
+      agentSessionId: null,
       checkpointId: null,
       kind: "production",
       attempt: 1,
@@ -232,7 +301,12 @@ export const exportProjectRecovery = createServerFn({ method: "POST" })
         acceptedCommit: schema.workspace.acceptedCommit,
       })
       .from(schema.workspace)
-      .where(eq(schema.workspace.projectId, project.id))
+      .where(
+        and(
+          eq(schema.workspace.projectId, project.id),
+          isNull(schema.workspace.forkDeletedAt)
+        )
+      )
     const repositories = makeCloudflareArtifactsRepositoryStore(env.REPOS)
     const entries = await Promise.all(
       [
