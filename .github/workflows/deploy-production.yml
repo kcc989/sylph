@@ -1,0 +1,105 @@
+name: Deploy production
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/deploy-production.yml"
+      - ".npmrc"
+      - ".oxfmtrc.json"
+      - "alchemy.run.ts"
+      - "apps/**"
+      - "bun.lock"
+      - "lefthook.yml"
+      - "oxlint.config.ts"
+      - "package.json"
+      - "packages/**"
+      - "scripts/prepare-workerd.sh"
+      - "tools/oxlint/**"
+      - "tools/wizard/**"
+      - "tsconfig.json"
+      - "turbo.json"
+      - "!**/*.md"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment: production
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ALLOW_TEST_MAGIC_LINKS: "false"
+      BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+      CF_TOKEN: ${{ secrets.CF_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CREDENTIAL_ENCRYPTION_KEY: ${{ secrets.CREDENTIAL_ENCRYPTION_KEY }}
+      GITHUB_CLIENT_ID: ${{ vars.GITHUB_CLIENT_ID }}
+      GITHUB_CLIENT_SECRET: ${{ secrets.GITHUB_CLIENT_SECRET }}
+      INSTALLATION_CLAIM_SECRET: ${{ secrets.INSTALLATION_CLAIM_SECRET }}
+      OAUTH_PROXY_SECRET: ${{ secrets.OAUTH_PROXY_SECRET }}
+      OAUTH_PROXY_TRUSTED_ORIGINS: ${{ vars.OAUTH_PROXY_TRUSTED_ORIGINS }}
+      OAUTH_PROXY_URL: ${{ vars.OAUTH_PROXY_URL }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Validate production configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          required=(
+            BETTER_AUTH_SECRET
+            CF_TOKEN
+            CLOUDFLARE_ACCOUNT_ID
+            CLOUDFLARE_API_TOKEN
+            CREDENTIAL_ENCRYPTION_KEY
+            INSTALLATION_CLAIM_SECRET
+            R2_ACCESS_KEY_ID
+            R2_SECRET_ACCESS_KEY
+          )
+          for name in "${required[@]}"; do
+            if [[ -z "${!name}" ]]; then
+              printf 'Missing production secret or variable: %s\n' "$name" >&2
+              exit 1
+            fi
+          done
+          github=(GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET)
+          if [[ -n "$GITHUB_CLIENT_ID" || -n "$GITHUB_CLIENT_SECRET" ]]; then
+            for name in "${github[@]}"; do
+              if [[ -z "${!name}" ]]; then
+                printf 'GitHub OAuth requires both values; missing: %s\n' "$name" >&2
+                exit 1
+              fi
+            done
+          fi
+          oauth=(OAUTH_PROXY_URL OAUTH_PROXY_SECRET OAUTH_PROXY_TRUSTED_ORIGINS)
+          if [[ -n "$OAUTH_PROXY_URL" || -n "$OAUTH_PROXY_SECRET" || -n "$OAUTH_PROXY_TRUSTED_ORIGINS" ]]; then
+            for name in "${oauth[@]}"; do
+              if [[ -z "${!name}" ]]; then
+                printf 'OAuth proxy requires all values; missing: %s\n' "$name" >&2
+                exit 1
+              fi
+            done
+          fi
+      - run: bun run format:check
+      - run: bun run lint
+      - run: bun run typecheck
+      - run: bun run test
+      - run: bun run build
+      - name: Deploy production
+        run: bun alchemy deploy --stage prod --yes
+      - name: Record production URL
+        if: ${{ vars.OAUTH_PROXY_URL != '' }}
+        run: |
+          printf 'Production URL: %s\n' "$OAUTH_PROXY_URL" >> "$GITHUB_STEP_SUMMARY"
