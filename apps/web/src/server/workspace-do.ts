@@ -2,7 +2,6 @@ import {
   AgentSessionId,
   decodeWorkspaceArchiveInputPromise,
   decodeWorkspaceCheckUpdatePromise,
-  decodeWorkspaceProductionCheckInputPromise,
   decodeWorkspaceRepairCheckInputPromise,
   decodeWorkspaceRetryCheckInputPromise,
   decodeInitializeWorkspaceRuntime,
@@ -18,17 +17,50 @@ import {
   decodeWorkspaceRuntimeEventPromise,
   decodeWorkspaceRuntimePromptInputPromise,
   decodeWorkspaceTurnCancelInputPromise,
+  encodeOpenCodeConnectionResultSync,
+  encodeOpenCodeSubscriptionAttemptSync,
+  encodeOpenCodeSubscriptionRuntimeStatusSync,
+  encodePrepareProjectRepositoryResultSync,
+  encodeSyncProjectRepositoryResultSync,
+  encodeWorkspaceCheckRunListSync,
+  encodeWorkspaceCheckRunSync,
+  encodeWorkspaceCheckpointResultSync,
+  encodeWorkspaceRebaseResultSync,
+  encodeWorkspaceRuntimeHealthSync,
+  encodeWorkspaceSyncResultSync,
+  encodeWorkspaceVersionControlSnapshotSync,
+  InitializeWorkspaceRuntime,
   OpenCodeConnectionResult,
+  OpenCodeKeySetupInput,
+  OpenCodeSubscriptionAttempt,
+  OpenCodeSubscriptionRuntimeStatus,
+  OpenCodeSubscriptionStartInput,
+  OpenCodeSubscriptionStatusInput,
+  PrepareProjectRepositoryInput,
   PrepareProjectRepositoryResult,
-  type InitializeWorkspaceRuntime,
+  SyncProjectRepositoryInput,
   type OpenCodeCredential,
   WorkspaceRuntimeEvent,
   WorkspaceAgentQuestion,
+  WorkspaceCheckpointInput,
+  WorkspaceCheckUpdate,
+  WorkspacePermissionAskedEventData,
+  WorkspacePermissionReplyInput,
   WorkspaceQuestionField,
   WorkspaceQuestionOption,
+  WorkspaceQuestionReplyInput,
+  WorkspaceQueuedMessage,
+  WorkspaceRepairCheckInput,
+  WorkspaceRetryCheckInput,
+  WorkspaceRuntimeHealth,
   type WorkspaceRuntimeMessage,
+  WorkspaceRuntimePromptInput,
+  WorkspaceSyncResult,
+  WorkspaceTurnCancelInput,
+  WorkspaceVersionControlSnapshot,
   GitCommitId,
   ProjectId,
+  WorkspaceArchiveInput,
   WorkspaceCheckEvidence,
   WorkspaceCheckRun,
   type WorkspaceCiInput,
@@ -107,14 +139,12 @@ const checkpointCheckStages: WorkspaceCheckStageName[] = [
   "preview",
   "browser",
 ]
-const productionCheckStages: WorkspaceCheckStageName[] = [
-  "install",
-  "build",
-  "production",
-]
 const maxQueuedMessages = 5
 const maxTurnDurationMs = 15 * 60 * 1000
 
+const decodePermissionRequests = Schema.decodeUnknownSync(
+  Schema.Array(WorkspacePermissionAskedEventData)
+)
 const providerFailureMessage = Schema.Struct({ message: Schema.String })
 const wrappedProviderFailureMessage = Schema.Struct({
   error: providerFailureMessage,
@@ -260,6 +290,7 @@ interface WorkspaceBindings extends Cloudflare.Env {
 }
 
 const readOnlyMessage = "Archived Workspaces are read-only"
+const archiveResult = (archivedAt: number | null) => ({ archivedAt })
 
 type ReviewStateRow = {
   decision: string | null
@@ -454,578 +485,565 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   }
 
   async fetch(request: Request) {
+    const url = new URL(request.url)
+    if (request.method !== "GET" || url.pathname !== "/events") {
+      return new Response("Not found", { status: 404 })
+    }
     try {
-      const url = new URL(request.url)
-
-      if (request.method === "POST" && url.pathname === "/prepare-project") {
-        const input = await decodePrepareProjectRepositoryInputPromise(
-          await request.json()
-        )
-        const head = await this.#workspaceGit.prepareProject(input)
-        return Response.json(new PrepareProjectRepositoryResult({ head }))
-      }
-
-      if (request.method === "POST" && url.pathname === "/sync-project") {
-        const input = await decodeSyncProjectRepositoryInputPromise(
-          await request.json()
-        )
-        return Response.json(await this.#workspaceGit.synchronizeProject(input))
-      }
-
-      const opencode = await this.#opencode
-
-      if (request.method === "POST" && url.pathname === "/connect/key") {
-        const input = await decodeOpenCodeKeySetupInputPromise(
-          await request.json()
-        )
-
-        await this.#waitForIntegration(opencode, input.providerId)
-
-        try {
-          await connectOpenCodeKeyCredential(opencode, {
-            providerId: input.providerId,
-            key: input.apiKey,
-            configuration: input.configuration,
-          })
-        } catch (error) {
-          if (error instanceof OpenCodeCredentialReloadRequired) throw error
-          throw new Error(
-            `OpenCode could not connect to ${input.providerId}. Check the provider key and try again.`
-          )
-        }
-
-        return Response.json(
-          await this.#connectionResult(opencode, input.providerId)
-        )
-      }
-
-      if (request.method === "POST" && url.pathname === "/oauth/start") {
-        await decodeOpenCodeSubscriptionStartInputPromise(await request.json())
-        await this.#waitForIntegration(opencode, subscriptionProviderId)
-        const attempt = await opencode.integration.oauth.connect({
-          integrationID: subscriptionProviderId,
-          methodID: subscriptionMethodId,
-          label: subscriptionCredentialLabel,
-        })
-
-        return Response.json({
-          attemptId: attempt.data.attemptID,
-          url: attempt.data.url,
-          instructions: attempt.data.instructions,
-          expiresAt: Number(attempt.data.time.expires),
-        })
-      }
-
-      if (request.method === "POST" && url.pathname === "/oauth/status") {
-        const input = await decodeOpenCodeSubscriptionStatusInputPromise(
-          await request.json()
-        )
-        const result = await opencode.integration.oauth
-          .status({
-            integrationID: subscriptionProviderId,
-            attemptID: input.attemptId,
-          })
-          .catch(() => ({
-            data: {
-              status: "expired" as const,
-              time: { created: Date.now(), expires: Date.now() },
-            },
-          }))
-
-        if (result.data.status !== "complete") {
-          return Response.json(result.data)
-        }
-
-        const row = this.ctx.storage.sql
-          .exec<{ value: string }>(
-            "SELECT value FROM credential WHERE integration_id = ? AND active = 1 ORDER BY time_updated DESC LIMIT 1",
-            subscriptionProviderId
-          )
-          .toArray()[0]
-
-        if (!row) {
-          throw new Error("OpenCode completed sign-in without a credential")
-        }
-
-        const credential = await decodeOpenCodeCredentialPromise(
-          JSON.parse(row.value)
-        )
-
-        if (credential.type !== "oauth") {
-          throw new Error("OpenCode returned the wrong credential type")
-        }
-
-        const catalog = await this.#connectionResult(
-          opencode,
-          subscriptionProviderId
-        )
-        return Response.json({ ...result.data, credential, ...catalog })
-      }
-
-      if (request.method === "POST" && url.pathname === "/oauth/cancel") {
-        const input = await decodeOpenCodeSubscriptionStatusInputPromise(
-          await request.json()
-        )
-        await opencode.integration.oauth
-          .cancel({
-            integrationID: subscriptionProviderId,
-            attemptID: input.attemptId,
-          })
-          .catch(() => undefined)
-        return new Response(null, { status: 204 })
-      }
-
-      if (request.method === "POST" && url.pathname === "/initialize") {
-        const input = await decodeInitializeWorkspaceRuntime(
-          await request.json()
-        )
-        await this.#initialize(opencode, input)
-        return Response.json(await this.#snapshot(opencode))
-      }
-
-      if (request.method === "POST" && url.pathname === "/checkpoint") {
-        const input = await decodeWorkspaceCheckpointInputPromise(
-          await request.json()
-        )
-        this.#assertWritable()
-        const result = await this.#workspaceGit.checkpoint({
-          idempotencyKey: input.idempotencyKey,
-          message: input.message,
-        })
-        await this.#recordVersionControl(true)
-        const state = this.#requiredState()
-        const check = await this.#startCheckpointCheck(
-          state.workspaceId,
-          result.checkpoint.id,
-          result.checkpoint.commit,
-          input.repairOnFailure ?? false
-        )
-        return Response.json({ ...result, check })
-      }
-
-      if (request.method === "GET" && url.pathname === "/checks") {
-        return Response.json(this.#checks.list())
-      }
-
-      if (request.method === "POST" && url.pathname === "/checks/update") {
-        const update = await decodeWorkspaceCheckUpdatePromise(
-          await request.json()
-        )
-        const previous = this.#checks.get(update.run.id)
-        const applied = this.#checks.apply(update)
-        if (applied && previous?.status !== update.run.status) {
-          await this.#afterCheckUpdate(opencode, update.run).catch((cause) =>
-            console.error(
-              "Workspace check notification failed",
-              cause instanceof Error ? cause.stack : cause
-            )
-          )
-        }
-        return Response.json({ applied })
-      }
-
-      if (request.method === "POST" && url.pathname === "/archive") {
-        const input = await decodeWorkspaceArchiveInputPromise(
-          await request.json()
-        )
+      return await this.#run(async () => {
+        const opencode = await this.#opencode
         const state = this.#database.select().from(appWorkspaceState).get()
-        if (!state) return Response.json({ archivedAt: null })
-        if (state.workspaceId !== input.workspaceId) {
-          return new Response("Archive belongs to another Workspace", {
-            status: 409,
-          })
-        }
-        const archivedAt = state.archivedAt ?? Date.now()
-        if (state.sessionId && state.archivedAt === null) {
-          const sessionId = state.sessionId
-          await opencode.sessions
-            .interrupt({ sessionID: sessionId, continue: false })
-            .catch(() => undefined)
-          const inbox = await opencode.sessions.inbox.list({
-            sessionID: sessionId,
-          })
-          await Promise.all(
-            inbox.map((item) =>
-              opencode.sessions.inbox.cancel({
-                sessionID: sessionId,
-                inboxID: item.id,
-              })
-            )
-          )
-          await this.ctx.storage.deleteAlarm()
-        }
-        this.#database.update(appWorkspaceState).set({ archivedAt }).run()
-        await this.env.DB.prepare(
-          "UPDATE agent_sessions SET status = 'archived', archived_at = unixepoch(), updated_at = unixepoch() WHERE workspace_id = ?"
-        )
-          .bind(state.workspaceId)
-          .run()
-        return Response.json({ archivedAt })
-      }
-
-      if (request.method === "POST" && url.pathname === "/checks/production") {
-        const input = await decodeWorkspaceProductionCheckInputPromise(
-          await request.json()
-        )
-        const state = this.#requiredState()
-        const existing = this.#checks.get(input.id)
-        if (existing) return Response.json(existing)
-        const run = new WorkspaceCheckRun({
-          id: input.id,
-          workspaceId: WorkspaceId.make(state.workspaceId),
-          checkpointId: null,
-          commit: GitCommitId.make(input.commit),
-          kind: "production",
-          status: "queued",
-          attempt: 1,
-          maxAttempts: maxWorkspaceCheckAttempts,
-          repairOnFailure: false,
-          repairStatus: "disabled",
-          repairAttempt: 0,
-          maxRepairAttempts: maxWorkspaceRepairAttempts,
-          previewUrl: null,
-          stages: productionCheckStages.map((name) =>
-            checkStage(name, "queued", "Waiting")
-          ),
-          diagnostics: [],
-          evidence: [],
-          createdAt: input.createdAt,
-          updatedAt: input.createdAt,
-        })
-        this.#checks.create(run)
-        return Response.json(run)
-      }
-
-      if (request.method === "POST" && url.pathname === "/checks/retry") {
-        const input = await decodeWorkspaceRetryCheckInputPromise(
-          await request.json()
-        )
-        const state = this.#requiredState()
-        if (input.workspaceId !== state.workspaceId)
-          throw new Error("Check retry belongs to another Workspace")
-        this.#assertWritable()
-        const run = this.#checks.retry(input.runId, input.idempotencyKey)
-        await this.#startWorkflow(run)
-        return Response.json(run)
-      }
-
-      if (request.method === "POST" && url.pathname === "/checks/repair") {
-        const input = await decodeWorkspaceRepairCheckInputPromise(
-          await request.json()
-        )
-        const state = this.#requiredState()
-        if (input.workspaceId !== state.workspaceId)
-          throw new Error("Check repair belongs to another Workspace")
-        this.#assertWritable()
-        const repair = await this.#startRepairTurn(
-          opencode,
-          input.runId,
-          input.idempotencyKey,
-          "manual"
-        )
-        return Response.json(repair)
-      }
-
-      if (request.method === "POST" && url.pathname === "/update-project") {
-        this.#assertWritable()
-        return Response.json(await this.#syncProjectAndCheck())
-      }
-
-      if (request.method === "POST" && url.pathname === "/rebase") {
-        this.#assertWritable()
-        const result = await this.#workspaceGit.rebase()
-        await this.#recordVersionControl(false)
-        return Response.json(result)
-      }
-
-      if (request.method === "GET" && url.pathname === "/vcs") {
-        return Response.json({
-          vcs: await this.#workspaceGit.versionControl(
-            url.searchParams.get("refresh") === "1"
-          ),
-          checkpoints: this.#workspaceGit.checkpoints(),
-        })
-      }
-
-      if (request.method === "POST" && url.pathname === "/prompt") {
-        const input = await decodeWorkspaceRuntimePromptInputPromise(
-          await request.json()
-        )
-        const state = this.#database.select().from(appWorkspaceState).get()
-
-        if (!state || state.workspaceId !== input.workspaceId) {
-          return new Response("Workspace runtime is not initialized", {
-            status: 409,
-          })
-        }
-        if (!state.sessionId) {
-          return new Response("OpenCode session is not initialized", {
-            status: 409,
-          })
-        }
-        if (state.archivedAt !== null) {
-          return new Response(readOnlyMessage, { status: 409 })
-        }
-        const sessionId = state.sessionId
-        const nextCredentialFingerprint = await credentialFingerprint(
-          input.credential
-        )
-        const activeSessions = await opencode.sessions.active()
-        const turnActive = Boolean(activeSessions[sessionId])
-        if (turnActive && !input.delivery) {
-          return new Response(
-            "Choose queue or steer while an agent Turn is active",
-            { status: 409 }
-          )
-        }
-        if (!turnActive && input.delivery === "steer") {
-          return new Response("There is no active Turn to steer", {
-            status: 409,
-          })
-        }
-        if (
-          turnActive &&
-          (state.providerId !== input.model.providerId ||
-            state.modelId !== input.model.modelId)
-        ) {
-          return new Response(
-            "Wait for the active Turn to finish before changing models",
-            { status: 409 }
-          )
-        }
-        if (input.delivery === "queue") {
-          const inbox = await opencode.sessions.inbox.list({
-            sessionID: sessionId,
-          })
-          const queued = inbox.filter(
-            (item) => item.type === "user" && item.delivery === "queue"
-          )
-          if (queued.length >= maxQueuedMessages) {
-            return new Response(
-              `This Conversation already has ${maxQueuedMessages} queued messages`,
-              { status: 409 }
-            )
-          }
-        }
-
-        try {
-          if (!turnActive) {
-            await activateWorkspacePrompt({
-              refreshCredential:
-                state.credentialFingerprint === nextCredentialFingerprint
-                  ? undefined
-                  : () =>
-                      this.#installCredential(
-                        opencode,
-                        input.model.providerId,
-                        input.credential
-                      ),
-              switchModel: () =>
-                opencode.sessions.switchModel({
-                  sessionID: sessionId,
-                  model: {
-                    providerID: input.model.providerId,
-                    id: input.model.modelId,
-                  },
-                }),
-            })
-          }
-          this.#database
-            .update(appWorkspaceState)
-            .set({
-              providerId: input.model.providerId,
-              modelId: input.model.modelId,
-              credentialFingerprint: nextCredentialFingerprint,
-            })
-            .run()
-        } catch (error) {
-          const detail =
-            error instanceof Error
-              ? error.message
-              : Schema.is(providerFailureMessage)(error)
-                ? error.message
-                : Schema.is(wrappedProviderFailureMessage)(error)
-                  ? error.error.message
-                  : null
-          throw new Error(
-            detail
-              ? `OpenCode could not use ${input.model.providerId}/${input.model.modelId}: ${detail}`
-              : `OpenCode could not use ${input.model.providerId}/${input.model.modelId}. Choose another available model.`
-          )
-        }
-
-        const invocation = resolveSkillInvocation(
-          input.text,
-          this.#skills.list()
-        )
-        this.#checks.resetAutomaticRepairs(`prompt:${Date.now()}`)
-        await opencode.sessions.prompt({
-          sessionID: sessionId,
-          text: invocation
-            ? invocation.text || "Follow the attached Skill instructions."
-            : input.text,
-          skills: invocation ? [{ id: invocation.skillId }] : undefined,
-          delivery: input.delivery,
-        })
-        if (input.delivery !== "queue") await this.#scheduleTurnLimit()
-        return Response.json(await this.#snapshot(opencode), { status: 202 })
-      }
-
-      if (request.method === "POST" && url.pathname === "/turn/cancel") {
-        const input = await decodeWorkspaceTurnCancelInputPromise(
-          await request.json()
-        )
-        const state = this.#requiredState()
-        if (state.workspaceId !== input.workspaceId) {
-          return new Response("Turn belongs to another Workspace", {
-            status: 409,
-          })
-        }
-        if (!state.sessionId) {
-          return new Response("OpenCode session is not initialized", {
-            status: 409,
-          })
-        }
-        const sessionId = state.sessionId
-        const result = await opencode.sessions.interrupt({
-          sessionID: sessionId,
-          continue: input.continueQueued ?? false,
-        })
-        if (!input.continueQueued) {
-          const inbox = await opencode.sessions.inbox.list({
-            sessionID: sessionId,
-          })
-          await Promise.all(
-            inbox.map((item) =>
-              opencode.sessions.inbox.cancel({
-                sessionID: sessionId,
-                inboxID: item.id,
-              })
-            )
-          )
-          await this.ctx.storage.deleteAlarm()
-        }
-        return Response.json(result)
-      }
-
-      if (request.method === "GET" && url.pathname === "/events") {
-        const state = this.#database.select().from(appWorkspaceState).get()
-
         if (!state?.sessionId) {
           return new Response("OpenCode session is not initialized", {
             status: 409,
           })
         }
-
         return workspaceEventResponse(
           this.#events(opencode, AgentSessionId.make(state.sessionId))
         )
+      })
+    } catch (error) {
+      return new Response(
+        error instanceof Error ? error.message : "Workspace runtime failed",
+        { status: 500 }
+      )
+    }
+  }
+
+  prepareProject(input: typeof PrepareProjectRepositoryInput.Encoded) {
+    return this.#run(async () => {
+      const data = await decodePrepareProjectRepositoryInputPromise(input)
+      const head = await this.#workspaceGit.prepareProject(data)
+      return encodePrepareProjectRepositoryResultSync(
+        new PrepareProjectRepositoryResult({ head })
+      )
+    })
+  }
+
+  synchronizeProject(input: typeof SyncProjectRepositoryInput.Encoded) {
+    return this.#run(async () => {
+      const data = await decodeSyncProjectRepositoryInputPromise(input)
+      return encodeSyncProjectRepositoryResultSync(
+        await this.#workspaceGit.synchronizeProject(data)
+      )
+    })
+  }
+
+  connectKey(input: typeof OpenCodeKeySetupInput.Encoded) {
+    return this.#run(async () => {
+      const data = await decodeOpenCodeKeySetupInputPromise(input)
+      const opencode = await this.#opencode
+      await this.#waitForIntegration(opencode, data.providerId)
+      try {
+        await connectOpenCodeKeyCredential(opencode, {
+          providerId: data.providerId,
+          key: data.apiKey,
+          configuration: data.configuration,
+        })
+      } catch (error) {
+        if (error instanceof OpenCodeCredentialReloadRequired) throw error
+        throw new Error(
+          `OpenCode could not connect to ${data.providerId}. Check the provider key and try again.`
+        )
+      }
+      return encodeOpenCodeConnectionResultSync(
+        await this.#connectionResult(opencode, data.providerId)
+      )
+    })
+  }
+
+  startSubscriptionSignIn(
+    input: typeof OpenCodeSubscriptionStartInput.Encoded
+  ) {
+    return this.#run(async () => {
+      await decodeOpenCodeSubscriptionStartInputPromise(input)
+      const opencode = await this.#opencode
+      await this.#waitForIntegration(opencode, subscriptionProviderId)
+      const attempt = await opencode.integration.oauth.connect({
+        integrationID: subscriptionProviderId,
+        methodID: subscriptionMethodId,
+        label: subscriptionCredentialLabel,
+      })
+      return encodeOpenCodeSubscriptionAttemptSync(
+        new OpenCodeSubscriptionAttempt({
+          attemptId: attempt.data.attemptID,
+          url: attempt.data.url,
+          instructions: attempt.data.instructions,
+          expiresAt: Number(attempt.data.time.expires),
+        })
+      )
+    })
+  }
+
+  subscriptionSignInStatus(
+    input: typeof OpenCodeSubscriptionStatusInput.Encoded
+  ) {
+    return this.#run(async () => {
+      const data = await decodeOpenCodeSubscriptionStatusInputPromise(input)
+      const opencode = await this.#opencode
+      const result = await opencode.integration.oauth
+        .status({
+          integrationID: subscriptionProviderId,
+          attemptID: data.attemptId,
+        })
+        .catch(() => ({
+          data: {
+            status: "expired" as const,
+            time: { created: Date.now(), expires: Date.now() },
+          },
+        }))
+
+      if (result.data.status !== "complete") {
+        return encodeOpenCodeSubscriptionRuntimeStatusSync(
+          new OpenCodeSubscriptionRuntimeStatus({ status: result.data.status })
+        )
       }
 
-      if (request.method === "POST" && url.pathname === "/skills/reload") {
-        const state = this.#requiredState()
-        await this.#skills.replace(
-          await loadInstalledSkills(
-            this.env.DB,
-            state.organizationId,
-            state.projectId
+      const row = this.ctx.storage.sql
+        .exec<{ value: string }>(
+          "SELECT value FROM credential WHERE integration_id = ? AND active = 1 ORDER BY time_updated DESC LIMIT 1",
+          subscriptionProviderId
+        )
+        .toArray()[0]
+
+      if (!row) {
+        throw new Error("OpenCode completed sign-in without a credential")
+      }
+
+      const credential = await decodeOpenCodeCredentialPromise(
+        JSON.parse(row.value)
+      )
+
+      if (credential.type !== "oauth") {
+        throw new Error("OpenCode returned the wrong credential type")
+      }
+
+      const catalog = await this.#connectionResult(
+        opencode,
+        subscriptionProviderId
+      )
+      return encodeOpenCodeSubscriptionRuntimeStatusSync(
+        new OpenCodeSubscriptionRuntimeStatus({
+          status: "complete",
+          credential,
+          models: catalog.models,
+          recommendedModelId: catalog.recommendedModelId,
+        })
+      )
+    })
+  }
+
+  cancelSubscriptionSignIn(
+    input: typeof OpenCodeSubscriptionStatusInput.Encoded
+  ) {
+    return this.#run(async () => {
+      const data = await decodeOpenCodeSubscriptionStatusInputPromise(input)
+      const opencode = await this.#opencode
+      await opencode.integration.oauth
+        .cancel({
+          integrationID: subscriptionProviderId,
+          attemptID: data.attemptId,
+        })
+        .catch(() => undefined)
+    })
+  }
+
+  initialize(input: typeof InitializeWorkspaceRuntime.Encoded) {
+    return this.#run(async () => {
+      const data = await decodeInitializeWorkspaceRuntime(input)
+      const opencode = await this.#opencode
+      await this.#initialize(opencode, data)
+      return encodeWorkspaceRuntimeHealthSync(await this.#snapshot(opencode))
+    })
+  }
+
+  checkpoint(input: typeof WorkspaceCheckpointInput.Encoded) {
+    return this.#run(async () => {
+      const data = await decodeWorkspaceCheckpointInputPromise(input)
+      await this.#opencode
+      this.#assertWritable()
+      const result = await this.#workspaceGit.checkpoint({
+        idempotencyKey: data.idempotencyKey,
+        message: data.message,
+      })
+      await this.#recordVersionControl(true)
+      const state = this.#requiredState()
+      await this.#startCheckpointCheck(
+        state.workspaceId,
+        result.checkpoint.id,
+        result.checkpoint.commit,
+        data.repairOnFailure ?? false
+      )
+      return encodeWorkspaceCheckpointResultSync(result)
+    })
+  }
+
+  listChecks() {
+    return this.#run(async () => {
+      await this.#opencode
+      return encodeWorkspaceCheckRunListSync(this.#checks.list())
+    })
+  }
+
+  applyCheckUpdate(update: typeof WorkspaceCheckUpdate.Encoded) {
+    return this.#run(async () => {
+      const data = await decodeWorkspaceCheckUpdatePromise(update)
+      const opencode = await this.#opencode
+      const previous = this.#checks.get(data.run.id)
+      const applied = this.#checks.apply(data)
+      if (applied && previous?.status !== data.run.status) {
+        await this.#afterCheckUpdate(opencode, data.run).catch((cause) =>
+          console.error(
+            "Workspace check notification failed",
+            cause instanceof Error ? cause.stack : cause
           )
         )
-        return Response.json({ skills: this.#skills.list().length })
       }
+      return { applied }
+    })
+  }
 
-      if (request.method === "POST" && url.pathname === "/permission/reply") {
-        const input = await decodeWorkspacePermissionReplyInputPromise(
-          await request.json()
+  archive(input: typeof WorkspaceArchiveInput.Encoded) {
+    return this.#run(async () => {
+      const data = await decodeWorkspaceArchiveInputPromise(input)
+      const opencode = await this.#opencode
+      const state = this.#database.select().from(appWorkspaceState).get()
+      if (!state) return archiveResult(null)
+      if (state.workspaceId !== data.workspaceId) {
+        throw new Error("Archive belongs to another Workspace")
+      }
+      const archivedAt = state.archivedAt ?? Date.now()
+      if (state.sessionId && state.archivedAt === null) {
+        const sessionId = state.sessionId
+        await opencode.sessions
+          .interrupt({ sessionID: sessionId, continue: false })
+          .catch(() => undefined)
+        const inbox = await opencode.sessions.inbox.list({
+          sessionID: sessionId,
+        })
+        await Promise.all(
+          inbox.map((item) =>
+            opencode.sessions.inbox.cancel({
+              sessionID: sessionId,
+              inboxID: item.id,
+            })
+          )
         )
-        const state = this.#database.select().from(appWorkspaceState).get()
-
-        if (!state || state.workspaceId !== input.workspaceId) {
-          return new Response("Workspace runtime is not initialized", {
-            status: 409,
-          })
-        }
-        if (!state.sessionId) {
-          return new Response("OpenCode session is not initialized", {
-            status: 409,
-          })
-        }
-        if (state.archivedAt !== null) {
-          return new Response(readOnlyMessage, { status: 409 })
-        }
-
-        await opencode.permission.reply({
-          sessionID: state.sessionId,
-          requestID: input.requestId,
-          reply: input.reply,
-          message: input.message,
-        })
-        this.#permissionBridge.reply(input.requestId, input.reply)
-        return new Response(null, { status: 204 })
+        await this.ctx.storage.deleteAlarm()
       }
+      this.#database.update(appWorkspaceState).set({ archivedAt }).run()
+      await this.env.DB.prepare(
+        "UPDATE agent_sessions SET status = 'archived', archived_at = unixepoch(), updated_at = unixepoch() WHERE workspace_id = ?"
+      )
+        .bind(state.workspaceId)
+        .run()
+      return archiveResult(archivedAt)
+    })
+  }
 
-      if (request.method === "POST" && url.pathname === "/question/reply") {
-        const input = await decodeWorkspaceQuestionReplyInputPromise(
-          await request.json()
+  retryCheck(input: typeof WorkspaceRetryCheckInput.Encoded) {
+    return this.#run(async () => {
+      const data = await decodeWorkspaceRetryCheckInputPromise(input)
+      await this.#opencode
+      const state = this.#requiredState()
+      if (data.workspaceId !== state.workspaceId) {
+        throw new Error("Check retry belongs to another Workspace")
+      }
+      this.#assertWritable()
+      const run = this.#checks.retry(data.runId, data.idempotencyKey)
+      await this.#startWorkflow(run)
+      return encodeWorkspaceCheckRunSync(run)
+    })
+  }
+
+  repairCheck(input: typeof WorkspaceRepairCheckInput.Encoded) {
+    return this.#run(async () => {
+      const data = await decodeWorkspaceRepairCheckInputPromise(input)
+      const opencode = await this.#opencode
+      const state = this.#requiredState()
+      if (data.workspaceId !== state.workspaceId) {
+        throw new Error("Check repair belongs to another Workspace")
+      }
+      this.#assertWritable()
+      const repair = await this.#startRepairTurn(
+        opencode,
+        data.runId,
+        data.idempotencyKey,
+        "manual"
+      )
+      return { started: repair.started }
+    })
+  }
+
+  updateProject() {
+    return this.#run(async () => {
+      await this.#opencode
+      return encodeWorkspaceSyncResultSync(
+        new WorkspaceSyncResult(await this.#syncProjectAndCheck())
+      )
+    })
+  }
+
+  rebase() {
+    return this.#run(async () => {
+      await this.#opencode
+      this.#assertWritable()
+      const result = await this.#workspaceGit.rebase()
+      await this.#recordVersionControl(false)
+      return encodeWorkspaceRebaseResultSync(result)
+    })
+  }
+
+  versionControl(refreshProjectHead: boolean) {
+    return this.#run(async () => {
+      await this.#opencode
+      if (!this.#workspaceGit.hydrated()) return null
+      return encodeWorkspaceVersionControlSnapshotSync(
+        new WorkspaceVersionControlSnapshot({
+          vcs: await this.#workspaceGit.versionControl(refreshProjectHead),
+          checkpoints: this.#workspaceGit.checkpoints(),
+        })
+      )
+    })
+  }
+
+  prompt(input: typeof WorkspaceRuntimePromptInput.Encoded) {
+    return this.#run(async () => {
+      const data = await decodeWorkspaceRuntimePromptInputPromise(input)
+      const opencode = await this.#opencode
+      const state = this.#database.select().from(appWorkspaceState).get()
+
+      if (!state || state.workspaceId !== data.workspaceId) {
+        throw new Error("Workspace runtime is not initialized")
+      }
+      if (!state.sessionId) {
+        throw new Error("OpenCode session is not initialized")
+      }
+      if (state.archivedAt !== null) throw new Error(readOnlyMessage)
+      const sessionId = state.sessionId
+      const nextCredentialFingerprint = await credentialFingerprint(
+        data.credential
+      )
+      const activeSessions = await opencode.sessions.active()
+      const turnActive = Boolean(activeSessions[sessionId])
+      if (turnActive && !data.delivery) {
+        throw new Error("Choose queue or steer while an agent Turn is active")
+      }
+      if (!turnActive && data.delivery === "steer") {
+        throw new Error("There is no active Turn to steer")
+      }
+      if (
+        turnActive &&
+        (state.providerId !== data.model.providerId ||
+          state.modelId !== data.model.modelId)
+      ) {
+        throw new Error(
+          "Wait for the active Turn to finish before changing models"
         )
-        const state = this.#requiredState()
-        if (state.workspaceId !== input.workspaceId || !state.sessionId) {
-          return new Response("Agent question belongs to another Workspace", {
-            status: 409,
+      }
+      if (data.delivery === "queue") {
+        const inbox = await opencode.sessions.inbox.list({
+          sessionID: sessionId,
+        })
+        const queued = inbox.filter(
+          (item) => item.type === "user" && item.delivery === "queue"
+        )
+        if (queued.length >= maxQueuedMessages) {
+          throw new Error(
+            `This Conversation already has ${maxQueuedMessages} queued messages`
+          )
+        }
+      }
+
+      try {
+        if (!turnActive) {
+          await activateWorkspacePrompt({
+            refreshCredential:
+              state.credentialFingerprint === nextCredentialFingerprint
+                ? undefined
+                : () =>
+                    this.#installCredential(
+                      opencode,
+                      data.model.providerId,
+                      data.credential
+                    ),
+            switchModel: () =>
+              opencode.sessions.switchModel({
+                sessionID: sessionId,
+                model: {
+                  providerID: data.model.providerId,
+                  id: data.model.modelId,
+                },
+              }),
           })
         }
-        if (state.archivedAt !== null) {
-          return new Response(readOnlyMessage, { status: 409 })
-        }
-        await opencode.form.reply({
-          sessionID: state.sessionId,
-          formID: input.questionId,
-          answer: input.answer,
+        this.#database
+          .update(appWorkspaceState)
+          .set({
+            providerId: data.model.providerId,
+            modelId: data.model.modelId,
+            credentialFingerprint: nextCredentialFingerprint,
+          })
+          .run()
+      } catch (error) {
+        const detail =
+          error instanceof Error
+            ? error.message
+            : Schema.is(providerFailureMessage)(error)
+              ? error.message
+              : Schema.is(wrappedProviderFailureMessage)(error)
+                ? error.error.message
+                : null
+        throw new Error(
+          detail
+            ? `OpenCode could not use ${data.model.providerId}/${data.model.modelId}: ${detail}`
+            : `OpenCode could not use ${data.model.providerId}/${data.model.modelId}. Choose another available model.`
+        )
+      }
+
+      const invocation = resolveSkillInvocation(data.text, this.#skills.list())
+      this.#checks.resetAutomaticRepairs(`prompt:${Date.now()}`)
+      await opencode.sessions.prompt({
+        sessionID: sessionId,
+        text: invocation
+          ? invocation.text || "Follow the attached Skill instructions."
+          : data.text,
+        skills: invocation ? [{ id: invocation.skillId }] : undefined,
+        delivery: data.delivery,
+      })
+      if (data.delivery !== "queue") await this.#scheduleTurnLimit()
+      return encodeWorkspaceRuntimeHealthSync(await this.#snapshot(opencode))
+    })
+  }
+
+  cancelTurn(input: typeof WorkspaceTurnCancelInput.Encoded) {
+    return this.#run(async () => {
+      const data = await decodeWorkspaceTurnCancelInputPromise(input)
+      const opencode = await this.#opencode
+      const state = this.#database.select().from(appWorkspaceState).get()
+      if (!state?.sessionId) return { interrupted: false }
+      if (state.workspaceId !== data.workspaceId) {
+        throw new Error("Turn belongs to another Workspace")
+      }
+      const sessionId = state.sessionId
+      const result = await opencode.sessions.interrupt({
+        sessionID: sessionId,
+        continue: data.continueQueued ?? false,
+      })
+      if (!data.continueQueued) {
+        const inbox = await opencode.sessions.inbox.list({
+          sessionID: sessionId,
         })
-        return new Response(null, { status: 204 })
+        await Promise.all(
+          inbox.map((item) =>
+            opencode.sessions.inbox.cancel({
+              sessionID: sessionId,
+              inboxID: item.id,
+            })
+          )
+        )
+        await this.ctx.storage.deleteAlarm()
       }
+      return { interrupted: result.interrupted }
+    })
+  }
 
-      if (request.method === "POST" && url.pathname === "/discard") {
-        const state = this.#requiredState()
-        if (state.sessionId) {
-          await opencode.sessions
-            .interrupt({ sessionID: state.sessionId, continue: false })
-            .catch(() => undefined)
-        }
-        await opencode.close()
-        await this.ctx.storage.deleteAll()
-        return new Response(null, { status: 204 })
+  reloadSkills() {
+    return this.#run(async () => {
+      await this.#opencode
+      const state = this.#requiredState()
+      await this.#skills.replace(
+        await loadInstalledSkills(
+          this.env.DB,
+          state.organizationId,
+          state.projectId
+        )
+      )
+      return { skills: this.#skills.list().length }
+    })
+  }
+
+  replyPermission(input: typeof WorkspacePermissionReplyInput.Encoded) {
+    return this.#run(async () => {
+      const data = await decodeWorkspacePermissionReplyInputPromise(input)
+      const opencode = await this.#opencode
+      const state = this.#database.select().from(appWorkspaceState).get()
+
+      if (!state || state.workspaceId !== data.workspaceId) {
+        throw new Error("Workspace runtime is not initialized")
       }
-
-      if (request.method === "POST" && url.pathname === "/evict") {
-        this.ctx.abort("Sylph requested Workspace runtime eviction", {
-          retryAlarm: false,
-        })
+      if (!state.sessionId) {
+        throw new Error("OpenCode session is not initialized")
       }
+      if (state.archivedAt !== null) throw new Error(readOnlyMessage)
 
-      if (request.method === "GET" && url.pathname === "/snapshot") {
-        return Response.json(await this.#snapshot(opencode))
+      await opencode.permission.reply({
+        sessionID: state.sessionId,
+        requestID: data.requestId,
+        reply: data.reply,
+        message: data.message,
+      })
+      this.#permissionBridge.reply(data.requestId, data.reply)
+    })
+  }
+
+  answerQuestion(input: typeof WorkspaceQuestionReplyInput.Encoded) {
+    return this.#run(async () => {
+      const data = await decodeWorkspaceQuestionReplyInputPromise(input)
+      const opencode = await this.#opencode
+      const state = this.#requiredState()
+      if (state.workspaceId !== data.workspaceId || !state.sessionId) {
+        throw new Error("Agent question belongs to another Workspace")
       }
+      if (state.archivedAt !== null) throw new Error(readOnlyMessage)
+      await opencode.form.reply({
+        sessionID: state.sessionId,
+        formID: data.questionId,
+        answer: data.answer,
+      })
+    })
+  }
 
-      if (request.method === "GET" && url.pathname === "/health") {
-        return Response.json(await this.#snapshot(opencode))
+  discard() {
+    return this.#run(async () => {
+      const opencode = await this.#opencode
+      const state = this.#requiredState()
+      if (state.sessionId) {
+        await opencode.sessions
+          .interrupt({ sessionID: state.sessionId, continue: false })
+          .catch(() => undefined)
       }
+      await opencode.close()
+      await this.ctx.storage.deleteAll()
+    })
+  }
 
-      return new Response("Not found", { status: 404 })
+  evict() {
+    this.ctx.abort("Sylph requested Workspace runtime eviction", {
+      retryAlarm: false,
+    })
+  }
+
+  snapshot() {
+    return this.#run(async () =>
+      encodeWorkspaceRuntimeHealthSync(
+        await this.#snapshot(await this.#opencode)
+      )
+    )
+  }
+
+  async #run<Value>(operation: () => Promise<Value>) {
+    try {
+      return await operation()
     } catch (error) {
       if (error instanceof OpenCodeCredentialReloadRequired) {
-        return new Response("Workspace runtime credential store refreshed", {
-          status: 409,
-        })
+        throw new Error("Workspace runtime credential store refreshed")
       }
       console.error(
         "Workspace runtime request failed",
         error instanceof Error ? error.stack : error
       )
-      return new Response(
-        error instanceof Error ? error.message : "Workspace runtime failed",
-        { status: 500 }
-      )
+      throw error
     }
   }
 
@@ -1793,10 +1811,17 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   async #snapshot(opencode: OpenCodeWorkerd.Interface) {
     const state = this.#database.select().from(appWorkspaceState).get()
     const health = await opencode.health.get()
+    const limits = {
+      maxQueuedMessages,
+      maxTurnDurationMs,
+      maxCheckAttempts: maxWorkspaceCheckAttempts,
+      maxRepairAttempts: maxWorkspaceRepairAttempts,
+      maxAutomaticRepairs: maxWorkspaceAutomaticRepairs,
+    }
 
     if (!state?.sessionId) {
-      return {
-        workspaceId: state?.workspaceId ?? null,
+      return new WorkspaceRuntimeHealth({
+        workspaceId: state ? WorkspaceId.make(state.workspaceId) : null,
         sessionId: null,
         status: health.healthy ? "provisioning" : "error",
         model: null,
@@ -1807,17 +1832,11 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         permissions: [],
         lastTurnOutcome: null,
         activeTurnStartedAt: null,
-        limits: {
-          maxQueuedMessages,
-          maxTurnDurationMs,
-          maxCheckAttempts: maxWorkspaceCheckAttempts,
-          maxRepairAttempts: maxWorkspaceRepairAttempts,
-          maxAutomaticRepairs: maxWorkspaceAutomaticRepairs,
-        },
+        limits,
         automaticRepairsUsed: this.#checks.automaticRepairsUsed(),
         archivedAt: state?.archivedAt ?? null,
-        opencode: health,
-      }
+        opencode: { healthy: health.healthy },
+      })
     }
     const sessionId = state.sessionId
 
@@ -1858,8 +1877,8 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         })
     )
 
-    return {
-      workspaceId: state.workspaceId,
+    return new WorkspaceRuntimeHealth({
+      workspaceId: WorkspaceId.make(state.workspaceId),
       sessionId: AgentSessionId.make(sessionId),
       status: workspaceRuntimeStatus(
         turnActive,
@@ -1875,33 +1894,27 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       queuedMessages: inbox.flatMap((item) =>
         item.type === "user"
           ? [
-              {
+              new WorkspaceQueuedMessage({
                 id: item.id,
                 text: item.payload.text,
                 createdAt: item.timeCreated,
                 delivery: item.delivery,
-              },
+              }),
             ]
           : []
       ),
       questions,
-      permissions: permissions.data.filter(
-        (request) => request.sessionID === sessionId
+      permissions: decodePermissionRequests(
+        permissions.data.filter((request) => request.sessionID === sessionId)
       ),
       lastTurnOutcome: session.outcome ?? null,
       activeTurnStartedAt: turnActive
         ? activeTurnStartedAt(messages.data)
         : null,
-      limits: {
-        maxQueuedMessages,
-        maxTurnDurationMs,
-        maxCheckAttempts: maxWorkspaceCheckAttempts,
-        maxRepairAttempts: maxWorkspaceRepairAttempts,
-        maxAutomaticRepairs: maxWorkspaceAutomaticRepairs,
-      },
+      limits,
       automaticRepairsUsed: this.#checks.automaticRepairsUsed(),
       archivedAt: state.archivedAt,
-      opencode: health,
-    }
+      opencode: { healthy: health.healthy },
+    })
   }
 }

@@ -1,5 +1,6 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router"
 import { useServerFn } from "@tanstack/react-start"
+import { failureMessage } from "@workspace/domain"
 import { Button } from "@workspace/ui/components/button"
 import {
   Bot,
@@ -17,14 +18,14 @@ import {
 import { useEffect, useState } from "react"
 
 import { AppShell } from "@/components/app-shell"
+import { getDashboard } from "@/functions/installation"
 import {
-  exportProjectRecovery,
   deployProjectCommit,
-  getDashboard,
+  exportProjectRecovery,
   getProjectDeployments,
   getWorkspaceCreationContext,
   setProjectDeliveryMode,
-} from "@/lib/workspaces"
+} from "@/functions/projects"
 import { useWorkspaceCreation } from "@/lib/use-workspace-creation"
 
 export const Route = createFileRoute("/projects/$projectSlug/settings")({
@@ -222,9 +223,10 @@ function ProjectSettingsScreen() {
                                     await router.invalidate()
                                   } catch (cause) {
                                     setRepositoryError(
-                                      cause instanceof Error
-                                        ? cause.message
-                                        : "Deployment could not start"
+                                      failureMessage(
+                                        cause,
+                                        "Deployment could not start"
+                                      )
                                     )
                                   } finally {
                                     setDeployPending(null)
@@ -401,9 +403,10 @@ function ProjectSettingsScreen() {
                         await router.invalidate()
                       } catch (cause) {
                         setRepositoryError(
-                          cause instanceof Error
-                            ? cause.message
-                            : "Delivery mode could not be saved"
+                          failureMessage(
+                            cause,
+                            "Delivery mode could not be saved"
+                          )
                         )
                       } finally {
                         setDeliveryPending(false)
@@ -461,9 +464,10 @@ function ProjectSettingsScreen() {
                     URL.revokeObjectURL(href)
                   } catch (cause) {
                     setRepositoryError(
-                      cause instanceof Error
-                        ? cause.message
-                        : "Recovery export could not be prepared"
+                      failureMessage(
+                        cause,
+                        "Recovery export could not be prepared"
+                      )
                     )
                   } finally {
                     setExportPending(false)

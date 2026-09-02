@@ -1,28 +1,26 @@
+import { createServerFn } from "@tanstack/react-start"
+import { schema } from "@workspace/db"
 import {
+  AccessDenied,
   decodeSkillCatalogRequestPromise,
   decodeSkillDetailRequestPromise,
   decodeSkillInstallInputPromise,
+  InvalidRequest,
+  PreconditionFailed,
 } from "@workspace/domain"
-import { schema } from "@workspace/db"
-import { createServerFn } from "@tanstack/react-start"
-import { getRequest } from "@tanstack/react-start/server"
-import { env, waitUntil } from "cloudflare:workers"
+import { waitUntil } from "cloudflare:workers"
 import { and, eq } from "drizzle-orm"
-import { drizzle } from "drizzle-orm/d1"
 
-import { createRequestAuth } from "@/server/auth.server"
+import { organizationMember, requestSession } from "@/functions/middleware"
+import {
+  isOrganizationAdmin,
+  type Database,
+} from "@/server/organization-access"
 import { browseSkills, reviewSkill } from "@/server/skills-sh"
+import { runtimeCall, workspaceRuntime } from "@/server/workspace-runtime"
 
-const currentSession = async () => {
-  const request = getRequest()
-  const auth = createRequestAuth(request, env)
-  return auth.api.getSession({ headers: request.headers })
-}
-
-const isAdmin = (role: string) => role === "owner" || role === "admin"
-
-const accessibleInstallations = async (userId: string) =>
-  drizzle(env.DB, { schema })
+const accessibleInstallations = (database: Database, userId: string) =>
+  database
     .select({
       id: schema.skillInstallation.id,
       catalogId: schema.skillInstallation.catalogId,
@@ -44,26 +42,35 @@ const accessibleInstallations = async (userId: string) =>
     )
     .orderBy(schema.skillInstallation.name)
 
+const reloadWorkspaceSkills = (workspaceIds: ReadonlyArray<string>) =>
+  Promise.all(
+    workspaceIds.map((workspaceId) =>
+      runtimeCall(() => workspaceRuntime(workspaceId).reloadSkills())
+    )
+  )
+
 export const getSkillCatalog = createServerFn({ method: "GET" })
+  .middleware([requestSession])
   .validator((input) => decodeSkillCatalogRequestPromise(input))
-  .handler(async ({ data }) => {
-    const session = await currentSession()
+  .handler(async ({ data, context }) => {
+    const { database, session } = context
     if (!session) return null
     const [entries, installed] = await Promise.all([
       browseSkills(data.query),
-      accessibleInstallations(session.user.id),
+      accessibleInstallations(database, session.user.id),
     ])
     return { entries, installed }
   })
 
 export const getSkillReview = createServerFn({ method: "GET" })
+  .middleware([requestSession])
   .validator((input) => decodeSkillDetailRequestPromise(input))
-  .handler(async ({ data }) => {
-    const session = await currentSession()
+  .handler(async ({ data, context }) => {
+    const { database, session } = context
     if (!session) return null
     const [review, installed] = await Promise.all([
       reviewSkill(data.owner, data.repository, data.skill),
-      accessibleInstallations(session.user.id),
+      accessibleInstallations(database, session.user.id),
     ])
     return {
       review,
@@ -73,38 +80,18 @@ export const getSkillReview = createServerFn({ method: "GET" })
     }
   })
 
-const reloadWorkspaceSkills = async (workspaceIds: ReadonlyArray<string>) => {
-  await Promise.all(
-    workspaceIds.map(async (workspaceId) => {
-      const runtime = env.WORKSPACES.get(env.WORKSPACES.idFromName(workspaceId))
-      await runtime.fetch("https://workspace/skills/reload", {
-        method: "POST",
-      })
-    })
-  )
-}
-
 export const installSkill = createServerFn({ method: "POST" })
+  .middleware([organizationMember])
   .validator((input) => decodeSkillInstallInputPromise(input))
-  .handler(async ({ data }) => {
-    const session = await currentSession()
-    if (!session) throw new Error("Sign in before installing a Skill")
-    const database = drizzle(env.DB, { schema })
-    const membership = await database
-      .select({ role: schema.member.role })
-      .from(schema.member)
-      .where(
-        and(
-          eq(schema.member.organizationId, data.organizationId),
-          eq(schema.member.userId, session.user.id)
-        )
-      )
-      .get()
-    if (!membership) throw new Error("You cannot access this Installation")
+  .handler(async ({ data, context }) => {
+    const { database, membership, user } = context
 
     const scope = data.projectId ? "project" : "installation"
-    if (scope === "installation" && !isAdmin(membership.role)) {
-      throw new Error("Only Installation admins can install shared Skills")
+    if (scope === "installation" && !isOrganizationAdmin(membership.role)) {
+      throw new AccessDenied({
+        message: "Only Installation admins can install shared Skills",
+        resource: "installation",
+      })
     }
     if (data.projectId) {
       const project = await database
@@ -117,18 +104,26 @@ export const installSkill = createServerFn({ method: "POST" })
           )
         )
         .get()
-      if (!project)
-        throw new Error("The Project does not belong to this Installation")
+      if (!project) {
+        throw new AccessDenied({
+          message: "The Project does not belong to this Installation",
+          resource: "project",
+        })
+      }
     }
 
     const parts = data.catalogId.split("/")
-    if (parts.length !== 3) throw new Error("The Skill catalog ID is invalid")
+    if (parts.length !== 3) {
+      throw new InvalidRequest({ message: "The Skill catalog ID is invalid" })
+    }
     const review = await reviewSkill(parts[0], parts[1], parts[2])
     if (
       review.catalogId !== data.catalogId ||
       review.sourceHash !== data.sourceHash
     ) {
-      throw new Error("The Skill source changed during review")
+      throw new PreconditionFailed({
+        message: "The Skill source changed during review",
+      })
     }
 
     const targetId = data.projectId ?? data.organizationId
@@ -151,7 +146,7 @@ export const installSkill = createServerFn({ method: "POST" })
         disableModelInvocation: review.metadata.disableModelInvocation,
         userInvokable: review.metadata.userInvokable,
         files: review.files,
-        installedByUserId: session.user.id,
+        installedByUserId: user.id,
         createdAt: now,
         updatedAt: now,
       })
@@ -170,7 +165,7 @@ export const installSkill = createServerFn({ method: "POST" })
           disableModelInvocation: review.metadata.disableModelInvocation,
           userInvokable: review.metadata.userInvokable,
           files: review.files,
-          installedByUserId: session.user.id,
+          installedByUserId: user.id,
           updatedAt: now,
         },
       })

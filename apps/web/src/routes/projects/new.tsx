@@ -5,6 +5,7 @@ import {
   useNavigate,
 } from "@tanstack/react-router"
 import { useServerFn } from "@tanstack/react-start"
+import { failureMessage } from "@workspace/domain"
 import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
@@ -23,12 +24,9 @@ import { type FormEvent, type ReactNode, useState } from "react"
 
 import { AppShell } from "@/components/app-shell"
 import { validateOnboardingSearch } from "@/lib/onboarding"
-import {
-  createProject,
-  getDashboard,
-  getOpenCodeSetup,
-  lookupGitHubRepository,
-} from "@/lib/workspaces"
+import { getDashboard } from "@/functions/installation"
+import { getOpenCodeSetup } from "@/functions/provider-connections"
+import { createProject, lookupGitHubRepository } from "@/functions/projects"
 
 export const Route = createFileRoute("/projects/new")({
   validateSearch: validateOnboardingSearch,
@@ -93,9 +91,7 @@ function NewProjectScreen() {
       setRepository(result)
     } catch (cause) {
       setRepository(undefined)
-      setError(
-        cause instanceof Error ? cause.message : "Repository lookup failed"
-      )
+      setError(failureMessage(cause, "Repository lookup failed"))
     } finally {
       setVerifying(false)
     }
@@ -131,11 +127,7 @@ function NewProjectScreen() {
         search: { onboarding },
       })
     } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "The project could not be created"
-      )
+      setError(failureMessage(cause, "The project could not be created"))
       setPending(false)
     }
   }

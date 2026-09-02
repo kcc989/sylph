@@ -6,8 +6,8 @@ import { Blocks, Search } from "lucide-react"
 import { Schema } from "effect"
 
 import { AppShell } from "@/components/app-shell"
-import { getSkillCatalog } from "@/lib/skills"
-import { getDashboard } from "@/lib/workspaces"
+import { getSkillCatalog } from "@/functions/skills"
+import { getDashboard } from "@/functions/installation"
 
 const validateSearch = Schema.decodeUnknownSync(
   Schema.Struct({ q: Schema.optional(Schema.String) })

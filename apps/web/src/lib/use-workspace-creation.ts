@@ -1,7 +1,8 @@
+import { failureMessage } from "@workspace/domain"
 import { useServerFn } from "@tanstack/react-start"
 import { useState } from "react"
 
-import { createWorkspace } from "@/lib/workspaces"
+import { createWorkspace } from "@/functions/workspaces"
 
 type WorkspaceProject = {
   id: string
@@ -32,10 +33,7 @@ export function useWorkspaceCreation() {
     } catch (cause) {
       setCreationError({
         projectId: project.id,
-        message:
-          cause instanceof Error
-            ? cause.message
-            : "The Workspace could not be created",
+        message: failureMessage(cause, "The Workspace could not be created"),
       })
       setCreatingProjectId(null)
     }

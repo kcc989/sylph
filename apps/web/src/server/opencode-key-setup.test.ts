@@ -11,23 +11,21 @@ const input = new OpenCodeKeySetupInput({
   configuration: { accountId: "account-1" },
 })
 
+const catalog = (modelId: string) => ({
+  models: [{ providerId: "cloudflare-workers-ai", modelId, name: modelId }],
+  recommendedModelId: modelId,
+})
+
 describe("OpenCode key setup", () => {
   test("uses the embedded runtime catalog instead of bootstrap models", async () => {
     const result = await discoverOpenCodeKeyModels(
       {
-        fetch: async (_url, request) => {
-          expect(request?.method).toBe("POST")
-          return Response.json({
-            models: [
-              {
-                providerId: "cloudflare-workers-ai",
-                modelId: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-                name: "Llama 3.3 70B Instruct fp8 Fast",
-              },
-            ],
-            recommendedModelId: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-          })
+        connectKey: async (received) => {
+          expect(received.providerId).toBe("cloudflare-workers-ai")
+          expect(received.apiKey).toBe("provider-key")
+          return catalog("@cf/meta/llama-3.3-70b-instruct-fp8-fast")
         },
+        evict: async () => undefined,
       },
       input
     )
@@ -41,8 +39,10 @@ describe("OpenCode key setup", () => {
     await expect(
       discoverOpenCodeKeyModels(
         {
-          fetch: async () =>
-            new Response("Provider catalog unavailable", { status: 502 }),
+          connectKey: async () => {
+            throw new Error("Provider catalog unavailable")
+          },
+          evict: async () => undefined,
         },
         input
       )
@@ -50,40 +50,25 @@ describe("OpenCode key setup", () => {
   })
 
   test("reloads the runtime when replacing an existing credential", async () => {
-    const requests: string[] = []
-    let connectCount = 0
+    const calls: string[] = []
     const result = await discoverOpenCodeKeyModels(
       {
-        fetch: async (url) => {
-          requests.push(url)
-          if (url.endsWith("/evict")) return new Response(null, { status: 204 })
-          connectCount += 1
-          if (connectCount === 1) {
-            return new Response(
-              "Workspace runtime credential store refreshed",
-              { status: 409 }
-            )
+        connectKey: async () => {
+          calls.push("connect")
+          if (calls.length === 1) {
+            throw new Error("Workspace runtime credential store refreshed")
           }
-          return Response.json({
-            models: [
-              {
-                providerId: "cloudflare-workers-ai",
-                modelId: "@cf/openai/gpt-oss-120b",
-                name: "GPT OSS 120B",
-              },
-            ],
-            recommendedModelId: "@cf/openai/gpt-oss-120b",
-          })
+          return catalog("@cf/openai/gpt-oss-120b")
+        },
+        evict: async () => {
+          calls.push("evict")
+          throw new Error("Durable Object reset")
         },
       },
       input
     )
 
-    expect(requests).toEqual([
-      "https://workspace/connect/key",
-      "https://workspace/evict",
-      "https://workspace/connect/key",
-    ])
+    expect(calls).toEqual(["connect", "evict", "connect"])
     expect(result.recommendedModelId).toBe("@cf/openai/gpt-oss-120b")
   })
 })

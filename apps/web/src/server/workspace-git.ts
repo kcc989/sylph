@@ -884,6 +884,10 @@ export class WorkspaceGit {
     })
   }
 
+  hydrated() {
+    return this.#state() !== undefined
+  }
+
   #state() {
     return this.#storage.sql
       .exec<WorkspaceGitState>(

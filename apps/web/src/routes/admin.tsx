@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router"
 import { useServerFn } from "@tanstack/react-start"
 import type { ConnectionScope, OpenCodeKeyProviderId } from "@workspace/domain"
+import { failureMessage } from "@workspace/domain"
 import { Button } from "@workspace/ui/components/button"
 import {
   decodeModelOption,
@@ -27,16 +28,16 @@ import {
   providerConfiguration,
   providerOptions,
 } from "@/lib/provider-options"
+import { getDashboard } from "@/functions/installation"
 import {
   cancelOpenCodeSubscription,
   disconnectOpenCodeConnection,
-  getDashboard,
-  getOpenCodeSubscriptionStatus,
   getOpenCodeSetup,
+  getOpenCodeSubscriptionStatus,
   saveOpenCodeSetup,
   setDefaultModel,
   startOpenCodeSubscription,
-} from "@/lib/workspaces"
+} from "@/functions/provider-connections"
 
 export const Route = createFileRoute("/admin")({
   validateSearch: validateOnboardingSearch,
@@ -147,9 +148,7 @@ function OrganizationSettingsScreen() {
         window.setTimeout(poll, 2_000)
       } catch (cause) {
         if (!active) return
-        setError(
-          cause instanceof Error ? cause.message : "Could not check sign-in"
-        )
+        setError(failureMessage(cause, "Could not check sign-in"))
         setAttempt(null)
         setFlow("openai")
       }
@@ -225,11 +224,7 @@ function OrganizationSettingsScreen() {
         window.location.assign("/projects/new?onboarding=1")
       }
     } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : `${provider.name} could not connect`
-      )
+      setError(failureMessage(cause, `${provider.name} could not connect`))
     } finally {
       setPending(false)
     }
@@ -245,11 +240,7 @@ function OrganizationSettingsScreen() {
       setAttempt(nextAttempt)
       setFlow("subscription")
     } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "Could not start OpenAI sign-in"
-      )
+      setError(failureMessage(cause, "Could not start OpenAI sign-in"))
     } finally {
       setPending(false)
     }
@@ -270,11 +261,7 @@ function OrganizationSettingsScreen() {
         },
       })
     } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "Could not cancel OpenAI sign-in"
-      )
+      setError(failureMessage(cause, "Could not cancel OpenAI sign-in"))
     }
   }
 
@@ -308,11 +295,7 @@ function OrganizationSettingsScreen() {
       setDisconnectCandidate(null)
       await router.invalidate()
     } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "The provider could not be disconnected"
-      )
+      setError(failureMessage(cause, "The provider could not be disconnected"))
     } finally {
       setDisconnectPending(false)
     }
@@ -571,9 +554,10 @@ function OrganizationSettingsScreen() {
                       await router.invalidate()
                     } catch (cause) {
                       setError(
-                        cause instanceof Error
-                          ? cause.message
-                          : "Could not save the Organization default model"
+                        failureMessage(
+                          cause,
+                          "Could not save the Organization default model"
+                        )
                       )
                     } finally {
                       setDefaultPending(false)

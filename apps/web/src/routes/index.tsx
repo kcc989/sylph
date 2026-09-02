@@ -1,5 +1,6 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router"
 import { useServerFn } from "@tanstack/react-start"
+import { failureMessage } from "@workspace/domain"
 import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
@@ -22,11 +23,8 @@ import { authClient } from "@/lib/auth-client"
 import { AppShell, SylphMark } from "@/components/app-shell"
 import { OnboardingGuide } from "@/components/onboarding-guide"
 import { getOnboardingState, validateOnboardingSearch } from "@/lib/onboarding"
-import {
-  getDashboard,
-  getLatestMagicLink,
-  restartWorkspace,
-} from "@/lib/workspaces"
+import { getDashboard, getLatestMagicLink } from "@/functions/installation"
+import { restartWorkspace } from "@/functions/workspaces"
 import { useWorkspaceCreation } from "@/lib/use-workspace-creation"
 
 export const Route = createFileRoute("/")({
@@ -95,9 +93,7 @@ function HomeScreen() {
       await restart({ data: { workspaceId } })
       await router.invalidate()
     } catch (cause) {
-      setMessage(
-        cause instanceof Error ? cause.message : "Workspace restart failed"
-      )
+      setMessage(failureMessage(cause, "Workspace restart failed"))
     } finally {
       setRestartingId(null)
     }

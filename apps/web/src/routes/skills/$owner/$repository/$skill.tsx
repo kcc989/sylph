@@ -1,5 +1,6 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router"
 import { useServerFn } from "@tanstack/react-start"
+import { failureMessage } from "@workspace/domain"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import { Markdown } from "@workspace/ui/components/markdown"
@@ -15,8 +16,8 @@ import {
 import { useState } from "react"
 
 import { AppShell } from "@/components/app-shell"
-import { getSkillReview, installSkill } from "@/lib/skills"
-import { getDashboard } from "@/lib/workspaces"
+import { getSkillReview, installSkill } from "@/functions/skills"
+import { getDashboard } from "@/functions/installation"
 
 export const Route = createFileRoute("/skills/$owner/$repository/$skill")({
   loader: async ({ params }) => {
@@ -63,9 +64,7 @@ function SkillReviewScreen() {
       })
       await router.invalidate()
     } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "Could not install Skill"
-      )
+      setError(failureMessage(cause, "Could not install Skill"))
     } finally {
       setPendingScope(null)
     }

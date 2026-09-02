@@ -199,3 +199,37 @@ export const decodeSyncProjectRepositoryInputPromise =
   Schema.decodeUnknownPromise(SyncProjectRepositoryInput)
 export const decodeSyncProjectRepositoryResultPromise =
   Schema.decodeUnknownPromise(SyncProjectRepositoryResult)
+
+export class WorkspaceVersionControlSnapshot extends Schema.Class<WorkspaceVersionControlSnapshot>(
+  "@sylph/domain/WorkspaceVersionControlSnapshot"
+)({
+  vcs: WorkspaceVersionControl,
+  checkpoints: WorkspaceCheckpointList,
+}) {}
+
+export const decodeWorkspaceVersionControlSnapshot =
+  Schema.decodeUnknownPromise(WorkspaceVersionControlSnapshot)
+export const encodeWorkspaceVersionControlSnapshotSync = Schema.encodeSync(
+  WorkspaceVersionControlSnapshot
+)
+export const encodeWorkspaceCheckpointResultSync = Schema.encodeSync(
+  WorkspaceCheckpointResult
+)
+export const encodeWorkspaceRebaseResultSync = Schema.encodeSync(
+  WorkspaceRebaseResult
+)
+export const encodePrepareProjectRepositoryResultSync = Schema.encodeSync(
+  PrepareProjectRepositoryResult
+)
+export const encodeSyncProjectRepositoryResultSync = Schema.encodeSync(
+  SyncProjectRepositoryResult
+)
+export const encodeWorkspaceCheckpointInputSync = Schema.encodeSync(
+  WorkspaceCheckpointInput
+)
+export const encodePrepareProjectRepositoryInputSync = Schema.encodeSync(
+  PrepareProjectRepositoryInput
+)
+export const encodeSyncProjectRepositoryInputSync = Schema.encodeSync(
+  SyncProjectRepositoryInput
+)
