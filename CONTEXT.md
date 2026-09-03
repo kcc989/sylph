@@ -25,6 +25,10 @@ An Organization member who can work in its Projects and manage their own persona
 **Project**:
 The product a user creates inside an organization. A Project contains one Project Repository and one or more Workspaces.
 
+**Issue**:
+A durable, numbered unit of work inside a Project that describes what should change. An Issue is open or closed.
+_Avoid_: Ticket, task
+
 **Skill**:
 Reusable instructions and supporting resources that guide an Agent. A Skill can allow user slash invocation, model invocation, both, or neither.
 

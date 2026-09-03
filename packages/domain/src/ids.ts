@@ -13,6 +13,9 @@ export const WorkspaceId = Schema.NonEmptyString.pipe(
 )
 export type WorkspaceId = typeof WorkspaceId.Type
 
+export const IssueId = Schema.NonEmptyString.pipe(Schema.brand("IssueId"))
+export type IssueId = typeof IssueId.Type
+
 export const AgentSessionId = Schema.NonEmptyString.pipe(
   Schema.brand("AgentSessionId")
 )

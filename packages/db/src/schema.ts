@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm"
 import {
+  check,
   index,
   integer,
   primaryKey,
@@ -238,6 +239,38 @@ export const templateRepository = sqliteTable(
       table.sourceRef
     ),
     index("template_repository_organization_id_idx").on(table.organizationId),
+  ]
+)
+
+export const issue = sqliteTable(
+  "issue",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => project.id, { onDelete: "cascade" }),
+    number: integer("number").notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull().default(""),
+    status: text("status").notNull().default("open"),
+    createdByUserId: text("created_by_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    closedAt: integer("closed_at", { mode: "timestamp" }),
+    createdAt: timestamp("created_at"),
+    updatedAt: timestamp("updated_at"),
+  },
+  (table) => [
+    check("issue_status_check", sql`${table.status} IN ('open', 'closed')`),
+    uniqueIndex("issue_project_number_unique").on(
+      table.projectId,
+      table.number
+    ),
+    index("issue_organization_id_idx").on(table.organizationId),
+    index("issue_project_id_idx").on(table.projectId),
   ]
 )
 

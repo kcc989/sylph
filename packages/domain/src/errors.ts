@@ -4,6 +4,7 @@ export const AccessDeniedResource = Schema.Literals([
   "installation",
   "organization",
   "project",
+  "issue",
   "workspace",
   "review",
 ])

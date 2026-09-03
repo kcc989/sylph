@@ -3,6 +3,7 @@ import { getRequest } from "@tanstack/react-start/server"
 import {
   AuthenticationRequired,
   ConnectionScope,
+  IssueId,
   OrganizationId,
   ProjectId,
   WorkspaceId,
@@ -11,6 +12,7 @@ import { Schema } from "effect"
 
 import {
   requireConnectionAccess,
+  requireIssue,
   requireOrganizationMembership,
   requireProject,
   requireWorkspace,
@@ -32,6 +34,10 @@ const decodeProjectScope = Schema.decodeUnknownPromise(
 )
 const decodeWorkspaceScope = Schema.decodeUnknownPromise(
   Schema.Struct({ workspaceId: WorkspaceId }),
+  { onExcessProperty: "preserve" }
+)
+const decodeIssueScope = Schema.decodeUnknownPromise(
+  Schema.Struct({ issueId: IssueId }),
   { onExcessProperty: "preserve" }
 )
 
@@ -101,6 +107,18 @@ export const workspaceMember = createMiddleware({ type: "function" })
       context.user.id
     )
     return next({ context: { workspace } })
+  })
+
+export const issueMember = createMiddleware({ type: "function" })
+  .middleware([authenticated])
+  .validator((input) => decodeIssueScope(input))
+  .server(async ({ data, context, next }) => {
+    const issue = await requireIssue(
+      context.database,
+      data.issueId,
+      context.user.id
+    )
+    return next({ context: { issue } })
   })
 
 export const writableWorkspace = createMiddleware({ type: "function" })
