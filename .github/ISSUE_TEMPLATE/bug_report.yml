@@ -1,0 +1,55 @@
+name: Bug report
+description: Something in Sylph does not behave as documented
+labels: ["bug"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Sylph version or commit
+      description: The tag or commit your Installation was deployed from
+      placeholder: v0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where did it happen?
+      options:
+        - Setup wizard (scripts/setup.sh)
+        - Deployment (alchemy deploy or GitHub Actions)
+        - Web app
+        - Workspace runtime or checks
+        - Local development
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Include the exact error text. Redact tokens, secrets, and account IDs.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Run ./scripts/setup.sh
+        2. ...
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I read docs/operators.md, including the troubleshooting section
+          required: true
+        - label: I removed every secret, token, and account ID from this report
+          required: true
