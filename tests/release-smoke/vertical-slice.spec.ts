@@ -32,6 +32,7 @@ test("setup through eviction recovery", async ({ page }, testInfo) => {
 
   await test.step("setup and claim the fresh Installation", async () => {
     await page.goto("/")
+    await page.waitForLoadState("networkidle")
     const magicLink = page.getByRole("button", {
       name: "Send test magic link",
     })
@@ -39,9 +40,11 @@ test("setup through eviction recovery", async ({ page }, testInfo) => {
     if (await magicLink.isVisible()) {
       await page.getByLabel("Email").fill(adminEmail)
       await magicLink.click()
-      await page
-        .getByRole("link", { name: "Open local test magic link" })
-        .click()
+      const localMagicLink = page.getByRole("link", {
+        name: "Open local test magic link",
+      })
+      await expect(localMagicLink).toBeVisible()
+      await localMagicLink.click()
       await page.waitForURL(
         (url) => url.origin === new URL(baseURL).origin && url.pathname === "/"
       )
