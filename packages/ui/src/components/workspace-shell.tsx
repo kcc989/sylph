@@ -829,6 +829,7 @@ function WorkspaceTopbar({
           <Terminal /> <span className="hidden lg:inline">Terminal</span>
         </Button>
         <Button
+          aria-label="Checkpoint"
           size="sm"
           variant="outline"
           disabled={checkpointDisabled || checkpointPending}
@@ -842,6 +843,7 @@ function WorkspaceTopbar({
           <span className="hidden xl:inline">Checkpoint</span>
         </Button>
         <Button
+          aria-label="Accept"
           size="sm"
           disabled={acceptDisabled || acceptPending}
           onClick={() => void onAccept?.()}

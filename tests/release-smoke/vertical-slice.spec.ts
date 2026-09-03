@@ -27,6 +27,22 @@ const authenticationState = resolve(
 const proofFile = "RELEASE_SMOKE_PROOF.txt"
 const proofMarker = `sylph-release-smoke-${Date.now()}`
 
+const finishWorkspaceTurn = async (
+  page: Parameters<typeof test>[0]["page"]
+) => {
+  await expect(page.getByText("Agent working", { exact: true })).toBeVisible()
+  await expect
+    .poll(
+      async () => {
+        const permission = page.getByRole("button", { name: "Allow once" })
+        if ((await permission.count()) > 0) await permission.first().click()
+        return page.getByText("Agent working", { exact: true }).count()
+      },
+      { timeout: 5 * 60 * 1000 }
+    )
+    .toBe(0)
+}
+
 test("setup through eviction recovery", async ({ page }, testInfo) => {
   testInfo.annotations.push({ type: "baseURL", description: baseURL })
 
@@ -101,35 +117,35 @@ test("setup through eviction recovery", async ({ page }, testInfo) => {
       .click()
   })
 
-  await test.step("prompt, approve the mutation, and verify its result", async () => {
+  await test.step("build a deployable proof project", async () => {
     await page
       .getByRole("textbox", { name: "Message the agent" })
       .fill(
-        `Create ${proofFile} containing exactly: ${proofMarker}. Do not change any other files.`
+        `Build a minimal Cloudflare Worker project. Create ${proofFile} containing exactly ${proofMarker}. The root response must contain that marker plus SYLPH_CHECKPOINT=<the deployed checkpoint> and SYLPH_DEPLOYMENT=<preview or production>. Add meaningful typecheck, lint, test, build, sylph:preview, and sylph:deploy package scripts, source, tests, TypeScript configuration, and Wrangler configuration. The preview script must deploy a checkpoint-specific Worker, pass SYLPH_CHECKPOINT and SYLPH_DEPLOYMENT as Worker vars, wait until the URL returns the exact values, then print SYLPH_PREVIEW_URL. The production script must print SYLPH_PRODUCTION_URL. Do not run a Check.`
       )
     await page.getByRole("button", { name: "Send message" }).click()
-    const permission = page.getByRole("heading", {
-      name: "Permission requested",
-    })
-    await expect(permission).toBeVisible()
-    await expect(permission.locator("..")).toContainText(proofFile)
-    await page.getByRole("button", { name: "Allow once" }).click()
-    await expect(page.getByRole("log")).toContainText(proofMarker, {
-      timeout: 3 * 60 * 1000,
-    })
+    await finishWorkspaceTurn(page)
   })
 
-  await test.step("checkpoint the Workspace", async () => {
+  await test.step("checkpoint and verify the Workspace", async () => {
     const checkpoint = page.getByRole("button", { name: "Checkpoint" })
     await expect(checkpoint).toBeEnabled()
     await checkpoint.click()
+    const checks = page.getByRole("tabpanel", { name: "Checks" })
+    await expect(checks).toContainText("Evidence captured", {
+      timeout: 10 * 60 * 1000,
+    })
+    await expect(checks.getByText("passed", { exact: true })).toHaveCount(7)
+    await page.getByRole("button", { name: "Open tool tab" }).click()
+    await page.getByRole("menuitem", { name: "Review" }).click()
+    await page.getByRole("button", { name: "Approve", exact: true }).click()
+    await page.reload()
+    await expect(page.getByRole("button", { name: "Accept" })).toBeEnabled()
   })
 
   await test.step("evict, restart, and recover the durable Workspace", async () => {
-    await page.getByRole("link", { name: projectName }).click()
-    await page
-      .getByRole("button", { name: "More workspace actions" })
-      .press("ArrowDown")
+    const articleCount = await page.locator("article").count()
+    await page.getByRole("button", { name: "More workspace actions" }).click()
     await page.getByRole("menuitem", { name: "Restart runtime" }).click()
     await expect(
       page.getByRole("textbox", { name: "Message the agent" })
@@ -142,9 +158,12 @@ test("setup through eviction recovery", async ({ page }, testInfo) => {
         `Read ${proofFile} and reply with its exact contents. Do not change any files.`
       )
     await page.getByRole("button", { name: "Send message" }).click()
-    await expect(page.getByRole("log")).toContainText(proofMarker, {
-      timeout: 3 * 60 * 1000,
-    })
+    await expect
+      .poll(() => page.locator("article").count(), {
+        timeout: 3 * 60 * 1000,
+      })
+      .toBeGreaterThan(articleCount + 1)
+    await expect(page.locator("article").last()).toContainText(proofMarker)
   })
 
   await test.step("accept and archive the Workspace", async () => {
