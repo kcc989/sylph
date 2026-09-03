@@ -17,6 +17,7 @@ import {
   CircleAlert,
   CircleDot,
   CircleHelp,
+  FileText,
   House,
   LoaderCircle,
   LogOut,
@@ -36,6 +37,8 @@ import {
 } from "react-resizable-panels"
 
 import { authClient } from "@/lib/auth-client"
+import { CommandPalette } from "@/components/command-palette"
+import { navigationStorage } from "@/lib/navigation-storage"
 import { useWorkspaceCreation } from "@/lib/use-workspace-creation"
 
 type Organization = {
@@ -58,7 +61,7 @@ type Workspace = {
   status: string
 }
 
-type AppShellDashboard = {
+export type AppShellDashboard = {
   installation: { canAdminister: boolean }
   organizations: ReadonlyArray<Organization>
   projects: ReadonlyArray<Project>
@@ -71,23 +74,6 @@ type AppShellProps = {
   children: ReactNode
   dashboard: AppShellDashboard
   topbar?: ReactNode
-}
-
-const navigationStorage = {
-  getItem: (name: string) => {
-    try {
-      return window.localStorage.getItem(name)
-    } catch {
-      return null
-    }
-  },
-  setItem: (name: string, value: string) => {
-    try {
-      window.localStorage.setItem(name, value)
-    } catch {
-      return
-    }
-  },
 }
 
 export function SylphMark({ className }: { className?: string }) {
@@ -121,9 +107,11 @@ export function SylphMark({ className }: { className?: string }) {
 function ProductRail({
   active,
   canAdminister,
+  onOpenSearch,
 }: {
   active: AppShellProps["active"]
   canAdminister: boolean
+  onOpenSearch: () => void
 }) {
   const router = useRouter()
   const tools = [
@@ -134,7 +122,7 @@ function ProductRail({
       href: "/skills",
       selected: active === "skills",
     },
-    { label: "Search", icon: Search },
+    { label: "Search", icon: Search, onClick: onOpenSearch },
     ...(canAdminister
       ? [
           {
@@ -160,7 +148,7 @@ function ProductRail({
         <SylphMark className="size-4" />
       </Link>
       <nav className="grid gap-1" aria-label="Product tools">
-        {tools.map(({ label, icon: Icon, href, selected }) =>
+        {tools.map(({ label, icon: Icon, href, selected, onClick }) =>
           href ? (
             <Button
               key={label}
@@ -168,6 +156,7 @@ function ProductRail({
               aria-label={label}
               size="icon-sm"
               variant="ghost"
+              onClick={onClick}
               className={cn(selected && "bg-white/[.07] text-foreground")}
               render={<a href={href} />}
             >
@@ -179,6 +168,7 @@ function ProductRail({
               aria-label={label}
               size="icon-sm"
               variant="ghost"
+              onClick={onClick}
             >
               <Icon />
             </Button>
@@ -349,6 +339,13 @@ function ProjectNavigation({
                       ) : null}
                       <DropdownMenuItem
                         onClick={() =>
+                          window.location.assign(`${basePath}/issues`)
+                        }
+                      >
+                        <FileText /> Issues
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() =>
                           window.location.assign(`${basePath}/settings`)
                         }
                       >
@@ -461,82 +458,87 @@ export function AppShell({
   }, [collapsed, navigationInitiallyCollapsed, navigationVisibilityStorageKey])
 
   return (
-    <div className="flex h-svh overflow-hidden bg-background text-foreground">
-      <ProductRail
-        active={active}
-        canAdminister={dashboard.installation.canAdminister}
-      />
-      <ResizablePanelGroup
-        className="min-w-0 flex-1 max-md:[&>#project-navigation]:hidden max-md:[&>#project-navigation-handle]:hidden"
-        defaultLayout={navigationLayout.defaultLayout}
-        id="app-shell-navigation"
-        onLayoutChanged={navigationLayout.onLayoutChanged}
-        orientation="horizontal"
-      >
-        <ResizablePanel
-          collapsedSize={0}
-          collapsible
-          defaultSize={navigationInitiallyCollapsed ? 0 : "268px"}
-          groupResizeBehavior="preserve-pixel-size"
-          id="project-navigation"
-          maxSize="420px"
-          minSize="180px"
-          onResize={({ inPixels }) => setCollapsed(inPixels <= 1)}
-          panelRef={navigationRef}
-        >
-          <ProjectNavigation dashboard={dashboard} onClose={collapse} />
-        </ResizablePanel>
-        <ResizableHandle
-          aria-label="Resize project navigation"
-          className={cn(
-            "hidden transition-colors hover:bg-[var(--sylph-coral)]/50 md:flex",
-            collapsed && "md:hidden"
-          )}
-          id="project-navigation-handle"
-        />
-        <ResizablePanel
-          className="max-md:fixed! max-md:inset-0! max-md:w-auto! max-md:max-w-none! max-md:min-w-0! max-md:basis-auto!"
-          id="workspace-area"
-          minSize="480px"
-        >
-          <div className="size-full min-w-0 overflow-auto">
-            <header className="flex h-12 items-center gap-2 border-b px-3 sm:px-4">
-              <Button
-                aria-label="Open navigation"
-                size="icon-sm"
-                variant="ghost"
-                className={cn(!collapsed && "md:hidden")}
-                onClick={() => {
-                  if (window.matchMedia("(min-width: 768px)").matches) {
-                    expand()
-                    return
-                  }
-                  setMobileOpen(true)
-                }}
-              >
-                <PanelLeftOpen />
-              </Button>
-              <div className="min-w-0 flex-1">{topbar}</div>
-            </header>
-            <main>{children}</main>
-          </div>
-        </ResizablePanel>
-      </ResizablePanelGroup>
-      {mobileOpen ? (
-        <div className="fixed inset-0 z-50 flex bg-black/55 md:hidden">
-          <ProjectNavigation
-            dashboard={dashboard}
-            mobile
-            onClose={() => setMobileOpen(false)}
+    <CommandPalette dashboard={dashboard}>
+      {({ openSearch }) => (
+        <div className="flex h-svh overflow-hidden bg-background text-foreground">
+          <ProductRail
+            active={active}
+            canAdminister={dashboard.installation.canAdminister}
+            onOpenSearch={openSearch}
           />
-          <button
-            type="button"
-            className="flex-1"
-            aria-label="Close navigation"
-            onClick={() => setMobileOpen(false)}
-          />
+          <ResizablePanelGroup
+            className="min-w-0 flex-1 max-md:[&>#project-navigation]:hidden max-md:[&>#project-navigation-handle]:hidden"
+            defaultLayout={navigationLayout.defaultLayout}
+            id="app-shell-navigation"
+            onLayoutChanged={navigationLayout.onLayoutChanged}
+            orientation="horizontal"
+          >
+            <ResizablePanel
+              collapsedSize={0}
+              collapsible
+              defaultSize={navigationInitiallyCollapsed ? 0 : "268px"}
+              groupResizeBehavior="preserve-pixel-size"
+              id="project-navigation"
+              maxSize="420px"
+              minSize="180px"
+              onResize={({ inPixels }) => setCollapsed(inPixels <= 1)}
+              panelRef={navigationRef}
+            >
+              <ProjectNavigation dashboard={dashboard} onClose={collapse} />
+            </ResizablePanel>
+            <ResizableHandle
+              aria-label="Resize project navigation"
+              className={cn(
+                "hidden transition-colors hover:bg-[var(--sylph-coral)]/50 md:flex",
+                collapsed && "md:hidden"
+              )}
+              id="project-navigation-handle"
+            />
+            <ResizablePanel
+              className="max-md:fixed! max-md:inset-0! max-md:w-auto! max-md:max-w-none! max-md:min-w-0! max-md:basis-auto!"
+              id="workspace-area"
+              minSize="480px"
+            >
+              <div className="size-full min-w-0 overflow-auto">
+                <header className="flex h-12 items-center gap-2 border-b px-3 sm:px-4">
+                  <Button
+                    aria-label="Open navigation"
+                    size="icon-sm"
+                    variant="ghost"
+                    className={cn(!collapsed && "md:hidden")}
+                    onClick={() => {
+                      if (window.matchMedia("(min-width: 768px)").matches) {
+                        expand()
+                        return
+                      }
+                      setMobileOpen(true)
+                    }}
+                  >
+                    <PanelLeftOpen />
+                  </Button>
+                  <div className="min-w-0 flex-1">{topbar}</div>
+                </header>
+                <main>{children}</main>
+              </div>
+            </ResizablePanel>
+          </ResizablePanelGroup>
+          {mobileOpen ? (
+            <div className="fixed inset-0 z-50 flex bg-black/55 md:hidden">
+              <ProjectNavigation
+                dashboard={dashboard}
+                mobile
+                onClose={() => setMobileOpen(false)}
+              />
+              <button
+                type="button"
+                className="flex-1"
+                aria-label="Close navigation"
+                onClick={() => setMobileOpen(false)}
+              />
+            </div>
+          ) : null}
         </div>
-      ) : null}
-    </div>
+      )}
+    </CommandPalette>
   )
 }

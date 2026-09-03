@@ -19,6 +19,8 @@ import { Route as SkillsIndexRouteImport } from './routes/skills/index'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiWorkspacesWorkspaceIdRouteImport } from './routes/api/workspaces/$workspaceId'
 import { Route as ProjectsProjectSlugSettingsRouteImport } from './routes/projects/$projectSlug/settings'
+import { Route as ProjectsProjectSlugIssuesIndexRouteImport } from './routes/projects/$projectSlug/issues/index'
+import { Route as ProjectsProjectSlugIssuesIssueNumberRouteImport } from './routes/projects/$projectSlug/issues/$issueNumber'
 import { Route as ProjectsProjectSlugWorkspacesWorkspaceIdRouteImport } from './routes/projects/$projectSlug/workspaces/$workspaceId'
 import { Route as ProjectsProjectSlugWorkspacesNewRouteImport } from './routes/projects/$projectSlug/workspaces/new'
 import { Route as SkillsOwnerRepositorySkillRouteImport } from './routes/skills/$owner/$repository/$skill'
@@ -76,6 +78,18 @@ const ProjectsProjectSlugSettingsRoute =
     path: '/projects/$projectSlug/settings',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ProjectsProjectSlugIssuesIndexRoute =
+  ProjectsProjectSlugIssuesIndexRouteImport.update({
+    id: '/projects/$projectSlug/issues/',
+    path: '/projects/$projectSlug/issues/',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ProjectsProjectSlugIssuesIssueNumberRoute =
+  ProjectsProjectSlugIssuesIssueNumberRouteImport.update({
+    id: '/projects/$projectSlug/issues/$issueNumber',
+    path: '/projects/$projectSlug/issues/$issueNumber',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ProjectsProjectSlugWorkspacesWorkspaceIdRoute =
   ProjectsProjectSlugWorkspacesWorkspaceIdRouteImport.update({
     id: '/projects/$projectSlug/workspaces/$workspaceId',
@@ -112,9 +126,11 @@ export interface FileRoutesByFullPath {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/workspaces/$workspaceId': typeof ApiWorkspacesWorkspaceIdRouteWithChildren
   '/projects/$projectSlug/settings': typeof ProjectsProjectSlugSettingsRoute
+  '/projects/$projectSlug/issues/$issueNumber': typeof ProjectsProjectSlugIssuesIssueNumberRoute
   '/projects/$projectSlug/workspaces/$workspaceId': typeof ProjectsProjectSlugWorkspacesWorkspaceIdRoute
   '/projects/$projectSlug/workspaces/new': typeof ProjectsProjectSlugWorkspacesNewRoute
   '/skills/$owner/$repository/$skill': typeof SkillsOwnerRepositorySkillRoute
+  '/projects/$projectSlug/issues/': typeof ProjectsProjectSlugIssuesIndexRoute
   '/api/workspaces/$workspaceId/evidence/$evidenceId': typeof ApiWorkspacesWorkspaceIdEvidenceEvidenceIdRoute
 }
 export interface FileRoutesByTo {
@@ -128,9 +144,11 @@ export interface FileRoutesByTo {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/workspaces/$workspaceId': typeof ApiWorkspacesWorkspaceIdRouteWithChildren
   '/projects/$projectSlug/settings': typeof ProjectsProjectSlugSettingsRoute
+  '/projects/$projectSlug/issues/$issueNumber': typeof ProjectsProjectSlugIssuesIssueNumberRoute
   '/projects/$projectSlug/workspaces/$workspaceId': typeof ProjectsProjectSlugWorkspacesWorkspaceIdRoute
   '/projects/$projectSlug/workspaces/new': typeof ProjectsProjectSlugWorkspacesNewRoute
   '/skills/$owner/$repository/$skill': typeof SkillsOwnerRepositorySkillRoute
+  '/projects/$projectSlug/issues': typeof ProjectsProjectSlugIssuesIndexRoute
   '/api/workspaces/$workspaceId/evidence/$evidenceId': typeof ApiWorkspacesWorkspaceIdEvidenceEvidenceIdRoute
 }
 export interface FileRoutesById {
@@ -145,9 +163,11 @@ export interface FileRoutesById {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/workspaces/$workspaceId': typeof ApiWorkspacesWorkspaceIdRouteWithChildren
   '/projects/$projectSlug/settings': typeof ProjectsProjectSlugSettingsRoute
+  '/projects/$projectSlug/issues/$issueNumber': typeof ProjectsProjectSlugIssuesIssueNumberRoute
   '/projects/$projectSlug/workspaces/$workspaceId': typeof ProjectsProjectSlugWorkspacesWorkspaceIdRoute
   '/projects/$projectSlug/workspaces/new': typeof ProjectsProjectSlugWorkspacesNewRoute
   '/skills/$owner/$repository/$skill': typeof SkillsOwnerRepositorySkillRoute
+  '/projects/$projectSlug/issues/': typeof ProjectsProjectSlugIssuesIndexRoute
   '/api/workspaces/$workspaceId/evidence/$evidenceId': typeof ApiWorkspacesWorkspaceIdEvidenceEvidenceIdRoute
 }
 export interface FileRouteTypes {
@@ -163,9 +183,11 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/workspaces/$workspaceId'
     | '/projects/$projectSlug/settings'
+    | '/projects/$projectSlug/issues/$issueNumber'
     | '/projects/$projectSlug/workspaces/$workspaceId'
     | '/projects/$projectSlug/workspaces/new'
     | '/skills/$owner/$repository/$skill'
+    | '/projects/$projectSlug/issues/'
     | '/api/workspaces/$workspaceId/evidence/$evidenceId'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -179,9 +201,11 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/workspaces/$workspaceId'
     | '/projects/$projectSlug/settings'
+    | '/projects/$projectSlug/issues/$issueNumber'
     | '/projects/$projectSlug/workspaces/$workspaceId'
     | '/projects/$projectSlug/workspaces/new'
     | '/skills/$owner/$repository/$skill'
+    | '/projects/$projectSlug/issues'
     | '/api/workspaces/$workspaceId/evidence/$evidenceId'
   id:
     | '__root__'
@@ -195,9 +219,11 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/workspaces/$workspaceId'
     | '/projects/$projectSlug/settings'
+    | '/projects/$projectSlug/issues/$issueNumber'
     | '/projects/$projectSlug/workspaces/$workspaceId'
     | '/projects/$projectSlug/workspaces/new'
     | '/skills/$owner/$repository/$skill'
+    | '/projects/$projectSlug/issues/'
     | '/api/workspaces/$workspaceId/evidence/$evidenceId'
   fileRoutesById: FileRoutesById
 }
@@ -212,9 +238,11 @@ export interface RootRouteChildren {
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiWorkspacesWorkspaceIdRoute: typeof ApiWorkspacesWorkspaceIdRouteWithChildren
   ProjectsProjectSlugSettingsRoute: typeof ProjectsProjectSlugSettingsRoute
+  ProjectsProjectSlugIssuesIssueNumberRoute: typeof ProjectsProjectSlugIssuesIssueNumberRoute
   ProjectsProjectSlugWorkspacesWorkspaceIdRoute: typeof ProjectsProjectSlugWorkspacesWorkspaceIdRoute
   ProjectsProjectSlugWorkspacesNewRoute: typeof ProjectsProjectSlugWorkspacesNewRoute
   SkillsOwnerRepositorySkillRoute: typeof SkillsOwnerRepositorySkillRoute
+  ProjectsProjectSlugIssuesIndexRoute: typeof ProjectsProjectSlugIssuesIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -289,6 +317,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjectsProjectSlugSettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/projects/$projectSlug/issues/': {
+      id: '/projects/$projectSlug/issues/'
+      path: '/projects/$projectSlug/issues'
+      fullPath: '/projects/$projectSlug/issues/'
+      preLoaderRoute: typeof ProjectsProjectSlugIssuesIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/projects/$projectSlug/issues/$issueNumber': {
+      id: '/projects/$projectSlug/issues/$issueNumber'
+      path: '/projects/$projectSlug/issues/$issueNumber'
+      fullPath: '/projects/$projectSlug/issues/$issueNumber'
+      preLoaderRoute: typeof ProjectsProjectSlugIssuesIssueNumberRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/projects/$projectSlug/workspaces/$workspaceId': {
       id: '/projects/$projectSlug/workspaces/$workspaceId'
       path: '/projects/$projectSlug/workspaces/$workspaceId'
@@ -346,10 +388,13 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiWorkspacesWorkspaceIdRoute: ApiWorkspacesWorkspaceIdRouteWithChildren,
   ProjectsProjectSlugSettingsRoute: ProjectsProjectSlugSettingsRoute,
+  ProjectsProjectSlugIssuesIssueNumberRoute:
+    ProjectsProjectSlugIssuesIssueNumberRoute,
   ProjectsProjectSlugWorkspacesWorkspaceIdRoute:
     ProjectsProjectSlugWorkspacesWorkspaceIdRoute,
   ProjectsProjectSlugWorkspacesNewRoute: ProjectsProjectSlugWorkspacesNewRoute,
   SkillsOwnerRepositorySkillRoute: SkillsOwnerRepositorySkillRoute,
+  ProjectsProjectSlugIssuesIndexRoute: ProjectsProjectSlugIssuesIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
