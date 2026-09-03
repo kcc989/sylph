@@ -8,6 +8,7 @@ import {
   WorkspaceReadOnly,
   WorkspaceRuntimeFailure,
   WorkspaceTurnCancelInput,
+  WorkspaceReadFileInput,
 } from "@workspace/domain"
 
 import {
@@ -27,6 +28,7 @@ const stub = (
   initialize: unreachable,
   checkpoint: unreachable,
   listChecks: unreachable,
+  readFile: unreachable,
   applyCheckUpdate: unreachable,
   archive: unreachable,
   retryCheck: unreachable,
@@ -84,6 +86,32 @@ describe("Workspace runtime client", () => {
     expect(result.checkpoint.commit).toBe(commit)
     expect(result.replayed).toBe(false)
     expect(await runtime.versionControl(true)).toBeNull()
+  })
+
+  test("encodes file input and decodes file content", async () => {
+    const received: string[] = []
+    const runtime = makeWorkspaceRuntime(
+      stub({
+        readFile: async (input) => {
+          received.push(`${input.workspaceId}:${input.path}`)
+          return {
+            path: input.path,
+            size: 12,
+            updatedAt: 25,
+            encoding: "utf8",
+            content: "hello world\n",
+          }
+        },
+      })
+    )
+
+    const result = await runtime.readFile(
+      new WorkspaceReadFileInput({ workspaceId, path: "src/index.ts" })
+    )
+
+    expect(received).toEqual(["workspace-1:src/index.ts"])
+    expect(result.path).toBe("src/index.ts")
+    expect(result.content).toBe("hello world\n")
   })
 
   test("restores a tagged failure that crossed the hop as a message", async () => {

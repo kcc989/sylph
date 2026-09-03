@@ -8,6 +8,8 @@ const WorkspaceToolTabKindSchema = z.enum([
   "checks",
   "review",
   "terminal",
+  "files",
+  "deployments",
 ])
 
 const WorkspaceToolTabSchema = z.object({

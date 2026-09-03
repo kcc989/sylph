@@ -34,6 +34,25 @@ describe("workspace tool state", () => {
     expect(readWorkspaceToolState(localStorage, "workspace-b")).toBeNull()
   })
 
+  test("restores Files and Deployments tabs", () => {
+    const localStorage = storage()
+    const toolState: WorkspaceToolState = {
+      tabs: [
+        { id: "files", kind: "files", label: "Files" },
+        { id: "deployments", kind: "deployments", label: "Deployments" },
+      ],
+      activeTabId: "deployments",
+      toolPaneOpen: true,
+      toolPaneSize: 50,
+    }
+
+    writeWorkspaceToolState(localStorage, "workspace-a", toolState, 1)
+
+    expect(readWorkspaceToolState(localStorage, "workspace-a")).toEqual(
+      toolState
+    )
+  })
+
   test("replaces the current workspace record", () => {
     const localStorage = storage()
 

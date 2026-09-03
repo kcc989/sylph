@@ -30,6 +30,7 @@ import {
   WorkspaceReview,
   WorkspaceSyncInput,
   WorkspaceVersionControl,
+  WorkspaceReadFileInput,
 } from "@workspace/domain"
 import { env, waitUntil } from "cloudflare:workers"
 import { count, eq } from "drizzle-orm"
@@ -96,6 +97,9 @@ const decodeWorkspaceRequestInputPromise = Schema.decodeUnknownPromise(
 )
 const decodeWorkspaceRetryCheckInputPromise = Schema.decodeUnknownPromise(
   WorkspaceRetryCheckInput
+)
+const decodeWorkspaceReadFileInputPromise = Schema.decodeUnknownPromise(
+  WorkspaceReadFileInput
 )
 const decodeWorkspaceSyncInputPromise =
   Schema.decodeUnknownPromise(WorkspaceSyncInput)
@@ -269,6 +273,7 @@ export const getWorkspace = createServerFn({ method: "GET" })
         syncStatus: schema.workspace.syncStatus,
         mergeStatus: schema.workspace.mergeStatus,
         errorSummary: schema.workspace.errorSummary,
+        acceptedCommit: schema.workspace.acceptedCommit,
       })
       .from(schema.workspace)
       .innerJoin(
@@ -403,6 +408,20 @@ export const getWorkspace = createServerFn({ method: "GET" })
         : null,
       modelNotice: connection?.notice ?? null,
       skills: skills.map(serializeInstalledSkill),
+    }
+  })
+
+export const readWorkspaceFile = createServerFn({ method: "GET" })
+  .middleware([workspaceMember])
+  .validator((input) => decodeWorkspaceReadFileInputPromise(input))
+  .handler(async ({ data }) => {
+    const file = await workspaceRuntime(data.workspaceId).readFile(data)
+    return {
+      path: file.path,
+      size: file.size,
+      updatedAt: file.updatedAt,
+      encoding: file.encoding,
+      content: file.content,
     }
   })
 

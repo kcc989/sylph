@@ -200,7 +200,7 @@ export const workspaceSystemPrompt = [
   "Use workspace_checkpoint to commit the Working copy to the Workspace fork without running CI, and workspace_diff to review uncommitted or Checkpoint changes against the Project Repository base.",
   "Use workspace_run_checks after a coherent change; Sylph delivers the Check result to this Conversation when Cloudflare CI finishes, so do not poll workspace_check_status in a loop. Use workspace_check_status for diagnostics, Preview state, and browser evidence.",
   "Use workspace_preview to find or build the Preview of the current Checkpoint, then workspace_browser to open the Preview in a Cloudflare browser, read its rendered content and accessibility tree, and capture screenshot evidence. The browser is limited to the Preview origin.",
-  "Use workspace_request_merge to report whether the Workspace fork is ready for Acceptance; a User performs the merge from the Review tab. Use workspace_production to read production Deployment history; an Admin must confirm production deploys from Project settings, and you cannot deploy.",
+  "Use workspace_request_merge to report whether the Workspace fork is ready for Acceptance; a User performs the merge from the Review tab. Use workspace_production to read production Deployment history; an Admin must confirm production deploys from the Deployments tab or Project settings, and you cannot deploy.",
   "Use workspace_sync_project when the Project Repository advances.",
   "Shell, PTY, and local filesystem tools are unavailable in Workerd; Cloudflare CI performs install, typecheck, lint, test, build, preview, browser verification, and deployment.",
 ].join(" ")
@@ -404,7 +404,7 @@ export const createWorkspacePlugin = (
         draft.add({
           name: "workspace_production",
           description:
-            "Read the Project's Accepted commits and production Deployment history. Production deploys require Admin confirmation in Project settings and cannot be started by the agent.",
+            "Read the Project's Accepted commits and production Deployment history. Production deploys require Admin confirmation in the Deployments tab or Project settings and cannot be started by the agent.",
           input: WorkspaceProductionToolJsonSchema,
           options: workspaceToolOptions,
           async execute(input) {

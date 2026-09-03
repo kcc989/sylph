@@ -12,6 +12,7 @@ import {
   resolveSkillInvocation,
   type WorkspacePresenceUser,
   type WorkspacePermissionReply,
+  WorkspaceId,
 } from "@workspace/domain"
 import { useServerFn } from "@tanstack/react-start"
 import { Button } from "@workspace/ui/components/button"
@@ -23,12 +24,20 @@ import {
   type WorkspaceQuestionValue,
   WorkspaceShell,
 } from "@workspace/ui/components/workspace-shell"
-import { isWorkspaceCommandPending } from "@workspace/ui/lib/workspace-commands"
+import {
+  isWorkspaceCommandPending,
+  pendingWorkspaceCommandTarget,
+  workspaceCommandErrorMessage,
+} from "@workspace/ui/lib/workspace-commands"
 import { useCallback, useEffect, useRef, useState } from "react"
 
 import { CommandPalette } from "@/components/command-palette"
 import { validateOnboardingSearch } from "@/lib/onboarding"
 import { getDashboard } from "@/functions/installation"
+import {
+  deployProjectCommit,
+  getProjectDeployments,
+} from "@/functions/projects"
 import {
   addWorkspaceReviewComment,
   resolveWorkspaceReviewComment,
@@ -45,6 +54,7 @@ import {
   promptWorkspace,
   rebaseWorkspace,
   repairWorkspaceCheck,
+  readWorkspaceFile,
   restartWorkspace,
   retryWorkspaceCheck,
   syncWorkspaceProject,
@@ -65,8 +75,12 @@ export const Route = createFileRoute(
   validateSearch: validateOnboardingSearch,
   staleTime: 30_000,
   loader: async ({ params }) => {
-    const [dashboard, result] = await Promise.all([
-      getDashboard(),
+    const dashboard = await getDashboard()
+    const project = dashboard.projects.find(
+      (candidate) => candidate.slug === params.projectSlug
+    )
+    if (!project) throw notFound()
+    const [result, deployments] = await Promise.all([
       getWorkspace({
         data: { workspaceId: params.workspaceId },
       }).catch((cause) => {
@@ -75,9 +89,10 @@ export const Route = createFileRoute(
         }
         throw cause
       }),
+      getProjectDeployments({ data: { projectId: project.id } }),
     ])
     if (result.workspace.projectSlug !== params.projectSlug) throw notFound()
-    return { dashboard, result }
+    return { dashboard, deployments, result }
   },
   component: WorkspaceScreen,
   errorComponent: WorkspaceLoadError,
@@ -156,7 +171,7 @@ function WorkspaceLoadError({ error, reset }: ErrorComponentProps) {
 function WorkspaceScreen() {
   const { workspaceId } = Route.useParams()
   const { onboarding } = Route.useSearch()
-  const { dashboard, result } = Route.useLoaderData()
+  const { dashboard, deployments, result } = Route.useLoaderData()
   const router = useRouter()
   const prompt = useServerFn(promptWorkspace)
   const cancelTurn = useServerFn(cancelWorkspaceTurn)
@@ -173,6 +188,8 @@ function WorkspaceScreen() {
   const resolveReviewComment = useServerFn(resolveWorkspaceReviewComment)
   const syncProject = useServerFn(syncWorkspaceProject)
   const submitReview = useServerFn(submitWorkspaceReview)
+  const readFile = useServerFn(readWorkspaceFile)
+  const deployCommit = useServerFn(deployProjectCommit)
   const refresh = useCallback(() => router.invalidate(), [router])
   const commands = useWorkspaceCommands(refresh)
   const checkActionPending = isWorkspaceCommandPending(
@@ -183,6 +200,7 @@ function WorkspaceScreen() {
   const [acceptKey, setAcceptKey] = useState(() => crypto.randomUUID())
   const [retryKey, setRetryKey] = useState(() => crypto.randomUUID())
   const [repairKey, setRepairKey] = useState(() => crypto.randomUUID())
+  const [deployKey, setDeployKey] = useState(() => crypto.randomUUID())
   const [liveState, setLiveState] = useState(emptyWorkspaceLiveState)
   const liveStateRef = useRef(liveState)
   const [presence, setPresence] = useState<
@@ -273,6 +291,30 @@ function WorkspaceScreen() {
   ])
 
   const { runtime, workspace } = result
+  const readWorkspaceFileContent = useCallback(
+    async (path: string) => {
+      try {
+        return await readFile({
+          data: {
+            workspaceId: WorkspaceId.make(workspaceId),
+            path,
+          },
+        })
+      } catch (cause) {
+        if (failureTag(cause) === "WorkspaceFileNotFound") {
+          return {
+            path,
+            size: 0,
+            updatedAt: Date.now(),
+            encoding: "missing" as const,
+            content: null,
+          }
+        }
+        throw cause
+      }
+    },
+    [readFile, workspaceId]
+  )
   const matchedSkill = (text: string) => {
     const invocation = resolveSkillInvocation(text, result.skills)
     if (!invocation) return undefined
@@ -536,6 +578,35 @@ function WorkspaceScreen() {
           }}
           changedFileCount={workingChanges.length}
           checkpointHistory={result.checkpoints}
+          files={runtime.files}
+          fileChanges={workingChanges}
+          onReadFile={readWorkspaceFileContent}
+          deployments={deployments}
+          acceptedCommit={workspace.acceptedCommit}
+          deployPending={pendingWorkspaceCommandTarget(
+            commands.pending,
+            "deploy"
+          )}
+          deployError={workspaceCommandErrorMessage(commands.error, "deploy")}
+          onDeploy={async (commit) => {
+            const started = await commands.run(
+              "deploy",
+              async () => {
+                await deployCommit({
+                  data: {
+                    projectId: workspace.projectId,
+                    commit,
+                    confirmedCommit: commit,
+                    idempotencyKey: deployKey,
+                  },
+                })
+                setDeployKey(crypto.randomUUID())
+              },
+              "Deployment could not start",
+              { target: commit }
+            )
+            if (!started) throw new Error("Deployment could not start")
+          }}
           review={result.review}
           reviewPatch={result.versionControl.branch
             .map((change) => change.patch)
