@@ -5,7 +5,51 @@ import {
   OpenCodeCredentialReloadRequired,
 } from "./opencode-key-credential"
 
+const refreshedCatalog = () => ({
+  subscribe: async function* () {
+    yield { type: "server.connected" }
+    yield { type: "catalog.updated" }
+  },
+})
+
 describe("OpenCode key credential installation", () => {
+  test("waits for the refreshed catalog before completing connection", async () => {
+    const connected = Promise.withResolvers<IteratorResult<{ type: string }>>()
+    const catalogUpdated =
+      Promise.withResolvers<IteratorResult<{ type: string }>>()
+    const events = [connected.promise, catalogUpdated.promise]
+    let eventIndex = 0
+    let completed = false
+
+    const connection = connectOpenCodeKeyCredential(
+      {
+        credential: { remove: async () => undefined },
+        events: {
+          subscribe: () => ({
+            [Symbol.asyncIterator]: () => ({
+              next: () => events[eventIndex++]!,
+            }),
+          }),
+        },
+        integration: {
+          connect: { key: async () => undefined },
+          get: async () => ({ data: { connections: [] } }),
+        },
+      },
+      { providerId: "openrouter", key: "fresh-key" }
+    ).then(() => {
+      completed = true
+    })
+
+    connected.resolve({ done: false, value: { type: "server.connected" } })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(completed).toBe(false)
+
+    catalogUpdated.resolve({ done: false, value: { type: "catalog.updated" } })
+    await connection
+    expect(completed).toBe(true)
+  })
+
   test("removes a retained credential and requests a fresh runtime", async () => {
     const calls: string[] = []
     let connectAttempt = 0
@@ -18,6 +62,7 @@ describe("OpenCode key credential installation", () => {
               calls.push(`remove:${credentialID}`)
             },
           },
+          events: refreshedCatalog(),
           integration: {
             connect: {
               key: async ({ answer }) => {
@@ -61,6 +106,7 @@ describe("OpenCode key credential installation", () => {
               removed = true
             },
           },
+          events: refreshedCatalog(),
           integration: {
             connect: {
               key: async () => {
@@ -92,6 +138,7 @@ describe("OpenCode key credential installation", () => {
     await connectOpenCodeKeyCredential(
       {
         credential: { remove: async () => undefined },
+        events: refreshedCatalog(),
         integration: {
           connect: {
             key: async ({ answer }) => {

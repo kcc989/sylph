@@ -1,22 +1,34 @@
 import { createServerFn } from "@tanstack/react-start"
 import { schema } from "@workspace/db"
 import {
-  decodeWorkspaceReviewCommentInputPromise,
-  decodeWorkspaceReviewDecisionInputPromise,
-  decodeWorkspaceReviewResolutionInputPromise,
-  encodeWorkspaceReview,
   InvalidRequest,
   PreconditionFailed,
+  WorkspaceReview,
+  WorkspaceReviewCommentInput,
+  WorkspaceReviewDecisionInput,
+  WorkspaceReviewResolutionInput,
 } from "@workspace/domain"
 import { and, count, eq, isNull } from "drizzle-orm"
 
 import { workspaceMember } from "@/functions/middleware"
-import { reviewDecisionAfterComment } from "@/server/workspace-review"
+import { Schema } from "effect"
+
 import {
   loadWorkspaceReview,
   reviewableWorkspace,
   reviewId,
 } from "@/server/workspace-review-store"
+
+const decodeWorkspaceReviewCommentInputPromise = Schema.decodeUnknownPromise(
+  WorkspaceReviewCommentInput
+)
+const decodeWorkspaceReviewDecisionInputPromise = Schema.decodeUnknownPromise(
+  WorkspaceReviewDecisionInput
+)
+const decodeWorkspaceReviewResolutionInputPromise = Schema.decodeUnknownPromise(
+  WorkspaceReviewResolutionInput
+)
+const encodeWorkspaceReview = Schema.encodePromise(WorkspaceReview)
 
 export const addWorkspaceReviewComment = createServerFn({ method: "POST" })
   .middleware([workspaceMember])
@@ -67,7 +79,7 @@ export const addWorkspaceReviewComment = createServerFn({ method: "POST" })
     await database
       .update(schema.workspaceReview)
       .set({
-        decision: reviewDecisionAfterComment(),
+        decision: "pending",
         reviewerUserId: null,
         submittedAt: null,
         updatedAt: now,
@@ -121,7 +133,7 @@ export const resolveWorkspaceReviewComment = createServerFn({ method: "POST" })
       await database
         .update(schema.workspaceReview)
         .set({
-          decision: reviewDecisionAfterComment(),
+          decision: "pending",
           reviewerUserId: null,
           submittedAt: null,
           updatedAt: now,

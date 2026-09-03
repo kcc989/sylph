@@ -70,6 +70,7 @@ export class Website extends Cloudflare.Website.Vite<Website>()(
     return {
       rootDir: "apps/web",
       main: "src/worker.ts",
+      crons: ["15 * * * *"],
       compatibility: {
         flags: ["nodejs_compat"],
       },

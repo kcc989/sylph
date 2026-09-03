@@ -112,6 +112,11 @@ export class RepositoryStore extends Context.Service<
   }
 >()("@sylph/web/RepositoryStore") {}
 
+export const artifactAuth = (plaintext: string) => () => ({
+  username: "x",
+  password: plaintext.split("?expires=")[0],
+})
+
 const errorCode = (cause: unknown): RepositoryStoreErrorCode => {
   if (!(cause instanceof Error) || !("code" in cause)) return "UNKNOWN"
   return Schema.decodeUnknownSync(RepositoryStoreErrorCode)(cause.code)
@@ -273,10 +278,7 @@ export const makeCloudflareArtifactsRepositoryStore = (
             url: repository.remote,
             prefix: `refs/heads/${repository.defaultBranch}`,
             protocolVersion: 2,
-            onAuth: () => ({
-              username: "x",
-              password: token.plaintext.split("?expires=")[0],
-            }),
+            onAuth: artifactAuth(token.plaintext),
           })
           const head = refs.find(
             (candidate) =>

@@ -1,13 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router"
 import {
-  decodeWorkspacePermissionReplyInputPromise,
-  encodeWorkspacePermissionReplyInputSync,
   failureMessage,
+  WorkspacePermissionReplyInput,
 } from "@workspace/domain"
 
 import { accessibleWorkspace } from "@/server/organization-access"
 import { createRequestSession } from "@/server/request-session"
 import { workspaceRuntime } from "@/server/workspace-runtime"
+import { Schema } from "effect"
+
+const decodeWorkspacePermissionReplyInputPromise = Schema.decodeUnknownPromise(
+  WorkspacePermissionReplyInput
+)
 
 const authorizedRuntime = async (request: Request, workspaceId: string) => {
   const { session, database } = await createRequestSession(request)
@@ -27,9 +31,7 @@ export const Route = createFileRoute("/api/workspaces/$workspaceId")({
         const runtime = await authorizedRuntime(request, params.workspaceId)
         if (!runtime) return new Response("Not found", { status: 404 })
 
-        const response = await runtime.fetch("https://workspace/events", {
-          headers: { accept: "text/event-stream" },
-        })
+        const response = await runtime.events()
         return new Response(response.body, response)
       },
       POST: async ({ request, params }) => {
@@ -45,9 +47,7 @@ export const Route = createFileRoute("/api/workspaces/$workspaceId")({
           })
         }
         try {
-          await runtime.replyPermission(
-            encodeWorkspacePermissionReplyInputSync(input)
-          )
+          await runtime.replyPermission(input)
         } catch (cause) {
           return new Response(
             failureMessage(cause, "Workspace runtime failed"),

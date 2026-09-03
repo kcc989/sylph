@@ -1,9 +1,9 @@
 import { createServerFn } from "@tanstack/react-start"
 import { schema } from "@workspace/db"
 import {
-  decodeInstallationClaimInputPromise,
-  decodeMagicLinkRequest,
   InstallationClaimRejected,
+  InstallationClaimInput,
+  MagicLinkRequest,
 } from "@workspace/domain"
 import { env } from "cloudflare:workers"
 import { and, desc, eq } from "drizzle-orm"
@@ -17,6 +17,12 @@ import {
   secretsMatch,
 } from "@/server/installation"
 import { isOrganizationAdmin } from "@/server/organization-access"
+import { Schema } from "effect"
+
+const decodeInstallationClaimInputPromise = Schema.decodeUnknownPromise(
+  InstallationClaimInput
+)
+const decodeMagicLinkRequest = Schema.decodeUnknownPromise(MagicLinkRequest)
 
 export const getLatestMagicLink = createServerFn({ method: "POST" })
   .middleware([requestSession])

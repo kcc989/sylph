@@ -1,5 +1,7 @@
 import { Schema } from "effect"
 
+import { toolJsonSchema } from "./json-schema"
+
 import { WorkspaceId } from "./ids"
 
 export const GitCommitId = Schema.NonEmptyString.pipe(
@@ -117,12 +119,6 @@ export class PrepareProjectRepositoryInput extends Schema.Class<PrepareProjectRe
   ),
 }) {}
 
-export class PrepareProjectRepositoryResult extends Schema.Class<PrepareProjectRepositoryResult>(
-  "@sylph/domain/PrepareProjectRepositoryResult"
-)({
-  head: GitCommitId,
-}) {}
-
 export const ProjectRepositorySyncStatus = Schema.Literals([
   "up_to_date",
   "fast_forwarded",
@@ -157,48 +153,9 @@ export class WorkspaceDeleteFileInput extends Schema.Class<WorkspaceDeleteFileIn
   path: Schema.NonEmptyString,
 }) {}
 
-const toolJsonSchema = (schema: Schema.Constraint) => {
-  const document = Schema.toJsonSchemaDocument(schema)
-  return { ...document.schema, $defs: document.definitions }
-}
-
 export const WorkspaceDeleteFileJsonSchema = toolJsonSchema(
   WorkspaceDeleteFileInput
 )
-
-export const decodeWorkspaceCheckpointInputPromise =
-  Schema.decodeUnknownPromise(WorkspaceCheckpointInput)
-export const decodeWorkspaceAcceptInputPromise =
-  Schema.decodeUnknownPromise(WorkspaceAcceptInput)
-export const decodeWorkspaceRebaseResultPromise = Schema.decodeUnknownPromise(
-  WorkspaceRebaseResult
-)
-export const decodeWorkspaceDeleteFile = Schema.decodeUnknownPromise(
-  WorkspaceDeleteFileInput
-)
-export const decodeWorkspaceVersionControl = Schema.decodeUnknownPromise(
-  WorkspaceVersionControl
-)
-export const encodeWorkspaceVersionControl = Schema.encodePromise(
-  WorkspaceVersionControl
-)
-export const decodeWorkspaceCheckpointResult = Schema.decodeUnknownPromise(
-  WorkspaceCheckpointResult
-)
-export const decodeWorkspaceCheckpointList = Schema.decodeUnknownPromise(
-  WorkspaceCheckpointList
-)
-export const encodeWorkspaceCheckpointList = Schema.encodePromise(
-  WorkspaceCheckpointList
-)
-export const decodePrepareProjectRepositoryInputPromise =
-  Schema.decodeUnknownPromise(PrepareProjectRepositoryInput)
-export const decodePrepareProjectRepositoryResultPromise =
-  Schema.decodeUnknownPromise(PrepareProjectRepositoryResult)
-export const decodeSyncProjectRepositoryInputPromise =
-  Schema.decodeUnknownPromise(SyncProjectRepositoryInput)
-export const decodeSyncProjectRepositoryResultPromise =
-  Schema.decodeUnknownPromise(SyncProjectRepositoryResult)
 
 export class WorkspaceVersionControlSnapshot extends Schema.Class<WorkspaceVersionControlSnapshot>(
   "@sylph/domain/WorkspaceVersionControlSnapshot"
@@ -206,30 +163,3 @@ export class WorkspaceVersionControlSnapshot extends Schema.Class<WorkspaceVersi
   vcs: WorkspaceVersionControl,
   checkpoints: WorkspaceCheckpointList,
 }) {}
-
-export const decodeWorkspaceVersionControlSnapshot =
-  Schema.decodeUnknownPromise(WorkspaceVersionControlSnapshot)
-export const encodeWorkspaceVersionControlSnapshotSync = Schema.encodeSync(
-  WorkspaceVersionControlSnapshot
-)
-export const encodeWorkspaceCheckpointResultSync = Schema.encodeSync(
-  WorkspaceCheckpointResult
-)
-export const encodeWorkspaceRebaseResultSync = Schema.encodeSync(
-  WorkspaceRebaseResult
-)
-export const encodePrepareProjectRepositoryResultSync = Schema.encodeSync(
-  PrepareProjectRepositoryResult
-)
-export const encodeSyncProjectRepositoryResultSync = Schema.encodeSync(
-  SyncProjectRepositoryResult
-)
-export const encodeWorkspaceCheckpointInputSync = Schema.encodeSync(
-  WorkspaceCheckpointInput
-)
-export const encodePrepareProjectRepositoryInputSync = Schema.encodeSync(
-  PrepareProjectRepositoryInput
-)
-export const encodeSyncProjectRepositoryInputSync = Schema.encodeSync(
-  SyncProjectRepositoryInput
-)

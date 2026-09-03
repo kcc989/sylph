@@ -1,6 +1,28 @@
 import type { WorkspaceRuntimeEvent } from "@workspace/domain"
 
 const encoder = new TextEncoder()
+const forwardedWorkspaceEventTypes = new Set([
+  "form.cancelled",
+  "form.created",
+  "form.replied",
+  "permission.asked",
+  "permission.replied",
+  "session.execution.failed",
+  "session.execution.interrupted",
+  "session.execution.succeeded",
+  "session.idle",
+  "session.inbox.cancelled",
+  "session.inbox.delivered",
+  "session.inbox.delivery.changed",
+  "session.inbox.enqueued",
+  "session.text.delta",
+  "session.text.ended",
+  "session.tool.failed",
+  "session.tool.success",
+])
+
+export const shouldForwardWorkspaceEvent = (event: { type: string }) =>
+  forwardedWorkspaceEventTypes.has(event.type)
 
 const encodeEvent = (event: WorkspaceRuntimeEvent) =>
   encoder.encode(`id: ${event.id}\ndata: ${JSON.stringify(event)}\n\n`)

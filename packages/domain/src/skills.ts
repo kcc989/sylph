@@ -1,5 +1,7 @@
 import { Schema } from "effect"
 
+import { toolJsonSchema } from "./json-schema"
+
 import { ProjectId } from "./ids"
 
 export const SkillScope = Schema.Literals(["installation", "project"])
@@ -88,11 +90,6 @@ export class SkillResourceInput extends Schema.Class<SkillResourceInput>(
   skill: Schema.NonEmptyString,
   path: Schema.NonEmptyString,
 }) {}
-
-const toolJsonSchema = (schema: Schema.Constraint) => {
-  const document = Schema.toJsonSchemaDocument(schema)
-  return { ...document.schema, $defs: document.definitions }
-}
 
 export const SkillResourceJsonSchema = toolJsonSchema(SkillResourceInput)
 
@@ -194,16 +191,8 @@ export const resolveSkillInvocation = (
   return { skillId: skill.metadata.name, text: match[2]?.trim() ?? "" }
 }
 
-export const decodeSkillInstallInputPromise =
-  Schema.decodeUnknownPromise(SkillInstallInput)
-export const decodeSkillCatalogRequestPromise =
-  Schema.decodeUnknownPromise(SkillCatalogRequest)
-export const decodeSkillDetailRequestPromise =
-  Schema.decodeUnknownPromise(SkillDetailRequest)
-export const decodeInstalledSkillPromise =
-  Schema.decodeUnknownPromise(InstalledSkill)
-export const decodeSkillResourceInputPromise =
-  Schema.decodeUnknownPromise(SkillResourceInput)
-export const decodeSkillFilesJson = Schema.decodeUnknownSync(
-  Schema.fromJsonString(Schema.Array(SkillFile))
-)
+export class WorkspaceSkillReloadResult extends Schema.Class<WorkspaceSkillReloadResult>(
+  "@sylph/domain/WorkspaceSkillReloadResult"
+)({
+  skills: Schema.Int,
+}) {}

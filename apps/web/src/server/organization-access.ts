@@ -191,6 +191,20 @@ export const requireWorkspace = async (
   return workspace
 }
 
+export const requireWorkspaceNotMerging = <
+  Workspace extends { readonly status: string },
+>(
+  workspace: Workspace
+) => {
+  if (workspace.status === "merging") {
+    throw new WorkspaceReadOnly({
+      message: "Wait for Workspace acceptance to finish",
+      status: "merging",
+    })
+  }
+  return workspace
+}
+
 export const requireWritableWorkspace = <
   Workspace extends { readonly status: string },
 >(
@@ -202,7 +216,7 @@ export const requireWritableWorkspace = <
       status: "archived",
     })
   }
-  return workspace
+  return requireWorkspaceNotMerging(workspace)
 }
 
 export const workspaceProject = (database: Database, projectId: string) =>

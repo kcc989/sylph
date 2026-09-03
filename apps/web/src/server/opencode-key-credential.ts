@@ -1,7 +1,12 @@
 import { isInvalidRequestError } from "@opencode-ai/client"
 import type { OpenCodeKeyConfiguration } from "@workspace/domain"
 
-interface OpenCodeKeyCredentialClient {
+import {
+  type OpenCodeCatalogRefresh,
+  updateCredentialAndWaitForCatalog,
+} from "./opencode-credential-activation"
+
+interface OpenCodeKeyCredentialClient extends OpenCodeCatalogRefresh {
   readonly credential: {
     readonly remove: (input: { credentialID: string }) => Promise<void>
   }
@@ -45,7 +50,7 @@ export const connectOpenCodeKeyCredential = async (
     })
 
   try {
-    await connect()
+    await updateCredentialAndWaitForCatalog(opencode, connect)
     return
   } catch (error) {
     if (
@@ -64,10 +69,12 @@ export const connectOpenCodeKeyCredential = async (
   )
 
   if (credentialIds.length === 0) {
-    await opencode.integration.connect.key({
-      integrationID: input.providerId,
-      key: input.key,
-    })
+    await updateCredentialAndWaitForCatalog(opencode, () =>
+      opencode.integration.connect.key({
+        integrationID: input.providerId,
+        key: input.key,
+      })
+    )
     return
   }
 

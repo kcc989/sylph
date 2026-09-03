@@ -4,7 +4,6 @@ import {
   WorkspaceCheckpointResult,
   WorkspaceFileChange,
   WorkspaceVersionControl,
-  SyncProjectRepositoryResult,
   WorkspaceRebaseResult,
 } from "@workspace/domain"
 import { createTwoFilesPatch } from "diff"
@@ -12,11 +11,22 @@ import git from "isomorphic-git"
 import http from "isomorphic-git/http/web"
 import { Option, Schema } from "effect"
 
-import {
-  WorkspaceFilesystem,
-  type WorkspaceStorage,
+import type {
+  WorkspaceGitFilesystem,
+  WorkspaceStorage,
 } from "./workspace-filesystem"
-import { readCurrentProjectHead } from "./workspace-repository-refresh"
+import { artifactAuth } from "./repository-store"
+
+export interface WorkspaceRepositoryHandle {
+  createToken(
+    scope: "read" | "write",
+    ttlSeconds: number
+  ): Promise<{ readonly plaintext: string }>
+}
+
+export interface WorkspaceRepositoryNamespace {
+  get(name: string): Promise<WorkspaceRepositoryHandle>
+}
 
 const directory = "/workspace"
 const author = { name: "Sylph", email: "checkpoints@sylph.dev" }
@@ -44,8 +54,6 @@ interface CheckpointRow {
   status: string
 }
 
-const tokenSecret = (token: string) => token.split("?expires=")[0]
-
 const textContent = (content: Uint8Array | void) => {
   if (!content) return ""
   try {
@@ -65,42 +73,8 @@ const lineCounts = (patch: string) => {
   return { additions, deletions }
 }
 
-const artifactAuth = (plaintext: string) => () => ({
-  username: "x",
-  password: tokenSecret(plaintext),
-})
-
 export const isRepositoryMetadata = (file: string) =>
   file === ".git" || file.startsWith(".git/")
-
-export const projectRepositorySyncStatus = async (
-  filesystem: WorkspaceFilesystem,
-  projectHead: string,
-  upstreamHead: string
-) => {
-  if (projectHead === upstreamHead) return "up_to_date" as const
-  if (
-    await git.isDescendent({
-      fs: filesystem,
-      dir: directory,
-      oid: upstreamHead,
-      ancestor: projectHead,
-    })
-  ) {
-    return "fast_forwarded" as const
-  }
-  if (
-    await git.isDescendent({
-      fs: filesystem,
-      dir: directory,
-      oid: projectHead,
-      ancestor: upstreamHead,
-    })
-  ) {
-    return "ahead" as const
-  }
-  return "diverged" as const
-}
 
 export const artifactGitProtocolVersion = (forPush: boolean) =>
   forPush ? (1 as const) : (2 as const)
@@ -119,13 +93,13 @@ export const workspaceProjectRemote = (url: string) => ({
 
 export class WorkspaceGit {
   readonly #storage: WorkspaceStorage
-  readonly #repositories: Artifacts
-  readonly #filesystem: WorkspaceFilesystem
+  readonly #repositories: WorkspaceRepositoryNamespace
+  readonly #filesystem: WorkspaceGitFilesystem
 
   constructor(
     storage: WorkspaceStorage,
-    repositories: Artifacts,
-    filesystem: WorkspaceFilesystem
+    repositories: WorkspaceRepositoryNamespace,
+    filesystem: WorkspaceGitFilesystem
   ) {
     this.#storage = storage
     this.#repositories = repositories
@@ -142,125 +116,6 @@ export class WorkspaceGit {
     this.#storage.sql.exec(
       "CREATE TABLE IF NOT EXISTS app_workspace_outbox (id TEXT PRIMARY KEY NOT NULL, kind TEXT NOT NULL, payload TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL, completed_at INTEGER)"
     )
-  }
-
-  async prepareProject(input: {
-    repositoryName: string
-    repositoryRemote: string
-    defaultRef: string
-    projectName: string
-    source?: {
-      remote: string
-      ref: string
-      accessToken?: string
-    }
-  }) {
-    this.#filesystem.clear()
-    const repository = await this.#repositories.get(input.repositoryName)
-    const token = await repository.createToken("write", 300)
-    const refs = await git.listServerRefs({
-      http,
-      url: input.repositoryRemote,
-      prefix: `refs/heads/${input.defaultRef}`,
-      onAuth: artifactAuth(token.plaintext),
-    })
-    const head = refs.find(
-      (ref) => ref.ref === `refs/heads/${input.defaultRef}`
-    )?.oid
-
-    if (head) {
-      await git.clone({
-        fs: this.#filesystem,
-        http,
-        dir: directory,
-        url: input.repositoryRemote,
-        ref: input.defaultRef,
-        singleBranch: true,
-        noTags: true,
-        onAuth: artifactAuth(token.plaintext),
-      })
-      return GitCommitId.make(head)
-    }
-
-    if (input.source) {
-      await git.clone({
-        fs: this.#filesystem,
-        http,
-        dir: directory,
-        url: input.source.remote,
-        ref: input.source.ref,
-        singleBranch: true,
-        noTags: false,
-        onAuth: input.source.accessToken
-          ? artifactAuth(input.source.accessToken)
-          : undefined,
-      })
-      const importedHead = await git.resolveRef({
-        fs: this.#filesystem,
-        dir: directory,
-        ref: "HEAD",
-      })
-      await git.push({
-        fs: this.#filesystem,
-        http,
-        dir: directory,
-        url: input.repositoryRemote,
-        ref: input.source.ref,
-        remoteRef: input.defaultRef,
-        force: false,
-        onAuth: artifactAuth(token.plaintext),
-      })
-      return GitCommitId.make(importedHead)
-    }
-
-    await git.init({
-      fs: this.#filesystem,
-      dir: directory,
-      defaultBranch: input.defaultRef,
-    })
-    await this.#filesystem.writeFile(
-      `${directory}/README.md`,
-      `# ${input.projectName}\n\nBuilt in a durable Sylph Workspace.\n`
-    )
-    await this.#filesystem.writeFile(
-      `${directory}/package.json`,
-      `${JSON.stringify(
-        {
-          name: input.projectName.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-          private: true,
-          type: "module",
-        },
-        null,
-        2
-      )}\n`
-    )
-    await git.add({
-      fs: this.#filesystem,
-      dir: directory,
-      filepath: "README.md",
-    })
-    await git.add({
-      fs: this.#filesystem,
-      dir: directory,
-      filepath: "package.json",
-    })
-    const commit = await git.commit({
-      fs: this.#filesystem,
-      dir: directory,
-      message: "Create Project Repository",
-      author,
-    })
-    await git.push({
-      fs: this.#filesystem,
-      http,
-      dir: directory,
-      url: input.repositoryRemote,
-      ref: input.defaultRef,
-      remoteRef: input.defaultRef,
-      force: false,
-      onAuth: artifactAuth(token.plaintext),
-    })
-    return GitCommitId.make(commit)
   }
 
   async hydrate(input: {
@@ -354,99 +209,10 @@ export class WorkspaceGit {
     return GitCommitId.make(forkHead)
   }
 
-  async synchronizeProject(input: {
-    repositoryName: string
-    repositoryRemote: string
-    defaultRef: string
-    sourceRemote: string
-    sourceRef: string
-    sourceAccessToken?: string
-  }) {
-    this.#filesystem.clear()
-    const repository = await this.#repositories.get(input.repositoryName)
-    const token = await repository.createToken("write", 300)
-    await git.clone({
-      fs: this.#filesystem,
-      http,
-      dir: directory,
-      url: input.repositoryRemote,
-      ref: input.defaultRef,
-      singleBranch: true,
-      noTags: false,
-      onAuth: artifactAuth(token.plaintext),
-    })
-    const projectHead = await git.resolveRef({
-      fs: this.#filesystem,
-      dir: directory,
-      ref: "HEAD",
-    })
-    await git.addRemote({
-      fs: this.#filesystem,
-      dir: directory,
-      remote: "upstream",
-      url: input.sourceRemote,
-      force: true,
-    })
-    await git.fetch({
-      fs: this.#filesystem,
-      http,
-      dir: directory,
-      remote: "upstream",
-      ref: input.sourceRef,
-      singleBranch: true,
-      tags: true,
-      onAuth: input.sourceAccessToken
-        ? artifactAuth(input.sourceAccessToken)
-        : undefined,
-    })
-    const upstreamHead = await git.resolveRef({
-      fs: this.#filesystem,
-      dir: directory,
-      ref: `refs/remotes/upstream/${input.sourceRef}`,
-    })
-    const status = await projectRepositorySyncStatus(
-      this.#filesystem,
-      projectHead,
-      upstreamHead
-    )
-    if (status === "fast_forwarded") {
-      await git.writeRef({
-        fs: this.#filesystem,
-        dir: directory,
-        ref: `refs/heads/${input.defaultRef}`,
-        value: upstreamHead,
-        force: true,
-      })
-      await git.checkout({
-        fs: this.#filesystem,
-        dir: directory,
-        ref: input.defaultRef,
-        force: true,
-      })
-      await git.push({
-        fs: this.#filesystem,
-        http,
-        dir: directory,
-        url: input.repositoryRemote,
-        ref: input.defaultRef,
-        remoteRef: input.defaultRef,
-        force: false,
-        onAuth: artifactAuth(token.plaintext),
-      })
-    }
-    return new SyncProjectRepositoryResult({
-      status,
-      projectHead: GitCommitId.make(
-        status === "fast_forwarded" ? upstreamHead : projectHead
-      ),
-      upstreamHead: GitCommitId.make(upstreamHead),
-    })
-  }
-
   async versionControl(refreshProjectHead = false) {
     const state = this.#requiredState()
     const latestProjectHead = refreshProjectHead
-      ? await readCurrentProjectHead(() => this.#readProjectHead(state))
+      ? await this.#readProjectHead(state)
       : state.projectHead
     if (latestProjectHead !== state.projectHead) {
       this.#storage.sql.exec(

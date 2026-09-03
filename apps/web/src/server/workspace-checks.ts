@@ -1,13 +1,20 @@
 import {
-  decodeWorkspaceCheckRun,
+  GitCommitId,
+  InvalidRequest,
+  PreconditionFailed,
   type WorkspaceCheckEvidence,
+  type WorkspaceCheckKind,
   WorkspaceCheckRun,
   WorkspaceCheckStage,
   type WorkspaceCheckStageName,
   type WorkspaceCheckUpdate,
+  WorkspaceId,
 } from "@workspace/domain"
 
 import type { WorkspaceStorage } from "./workspace-filesystem"
+import { Schema } from "effect"
+
+const decodeWorkspaceCheckRun = Schema.decodeUnknownSync(WorkspaceCheckRun)
 
 type CheckRow = { [key: string]: SqlStorageValue; payload: string }
 type IdRow = { [key: string]: SqlStorageValue; id: string }
@@ -21,6 +28,64 @@ export type WorkspaceRepairSource = "manual" | "automatic"
 
 export const automaticRepairIdempotencyKey = (runId: string) =>
   `${runId}:automatic-repair`
+
+const checkpointStages: ReadonlyArray<WorkspaceCheckStageName> = [
+  "install",
+  "typecheck",
+  "lint",
+  "test",
+  "build",
+  "preview",
+  "browser",
+]
+const productionStages: ReadonlyArray<WorkspaceCheckStageName> = [
+  "install",
+  "build",
+  "production",
+]
+
+export const checkStages = (kind: WorkspaceCheckKind) =>
+  kind === "production" ? productionStages : checkpointStages
+
+export const checkStage = (
+  name: WorkspaceCheckStageName,
+  status: WorkspaceCheckStage["status"],
+  detail: string,
+  durationMs: number | null = null
+) => new WorkspaceCheckStage({ name, status, detail, durationMs })
+
+export const newCheckRun = (input: {
+  id: string
+  workspaceId: string
+  checkpointId: string | null
+  commit: string
+  kind: WorkspaceCheckKind
+  attempt: number
+  repairOnFailure: boolean
+  createdAt: number
+}) =>
+  new WorkspaceCheckRun({
+    id: input.id,
+    workspaceId: WorkspaceId.make(input.workspaceId),
+    checkpointId: input.checkpointId,
+    commit: GitCommitId.make(input.commit),
+    kind: input.kind,
+    status: "queued",
+    attempt: input.attempt,
+    maxAttempts: maxWorkspaceCheckAttempts,
+    repairOnFailure: input.repairOnFailure,
+    repairStatus: input.repairOnFailure ? "available" : "disabled",
+    repairAttempt: 0,
+    maxRepairAttempts: maxWorkspaceRepairAttempts,
+    previewUrl: null,
+    stages: checkStages(input.kind).map((name) =>
+      checkStage(name, "queued", "Waiting")
+    ),
+    diagnostics: [],
+    evidence: [],
+    createdAt: input.createdAt,
+    updatedAt: input.createdAt,
+  })
 
 export class WorkspaceRepairLimitReached extends Error {
   readonly used: number
@@ -142,9 +207,9 @@ export class WorkspaceChecks {
     const run = this.#required(runId)
     if (existing) return run
     if (run.attempt >= maxWorkspaceCheckAttempts) {
-      throw new Error(
-        `This Check reached its ${maxWorkspaceCheckAttempts}-attempt limit`
-      )
+      throw new PreconditionFailed({
+        message: `This Check reached its ${maxWorkspaceCheckAttempts}-attempt limit`,
+      })
     }
 
     const now = Date.now()
@@ -181,13 +246,15 @@ export class WorkspaceChecks {
     const run = this.#required(runId)
     if (existing) return run
     if (run.status !== "failed") {
-      throw new Error("Only a failed Check can start a repair turn")
+      throw new PreconditionFailed({
+        message: "Only a failed Check can start a repair turn",
+      })
     }
     const repairAttempt = this.#actionCount(runId, "repair") + 1
     if (repairAttempt > maxWorkspaceRepairAttempts) {
-      throw new Error(
-        `This Check reached its ${maxWorkspaceRepairAttempts}-repair limit`
-      )
+      throw new PreconditionFailed({
+        message: `This Check reached its ${maxWorkspaceRepairAttempts}-repair limit`,
+      })
     }
     if (source === "automatic") {
       const used = this.automaticRepairsUsed()
@@ -289,7 +356,7 @@ export class WorkspaceChecks {
 
   #required(runId: string) {
     const run = this.get(runId)
-    if (!run) throw new Error("Check run not found")
+    if (!run) throw new InvalidRequest({ message: "Check run not found" })
     return run
   }
 
@@ -327,10 +394,3 @@ export class WorkspaceChecks {
     )
   }
 }
-
-export const checkStage = (
-  name: WorkspaceCheckStageName,
-  status: WorkspaceCheckStage["status"],
-  detail: string,
-  durationMs: number | null = null
-) => new WorkspaceCheckStage({ name, status, detail, durationMs })

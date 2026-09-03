@@ -1,3 +1,5 @@
+import type { WorkspaceGitFilesystem } from "./workspace-filesystem"
+
 type FileEntry = { kind: "file"; data: Uint8Array; modifiedAt: number }
 type DirectoryEntry = {
   kind: "directory"
@@ -48,10 +50,14 @@ class MemoryStats {
   }
 }
 
-export class MemoryFilesystem {
-  readonly #entries = new Map<string, Entry>([
-    ["/", { kind: "directory", children: new Set(), modifiedAt: Date.now() }],
-  ])
+const rootEntry = (): DirectoryEntry => ({
+  kind: "directory",
+  children: new Set(),
+  modifiedAt: Date.now(),
+})
+
+export class MemoryFilesystem implements WorkspaceGitFilesystem {
+  readonly #entries = new Map<string, Entry>([["/", rootEntry()]])
   readonly promises = {
     readFile: this.readFile.bind(this),
     writeFile: this.writeFile.bind(this),
@@ -122,6 +128,11 @@ export class MemoryFilesystem {
       modifiedAt: Date.now(),
     })
     this.directory(parent).children.add(this.basename(path))
+  }
+
+  clear() {
+    this.#entries.clear()
+    this.#entries.set("/", rootEntry())
   }
 
   async writeFile(input: string, value: string | Uint8Array | ArrayBuffer) {

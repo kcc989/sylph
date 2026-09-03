@@ -24,6 +24,3 @@ export const productionDeployConfirmed = (input: {
   commit: string
   confirmedCommit: string
 }) => input.commit === input.confirmedCommit
-
-export const decodeProjectDeployInputPromise =
-  Schema.decodeUnknownPromise(ProjectDeployInput)

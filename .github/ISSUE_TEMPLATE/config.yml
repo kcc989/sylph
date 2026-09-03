@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/kcc989/sylph/blob/main/SECURITY.md
+    about: Do not open a public issue. Follow the security policy instead.
+  - name: Operator guide
+    url: https://github.com/kcc989/sylph/blob/main/docs/operators.md
+    about: Deployment, upgrade, teardown, and troubleshooting for your own Installation.

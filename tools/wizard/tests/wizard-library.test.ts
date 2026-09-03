@@ -97,14 +97,48 @@ test("the release smoke wizard reuses Cloudflare credentials", async () => {
 test("the production wizard lists the exact Cloudflare permissions", async () => {
   const source = await readFile(wizardPaths[0], "utf8")
 
-  expect(source).toContain("Choose Create Custom Token and name it Sylph CI.")
   expect(source).toContain(
-    "Account Settings Read, Account API Tokens Write, Workers Scripts Write, D1 Write, Workers R2 Storage Write, Containers Write, Workers CI Write, Workers AI Read, and Workers AI Write."
+    "Choose Create Token, then Create Custom Token, and name it Sylph deploy."
+  )
+  expect(source).toContain(
+    'DEPLOY_TOKEN_PERMISSIONS="Account Settings Read, Account API Tokens Write, Workers Scripts Write, D1 Write, Workers R2 Storage Write, Workers Containers Write, Workers CI Write, Workers AI Read, Workers AI Write, Artifacts Write, and Browser Run Write."'
+  )
+  expect(source).toContain(
+    'RUNTIME_TOKEN_PERMISSIONS="Account Settings Read,Workers Scripts Write,D1 Write,Workers R2 Storage Write,Workers Containers Write,Workers CI Write,Workers AI Read,Workers AI Write"'
   )
   expect(source).toContain(
     "Include, Specific account, then select only this Sylph Installation's account. Do not add zone resources."
   )
   expect(source).not.toContain("add any permissions required")
+  expect(source).not.toContain('"Containers Write')
+})
+
+test("the production wizard keeps token minting out of the deployed Worker", async () => {
+  const source = await readFile(wizardPaths[0], "utf8")
+
+  expect(source).toContain(
+    'bun scripts/cloudflare-token.ts "Sylph runtime $(timestamp)" "$RUNTIME_TOKEN_PERMISSIONS"'
+  )
+  expect(source).toContain(
+    'bun scripts/cloudflare-token.ts "Sylph R2 $(timestamp)" "$R2_TOKEN_PERMISSIONS"'
+  )
+  expect(source).not.toContain("Account API Tokens Write,Workers")
+  expect(source).toContain("CI=true bunx alchemy login --configure")
+  expect(source).not.toContain("bunx alchemy login\n")
+})
+
+test("the production wizard captures the deployed URL and offers the manifest flow", async () => {
+  const source = await readFile(wizardPaths[0], "utf8")
+
+  expect(source).toContain(
+    'bun alchemy deploy --stage prod --yes 2>&1 | tee "$deploy_log"'
+  )
+  expect(source).toContain('SYLPH_URL=$(deploy_url_from_log "$deploy_log")')
+  expect(source).toContain("bun scripts/github-app-manifest.ts")
+  expect(source).toContain('open_url "https://github.com/settings/apps/new"')
+  expect(source.indexOf('stage "Preflight"')).toBeLessThan(
+    source.indexOf('stage "Cloudflare deploy token"')
+  )
 })
 
 test("the production wizard can ignore existing environment values", async () => {

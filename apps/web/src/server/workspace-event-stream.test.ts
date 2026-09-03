@@ -1,9 +1,21 @@
 import { describe, expect, test } from "bun:test"
 import { WorkspaceRuntimeEvent } from "@workspace/domain"
 
-import { workspaceEventResponse } from "./workspace-event-stream"
+import {
+  shouldForwardWorkspaceEvent,
+  workspaceEventResponse,
+} from "./workspace-event-stream"
 
 describe("workspaceEventResponse", () => {
+  test("forwards only events consumed by the Workspace UI", () => {
+    expect(shouldForwardWorkspaceEvent({ type: "session.text.delta" })).toBe(
+      true
+    )
+    expect(shouldForwardWorkspaceEvent({ type: "models-dev.refreshed" })).toBe(
+      false
+    )
+  })
+
   test("streams OpenCode event envelopes as server-sent events", async () => {
     async function* events() {
       yield new WorkspaceRuntimeEvent({

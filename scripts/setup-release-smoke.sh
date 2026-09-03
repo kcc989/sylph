@@ -232,7 +232,7 @@ else
     open_url "https://dash.cloudflare.com/?to=/:account/api-tokens"
     step "Create an account-owned custom token. This requires Super Administrator access."
     step "Limit Account Resources to the Cloudflare account used for release-smoke."
-    step "Add Account Settings Read, Account API Tokens Write, Workers Scripts Write, D1 Write, Workers R2 Storage Write, Containers Write, Workers CI Write, Workers AI Read, and Workers AI Write."
+    step "Add Account Settings Read, Account API Tokens Write, Workers Scripts Write, D1 Write, Workers R2 Storage Write, Workers Containers Write, Workers CI Write, Workers AI Read, Workers AI Write, Artifacts Write, and Browser Run Write."
     step "Create the token and copy it now. Cloudflare shows it only once."
     ask_secret CLOUDFLARE_API_TOKEN "Paste the account-owned API token:"
   fi

@@ -1,10 +1,16 @@
+import { Schema } from "effect"
+
 import {
-  decodeSkillFilesJson,
   InstalledSkill,
   ProjectId,
   resolveInstalledSkills,
   SkillMetadata,
+  SkillFile,
 } from "@workspace/domain"
+
+const decodeSkillFilesJson = Schema.decodeUnknownSync(
+  Schema.fromJsonString(Schema.Array(SkillFile))
+)
 
 type StoredSkill = {
   id: string

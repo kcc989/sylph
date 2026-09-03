@@ -6,41 +6,15 @@ Sylph is an Apache-2.0 licensed, Cloudflare-native system for durable coding-age
 
 ## Deploy an Installation
 
-Prerequisites:
-
-- Bun
-- A Cloudflare account with access to Durable Objects, D1, Workflows, and Cloudflare Artifacts
-- A GitHub account that can create and install a GitHub App
-
-Run the guided setup:
+Sylph is deployed from a fork. Fork this repository, clone your fork, and run the guided setup:
 
 ```sh
 ./scripts/setup.sh
 ```
 
-The wizard connects Alchemy to Cloudflare, generates local secrets, deploys the initial stack, configures a repository-scoped GitHub App against the deployed URL, and opens `/setup`. Sign in there with the account that should become the first Admin, confirm the verified email address shown by Sylph, and enter `INSTALLATION_CLAIM_SECRET` from `.env`.
+The wizard checks your tools and Cloudflare account, configures Alchemy with a deploy token, mints the narrower credentials the deployed Worker uses, deploys the stack, creates a GitHub App with the callback URL pre-filled, publishes production secrets to your fork, and opens `/setup` so you can claim the Installation with your own account.
 
-Only the one-time Installation claim can create the Organization. After claiming, use `/admin` to configure a shared AI Provider connection and create invitation links for other Users. Invitees must authenticate with the exact email address that was invited. Once the Installation is claimed, Sylph does not create an authentication account unless a current pending invitation authorizes that email address.
-
-### OAuth across preview stages
-
-Use Better Auth's OAuth Proxy when branch or smoke-test deployments have changing URLs. Deploy one permanent Sylph stage as the proxy and register only its callback URL with GitHub:
-
-```text
-https://your-permanent-proxy.example/api/auth/callback/github
-```
-
-Set the following values on the permanent stage and every participating preview stage:
-
-```sh
-OAUTH_PROXY_URL=https://your-permanent-proxy.example
-OAUTH_PROXY_SECRET=one-shared-random-secret-with-at-least-32-characters
-OAUTH_PROXY_TRUSTED_ORIGINS=https://sylph-*.your-test-domain.example
-```
-
-Keep `OAUTH_PROXY_TRUSTED_ORIGINS` limited to domains controlled by the test system. Use a dedicated proxy secret instead of sharing `BETTER_AUTH_SECRET`. When these values are absent, Sylph keeps the direct GitHub OAuth flow used by a standalone Installation.
-
-Run `./scripts/setup-release-smoke.sh` for the guided Cloudflare and GitHub provisioning flow.
+Read [docs/operators.md](docs/operators.md) for prerequisites, the resources it creates, cost drivers, upgrades, teardown, and troubleshooting. Maintainer topics such as releases, the release-smoke test system, and OAuth across preview stages live in [docs/maintainers.md](docs/maintainers.md).
 
 ## Product direction
 
@@ -50,7 +24,7 @@ Sylph is a Bun monorepo managed with Turborepo. The web app lives in `apps/web`.
 
 ## Local development
 
-Copy `.env.example` to `.env` and provide the required secrets. Configure a GitHub App with read and write Contents permission, read and write Pull requests permission, read-only Email addresses account permission, user authorization during installation, and this local callback URL:
+Copy `.env.example` to `.env` and provide the required secrets. Docker must be running: Alchemy pulls the CI sandbox image for local development and for deploys. Configure a GitHub App with read and write Contents permission, read and write Pull requests permission, read-only Email addresses account permission, user authorization during installation, and this local callback URL:
 
 ```text
 http://localhost:1337/api/auth/callback/github

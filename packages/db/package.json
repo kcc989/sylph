@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@workspace/domain": "workspace:*",
-    "drizzle-orm": "latest",
+    "drizzle-orm": "^0.45.2",
     "effect": "4.0.0-rc.111"
   },
   "devDependencies": {

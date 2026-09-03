@@ -2,33 +2,33 @@ import { createServerFn } from "@tanstack/react-start"
 import { schema } from "@workspace/db"
 import {
   AccessDenied,
-  decodeCiRunRecordList,
-  decodeCiRunSummary,
-  decodeCreateProjectInputPromise,
-  decodeGitHubRepositoryLookupInputPromise,
-  decodeOrganizationRequestInputPromise,
-  decodeProjectDeliveryModeInputPromise,
-  decodeProjectDeployInputPromise,
-  decodeProjectRequestInputPromise,
-  encodeCiRunRecordList,
-  encodeGitHubRepositoryInfo,
-  encodeProjectTemplateCatalog,
   failureMessage,
   GitCommitId,
   InitializeWorkspaceRuntime,
   InvalidRequest,
   parseGitHubRepositoryUrl,
   PreconditionFailed,
+  ProviderConnectionRequired,
   productionDeployConfirmed,
   PrepareProjectRepositoryInput,
   ProjectId,
   type ProjectSource,
   WorkspaceId,
   type WorkspaceCiInput,
+  CiRunRecordList,
+  CiRunSummary,
+  CreateProjectInput,
+  GitHubRepositoryInfo,
+  GitHubRepositoryLookupInput,
+  OrganizationRequestInput,
+  ProjectDeliveryModeInput,
+  ProjectDeployInput,
+  ProjectRequestInput,
+  ProjectTemplateCatalog,
 } from "@workspace/domain"
-import { env } from "cloudflare:workers"
+import { env, waitUntil } from "cloudflare:workers"
 import { and, desc, eq, isNull } from "drizzle-orm"
-import { Effect } from "effect"
+import { Effect, Schema } from "effect"
 
 import { organizationMember, projectMember } from "@/functions/middleware"
 import { deploymentWorkflowAlreadyStarted } from "@/server/deployment-records"
@@ -36,30 +36,46 @@ import {
   GitHubRepositoryLive,
   GitHubRepositoryService,
 } from "@/server/github-repository-service"
-import {
-  githubUserAccessToken,
-  prepareProjectRepository,
-} from "@/server/project-repository-sync"
+import { prepareProjectRepository } from "@/server/project-repository-git"
+import { githubUserAccessToken } from "@/server/project-repository-sync"
 import {
   isOrganizationAdmin,
   requireOrganizationMembership,
 } from "@/server/organization-access"
-import { requireProjectProviderConnection } from "@/server/project-provider-guard"
+import {
+  connectionCredential,
+  effectiveConnection,
+} from "@/server/provider-connections"
+import type { Database } from "@/server/organization-access"
 import {
   ensureTemplateRepository,
   projectTemplateCatalog,
   resolveProjectTemplate,
 } from "@/server/project-templates"
-import {
-  connectionCredential,
-  effectiveConnection,
-} from "@/server/provider-connections"
-import { recoveryRepositoryEntry } from "@/server/recovery-export"
-import {
-  makeCloudflareArtifactsRepositoryStore,
-  type RepositoryStore,
-} from "@/server/repository-store"
-import { initializeWorkspaceRuntime } from "@/server/workspace-runtime"
+import { repositoryStore } from "@/server/repositories"
+import type { RepositoryStore } from "@/server/repository-store"
+import { completeWorkspaceInitialization } from "@/server/workspace-runtime"
+
+const decodeCiRunRecordList = Schema.decodeUnknownPromise(CiRunRecordList)
+const decodeCiRunSummary = Schema.decodeUnknownSync(CiRunSummary)
+const decodeCreateProjectInputPromise =
+  Schema.decodeUnknownPromise(CreateProjectInput)
+const decodeGitHubRepositoryLookupInputPromise = Schema.decodeUnknownPromise(
+  GitHubRepositoryLookupInput
+)
+const decodeProjectDeliveryModeInputPromise = Schema.decodeUnknownPromise(
+  ProjectDeliveryModeInput
+)
+const decodeProjectDeployInputPromise =
+  Schema.decodeUnknownPromise(ProjectDeployInput)
+const decodeProjectRequestInputPromise =
+  Schema.decodeUnknownPromise(ProjectRequestInput)
+const decodeOrganizationRequestInputPromise = Schema.decodeUnknownPromise(
+  OrganizationRequestInput
+)
+const encodeCiRunRecordList = Schema.encodePromise(CiRunRecordList)
+const encodeGitHubRepositoryInfo = Schema.encodePromise(GitHubRepositoryInfo)
+const encodeProjectTemplateCatalog = Schema.encodeSync(ProjectTemplateCatalog)
 
 const normalizeName = (value: string) =>
   value
@@ -321,7 +337,7 @@ export const exportProjectRecovery = createServerFn({ method: "POST" })
           isNull(schema.workspace.forkDeletedAt)
         )
       )
-    const repositories = makeCloudflareArtifactsRepositoryStore(env.REPOS)
+    const repositories = repositoryStore()
     const entries = await Promise.all(
       [
         {
@@ -345,7 +361,13 @@ export const exportProjectRecovery = createServerFn({ method: "POST" })
           ),
           Effect.runPromise(repositories.head(entry.repositoryName)),
         ])
-        return recoveryRepositoryEntry(entry, repository, access, headCommit)
+        return {
+          ...entry,
+          forkHead: entry.kind === "workspace" ? headCommit : entry.forkHead,
+          headCommit,
+          repository,
+          access,
+        }
       })
     )
     return {
@@ -400,13 +422,12 @@ interface ProjectRepositoryOrigin {
 }
 
 const createProjectRepository = async (input: {
-  database: Parameters<typeof ensureTemplateRepository>[0]
+  database: Database
   repositories: RepositoryStore["Service"]
   organization: { id: string; slug: string }
   userId: string
   projectName: string
   repositoryName: string
-  workspaceId: string
   source: ProjectSource
 }): Promise<ProjectRepositoryOrigin> => {
   const { repositories, source } = input
@@ -456,7 +477,7 @@ const createProjectRepository = async (input: {
   const sourceAccessToken = sourceRepository
     ? await githubUserAccessToken(input.database, input.userId)
     : undefined
-  const created = await Effect.runPromise(
+  const artifact = await Effect.runPromise(
     repositories.create({
       name: input.repositoryName,
       description: sourceRepositoryUrl
@@ -465,9 +486,8 @@ const createProjectRepository = async (input: {
       defaultBranch: sourceBranch ?? "main",
     })
   )
-  const artifact = await Effect.runPromise(repositories.inspect(created.name))
-  const prepared = await prepareProjectRepository(
-    input.workspaceId,
+  const head = await prepareProjectRepository(
+    env.REPOS,
     new PrepareProjectRepositoryInput({
       repositoryName: artifact.name,
       repositoryRemote: artifact.remote,
@@ -485,7 +505,7 @@ const createProjectRepository = async (input: {
   const connected = source.kind === "github" && source.mode === "connected"
   return {
     artifact,
-    head: prepared.head,
+    head,
     importOriginUrl: connected ? sourceRepositoryUrl : undefined,
     importOriginBranch: connected ? sourceBranch : undefined,
     template: undefined,
@@ -498,9 +518,16 @@ export const createProject = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { database, membership, user } = context
 
-    const connection = requireProjectProviderConnection(
-      await effectiveConnection(database, data.organizationId, user.id)
+    const connection = await effectiveConnection(
+      database,
+      data.organizationId,
+      user.id
     )
+    if (!connection) {
+      throw new ProviderConnectionRequired({
+        message: "Connect an AI provider before creating a Project",
+      })
+    }
     const credential = await connectionCredential(connection)
 
     const projectSlug = normalizeName(data.name)
@@ -514,7 +541,7 @@ export const createProject = createServerFn({ method: "POST" })
     const projectId = ProjectId.make(crypto.randomUUID())
     const workspaceId = WorkspaceId.make(crypto.randomUUID())
     const repositoryName = `${membership.organizationSlug}-${projectSlug.slice(0, 28)}-${projectId.replaceAll("-", "").slice(0, 12)}`
-    const repositories = makeCloudflareArtifactsRepositoryStore(env.REPOS)
+    const repositories = repositoryStore()
     const origin = await createProjectRepository({
       database,
       repositories,
@@ -525,10 +552,10 @@ export const createProject = createServerFn({ method: "POST" })
       userId: user.id,
       projectName: data.name,
       repositoryName,
-      workspaceId,
       source: data.source,
     })
     const artifact = origin.artifact
+    const head = origin.head
     const workspaceRepositoryName = `${repositoryName.slice(0, 44)}-${workspaceId.replaceAll("-", "").slice(0, 12)}`
     const workspaceArtifact = await Effect.runPromise(
       repositories.fork({
@@ -538,6 +565,13 @@ export const createProject = createServerFn({ method: "POST" })
       })
     )
     const now = new Date()
+    const upstream = origin.importOriginUrl
+      ? {
+          upstreamHead: head,
+          upstreamStatus: "up_to_date",
+          upstreamSyncedAt: now,
+        }
+      : {}
 
     await database.insert(schema.project).values({
       id: projectId,
@@ -554,6 +588,7 @@ export const createProject = createServerFn({ method: "POST" })
       templateKey: origin.template?.key,
       templateRepo: origin.template?.repo,
       templateCommit: origin.template?.commit,
+      ...upstream,
       createdAt: now,
       updatedAt: now,
     })
@@ -569,8 +604,8 @@ export const createProject = createServerFn({ method: "POST" })
         repositoryMode: "fork",
         baseArtifactRepo: artifact.name,
         workspaceArtifactRepo: workspaceArtifact.name,
-        baseCommit: origin.head,
-        forkHead: origin.head,
+        baseCommit: head,
+        forkHead: head,
         syncStatus: "hydrating",
         mergeStatus: "unreviewed",
         errorSummary: null,
@@ -584,8 +619,9 @@ export const createProject = createServerFn({ method: "POST" })
       throw error
     }
 
-    try {
-      await initializeWorkspaceRuntime(
+    waitUntil(
+      completeWorkspaceInitialization(
+        database,
         workspaceId,
         new InitializeWorkspaceRuntime({
           organizationId: data.organizationId,
@@ -597,43 +633,13 @@ export const createProject = createServerFn({ method: "POST" })
           projectRepositoryName: artifact.name,
           projectRepositoryRemote: artifact.remote,
           defaultRef: artifact.defaultBranch,
-          baseCommit: origin.head,
+          baseCommit: head,
           providerId: connection.providerId,
           modelId: connection.modelId,
           credential,
         })
       )
-    } catch (cause) {
-      console.error("Workspace runtime initialization failed", cause)
-      const summary = failureMessage(cause, "Workspace runtime failed")
-      await database
-        .update(schema.workspace)
-        .set({
-          status: "error",
-          errorSummary: summary,
-          updatedAt: new Date(),
-        })
-        .where(eq(schema.workspace.id, workspaceId))
-      return {
-        id: workspaceId,
-        projectId,
-        projectSlug,
-        organizationSlug: membership.organizationSlug,
-        repositoryName: artifact.name,
-        status: "error" as const,
-        errorSummary: summary,
-      }
-    }
-
-    await database
-      .update(schema.workspace)
-      .set({
-        status: "ready",
-        syncStatus: "ready",
-        errorSummary: null,
-        updatedAt: new Date(),
-      })
-      .where(eq(schema.workspace.id, workspaceId))
+    )
 
     return {
       id: workspaceId,
@@ -641,7 +647,6 @@ export const createProject = createServerFn({ method: "POST" })
       projectSlug,
       organizationSlug: membership.organizationSlug,
       repositoryName: artifact.name,
-      status: "ready" as const,
-      errorSummary: null,
+      status: "provisioning" as const,
     }
   })
