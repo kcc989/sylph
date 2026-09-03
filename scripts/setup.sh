@@ -187,7 +187,61 @@ finish() {
 # Replace the example below. Set TOTAL_STAGES to match the stages you write.
 # ──────────────────────────────────────────────────────────────────────────
 
-TOTAL_STAGES=7
+TOTAL_STAGES=9
+
+cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+CLOUDFLARE_API="https://api.cloudflare.com/client/v4"
+DEPLOY_TOKEN_PERMISSIONS="Account Settings Read, Account API Tokens Write, Workers Scripts Write, D1 Write, Workers R2 Storage Write, Workers Containers Write, Workers CI Write, Workers AI Read, Workers AI Write, Artifacts Write, and Browser Run Write."
+RUNTIME_TOKEN_PERMISSIONS="Account Settings Read,Workers Scripts Write,D1 Write,Workers R2 Storage Write,Workers Containers Write,Workers CI Write,Workers AI Read,Workers AI Write"
+R2_TOKEN_PERMISSIONS="Workers R2 Storage Write"
+
+ok() { printf '  %s✓%s %s\n' "$GREEN" "$RESET" "$1"; }
+
+require_tool() {
+  if command -v "$1" >/dev/null 2>&1; then ok "$2"; return 0; fi
+  warn "$3"
+  return 1
+}
+
+cloudflare_get() {
+  curl --silent --show-error --header "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$CLOUDFLARE_API$1"
+}
+
+cloudflare_field() {
+  bun -e '
+    const body = JSON.parse(await Bun.stdin.text())
+    let value = body
+    for (const key of process.argv[1].split(".")) value = value?.[key]
+    if (!body.success || value === undefined || value === null) {
+      const detail = body.errors?.map((error) => error.message).join("; ")
+      console.error(detail || `Cloudflare did not return ${process.argv[1]}`)
+      process.exit(1)
+    }
+    process.stdout.write(String(value))
+  ' "$1"
+}
+
+json_field() {
+  bun -e '
+    const body = JSON.parse(await Bun.stdin.text())
+    process.stdout.write(String(body[process.argv[1]] ?? ""))
+  ' "$1"
+}
+
+alchemy_profile_method() {
+  bun -e '
+    const file = Bun.file(`${process.env.HOME}/.alchemy/profiles.json`)
+    const config = (await file.exists()) ? await file.json() : { profiles: {} }
+    process.stdout.write(config.profiles?.default?.Cloudflare?.method ?? "")
+  '
+}
+
+deploy_url_from_log() {
+  sed -nE "s/.*websiteUrl[^h]*(https:[^'\" ,}]+).*/\1/p" "$1" | tail -n1
+}
+
+timestamp() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
 banner "Sylph Installation setup"
 
@@ -203,17 +257,130 @@ if [[ -f "$ENV_FILE" ]]; then
   pause "Press Enter to continue."
 fi
 
-stage "Cloudflare account"
-say "Sylph deploys to your Cloudflare account through Alchemy."
-step "Alchemy will open Cloudflare so you can authorize this machine."
-bunx alchemy login
+stage "Preflight"
+say "Sylph deploys from your own fork of the repository into your own Cloudflare account."
+missing=0
+require_tool bun "Bun $(bun --version 2>/dev/null || true)" "Bun is required: https://bun.sh" || missing=1
+require_tool docker "Docker" "Docker is required because Alchemy pulls the CI sandbox image and pushes it to your account: https://docs.docker.com/get-docker/" || missing=1
+require_tool openssl "OpenSSL" "OpenSSL is required to generate secrets." || missing=1
+require_tool curl "curl" "curl is required to talk to the Cloudflare API." || missing=1
+require_tool git "git" "git is required." || missing=1
+if command -v docker >/dev/null 2>&1 && ! docker info >/dev/null 2>&1; then
+  warn "Docker is installed but not running. Start it before the deployment stage."
+fi
+if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+  ok "gh is authenticated, so production secrets can be published automatically"
+else
+  note "gh is not ready. The production automation stage will list the secrets to set by hand."
+fi
+origin_url=$(git remote get-url origin 2>/dev/null || true)
+if [[ "$origin_url" == *github.com[:/]kcc989/sylph* ]]; then
+  warn "origin points at the upstream repository. Fork Sylph and clone your fork so GitHub Actions deploys from a repository you control."
+else
+  note "Deploying from $origin_url"
+fi
+note "Your fork's main branch deploys through GitHub Actions. Upgrade by syncing the fork with upstream."
+if (( missing )); then
+  warn "Install the missing tools, then re-run ./scripts/setup.sh"
+  exit 1
+fi
+pause "Prerequisites are present. Press Enter to continue."
+
+stage "Cloudflare deploy token"
+say "One account-owned API token deploys Sylph from this machine and from GitHub Actions."
+say "It also mints the narrower credentials the deployed Worker uses, so the Worker never holds a token that can create tokens."
+open_url "https://dash.cloudflare.com/?to=/:account/workers-and-pages"
+step "Copy the Account ID shown on the right of the Workers & Pages overview."
+ask CLOUDFLARE_ACCOUNT_ID "Paste the Cloudflare Account ID:"
+CLOUDFLARE_API_TOKEN=$(_existing CLOUDFLARE_API_TOKEN || true)
+if [[ -z "$CLOUDFLARE_API_TOKEN" ]]; then
+  open_url "https://dash.cloudflare.com/?to=/:account/api-tokens"
+  step "Choose Create Token, then Create Custom Token, and name it Sylph deploy."
+  step "Under Account permissions, add $DEPLOY_TOKEN_PERMISSIONS"
+  step "Under Account Resources, choose Include, Specific account, then select only this Sylph Installation's account. Do not add zone resources."
+  step "Create the token, then copy its value. Cloudflare shows it only once."
+  ask_secret CLOUDFLARE_API_TOKEN "Paste the Cloudflare deploy token:"
+else
+  note "Reusing the Cloudflare deploy token stored in $ENV_FILE."
+fi
+write_env CLOUDFLARE_ACCOUNT_ID "$CLOUDFLARE_ACCOUNT_ID"
+write_env CLOUDFLARE_API_TOKEN "$CLOUDFLARE_API_TOKEN"
+export CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_API_TOKEN
+token_status=$(cloudflare_get "/accounts/$CLOUDFLARE_ACCOUNT_ID/tokens/verify" | cloudflare_field result.status 2>/dev/null || true)
+if [[ "$token_status" != "active" ]]; then
+  warn "Cloudflare did not accept the deploy token for account $CLOUDFLARE_ACCOUNT_ID (status: ${token_status:-unknown}). Check the account ID and the token, then re-run setup."
+  exit 1
+fi
+ok "the deploy token is active for account $CLOUDFLARE_ACCOUNT_ID"
 step "Install the exact dependencies recorded by Sylph."
 bun install --frozen-lockfile
-pause "Cloudflare is connected and dependencies are installed. Press Enter to continue."
+step "Point Alchemy at the deploy token instead of a browser login."
+profile_method=$(alchemy_profile_method)
+if [[ -z "$profile_method" ]]; then
+  CI=true bunx alchemy login --configure
+elif [[ "$profile_method" == "env" ]]; then
+  ok "Alchemy's default profile already uses the credentials in $ENV_FILE"
+else
+  warn "Alchemy's default profile uses the $profile_method method, which ignores the deploy token in $ENV_FILE."
+  if confirm "Switch Alchemy's default profile to the deploy token?"; then
+    CI=true bunx alchemy login --configure
+  else
+    note "Deploys from this machine will keep using the $profile_method credentials."
+  fi
+fi
+pause "Alchemy is configured. Press Enter to check the account."
+
+stage "Account readiness"
+say "Checking the account features Sylph needs before spending time on a deployment."
+subdomain=$(cloudflare_get "/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" | cloudflare_field result.subdomain 2>/dev/null || true)
+if [[ -z "$subdomain" ]]; then
+  warn "This account has no workers.dev subdomain yet."
+  open_url "https://dash.cloudflare.com/?to=/:account/workers-and-pages"
+  step "Register a workers.dev subdomain under Workers & Pages."
+  pause "Press Enter once the subdomain exists."
+else
+  ok "workers.dev subdomain: $subdomain.workers.dev"
+fi
+if cloudflare_get "/accounts/$CLOUDFLARE_ACCOUNT_ID/r2/buckets" | cloudflare_field success >/dev/null 2>&1; then
+  ok "R2 is enabled"
+else
+  warn "R2 is not enabled or the deploy token cannot reach it."
+  open_url "https://dash.cloudflare.com/?to=/:account/r2"
+  step "Enable R2 for this account, then continue."
+  pause "Press Enter once R2 is enabled."
+fi
+note "Durable Objects, Workflows, Containers, Browser Rendering, and Workers AI come with the Workers Paid plan."
+note "Cloudflare Artifacts must be enabled for the account. Setup cannot probe it; the first deployment reports it if it is missing."
+pause "The account looks ready. Press Enter to create the runtime credentials."
+
+stage "Runtime credentials"
+say "The deployed Worker gets its own narrower API token and an R2 key pair, both minted with the deploy token."
+CF_TOKEN=$(_existing CF_TOKEN || true)
+if [[ -z "$CF_TOKEN" ]]; then
+  runtime_token=$(bun scripts/cloudflare-token.ts "Sylph runtime $(timestamp)" "$RUNTIME_TOKEN_PERMISSIONS")
+  CF_TOKEN=$(printf '%s' "$runtime_token" | json_field value)
+  ok "minted the runtime token"
+else
+  note "Reusing the runtime token stored in $ENV_FILE."
+fi
+write_env CF_TOKEN "$CF_TOKEN"
+R2_ACCESS_KEY_ID=$(_existing R2_ACCESS_KEY_ID || true)
+R2_SECRET_ACCESS_KEY=$(_existing R2_SECRET_ACCESS_KEY || true)
+if [[ -z "$R2_ACCESS_KEY_ID" || -z "$R2_SECRET_ACCESS_KEY" ]]; then
+  r2_token=$(bun scripts/cloudflare-token.ts "Sylph R2 $(timestamp)" "$R2_TOKEN_PERMISSIONS")
+  R2_ACCESS_KEY_ID=$(printf '%s' "$r2_token" | json_field id)
+  R2_SECRET_ACCESS_KEY=$(printf '%s' "$r2_token" | json_field secretAccessKey)
+  ok "minted the R2 key pair"
+else
+  note "Reusing the R2 credentials stored in $ENV_FILE."
+fi
+write_env R2_ACCESS_KEY_ID "$R2_ACCESS_KEY_ID"
+write_env R2_SECRET_ACCESS_KEY "$R2_SECRET_ACCESS_KEY"
+pause "Runtime credentials are ready. Press Enter to generate the Installation secrets."
 
 stage "Installation secrets"
-say "We'll generate the secrets that protect sessions, provider credentials, and the one-time Installation claim."
-for key in BETTER_AUTH_SECRET CREDENTIAL_ENCRYPTION_KEY INSTALLATION_CLAIM_SECRET OAUTH_PROXY_SECRET; do
+say "Generating the secrets that protect sessions, provider credentials, and the one-time Installation claim."
+for key in BETTER_AUTH_SECRET CREDENTIAL_ENCRYPTION_KEY INSTALLATION_CLAIM_SECRET; do
   current=$(_existing "$key" || true)
   if [[ -z "$current" ]]; then
     current=$(openssl rand -hex 32)
@@ -221,72 +388,105 @@ for key in BETTER_AUTH_SECRET CREDENTIAL_ENCRYPTION_KEY INSTALLATION_CLAIM_SECRE
   write_env "$key" "$current"
 done
 write_env ALLOW_TEST_MAGIC_LINKS "false"
-note "The claim secret remains in .env and is entered once at /setup."
-pause "Secrets are ready. Press Enter to deploy the bootstrap configuration."
-
-stage "Cloudflare CI credentials"
-say "Cloudflare CI needs a deployment token and R2 credentials inside its isolated Sandbox."
-open_url "https://dash.cloudflare.com/profile/api-tokens"
-step "Choose Create Custom Token and name it Sylph CI."
-step "Under Account permissions, add Account Settings Read, Account API Tokens Write, Workers Scripts Write, D1 Write, Workers R2 Storage Write, Containers Write, Workers CI Write, Workers AI Read, and Workers AI Write."
-step "Under Account Resources, choose Include, Specific account, then select only this Sylph Installation's account. Do not add zone resources."
-step "Create the token, then copy its value. Cloudflare shows it only once."
-ask_secret CF_TOKEN "Paste the Cloudflare CI API token:"
-write_env CF_TOKEN "$CF_TOKEN"
-CLOUDFLARE_API_TOKEN="$CF_TOKEN"
-write_env CLOUDFLARE_API_TOKEN "$CLOUDFLARE_API_TOKEN"
-open_url "https://dash.cloudflare.com/?to=/:account/r2/api-tokens"
-step "Create an Account API token with Object Read & Write access to all buckets so the first deployment can create and use the generated Check backup bucket."
-step "Copy the Account ID, Access Key ID, and Secret Access Key. Cloudflare shows the secret only once."
-ask CLOUDFLARE_ACCOUNT_ID "Paste the Cloudflare Account ID:"
-ask_secret R2_ACCESS_KEY_ID "Paste the R2 Access Key ID:"
-ask_secret R2_SECRET_ACCESS_KEY "Paste the R2 Secret Access Key:"
-write_env CLOUDFLARE_ACCOUNT_ID "$CLOUDFLARE_ACCOUNT_ID"
-write_env R2_ACCESS_KEY_ID "$R2_ACCESS_KEY_ID"
-write_env R2_SECRET_ACCESS_KEY "$R2_SECRET_ACCESS_KEY"
-pause "Cloudflare CI credentials are ready. Press Enter to deploy the bootstrap configuration."
+note "The claim secret stays in $ENV_FILE and is entered once at /setup."
+pause "Secrets are ready. Press Enter to deploy."
 
 stage "Initial deployment"
-say "The first deployment gives us the permanent URL required by GitHub OAuth."
-bun alchemy deploy --stage prod
-step "Copy the website URL printed by Alchemy."
-ask SYLPH_URL "Paste the Sylph URL without a trailing slash:"
+say "The first deployment creates every Cloudflare resource and prints the permanent URL that GitHub OAuth needs."
+note "A fresh account pulls and pushes the CI sandbox image, which can take several minutes with no progress output. Do not interrupt it."
+deploy_log=$(mktemp)
+bun alchemy deploy --stage prod --yes 2>&1 | tee "$deploy_log"
+SYLPH_URL=$(deploy_url_from_log "$deploy_log")
+rm -f "$deploy_log"
+if [[ -n "$SYLPH_URL" ]]; then
+  ok "deployed to $SYLPH_URL"
+else
+  step "Copy the website URL printed by Alchemy."
+  ask SYLPH_URL "Paste the Sylph URL without a trailing slash:"
+fi
 SYLPH_URL="${SYLPH_URL%/}"
 write_env SYLPH_URL "$SYLPH_URL"
-OAUTH_PROXY_URL="$SYLPH_URL"
+if confirm "Will this Installation also act as the OAuth proxy for preview deployments? Most Installations answer no."; then
+  OAUTH_PROXY_URL="$SYLPH_URL"
+  OAUTH_PROXY_SECRET=$(_existing OAUTH_PROXY_SECRET || true)
+  if [[ -z "$OAUTH_PROXY_SECRET" ]]; then
+    OAUTH_PROXY_SECRET=$(openssl rand -hex 32)
+  fi
+  step "Choose a narrow HTTPS wildcard that matches only preview origins, such as https://sylph-*.${subdomain:-your-subdomain}.workers.dev."
+  ask OAUTH_PROXY_TRUSTED_ORIGINS "Paste the trusted preview origin pattern:"
+else
+  OAUTH_PROXY_URL=""
+  OAUTH_PROXY_SECRET=""
+  OAUTH_PROXY_TRUSTED_ORIGINS=""
+fi
 write_env OAUTH_PROXY_URL "$OAUTH_PROXY_URL"
-step "Choose a narrow HTTPS wildcard that matches only branch preview origins, such as https://sylph-*.your-subdomain.workers.dev."
-ask OAUTH_PROXY_TRUSTED_ORIGINS "Paste the trusted branch origin pattern:"
+write_env OAUTH_PROXY_SECRET "$OAUTH_PROXY_SECRET"
 write_env OAUTH_PROXY_TRUSTED_ORIGINS "$OAUTH_PROXY_TRUSTED_ORIGINS"
+pause "The Installation is deployed. Press Enter to create the GitHub App."
 
 stage "GitHub App"
-say "Create one GitHub App for sign-in and repository-scoped Project access."
-open_url "https://github.com/settings/apps/new"
-step "Set GitHub App name to a name that identifies this Sylph Installation."
-step "Set Homepage URL to $SYLPH_URL"
-step "Set Callback URL to $SYLPH_URL/api/auth/callback/github"
-step "Enable Request user authorization (OAuth) during installation."
-step "Disable Active under Webhook; Sylph synchronizes when Projects are opened, created, or accepted."
-step "Under Repository permissions, set Contents to Read and write and Pull requests to Read and write."
-step "Under Account permissions, set Email addresses to Read-only."
-step "Choose where this GitHub App can be installed, then create it."
-step "Copy the Client ID shown on the App settings page."
-ask GITHUB_CLIENT_ID "Paste the GitHub Client ID:"
-step "Generate a new client secret and copy it now."
-ask_secret GITHUB_CLIENT_SECRET "Paste the GitHub Client Secret:"
+say "Sylph uses one GitHub App for sign-in and repository-scoped Project access."
+GITHUB_CLIENT_ID=$(_existing GITHUB_CLIENT_ID || true)
+GITHUB_CLIENT_SECRET=$(_existing GITHUB_CLIENT_SECRET || true)
+GITHUB_APP_URL=$(_existing GITHUB_APP_URL || true)
+if [[ -n "$GITHUB_CLIENT_ID" && -n "$GITHUB_CLIENT_SECRET" ]]; then
+  note "Reusing the GitHub App credentials stored in $ENV_FILE."
+else
+  ask SYLPH_GITHUB_APP_NAME "Name for the GitHub App (unique across GitHub):"
+  ask SYLPH_GITHUB_APP_OWNER "GitHub organization that owns the App (blank for your personal account):"
+  write_env SYLPH_GITHUB_APP_NAME "$SYLPH_GITHUB_APP_NAME"
+  write_env SYLPH_GITHUB_APP_OWNER "$SYLPH_GITHUB_APP_OWNER"
+  step "Your browser opens GitHub with the App pre-configured. Review it, then choose Create GitHub App."
+  if app=$(SYLPH_URL="$SYLPH_URL" SYLPH_GITHUB_APP_NAME="$SYLPH_GITHUB_APP_NAME" SYLPH_GITHUB_APP_OWNER="$SYLPH_GITHUB_APP_OWNER" bun scripts/github-app-manifest.ts); then
+    GITHUB_CLIENT_ID=$(printf '%s' "$app" | json_field clientId)
+    GITHUB_CLIENT_SECRET=$(printf '%s' "$app" | json_field clientSecret)
+    GITHUB_APP_URL=$(printf '%s' "$app" | json_field htmlUrl)
+    ok "created $GITHUB_APP_URL"
+  else
+    warn "The manifest flow did not complete. Create the App by hand instead."
+    open_url "https://github.com/settings/apps/new"
+    step "Set GitHub App name to $SYLPH_GITHUB_APP_NAME"
+    step "Set Homepage URL to $SYLPH_URL"
+    step "Set Callback URL to $SYLPH_URL/api/auth/callback/github"
+    step "Enable Request user authorization (OAuth) during installation."
+    step "Disable Active under Webhook; Sylph synchronizes when Projects are opened, created, or accepted."
+    step "Under Repository permissions, set Contents to Read and write and Pull requests to Read and write."
+    step "Under Account permissions, set Email addresses to Read-only."
+    step "Choose where this GitHub App can be installed, then create it."
+    step "Copy the Client ID shown on the App settings page."
+    ask GITHUB_CLIENT_ID "Paste the GitHub Client ID:"
+    step "Generate a new client secret and copy it now."
+    ask_secret GITHUB_CLIENT_SECRET "Paste the GitHub Client Secret:"
+    GITHUB_APP_URL=""
+  fi
+fi
 write_env GITHUB_CLIENT_ID "$GITHUB_CLIENT_ID"
 write_env GITHUB_CLIENT_SECRET "$GITHUB_CLIENT_SECRET"
-step "Open Install App in the GitHub App sidebar, install it, and grant the repositories Sylph should access."
+write_env GITHUB_APP_URL "$GITHUB_APP_URL"
+if [[ -n "$GITHUB_APP_URL" ]]; then
+  open_url "$GITHUB_APP_URL/installations/new"
+else
+  step "Open Install App in the GitHub App sidebar."
+fi
+step "Install the App and grant the repositories Sylph should access."
 pause "The GitHub App is installed and its repositories are selected. Press Enter to continue."
 
 stage "Production automation"
-say "Publish the production configuration used by GitHub Actions."
+say "Publish the production configuration used by the Deploy production workflow in your fork."
 if confirm "Publish production secrets and variables to this GitHub repository?"; then
   for name in BETTER_AUTH_SECRET CF_TOKEN CLOUDFLARE_API_TOKEN CREDENTIAL_ENCRYPTION_KEY GITHUB_CLIENT_SECRET INSTALLATION_CLAIM_SECRET OAUTH_PROXY_SECRET R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY; do
-    set_secret "$name" "${!name}"
+    if [[ -n "${!name}" ]]; then
+      set_secret "$name" "${!name}"
+    else
+      note "skipped empty secret $name"
+    fi
   done
   for name in CLOUDFLARE_ACCOUNT_ID GITHUB_CLIENT_ID OAUTH_PROXY_TRUSTED_ORIGINS OAUTH_PROXY_URL; do
-    set_var "$name" "${!name}"
+    if [[ -n "${!name}" ]]; then
+      set_var "$name" "${!name}"
+    else
+      note "skipped empty variable $name"
+    fi
   done
 else
   warn "Production automation was not configured. Run this setup again before relying on Deploy production."
@@ -295,12 +495,12 @@ pause "Production automation is ready. Press Enter to continue."
 
 stage "Launch and claim"
 say "Redeploy with GitHub authentication, then claim the Installation with your own account."
-bun alchemy deploy --stage prod
+bun alchemy deploy --stage prod --yes
 open_url "$SYLPH_URL/setup"
 step "Sign in with the GitHub account that should become the first Admin."
 step "Confirm the verified email address shown by Sylph."
 step "Enter an Organization name."
-step "Copy INSTALLATION_CLAIM_SECRET from .env into the claim form."
+step "Copy INSTALLATION_CLAIM_SECRET from $ENV_FILE into the claim form."
 step "Claim the Installation. Sylph creates the Organization and your owner membership together."
 pause "Press Enter after the Installation has been claimed."
 
