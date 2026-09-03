@@ -58,6 +58,6 @@
   "dependencies": {
     "@cloudflare/ci": "^0.1.0",
     "@cloudflare/sandbox": "^0.12.9",
-    "effect": "4.0.0-rc.111"
+    "effect": "4.0.0-rc.112"
   }
 }
