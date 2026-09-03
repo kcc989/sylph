@@ -353,6 +353,25 @@ function ProjectSettingsScreen() {
               )}
             </div>
           </div>
+          {context.project.templateKey ? (
+            <div className="grid gap-4 border-b py-6 sm:grid-cols-[180px_1fr]">
+              <div className="flex items-center gap-2 text-xs font-medium">
+                <GitFork className="size-3.5 text-muted-foreground" /> Template
+              </div>
+              <div className="min-w-0">
+                <p className="font-mono text-xs">
+                  {context.project.templateKey}
+                </p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  Forked from {context.project.templateRepo ?? "a template"}
+                  {context.project.templateCommit
+                    ? ` at ${context.project.templateCommit.slice(0, 7)}`
+                    : ""}
+                  . The Project has no link to the template after the fork.
+                </p>
+              </div>
+            </div>
+          ) : null}
           {context.project.importOriginUrl ? (
             <>
               <div className="grid gap-4 border-b py-6 sm:grid-cols-[180px_1fr]">

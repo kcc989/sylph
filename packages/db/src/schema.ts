@@ -201,6 +201,9 @@ export const project = sqliteTable(
     deliveryMode: text("delivery_mode").notNull().default("pull_request"),
     deliveredCommit: text("delivered_commit"),
     deliveryUrl: text("delivery_url"),
+    templateKey: text("template_key"),
+    templateRepo: text("template_repo"),
+    templateCommit: text("template_commit"),
     createdAt: timestamp("created_at"),
     updatedAt: timestamp("updated_at"),
   },
@@ -209,6 +212,32 @@ export const project = sqliteTable(
       table.organizationId,
       table.slug
     ),
+  ]
+)
+
+export const templateRepository = sqliteTable(
+  "template_repository",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    key: text("key").notNull(),
+    sourceUrl: text("source_url").notNull(),
+    sourceRef: text("source_ref").notNull(),
+    artifactRepo: text("artifact_repo").notNull(),
+    artifactRemote: text("artifact_remote").notNull(),
+    headCommit: text("head_commit").notNull(),
+    createdAt: timestamp("created_at"),
+    updatedAt: timestamp("updated_at"),
+  },
+  (table) => [
+    uniqueIndex("template_repository_source_unique").on(
+      table.organizationId,
+      table.sourceUrl,
+      table.sourceRef
+    ),
+    index("template_repository_organization_id_idx").on(table.organizationId),
   ]
 )
 

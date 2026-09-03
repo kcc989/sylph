@@ -19,6 +19,9 @@ const repositories: RepositoryNamespace = {
   create: async () => {
     throw new Error("Unexpected create")
   },
+  import: async () => {
+    throw new Error("Unexpected import")
+  },
   delete: async () => {
     throw new Error("Unexpected delete")
   },

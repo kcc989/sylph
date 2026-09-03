@@ -100,6 +100,9 @@ export const accessibleProject = (
       deliveryMode: schema.project.deliveryMode,
       deliveredCommit: schema.project.deliveredCommit,
       deliveryUrl: schema.project.deliveryUrl,
+      templateKey: schema.project.templateKey,
+      templateRepo: schema.project.templateRepo,
+      templateCommit: schema.project.templateCommit,
     })
     .from(schema.project)
     .innerJoin(

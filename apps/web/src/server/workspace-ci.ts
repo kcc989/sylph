@@ -27,6 +27,10 @@ import {
   productionUrl,
 } from "./deployment-records"
 import { ciRunUpsertBindings, ciRunUpsertSql } from "./ci-run-records"
+import {
+  projectDeployEnvironment,
+  readProjectSlug,
+} from "./project-deploy-environment"
 
 const decodeWorkspaceCheckRun = Schema.decodeUnknownSync(WorkspaceCheckRun)
 const decodeWorkspaceCiInput = Schema.decodeUnknownSync(WorkspaceCiInput)
@@ -139,6 +143,9 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
         },
       })
       run = install.run
+      const projectSlug = await step.do("read-project-slug", () =>
+        readProjectSlug(this.env.DB, input.projectId)
+      )
 
       if (input.kind === "production") {
         const build = await this.#runner(step, install.result, run, "build", {
@@ -160,10 +167,11 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
             cloudflareCredentials: {
               accountId: this.env.CLOUDFLARE_ACCOUNT_ID,
             },
-            env: {
-              SYLPH_CHECKPOINT: input.sha,
-              SYLPH_DEPLOYMENT: "production",
-            },
+            env: projectDeployEnvironment({
+              slug: projectSlug,
+              checkpoint: input.sha,
+              deployment: "production",
+            }),
           }
         )
         run = deployment.run
@@ -205,10 +213,11 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
           cloudflareCredentials: {
             accountId: this.env.CLOUDFLARE_ACCOUNT_ID,
           },
-          env: {
-            SYLPH_CHECKPOINT: input.sha,
-            SYLPH_DEPLOYMENT: "preview",
-          },
+          env: projectDeployEnvironment({
+            slug: projectSlug,
+            checkpoint: input.sha,
+            deployment: "preview",
+          }),
         })
         run = preview.run
         const url = previewUrl(`${preview.logs.stdout}\n${preview.logs.stderr}`)
