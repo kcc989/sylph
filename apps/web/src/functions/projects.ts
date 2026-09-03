@@ -23,7 +23,7 @@ import {
   WorkspaceId,
   type WorkspaceCiInput,
 } from "@workspace/domain"
-import { env } from "cloudflare:workers"
+import { env, waitUntil } from "cloudflare:workers"
 import { and, desc, eq, isNull } from "drizzle-orm"
 import { Effect } from "effect"
 
@@ -33,10 +33,8 @@ import {
   GitHubRepositoryLive,
   GitHubRepositoryService,
 } from "@/server/github-repository-service"
-import {
-  githubUserAccessToken,
-  prepareProjectRepository,
-} from "@/server/project-repository-sync"
+import { prepareProjectRepository } from "@/server/project-repository-git"
+import { githubUserAccessToken } from "@/server/project-repository-sync"
 import {
   isOrganizationAdmin,
   requireOrganizationMembership,
@@ -48,7 +46,7 @@ import {
 } from "@/server/provider-connections"
 import { recoveryRepositoryEntry } from "@/server/recovery-export"
 import { makeCloudflareArtifactsRepositoryStore } from "@/server/repository-store"
-import { initializeWorkspaceRuntime } from "@/server/workspace-runtime"
+import { completeWorkspaceInitialization } from "@/server/workspace-runtime"
 
 const normalizeName = (value: string) =>
   value
@@ -406,7 +404,7 @@ export const createProject = createServerFn({ method: "POST" })
     const workspaceId = WorkspaceId.make(crypto.randomUUID())
     const repositoryName = `${membership.organizationSlug}-${projectSlug.slice(0, 28)}-${projectId.replaceAll("-", "").slice(0, 12)}`
     const repositories = makeCloudflareArtifactsRepositoryStore(env.REPOS)
-    const createdArtifact = await Effect.runPromise(
+    const artifact = await Effect.runPromise(
       repositories.create({
         name: repositoryName,
         description: sourceRepositoryUrl
@@ -415,12 +413,9 @@ export const createProject = createServerFn({ method: "POST" })
         defaultBranch: data.sourceBranch ?? "main",
       })
     )
-    const artifact = await Effect.runPromise(
-      repositories.inspect(createdArtifact.name)
-    )
     const workspaceRepositoryName = `${repositoryName.slice(0, 44)}-${workspaceId.replaceAll("-", "").slice(0, 12)}`
-    const prepared = await prepareProjectRepository(
-      workspaceId,
+    const head = await prepareProjectRepository(
+      env.REPOS,
       new PrepareProjectRepositoryInput({
         repositoryName: artifact.name,
         repositoryRemote: artifact.remote,
@@ -443,6 +438,13 @@ export const createProject = createServerFn({ method: "POST" })
       })
     )
     const now = new Date()
+    const upstream = sourceRepositoryUrl
+      ? {
+          upstreamHead: head,
+          upstreamStatus: "up_to_date",
+          upstreamSyncedAt: now,
+        }
+      : {}
 
     await database.insert(schema.project).values({
       id: projectId,
@@ -456,6 +458,7 @@ export const createProject = createServerFn({ method: "POST" })
       defaultBranch: artifact.defaultBranch,
       importOriginUrl: sourceRepositoryUrl,
       importOriginBranch: data.sourceBranch,
+      ...upstream,
       createdAt: now,
       updatedAt: now,
     })
@@ -471,8 +474,8 @@ export const createProject = createServerFn({ method: "POST" })
         repositoryMode: "fork",
         baseArtifactRepo: artifact.name,
         workspaceArtifactRepo: workspaceArtifact.name,
-        baseCommit: prepared.head,
-        forkHead: prepared.head,
+        baseCommit: head,
+        forkHead: head,
         syncStatus: "hydrating",
         mergeStatus: "unreviewed",
         errorSummary: null,
@@ -486,8 +489,9 @@ export const createProject = createServerFn({ method: "POST" })
       throw error
     }
 
-    try {
-      await initializeWorkspaceRuntime(
+    waitUntil(
+      completeWorkspaceInitialization(
+        database,
         workspaceId,
         new InitializeWorkspaceRuntime({
           organizationId: data.organizationId,
@@ -499,43 +503,13 @@ export const createProject = createServerFn({ method: "POST" })
           projectRepositoryName: artifact.name,
           projectRepositoryRemote: artifact.remote,
           defaultRef: artifact.defaultBranch,
-          baseCommit: prepared.head,
+          baseCommit: head,
           providerId: connection.providerId,
           modelId: connection.modelId,
           credential,
         })
       )
-    } catch (cause) {
-      console.error("Workspace runtime initialization failed", cause)
-      const summary = failureMessage(cause, "Workspace runtime failed")
-      await database
-        .update(schema.workspace)
-        .set({
-          status: "error",
-          errorSummary: summary,
-          updatedAt: new Date(),
-        })
-        .where(eq(schema.workspace.id, workspaceId))
-      return {
-        id: workspaceId,
-        projectId,
-        projectSlug,
-        organizationSlug: membership.organizationSlug,
-        repositoryName: artifact.name,
-        status: "error" as const,
-        errorSummary: summary,
-      }
-    }
-
-    await database
-      .update(schema.workspace)
-      .set({
-        status: "ready",
-        syncStatus: "ready",
-        errorSummary: null,
-        updatedAt: new Date(),
-      })
-      .where(eq(schema.workspace.id, workspaceId))
+    )
 
     return {
       id: workspaceId,
@@ -543,7 +517,6 @@ export const createProject = createServerFn({ method: "POST" })
       projectSlug,
       organizationSlug: membership.organizationSlug,
       repositoryName: artifact.name,
-      status: "ready" as const,
-      errorSummary: null,
+      status: "provisioning" as const,
     }
   })

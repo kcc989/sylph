@@ -117,12 +117,6 @@ export class PrepareProjectRepositoryInput extends Schema.Class<PrepareProjectRe
   ),
 }) {}
 
-export class PrepareProjectRepositoryResult extends Schema.Class<PrepareProjectRepositoryResult>(
-  "@sylph/domain/PrepareProjectRepositoryResult"
-)({
-  head: GitCommitId,
-}) {}
-
 export const ProjectRepositorySyncStatus = Schema.Literals([
   "up_to_date",
   "fast_forwarded",
@@ -191,14 +185,6 @@ export const decodeWorkspaceCheckpointList = Schema.decodeUnknownPromise(
 export const encodeWorkspaceCheckpointList = Schema.encodePromise(
   WorkspaceCheckpointList
 )
-export const decodePrepareProjectRepositoryInputPromise =
-  Schema.decodeUnknownPromise(PrepareProjectRepositoryInput)
-export const decodePrepareProjectRepositoryResultPromise =
-  Schema.decodeUnknownPromise(PrepareProjectRepositoryResult)
-export const decodeSyncProjectRepositoryInputPromise =
-  Schema.decodeUnknownPromise(SyncProjectRepositoryInput)
-export const decodeSyncProjectRepositoryResultPromise =
-  Schema.decodeUnknownPromise(SyncProjectRepositoryResult)
 
 export class WorkspaceVersionControlSnapshot extends Schema.Class<WorkspaceVersionControlSnapshot>(
   "@sylph/domain/WorkspaceVersionControlSnapshot"
@@ -218,18 +204,6 @@ export const encodeWorkspaceCheckpointResultSync = Schema.encodeSync(
 export const encodeWorkspaceRebaseResultSync = Schema.encodeSync(
   WorkspaceRebaseResult
 )
-export const encodePrepareProjectRepositoryResultSync = Schema.encodeSync(
-  PrepareProjectRepositoryResult
-)
-export const encodeSyncProjectRepositoryResultSync = Schema.encodeSync(
-  SyncProjectRepositoryResult
-)
 export const encodeWorkspaceCheckpointInputSync = Schema.encodeSync(
   WorkspaceCheckpointInput
-)
-export const encodePrepareProjectRepositoryInputSync = Schema.encodeSync(
-  PrepareProjectRepositoryInput
-)
-export const encodeSyncProjectRepositoryInputSync = Schema.encodeSync(
-  SyncProjectRepositoryInput
 )
