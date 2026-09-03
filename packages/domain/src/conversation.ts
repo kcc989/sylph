@@ -304,14 +304,54 @@ export type WorkspaceRuntimeStatus = typeof WorkspaceRuntimeStatus.Type
 export const WorkspaceMessageRole = Schema.Literals(["user", "assistant"])
 export type WorkspaceMessageRole = typeof WorkspaceMessageRole.Type
 
+export const WorkspaceToolStatus = Schema.Literals([
+  "running",
+  "completed",
+  "error",
+])
+
+export class WorkspaceToolFile extends Schema.Class<WorkspaceToolFile>(
+  "@sylph/domain/WorkspaceToolFile"
+)({
+  uri: Schema.String,
+  mime: Schema.String,
+  name: Schema.optional(Schema.String),
+}) {}
+
+export class WorkspaceMessageTextPart extends Schema.Class<WorkspaceMessageTextPart>(
+  "@sylph/domain/WorkspaceMessageTextPart"
+)({
+  type: Schema.Literal("text"),
+  text: Schema.String,
+}) {}
+
+export class WorkspaceMessageToolPart extends Schema.Class<WorkspaceMessageToolPart>(
+  "@sylph/domain/WorkspaceMessageToolPart"
+)({
+  type: Schema.Literal("tool"),
+  id: Schema.NonEmptyString,
+  name: Schema.NonEmptyString,
+  status: WorkspaceToolStatus,
+  input: Schema.JsonObject,
+  output: Schema.String,
+  outputTruncated: Schema.Boolean,
+  files: Schema.Array(WorkspaceToolFile),
+  error: Schema.NullOr(Schema.String),
+}) {}
+
+export const WorkspaceMessagePart = Schema.Union([
+  WorkspaceMessageTextPart,
+  WorkspaceMessageToolPart,
+])
+export type WorkspaceMessagePart = typeof WorkspaceMessagePart.Type
+
 export class WorkspaceRuntimeMessage extends Schema.Class<WorkspaceRuntimeMessage>(
   "@sylph/domain/WorkspaceRuntimeMessage"
 )({
   id: Schema.NonEmptyString,
   role: WorkspaceMessageRole,
-  text: Schema.String,
   createdAt: Schema.Number,
-  tools: Schema.Array(Schema.NonEmptyString),
+  parts: Schema.Array(WorkspaceMessagePart),
   error: Schema.NullOr(Schema.String),
 }) {}
 

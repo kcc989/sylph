@@ -328,6 +328,15 @@ export class WorkspaceBrowserResult extends Schema.Class<WorkspaceBrowserResult>
   evidence: Schema.Array(WorkspaceCheckEvidence),
 }) {}
 
+export class WorkspaceBrowserToolOutput extends Schema.Class<WorkspaceBrowserToolOutput>(
+  "@sylph/domain/WorkspaceBrowserToolOutput"
+)({
+  url: Schema.NonEmptyString,
+  checkId: Schema.NonEmptyString,
+  evidence: Schema.Array(WorkspaceCheckEvidence),
+  accessibility: Schema.String,
+}) {}
+
 export class WorkspaceArchiveInput extends Schema.Class<WorkspaceArchiveInput>(
   "@sylph/domain/WorkspaceArchiveInput"
 )({

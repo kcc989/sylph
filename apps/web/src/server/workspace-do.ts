@@ -1865,7 +1865,6 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     input: InitializeWorkspaceRuntime
   ) {
     const existing = this.#database.select().from(appWorkspaceState).get()
-
     await this.#workspaceGit.hydrate({
       repositoryName: input.repositoryName,
       repositoryRemote: input.repositoryRemote,

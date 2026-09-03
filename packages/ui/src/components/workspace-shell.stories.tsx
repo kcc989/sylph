@@ -348,3 +348,159 @@ export const ReviewWorkflow: Story = {
     </div>
   ),
 }
+
+const completedTool = {
+  status: "completed" as const,
+  outputTruncated: false,
+  files: [],
+  error: null,
+}
+
+export const RunningToolCall: Story = {
+  args: {
+    entries: [
+      {
+        id: "tool-running",
+        kind: "tool",
+        body: "",
+        tool: {
+          id: "tool-running",
+          name: "workspace_read_file",
+          status: "running",
+          input: { path: "apps/web/src/routes/index.tsx" },
+          output: "",
+          outputTruncated: false,
+          files: [],
+          error: null,
+        },
+      },
+    ],
+    turnActive: true,
+  },
+}
+
+export const CompletedToolCall: Story = {
+  args: {
+    entries: [
+      {
+        id: "tool-completed",
+        kind: "tool",
+        body: "",
+        tool: {
+          id: "tool-completed",
+          name: "workspace_write_file",
+          input: {
+            path: "apps/web/src/routes/index.tsx",
+            content: "export function Home() {\n  return <main>Ready</main>\n}",
+          },
+          output: "Wrote apps/web/src/routes/index.tsx",
+          ...completedTool,
+        },
+      },
+    ],
+  },
+}
+
+export const ErrorToolCall: Story = {
+  args: {
+    entries: [
+      {
+        id: "tool-error",
+        kind: "tool",
+        body: "",
+        tool: {
+          id: "tool-error",
+          name: "workspace_run_checks",
+          status: "error",
+          input: {},
+          output: "Typecheck failed in apps/web/src/routes/index.tsx",
+          outputTruncated: false,
+          files: [],
+          error: "Checks did not pass.",
+        },
+      },
+    ],
+  },
+}
+
+export const DiffToolCall: Story = {
+  args: {
+    entries: [
+      {
+        id: "tool-diff",
+        kind: "tool",
+        body: "",
+        tool: {
+          id: "tool-diff",
+          name: "workspace_diff",
+          input: { scope: "working" },
+          output: "",
+          detail: {
+            kind: "diff",
+            files: [
+              {
+                file: "apps/web/src/routes/workspaces/$workspaceId.tsx",
+                status: "modified",
+                additions: 3,
+                deletions: 1,
+                patch: defaultPatch,
+              },
+            ],
+          },
+          ...completedTool,
+        },
+      },
+    ],
+  },
+}
+
+export const BrowserToolCall: Story = {
+  args: {
+    entries: [
+      {
+        id: "tool-browser",
+        kind: "tool",
+        body: "",
+        tool: {
+          id: "tool-browser",
+          name: "workspace_browser",
+          input: { path: "/login" },
+          output: "",
+          detail: {
+            kind: "browser",
+            url: "https://preview.example.com/login",
+            evidence: [
+              {
+                id: "preview-shot",
+                kind: "screenshot",
+                label: "Login Preview",
+                url: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 800 450'%3E%3Crect width='800' height='450' fill='%23f6f2ec'/%3E%3Crect x='250' y='70' width='300' height='310' rx='18' fill='%23ffffff' stroke='%23d8d0c7'/%3E%3Ctext x='400' y='160' text-anchor='middle' font-family='sans-serif' font-size='32' fill='%23201d19'%3EWelcome back%3C/text%3E%3Crect x='300' y='210' width='200' height='42' rx='6' fill='%23eee8e1'/%3E%3Crect x='300' y='272' width='200' height='42' rx='6' fill='%23ee715d'/%3E%3C/svg%3E",
+              },
+            ],
+            markdown: "# Welcome back\n\nSign in to continue to your Project.",
+            accessibility:
+              "document Login\n  heading Welcome back\n  button Sign in",
+          },
+          ...completedTool,
+        },
+      },
+    ],
+  },
+}
+
+export const FoldedToolCalls: Story = {
+  args: {
+    entries: Array.from({ length: 7 }, (_, index) => ({
+      id: `folded-tool-${index}`,
+      kind: "tool" as const,
+      body: "",
+      tool: {
+        id: `folded-tool-${index}`,
+        name: "workspace_read_file",
+        input: { path: `src/file-${index}.ts` },
+        output: `Contents of src/file-${index}.ts`,
+        ...completedTool,
+      },
+    })),
+  },
+}

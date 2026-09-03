@@ -26,6 +26,9 @@ describe("Workspace socket server", () => {
     expect(shouldForwardWorkspaceEvent({ type: "session.text.delta" })).toBe(
       true
     )
+    expect(shouldForwardWorkspaceEvent({ type: "session.tool.called" })).toBe(
+      true
+    )
     expect(shouldForwardWorkspaceEvent({ type: "models-dev.refreshed" })).toBe(
       false
     )

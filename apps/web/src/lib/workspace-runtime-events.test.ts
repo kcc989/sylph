@@ -80,6 +80,7 @@ describe("applyWorkspaceRuntimeEvent", () => {
       "session.inbox.enqueued",
       "session.inbox.delivered",
       "session.inbox.cancelled",
+      "session.tool.called",
       "form.created",
       "form.replied",
       "form.cancelled",

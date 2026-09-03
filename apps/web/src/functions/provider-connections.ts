@@ -16,9 +16,16 @@ import { and, desc, eq } from "drizzle-orm"
 
 import { connectionManager, organizationMember } from "@/functions/middleware"
 import { providerName } from "@/lib/model-selection"
-import { encodeKeyCredential } from "@/lib/provider-credential"
+import {
+  encodeKeyCredential,
+  normalizeProviderApiKey,
+} from "@/lib/provider-credential"
 import { encryptCredential } from "@/server/credentials.server"
 import { isOrganizationAdmin } from "@/server/organization-access"
+import {
+  ProviderApiKeyValidationError,
+  validateProviderApiKey,
+} from "@/server/provider-key-validation"
 import {
   connectionRuntimeName,
   effectiveConnection,
@@ -343,13 +350,30 @@ export const saveOpenCodeSetup = createServerFn({ method: "POST" })
   .validator((input) => decodeOpenCodeKeySetupInputPromise(input))
   .handler(async ({ data, context }) => {
     const { database, user } = context
+    const apiKey = normalizeProviderApiKey(data.apiKey)
+    if (!apiKey) {
+      throw new InvalidRequest({ message: "Enter a provider API key" })
+    }
+
+    try {
+      await validateProviderApiKey({ providerId: data.providerId, apiKey })
+    } catch (error) {
+      if (!(error instanceof ProviderApiKeyValidationError)) throw error
+      throw new InvalidRequest({
+        message:
+          error.failure === "rejected"
+            ? "OpenRouter rejected this API key. Check it and try again."
+            : "Sylph could not validate this API key with OpenRouter. Try again.",
+      })
+    }
+
     const runtime = workspaceRuntime(
       connectionRuntimeName(data.organizationId, user.id, data.scope)
     )
-    const result = await runtime.connectKey(data)
+    const result = await runtime.connectKey({ ...data, apiKey })
 
     const credential = await encryptCredential(
-      encodeKeyCredential(data.apiKey, data.configuration),
+      encodeKeyCredential(apiKey, data.configuration),
       env.CREDENTIAL_ENCRYPTION_KEY
     )
     const now = new Date()
