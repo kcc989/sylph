@@ -65,7 +65,10 @@ import { drizzle } from "drizzle-orm/durable-sqlite"
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { Schema } from "effect"
 
-import { workspaceEventResponse } from "./workspace-event-stream"
+import {
+  shouldForwardWorkspaceEvent,
+  workspaceEventResponse,
+} from "./workspace-event-stream"
 import { providerConnectionErrorSummary } from "./workspace-error-summary"
 import {
   createWorkspacePermissionBridge,
@@ -396,6 +399,10 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         () =>
           OpenCodeWorkerd.create({
             storage: context.storage,
+            models: {
+              url: "https://models.opencode.ai",
+              snapshot: false,
+            },
             log: {
               level: "error",
               emit: ({ message, cause }) =>
@@ -1584,6 +1591,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     }
 
     for await (const event of opencode.events.subscribe()) {
+      if (!shouldForwardWorkspaceEvent(event)) continue
       yield await decodeWorkspaceRuntimeEventPromise(event)
     }
   }

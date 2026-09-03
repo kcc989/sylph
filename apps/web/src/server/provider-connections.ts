@@ -198,6 +198,75 @@ export type EffectiveConnection = NonNullable<
   Awaited<ReturnType<typeof effectiveConnection>>
 >
 
+const providerModelBatches = (
+  models: ReadonlyArray<{ providerId: string; modelId: string; name: string }>
+) =>
+  Array.from({ length: Math.ceil(models.length / 20) }, (_, index) =>
+    models.slice(index * 20, index * 20 + 20)
+  )
+
+export const replaceOrganizationProviderModels = async ({
+  database,
+  organizationId,
+  providerId,
+  models,
+}: {
+  database: Database
+  organizationId: string
+  providerId: string
+  models: ReadonlyArray<{ providerId: string; modelId: string; name: string }>
+}) => {
+  await database
+    .delete(schema.organizationProviderModel)
+    .where(
+      and(
+        eq(schema.organizationProviderModel.organizationId, organizationId),
+        eq(schema.organizationProviderModel.providerId, providerId)
+      )
+    )
+  for (const batch of providerModelBatches(models)) {
+    await database.insert(schema.organizationProviderModel).values(
+      batch.map((model) => ({
+        organizationId,
+        providerId: model.providerId,
+        modelId: model.modelId,
+        name: model.name,
+      }))
+    )
+  }
+}
+
+export const replaceUserProviderModels = async ({
+  database,
+  userId,
+  providerId,
+  models,
+}: {
+  database: Database
+  userId: string
+  providerId: string
+  models: ReadonlyArray<{ providerId: string; modelId: string; name: string }>
+}) => {
+  await database
+    .delete(schema.userProviderModel)
+    .where(
+      and(
+        eq(schema.userProviderModel.userId, userId),
+        eq(schema.userProviderModel.providerId, providerId)
+      )
+    )
+  for (const batch of providerModelBatches(models)) {
+    await database.insert(schema.userProviderModel).values(
+      batch.map((model) => ({
+        userId,
+        providerId: model.providerId,
+        modelId: model.modelId,
+        name: model.name,
+      }))
+    )
+  }
+}
+
 export const connectionCredential = async (connection: {
   authMethod: string
   encryptedCredential: string
@@ -230,30 +299,14 @@ export const saveProviderModels = async ({
   recommendedModelId: string | null
 }) => {
   const providerModels = normalizeProviderModels(models, providerId)
-  const batches = Array.from(
-    { length: Math.ceil(providerModels.length / 20) },
-    (_, index) => providerModels.slice(index * 20, index * 20 + 20)
-  )
 
   if (scope === "organization") {
-    await database
-      .delete(schema.organizationProviderModel)
-      .where(
-        and(
-          eq(schema.organizationProviderModel.organizationId, organizationId),
-          eq(schema.organizationProviderModel.providerId, providerId)
-        )
-      )
-    for (const batch of batches) {
-      await database.insert(schema.organizationProviderModel).values(
-        batch.map((model) => ({
-          organizationId,
-          providerId: model.providerId,
-          modelId: model.modelId,
-          name: model.name,
-        }))
-      )
-    }
+    await replaceOrganizationProviderModels({
+      database,
+      organizationId,
+      providerId,
+      models: providerModels,
+    })
     const initial = selectInitialProviderModel(
       providerModels,
       providerId,
@@ -281,24 +334,12 @@ export const saveProviderModels = async ({
     return providerModels.length
   }
 
-  await database
-    .delete(schema.userProviderModel)
-    .where(
-      and(
-        eq(schema.userProviderModel.userId, userId),
-        eq(schema.userProviderModel.providerId, providerId)
-      )
-    )
-  for (const batch of batches) {
-    await database.insert(schema.userProviderModel).values(
-      batch.map((model) => ({
-        userId,
-        providerId: model.providerId,
-        modelId: model.modelId,
-        name: model.name,
-      }))
-    )
-  }
+  await replaceUserProviderModels({
+    database,
+    userId,
+    providerId,
+    models: providerModels,
+  })
   const initial = selectInitialProviderModel(
     providerModels,
     providerId,
