@@ -71,6 +71,10 @@ export interface RepositoryNamespace {
     options: { description: string; setDefaultBranch: string }
   ) => Promise<StoredRepository>
   readonly get: (name: string) => Promise<RepositoryHandle>
+  readonly import: (params: {
+    source: { url: string; branch?: string; depth?: number }
+    target: { name: string; opts?: { description?: string } }
+  }) => Promise<StoredRepository>
   readonly delete: (name: string) => Promise<boolean>
 }
 
@@ -86,6 +90,12 @@ export class RepositoryStore extends Context.Service<
       sourceName: string
       name: string
       description: string
+    }) => Effect.Effect<StoredRepository, RepositoryStoreError>
+    readonly import: (input: {
+      name: string
+      description: string
+      sourceUrl: string
+      sourceRef: string
     }) => Effect.Effect<StoredRepository, RepositoryStoreError>
     readonly inspect: (
       name: string
@@ -133,11 +143,16 @@ export const resolveStoredRepository = async (repository: RepositoryHandle) =>
     repository.info ? await repository.info() : repository
   )
 
+export const importPollIntervalMs = 2_000
+export const importPollAttempts = 45
+
 export const makeCloudflareArtifactsRepositoryStore = (
   binding: RepositoryNamespace,
   listRefs: (
     input: Parameters<typeof git.listServerRefs>[0]
-  ) => Promise<Array<{ ref: string; oid: string }>> = git.listServerRefs
+  ) => Promise<Array<{ ref: string; oid: string }>> = git.listServerRefs,
+  wait: (milliseconds: number) => Promise<void> = (milliseconds) =>
+    new Promise((resolve) => setTimeout(resolve, milliseconds))
 ): RepositoryStore["Service"] => {
   const inspect = Effect.fn("RepositoryStore.inspect")(function* (
     name: string
@@ -195,6 +210,39 @@ export const makeCloudflareArtifactsRepositoryStore = (
           )
         },
         catch: (cause) => storeError("fork", cause),
+      })
+    }),
+    import: Effect.fn("RepositoryStore.import")(function* (input) {
+      return yield* Effect.tryPromise({
+        try: async () => {
+          await binding.import({
+            source: { url: input.sourceUrl, branch: input.sourceRef },
+            target: {
+              name: input.name,
+              opts: { description: input.description },
+            },
+          })
+          let lastError: RepositoryStoreError | undefined
+          for (let attempt = 0; attempt < importPollAttempts; attempt += 1) {
+            try {
+              return await resolveStoredRepository(
+                await binding.get(input.name)
+              )
+            } catch (cause) {
+              lastError = storeError("import", cause)
+              if (lastError.code !== "IMPORT_IN_PROGRESS") throw lastError
+              await wait(importPollIntervalMs)
+            }
+          }
+          throw (
+            lastError ??
+            storeError("import", new Error("Repository import did not finish"))
+          )
+        },
+        catch: (cause) =>
+          cause instanceof RepositoryStoreError
+            ? cause
+            : storeError("import", cause),
       })
     }),
     inspect,

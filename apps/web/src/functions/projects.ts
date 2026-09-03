@@ -6,11 +6,13 @@ import {
   decodeCiRunSummary,
   decodeCreateProjectInputPromise,
   decodeGitHubRepositoryLookupInputPromise,
+  decodeOrganizationRequestInputPromise,
   decodeProjectDeliveryModeInputPromise,
   decodeProjectDeployInputPromise,
   decodeProjectRequestInputPromise,
   encodeCiRunRecordList,
   encodeGitHubRepositoryInfo,
+  encodeProjectTemplateCatalog,
   failureMessage,
   GitCommitId,
   InitializeWorkspaceRuntime,
@@ -20,6 +22,7 @@ import {
   productionDeployConfirmed,
   PrepareProjectRepositoryInput,
   ProjectId,
+  type ProjectSource,
   WorkspaceId,
   type WorkspaceCiInput,
 } from "@workspace/domain"
@@ -43,11 +46,19 @@ import {
 } from "@/server/organization-access"
 import { requireProjectProviderConnection } from "@/server/project-provider-guard"
 import {
+  ensureTemplateRepository,
+  projectTemplateCatalog,
+  resolveProjectTemplate,
+} from "@/server/project-templates"
+import {
   connectionCredential,
   effectiveConnection,
 } from "@/server/provider-connections"
 import { recoveryRepositoryEntry } from "@/server/recovery-export"
-import { makeCloudflareArtifactsRepositoryStore } from "@/server/repository-store"
+import {
+  makeCloudflareArtifactsRepositoryStore,
+  type RepositoryStore,
+} from "@/server/repository-store"
 import { initializeWorkspaceRuntime } from "@/server/workspace-runtime"
 
 const normalizeName = (value: string) =>
@@ -85,6 +96,9 @@ export const getWorkspaceCreationContext = createServerFn({ method: "GET" })
         deliveryMode: project.deliveryMode,
         deliveredCommit: project.deliveredCommit,
         deliveryUrl: project.deliveryUrl,
+        templateKey: project.templateKey,
+        templateRepo: project.templateRepo,
+        templateCommit: project.templateCommit,
       },
       setup: setup ?? { providerId: null, modelId: null, authMethod: null },
     }
@@ -365,6 +379,119 @@ export const lookupGitHubRepository = createServerFn({ method: "POST" })
     return encodeGitHubRepositoryInfo(repository)
   })
 
+export const getProjectTemplates = createServerFn({ method: "GET" })
+  .middleware([organizationMember])
+  .validator((input) => decodeOrganizationRequestInputPromise(input))
+  .handler(async () => encodeProjectTemplateCatalog(projectTemplateCatalog()))
+
+interface ProjectRepositoryOrigin {
+  readonly artifact: {
+    readonly id: string
+    readonly name: string
+    readonly remote: string
+    readonly defaultBranch: string
+  }
+  readonly head: string
+  readonly importOriginUrl: string | undefined
+  readonly importOriginBranch: string | undefined
+  readonly template:
+    | { readonly key: string; readonly repo: string; readonly commit: string }
+    | undefined
+}
+
+const createProjectRepository = async (input: {
+  database: Parameters<typeof ensureTemplateRepository>[0]
+  repositories: RepositoryStore["Service"]
+  organization: { id: string; slug: string }
+  userId: string
+  projectName: string
+  repositoryName: string
+  workspaceId: string
+  source: ProjectSource
+}): Promise<ProjectRepositoryOrigin> => {
+  const { repositories, source } = input
+
+  if (source.kind === "template") {
+    const template = resolveProjectTemplate(source.template)
+    if (!template) {
+      throw new InvalidRequest({
+        message: `Unknown Project template ${source.template}`,
+      })
+    }
+    const templateRepository = await ensureTemplateRepository(
+      input.database,
+      repositories,
+      input.organization,
+      template
+    )
+    const forked = await Effect.runPromise(
+      repositories.fork({
+        sourceName: templateRepository.artifactRepo,
+        name: input.repositoryName,
+        description: `${input.projectName} forked from the ${template.name} template by Sylph`,
+      })
+    )
+    const artifact = await Effect.runPromise(repositories.inspect(forked.name))
+    return {
+      artifact,
+      head: templateRepository.headCommit,
+      importOriginUrl: undefined,
+      importOriginBranch: undefined,
+      template: {
+        key: template.key,
+        repo: templateRepository.artifactRepo,
+        commit: templateRepository.headCommit,
+      },
+    }
+  }
+
+  const sourceRepository =
+    source.kind === "github"
+      ? await Effect.runPromise(parseGitHubRepositoryUrl(source.url))
+      : undefined
+  const sourceRepositoryUrl = sourceRepository
+    ? `https://github.com/${sourceRepository.owner}/${sourceRepository.name}`
+    : undefined
+  const sourceBranch = source.kind === "github" ? source.branch : undefined
+  const sourceAccessToken = sourceRepository
+    ? await githubUserAccessToken(input.database, input.userId)
+    : undefined
+  const created = await Effect.runPromise(
+    repositories.create({
+      name: input.repositoryName,
+      description: sourceRepositoryUrl
+        ? `${input.projectName} imported by Sylph`
+        : `${input.projectName} created by Sylph`,
+      defaultBranch: sourceBranch ?? "main",
+    })
+  )
+  const artifact = await Effect.runPromise(repositories.inspect(created.name))
+  const prepared = await prepareProjectRepository(
+    input.workspaceId,
+    new PrepareProjectRepositoryInput({
+      repositoryName: artifact.name,
+      repositoryRemote: artifact.remote,
+      defaultRef: artifact.defaultBranch,
+      projectName: input.projectName,
+      source: sourceRepositoryUrl
+        ? {
+            remote: `${sourceRepositoryUrl}.git`,
+            ref: sourceBranch ?? artifact.defaultBranch,
+            accessToken: sourceAccessToken,
+          }
+        : undefined,
+    })
+  )
+  const connected = source.kind === "github" && source.mode === "connected"
+  return {
+    artifact,
+    head: prepared.head,
+    importOriginUrl: connected ? sourceRepositoryUrl : undefined,
+    importOriginBranch: connected ? sourceBranch : undefined,
+    template: undefined,
+  }
+}
+
 export const createProject = createServerFn({ method: "POST" })
   .middleware([organizationMember])
   .validator((input) => decodeCreateProjectInputPromise(input))
@@ -375,24 +502,6 @@ export const createProject = createServerFn({ method: "POST" })
       await effectiveConnection(database, data.organizationId, user.id)
     )
     const credential = await connectionCredential(connection)
-
-    if (!data.sourceRepositoryUrl && data.sourceBranch) {
-      throw new InvalidRequest({
-        message: "A source branch requires a GitHub Repository URL",
-      })
-    }
-
-    const sourceRepository = data.sourceRepositoryUrl
-      ? await Effect.runPromise(
-          parseGitHubRepositoryUrl(data.sourceRepositoryUrl)
-        )
-      : undefined
-    const sourceRepositoryUrl = sourceRepository
-      ? `https://github.com/${sourceRepository.owner}/${sourceRepository.name}`
-      : undefined
-    const sourceAccessToken = sourceRepository
-      ? await githubUserAccessToken(database, user.id)
-      : undefined
 
     const projectSlug = normalizeName(data.name)
 
@@ -406,35 +515,21 @@ export const createProject = createServerFn({ method: "POST" })
     const workspaceId = WorkspaceId.make(crypto.randomUUID())
     const repositoryName = `${membership.organizationSlug}-${projectSlug.slice(0, 28)}-${projectId.replaceAll("-", "").slice(0, 12)}`
     const repositories = makeCloudflareArtifactsRepositoryStore(env.REPOS)
-    const createdArtifact = await Effect.runPromise(
-      repositories.create({
-        name: repositoryName,
-        description: sourceRepositoryUrl
-          ? `${data.name} imported by Sylph`
-          : `${data.name} created by Sylph`,
-        defaultBranch: data.sourceBranch ?? "main",
-      })
-    )
-    const artifact = await Effect.runPromise(
-      repositories.inspect(createdArtifact.name)
-    )
-    const workspaceRepositoryName = `${repositoryName.slice(0, 44)}-${workspaceId.replaceAll("-", "").slice(0, 12)}`
-    const prepared = await prepareProjectRepository(
+    const origin = await createProjectRepository({
+      database,
+      repositories,
+      organization: {
+        id: data.organizationId,
+        slug: membership.organizationSlug,
+      },
+      userId: user.id,
+      projectName: data.name,
+      repositoryName,
       workspaceId,
-      new PrepareProjectRepositoryInput({
-        repositoryName: artifact.name,
-        repositoryRemote: artifact.remote,
-        defaultRef: artifact.defaultBranch,
-        projectName: data.name,
-        source: sourceRepositoryUrl
-          ? {
-              remote: `${sourceRepositoryUrl}.git`,
-              ref: data.sourceBranch ?? artifact.defaultBranch,
-              accessToken: sourceAccessToken,
-            }
-          : undefined,
-      })
-    )
+      source: data.source,
+    })
+    const artifact = origin.artifact
+    const workspaceRepositoryName = `${repositoryName.slice(0, 44)}-${workspaceId.replaceAll("-", "").slice(0, 12)}`
     const workspaceArtifact = await Effect.runPromise(
       repositories.fork({
         sourceName: artifact.name,
@@ -454,8 +549,11 @@ export const createProject = createServerFn({ method: "POST" })
       artifactRepo: artifact.name,
       artifactRemote: artifact.remote,
       defaultBranch: artifact.defaultBranch,
-      importOriginUrl: sourceRepositoryUrl,
-      importOriginBranch: data.sourceBranch,
+      importOriginUrl: origin.importOriginUrl,
+      importOriginBranch: origin.importOriginBranch,
+      templateKey: origin.template?.key,
+      templateRepo: origin.template?.repo,
+      templateCommit: origin.template?.commit,
       createdAt: now,
       updatedAt: now,
     })
@@ -471,8 +569,8 @@ export const createProject = createServerFn({ method: "POST" })
         repositoryMode: "fork",
         baseArtifactRepo: artifact.name,
         workspaceArtifactRepo: workspaceArtifact.name,
-        baseCommit: prepared.head,
-        forkHead: prepared.head,
+        baseCommit: origin.head,
+        forkHead: origin.head,
         syncStatus: "hydrating",
         mergeStatus: "unreviewed",
         errorSummary: null,
@@ -499,7 +597,7 @@ export const createProject = createServerFn({ method: "POST" })
           projectRepositoryName: artifact.name,
           projectRepositoryRemote: artifact.remote,
           defaultRef: artifact.defaultBranch,
-          baseCommit: prepared.head,
+          baseCommit: origin.head,
           providerId: connection.providerId,
           modelId: connection.modelId,
           credential,

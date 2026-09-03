@@ -74,16 +74,20 @@ describe("Project and runtime inputs", () => {
     ).rejects.toBeDefined()
   })
 
-  test("decodes a project that belongs to an organization", async () => {
+  test("decodes a Project forked from a template", async () => {
     const project = await Effect.runPromise(
       decodeCreateProjectInput({
         organizationId: "organization-1",
-        scope: "organization",
         name: "Weather desk",
+        source: { kind: "template", template: "cloudflare-tanstack" },
       })
     )
 
     expect(project.name).toBe("Weather desk")
+    expect(project.source).toEqual({
+      kind: "template",
+      template: "cloudflare-tanstack",
+    })
   })
 
   test("decodes a Project imported from a GitHub branch", async () => {
@@ -91,13 +95,43 @@ describe("Project and runtime inputs", () => {
       decodeCreateProjectInput({
         organizationId: "organization-1",
         name: "Sylph",
-        sourceRepositoryUrl: "https://github.com/kcc989/Sylph",
-        sourceBranch: "main",
+        source: {
+          kind: "github",
+          url: "https://github.com/kcc989/Sylph",
+          branch: "main",
+          mode: "connected",
+        },
       })
     )
 
-    expect(project.sourceRepositoryUrl).toBe("https://github.com/kcc989/Sylph")
-    expect(project.sourceBranch).toBe("main")
+    expect(project.source.kind).toBe("github")
+    if (project.source.kind !== "github") throw new Error("Expected GitHub")
+    expect(project.source.url).toBe("https://github.com/kcc989/Sylph")
+    expect(project.source.branch).toBe("main")
+    expect(project.source.mode).toBe("connected")
+  })
+
+  test("decodes an empty Project source", async () => {
+    const project = await Effect.runPromise(
+      decodeCreateProjectInput({
+        organizationId: "organization-1",
+        name: "Scratch",
+        source: { kind: "empty" },
+      })
+    )
+
+    expect(project.source).toEqual({ kind: "empty" })
+  })
+
+  test("rejects a Project without a source", async () => {
+    const exit = await Effect.runPromiseExit(
+      decodeCreateProjectInput({
+        organizationId: "organization-1",
+        name: "Weather desk",
+      })
+    )
+
+    expect(Exit.isFailure(exit)).toBe(true)
   })
 
   test("rejects an empty workspace file path", async () => {

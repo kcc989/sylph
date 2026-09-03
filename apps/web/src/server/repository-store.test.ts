@@ -46,6 +46,9 @@ describe("Repository Store metadata", () => {
       delete: async () => {
         throw new Error("Unexpected delete")
       },
+      import: async () => {
+        throw new Error("Unexpected import")
+      },
       get: async (name: string) => {
         calls.push(["get", name])
         return {
@@ -111,6 +114,9 @@ describe("Repository Store metadata", () => {
       delete: async () => {
         throw new Error("Unexpected delete")
       },
+      import: async () => {
+        throw new Error("Unexpected import")
+      },
       get: async (name: string) => ({
         id: "project-id",
         name,
@@ -135,5 +141,120 @@ describe("Repository Store metadata", () => {
     const result = await Effect.runPromise(service.head("project"))
 
     expect(result).toBe("1111111111111111111111111111111111111111")
+  })
+})
+
+describe("Repository Store import", () => {
+  test("imports a Template Repository and waits for the import to finish", async () => {
+    const calls: Array<unknown> = []
+    let reads = 0
+    const binding: RepositoryNamespace = {
+      create: async () => {
+        throw new Error("Unexpected create")
+      },
+      delete: async () => {
+        throw new Error("Unexpected delete")
+      },
+      import: async (params) => {
+        calls.push(["import", params])
+        return {
+          id: "template-id",
+          name: params.target.name,
+          remote: "https://repositories.example/template",
+          defaultBranch: "main",
+        }
+      },
+      get: async (name: string) => {
+        reads += 1
+        if (reads < 3) {
+          throw Object.assign(new Error("importing"), {
+            code: "IMPORT_IN_PROGRESS",
+          })
+        }
+        return {
+          id: "template-id",
+          name,
+          remote: "https://repositories.example/template",
+          defaultBranch: "main",
+          createToken: async () => ({ plaintext: "token", expiresAt: "later" }),
+          fork: async () => {
+            throw new Error("Unexpected fork")
+          },
+        }
+      },
+    }
+    const waits: Array<number> = []
+    const service = makeCloudflareArtifactsRepositoryStore(
+      binding,
+      async () => [],
+      async (milliseconds) => {
+        waits.push(milliseconds)
+      }
+    )
+
+    const result = await Effect.runPromise(
+      service.import({
+        name: "acme-template-cloudflare-tanstack-main",
+        description: "Cloudflare app template imported by Sylph",
+        sourceUrl: "https://github.com/kcc989/sylph-tanstack-template",
+        sourceRef: "main",
+      })
+    )
+
+    expect(result).toEqual({
+      id: "template-id",
+      name: "acme-template-cloudflare-tanstack-main",
+      remote: "https://repositories.example/template",
+      defaultBranch: "main",
+    })
+    expect(calls).toEqual([
+      [
+        "import",
+        {
+          source: {
+            url: "https://github.com/kcc989/sylph-tanstack-template",
+            branch: "main",
+          },
+          target: {
+            name: "acme-template-cloudflare-tanstack-main",
+            opts: { description: "Cloudflare app template imported by Sylph" },
+          },
+        },
+      ],
+    ])
+    expect(waits).toEqual([2_000, 2_000])
+  })
+
+  test("reports a template import failure with its Artifacts code", async () => {
+    const binding: RepositoryNamespace = {
+      create: async () => {
+        throw new Error("Unexpected create")
+      },
+      delete: async () => {
+        throw new Error("Unexpected delete")
+      },
+      import: async () => {
+        throw Object.assign(new Error("exists"), { code: "ALREADY_EXISTS" })
+      },
+      get: async () => {
+        throw new Error("Unexpected get")
+      },
+    }
+    const service = makeCloudflareArtifactsRepositoryStore(binding)
+
+    const failure = await Effect.runPromise(
+      service
+        .import({
+          name: "acme-template-cloudflare-tanstack-main",
+          description: "template",
+          sourceUrl: "https://github.com/kcc989/sylph-tanstack-template",
+          sourceRef: "main",
+        })
+        .pipe(Effect.flip)
+    )
+
+    expect(failure.operation).toBe("import")
+    expect(failure.code).toBe("ALREADY_EXISTS")
+    expect(failure.retryable).toBe(false)
   })
 })
