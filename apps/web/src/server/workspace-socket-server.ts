@@ -45,6 +45,7 @@ const forwardedWorkspaceEventTypes = new Set([
   "session.inbox.enqueued",
   "session.text.delta",
   "session.text.ended",
+  "session.tool.called",
   "session.tool.failed",
   "session.tool.success",
 ])

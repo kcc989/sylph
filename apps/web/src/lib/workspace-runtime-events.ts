@@ -95,6 +95,7 @@ export const workspaceEventNeedsSnapshot = (event: WorkspaceRuntimeEvent) =>
   event.type === "session.execution.succeeded" ||
   event.type === "session.execution.failed" ||
   event.type === "session.execution.interrupted" ||
+  event.type === "session.tool.called" ||
   event.type === "session.tool.success" ||
   event.type === "session.tool.failed" ||
   event.type === "session.inbox.enqueued" ||

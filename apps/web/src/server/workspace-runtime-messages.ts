@@ -1,31 +1,123 @@
-import type { WorkspaceRuntimeMessage } from "@workspace/domain"
+import type {
+  WorkspaceMessagePart,
+  WorkspaceRuntimeMessage,
+} from "@workspace/domain"
+import { Option, Schema } from "effect"
+
+export const workspaceToolOutputLimit = 16 * 1024
+
+type RuntimeToolContent =
+  | { type: "text"; text: string }
+  | { type: "file"; uri: string; mime: string; name?: string | null }
+
+type RuntimeToolFile = { uri: string; mime: string; name?: string }
+
+type RuntimeToolState =
+  | { status: "streaming"; input: string }
+  | { status: "running"; input: object; metadata: object }
+  | {
+      status: "completed"
+      input: object
+      content: ReadonlyArray<RuntimeToolContent>
+      metadata?: object
+    }
+  | {
+      status: "error"
+      input: object
+      error: { type: string; message: string; status?: number }
+      content?: ReadonlyArray<RuntimeToolContent>
+      metadata?: object
+    }
+
+type RuntimeContentPart =
+  | { type: "text"; text: string }
+  | { type: "reasoning"; text: string }
+  | { type: "tool"; id: string; name: string; state: RuntimeToolState }
 
 export type WorkspaceRuntimeMessageSource = {
   id: string
   type: string
   time: { created: number; completed?: number }
   text?: string
-  content?: ReadonlyArray<{ type: string; text?: string; name?: string }>
+  content?: ReadonlyArray<RuntimeContentPart>
   error?: { message: string }
 }
 
-const messageText = (message: {
-  content: ReadonlyArray<{ type: string; text?: string }>
-}) =>
-  message.content
-    .filter(
-      (part): part is { type: string; text: string } =>
-        part.type === "text" && part.text !== undefined
-    )
-    .map((part) => part.text)
-    .join("\n\n")
+const decodeToolInput = Schema.decodeUnknownOption(Schema.JsonObject)
 
-const messageTools = (message: {
-  content: ReadonlyArray<{ type: string; name?: string }>
-}) =>
-  message.content.flatMap((part) =>
-    part.type === "tool" && part.name ? [part.name] : []
-  )
+const textOutput = (content: ReadonlyArray<RuntimeToolContent>) =>
+  content
+    .flatMap((item) => (item.type === "text" ? [item.text] : []))
+    .join("\n")
+
+const toolFiles = (content: ReadonlyArray<RuntimeToolContent>) =>
+  content.flatMap((item) => {
+    if (item.type !== "file") return []
+    const file: RuntimeToolFile = {
+      uri: item.uri,
+      mime: item.mime,
+    }
+    if (item.name !== undefined && item.name !== null) file.name = item.name
+    return [file]
+  })
+
+const boundedOutput = (output: string) => ({
+  output: output.slice(0, workspaceToolOutputLimit),
+  outputTruncated: output.length > workspaceToolOutputLimit,
+})
+
+const toolPart = (
+  part: RuntimeContentPart
+): WorkspaceMessagePart | undefined => {
+  if (part.type !== "tool") return undefined
+  const state = part.state
+  const stateStatus = state.status
+  const status =
+    stateStatus === "streaming" || stateStatus === "running"
+      ? "running"
+      : stateStatus
+  const content = "content" in state ? (state.content ?? []) : []
+  const output = boundedOutput(textOutput(content))
+  const input =
+    stateStatus === "streaming"
+      ? {}
+      : Option.getOrElse(decodeToolInput(state.input), () => ({}))
+  return {
+    type: "tool",
+    id: part.id,
+    name: part.name,
+    status,
+    input,
+    ...output,
+    files: toolFiles(content),
+    error: stateStatus === "error" ? state.error.message : null,
+  }
+}
+
+const assistantParts = (
+  content: ReadonlyArray<RuntimeContentPart>
+): WorkspaceMessagePart[] => {
+  const parts: WorkspaceMessagePart[] = []
+  let text: string[] = []
+  const flushText = () => {
+    if (!text.length) return
+    parts.push({ type: "text", text: text.join("\n\n") })
+    text = []
+  }
+
+  for (const part of content) {
+    if (part.type === "text") {
+      text.push(part.text)
+      continue
+    }
+    if (part.type === "reasoning") continue
+    flushText()
+    const parsed = toolPart(part)
+    if (parsed) parts.push(parsed)
+  }
+  flushText()
+  return parts
+}
 
 export const workspaceRuntimeMessages = (
   messages: ReadonlyArray<WorkspaceRuntimeMessageSource>
@@ -35,23 +127,19 @@ export const workspaceRuntimeMessages = (
       result.push({
         id: message.id,
         role: "user",
-        text: message.text,
         createdAt: message.time.created,
-        tools: [],
+        parts: [{ type: "text", text: message.text }],
         error: null,
       })
       return result
     }
 
     if (message.type === "assistant" && message.content) {
-      const tools = messageTools({ content: message.content })
-      const text = messageText({ content: message.content })
       result.push({
         id: message.id,
         role: "assistant",
-        text: text || (tools.length ? `Used ${tools.join(", ")}` : ""),
         createdAt: message.time.created,
-        tools,
+        parts: assistantParts(message.content),
         error: message.error?.message ?? null,
       })
     }

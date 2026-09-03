@@ -48,13 +48,11 @@ import {
   AtSign,
   X,
 } from "lucide-react"
-import ReactMarkdown from "react-markdown"
 import { useEffect, useRef, useState, type ReactNode } from "react"
 import {
   useDefaultLayout,
   type PanelImperativeHandle,
 } from "react-resizable-panels"
-import remarkGfm from "remark-gfm"
 
 import { Badge } from "@workspace/ui/components/badge"
 import {
@@ -109,7 +107,9 @@ import {
   ResizablePanelGroup,
 } from "@workspace/ui/components/resizable"
 import { ScrollArea } from "@workspace/ui/components/scroll-area"
+import { ResponseMarkdown } from "@workspace/ui/components/response-markdown"
 import { Textarea } from "@workspace/ui/components/textarea"
+import { ToolCall } from "@workspace/ui/components/tool-call"
 import {
   Tooltip,
   TooltipContent,
@@ -118,6 +118,7 @@ import {
 } from "@workspace/ui/components/tooltip"
 import { cn } from "@workspace/ui/lib/utils"
 import { workspaceStatusStyles } from "@workspace/ui/lib/status-styles"
+import { groupToolCalls } from "@workspace/ui/lib/tool-call-summary"
 import {
   readWorkspaceToolState,
   writeWorkspaceToolState,
@@ -176,7 +177,58 @@ type ThreadEntry = {
   meta?: string
   details?: string[]
   artifact?: { label: string; detail: string }
+  tool?: ToolCallEntry
 }
+
+type ToolCallDetail =
+  | {
+      kind: "diff"
+      files: ReadonlyArray<{
+        file: string
+        status: "added" | "modified" | "deleted"
+        additions: number
+        deletions: number
+        patch: string
+      }>
+    }
+  | {
+      kind: "browser"
+      url: string
+      evidence: ReadonlyArray<{
+        id: string
+        kind: "screenshot" | "accessibility"
+        label: string
+        url: string
+      }>
+      markdown: string
+      accessibility: string
+    }
+  | {
+      kind: "checks"
+      runs: ReadonlyArray<{ id: string; status: string; label: string }>
+    }
+
+type ToolCallEntry = {
+  id: string
+  name: string
+  status: "running" | "completed" | "error"
+  input: ToolCallInput
+  output: string
+  outputTruncated: boolean
+  files: ReadonlyArray<{ uri: string; mime: string; name?: string }>
+  error: string | null
+  detail?: ToolCallDetail
+}
+
+type ToolCallInputValue =
+  | string
+  | number
+  | boolean
+  | null
+  | ReadonlyArray<ToolCallInputValue>
+  | { readonly [key: string]: ToolCallInputValue }
+
+type ToolCallInput = { readonly [key: string]: ToolCallInputValue }
 
 type WorkspacePermissionRequest = {
   id: string
@@ -492,15 +544,17 @@ const fallbackEntries: ThreadEntry[] = [
   {
     id: "inspect",
     kind: "tool",
-    title: "Plan",
-    body: "Move chat, browser, changes, checks, and terminal into one peer tab model.",
-    meta: "4 steps",
-    details: [
-      "Audit the workspace shell and preview route",
-      "Keep Project → Workspace hierarchy persistent",
-      "Verify the browser at mobile and desktop widths",
-      "Run typecheck, accessibility, and build checks",
-    ],
+    body: "",
+    tool: {
+      id: "inspect",
+      name: "workspace_read_file",
+      status: "completed",
+      input: { path: "packages/ui/src/components/workspace-shell.tsx" },
+      output: "Workspace shell source loaded.",
+      outputTruncated: false,
+      files: [],
+      error: null,
+    },
   },
   {
     id: "result",
@@ -995,14 +1049,6 @@ function WorkspaceTopbar({
   )
 }
 
-function ResponseMarkdown({ children }: { children: string }) {
-  return (
-    <div className="min-w-0 text-[13px] leading-5 text-foreground/80 [&_a]:font-medium [&_a]:text-[#ef9b7e] [&_a]:underline [&_a]:decoration-[#ef9b7e]/40 [&_a]:underline-offset-2 [&_blockquote]:my-3 [&_blockquote]:border-l [&_blockquote]:border-white/15 [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_code]:rounded-[4px] [&_code]:bg-white/[.07] [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[12px] [&_code]:text-foreground/90 [&_h1]:mt-5 [&_h1]:mb-2 [&_h1]:text-base [&_h1]:font-semibold [&_h1]:tracking-[-0.02em] [&_h2]:mt-4 [&_h2]:mb-2 [&_h2]:text-sm [&_h2]:font-semibold [&_h3]:mt-3 [&_h3]:mb-1.5 [&_h3]:text-[13px] [&_h3]:font-semibold [&_hr]:my-4 [&_hr]:border-white/10 [&_li]:pl-0.5 [&_ol]:my-2 [&_ol]:grid [&_ol]:list-decimal [&_ol]:gap-1 [&_ol]:pl-5 [&_p+p]:mt-3 [&_pre]:my-3 [&_pre]:overflow-x-auto [&_pre]:border [&_pre]:border-white/[.08] [&_pre]:bg-black/25 [&_pre]:p-3 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_table]:my-3 [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto [&_td]:border-b [&_td]:border-white/[.07] [&_td]:px-2 [&_td]:py-1.5 [&_th]:border-b [&_th]:border-white/15 [&_th]:px-2 [&_th]:py-1.5 [&_th]:text-left [&_th]:font-medium [&_ul]:my-2 [&_ul]:grid [&_ul]:list-disc [&_ul]:gap-1 [&_ul]:pl-5 [&>:first-child]:mt-0 [&>:last-child]:mb-0">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{children}</ReactMarkdown>
-    </div>
-  )
-}
-
 function SkillInvocationMessage({ entry }: { entry: ThreadEntry }) {
   if (!entry.skill) {
     return (
@@ -1222,6 +1268,115 @@ function AgentQuestion({
   )
 }
 
+function ThreadEntryRow({ entry }: { entry: ThreadEntry }) {
+  return (
+    <MessageScrollerItem
+      messageId={entry.id}
+      className={cn(
+        "py-2 first:pt-0 last:pb-4",
+        entry.kind === "user" && "flex justify-end"
+      )}
+    >
+      <article
+        className={cn(
+          "min-w-0",
+          entry.kind === "user"
+            ? "max-w-[85%] rounded-[18px] rounded-br-[6px] bg-white/[.07] px-4 py-2.5"
+            : "w-full"
+        )}
+      >
+        {entry.kind === "tool" && entry.tool ? (
+          <ToolCall part={entry.tool} />
+        ) : (
+          <>
+            {(entry.title || entry.meta) && (
+              <div
+                className={cn(
+                  "mb-1.5 flex items-center gap-2",
+                  entry.kind === "user" && "hidden",
+                  entry.kind === "agent" && !entry.title && "hidden"
+                )}
+              >
+                {entry.title && (
+                  <h3 className="text-xs font-medium text-foreground/90">
+                    {entry.title}
+                  </h3>
+                )}
+                {entry.meta && (
+                  <span className="text-[10px] text-muted-foreground">
+                    {entry.meta}
+                  </span>
+                )}
+              </div>
+            )}
+            {entry.kind === "agent" || entry.kind === "result" ? (
+              <ResponseMarkdown>{entry.body}</ResponseMarkdown>
+            ) : entry.kind === "user" ? (
+              <SkillInvocationMessage entry={entry} />
+            ) : (
+              <p className="text-[13px] leading-5 whitespace-pre-wrap text-foreground/80">
+                {entry.body}
+              </p>
+            )}
+            {entry.details && (
+              <ul className="mt-3 grid gap-1.5">
+                {entry.details.map((detail) => (
+                  <li
+                    key={detail}
+                    className="flex items-center gap-2 text-[12px] text-muted-foreground"
+                  >
+                    <Check className="size-3 text-foreground/70" />
+                    {detail}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {entry.artifact && (
+              <div className="mt-3 flex items-center gap-2 border border-white/[.09] bg-white/[.025] px-2.5 py-2">
+                <Activity className="size-3.5 text-[#ef9b7e]" />
+                <span className="text-[11px] font-medium">
+                  {entry.artifact.label}
+                </span>
+                <span className="ml-auto truncate font-mono text-[9px] text-muted-foreground">
+                  {entry.artifact.detail}
+                </span>
+              </div>
+            )}
+          </>
+        )}
+      </article>
+    </MessageScrollerItem>
+  )
+}
+
+function ToolCallGroup({ entries }: { entries: ReadonlyArray<ThreadEntry> }) {
+  return (
+    <MessageScrollerItem
+      className="py-2 first:pt-0 last:pb-4"
+      messageId={`tool-group:${entries[0]?.id ?? "empty"}`}
+    >
+      <Collapsible>
+        <CollapsibleTrigger
+          aria-label={`Toggle ${entries.length} tool calls`}
+          className="group flex min-h-8 w-full items-center gap-2 py-1 text-start focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          type="button"
+        >
+          <Files className="size-3.5 shrink-0 text-foreground/65" />
+          <span className="min-w-0 flex-1 text-[13px] text-foreground/80">
+            {entries.length} tool calls
+          </span>
+          <ChevronRight className="size-3.5 shrink-0 text-muted-foreground transition-transform group-data-panel-open:rotate-90 motion-reduce:transition-none" />
+        </CollapsibleTrigger>
+        <CollapsibleContent className="grid gap-0.5 ps-[1.375rem] pt-1 pb-2">
+          {entries.map((entry) =>
+            entry.tool ? <ToolCall key={entry.id} part={entry.tool} /> : null
+          )}
+        </CollapsibleContent>
+      </Collapsible>
+    </MessageScrollerItem>
+  )
+}
+
 function AgentThread({
   entries,
   permissionRequests,
@@ -1288,91 +1443,20 @@ function AgentThread({
   modelNotice?: string | null
   onModelChange?: (model: { providerId: string; modelId: string }) => void
 }) {
+  const renderEntries = groupToolCalls(entries)
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-background">
       <MessageScrollerProvider autoScroll defaultScrollPosition="end">
         <MessageScroller className="min-h-0 flex-1">
           <MessageScrollerViewport>
             <MessageScrollerContent className="mx-auto w-full max-w-3xl justify-end px-4 py-5 sm:px-7">
-              {entries.map((entry) => (
-                <MessageScrollerItem
-                  key={entry.id}
-                  messageId={entry.id}
-                  className={cn(
-                    "py-2 first:pt-0 last:pb-4",
-                    entry.kind === "user" && "flex justify-end",
-                    entry.kind === "tool" && "font-mono"
-                  )}
-                >
-                  <article
-                    className={cn(
-                      "min-w-0",
-                      entry.kind === "user"
-                        ? "max-w-[85%] rounded-[18px] rounded-br-[6px] bg-white/[.07] px-4 py-2.5"
-                        : "w-full"
-                    )}
-                  >
-                    {(entry.title || entry.meta) && (
-                      <div
-                        className={cn(
-                          "mb-1.5 flex items-center gap-2",
-                          entry.kind === "user" && "hidden",
-                          entry.kind === "agent" && !entry.title && "hidden"
-                        )}
-                      >
-                        {entry.title && (
-                          <h3 className="text-xs font-medium text-foreground/90">
-                            {entry.title}
-                          </h3>
-                        )}
-                        {entry.meta && (
-                          <span className="text-[10px] text-muted-foreground">
-                            {entry.meta}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                    {entry.kind === "agent" || entry.kind === "result" ? (
-                      <ResponseMarkdown>{entry.body}</ResponseMarkdown>
-                    ) : entry.kind === "user" ? (
-                      <SkillInvocationMessage entry={entry} />
-                    ) : (
-                      <p
-                        className={cn(
-                          "text-[13px] leading-5 whitespace-pre-wrap",
-                          "text-foreground/80"
-                        )}
-                      >
-                        {entry.body}
-                      </p>
-                    )}
-                    {entry.details && (
-                      <ul className="mt-3 grid gap-1.5">
-                        {entry.details.map((detail) => (
-                          <li
-                            key={detail}
-                            className="flex items-center gap-2 text-[12px] text-muted-foreground"
-                          >
-                            <Check className="size-3 text-foreground/70" />
-                            {detail}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    {entry.artifact && (
-                      <div className="mt-3 flex items-center gap-2 border border-white/[.09] bg-white/[.025] px-2.5 py-2">
-                        <Activity className="size-3.5 text-[#ef9b7e]" />
-                        <span className="text-[11px] font-medium">
-                          {entry.artifact.label}
-                        </span>
-                        <span className="ml-auto truncate font-mono text-[9px] text-muted-foreground">
-                          {entry.artifact.detail}
-                        </span>
-                      </div>
-                    )}
-                  </article>
-                </MessageScrollerItem>
-              ))}
+              {renderEntries.map((entry) =>
+                "entries" in entry ? (
+                  <ToolCallGroup entries={entry.entries} key={entry.id} />
+                ) : (
+                  <ThreadEntryRow entry={entry} key={entry.id} />
+                )
+              )}
               {permissionRequests.map((request) => {
                 const pending = replyingPermissionId === request.id
                 return (
@@ -3664,6 +3748,10 @@ export type {
   CheckItem,
   ProjectGroup,
   ThreadEntry,
+  ToolCallDetail,
+  ToolCallEntry,
+  ToolCallInput,
+  ToolCallInputValue,
   WorkspaceReview,
   WorkspaceReviewActor,
   WorkspaceReviewComment,

@@ -1,6 +1,7 @@
 import {
   SkillResourceJsonSchema,
   type WorkspaceBrowserResult,
+  WorkspaceBrowserToolOutput,
   WorkspaceBrowserToolJsonSchema,
   type WorkspaceCheckpointResult,
   WorkspaceCheckpointToolJsonSchema,
@@ -429,12 +430,14 @@ export const createWorkspacePlugin = (
               content: [
                 {
                   type: "text",
-                  text: JSON.stringify({
-                    url: result.url,
-                    checkId: result.checkId,
-                    evidence: result.evidence,
-                    accessibility: result.accessibility,
-                  }),
+                  text: JSON.stringify(
+                    new WorkspaceBrowserToolOutput({
+                      url: result.url,
+                      checkId: result.checkId,
+                      evidence: result.evidence,
+                      accessibility: result.accessibility,
+                    })
+                  ),
                 },
                 { type: "text", text: result.markdown },
               ],
@@ -556,7 +559,6 @@ export const createWorkspacePlugin = (
         (request) => applyOpenAIOAuthRequest(request, openAIOAuth),
         { providerID: "openai" }
       )
-
       return async () => {
         await Promise.all([
           toolRegistration.dispose(),

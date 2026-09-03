@@ -20,6 +20,8 @@ const projectName =
   process.env.SYLPH_SMOKE_PROJECT_NAME?.trim() || "Release Smoke Vertical Slice"
 const modelName =
   process.env.SYLPH_SMOKE_MODEL_NAME?.trim() || "DeepSeek V4 Flash 0731"
+const resumeClaimedInstallation =
+  process.env.SYLPH_SMOKE_RESUME_CLAIMED === "true"
 const authenticationState = resolve(
   process.env.SYLPH_SMOKE_AUTH_STATE ??
     resolve(process.cwd(), "playwright/.auth/release-smoke.json")
@@ -67,6 +69,56 @@ const finishWorkspaceTurn = async (
     .toBe(true)
 }
 
+const expectExpandableToolCalls = async (
+  page: Parameters<typeof test>[0]["page"]
+) => {
+  const groupToggle = page.getByRole("button", {
+    name: /^Toggle \d+ tool calls$/,
+  })
+  await expect(groupToggle.first()).toBeVisible()
+
+  const group = groupToggle.first().locator("..")
+  const completedCalls = group.locator('button[aria-label$=", completed"]')
+  await expect(completedCalls.first()).toBeHidden()
+  await groupToggle.first().click()
+  await expect(completedCalls.first()).toBeVisible()
+  expect(await completedCalls.count()).toBeGreaterThan(5)
+
+  const writeCall = completedCalls.filter({ hasText: "Wrote " }).first()
+  await expect(writeCall).toBeVisible()
+  const writeDetail = writeCall.locator("..")
+  await expect(writeDetail.getByText("Content", { exact: true })).toBeHidden()
+  await writeCall.click()
+  await expect(writeDetail.getByText("Content", { exact: true })).toBeVisible()
+
+  const diffCall = completedCalls.filter({ hasText: /^Diff / }).first()
+  await expect(diffCall).toBeVisible()
+  await diffCall.click()
+  await expect(diffCall.locator("..").locator("section").first()).toBeVisible()
+}
+
+const expectCheckAndBrowserToolCalls = async (
+  page: Parameters<typeof test>[0]["page"]
+) => {
+  const checkCall = page.getByRole("button", {
+    name: "Read check status, completed",
+  })
+  await expect(checkCall).toBeVisible()
+  await checkCall.click()
+  await expect(
+    checkCall.locator("..").getByText(/Checkpoint check/)
+  ).toBeVisible()
+
+  const browserCall = page.getByRole("button", {
+    name: /^Opened .+ in the Preview, completed$/,
+  })
+  await expect(browserCall).toBeVisible()
+  await browserCall.click()
+  await expect(
+    browserCall.locator("..").getByRole("link").first()
+  ).toBeVisible()
+}
+
 test("setup through eviction recovery", async ({ page }, testInfo) => {
   testInfo.annotations.push({ type: "baseURL", description: baseURL })
   const workspaceSocketUrls: string[] = []
@@ -97,6 +149,8 @@ test("setup through eviction recovery", async ({ page }, testInfo) => {
       await page.waitForURL(
         (url) => url.origin === new URL(baseURL).origin && url.pathname === "/"
       )
+      await mkdir(dirname(authenticationState), { recursive: true })
+      await page.context().storageState({ path: authenticationState })
       await page.goto("/setup")
     } else {
       await page.goto("/setup")
@@ -115,22 +169,24 @@ test("setup through eviction recovery", async ({ page }, testInfo) => {
     await waitForHydration(page)
     await mkdir(dirname(authenticationState), { recursive: true })
     await page.context().storageState({ path: authenticationState })
-    const claim = page.getByRole("heading", {
+    const claimHeading = page.getByRole("heading", {
       name: "Claim this Installation",
     })
+    const claimedHeading = page.getByRole("heading", {
+      name: "Installation claimed",
+    })
+    await expect(claimHeading.or(claimedHeading)).toBeVisible()
 
-    if (await claim.isVisible()) {
+    if (await claimedHeading.isVisible()) {
+      expect(resumeClaimedInstallation).toBe(true)
+      await page.getByRole("button", { name: "Continue" }).click()
+      await page.waitForURL(/\/admin$/)
+    } else {
       await page.getByLabel("Organization name").fill(organizationName)
       await page.getByLabel("Confirm Admin email").fill(adminEmail)
       await page.getByLabel("Installation claim secret").fill(claimSecret)
       await page.getByRole("button", { name: "Claim Installation" }).click()
       await page.waitForURL(/\/admin\?onboarding=1$/)
-    } else {
-      await expect(
-        page.getByRole("heading", { name: "Installation claimed" })
-      ).toBeVisible()
-      await page.getByRole("button", { name: "Continue" }).click()
-      await page.waitForURL(/\/admin$/)
     }
     await waitForHydration(page)
   })
@@ -195,10 +251,14 @@ test("setup through eviction recovery", async ({ page }, testInfo) => {
     await page
       .getByRole("textbox", { name: "Message the agent" })
       .fill(
-        `Build a minimal Cloudflare Worker project. Create ${proofFile} containing exactly ${proofMarker}. The root response must contain that marker plus SYLPH_CHECKPOINT=<the deployed checkpoint> and SYLPH_DEPLOYMENT=<preview or production>. Add meaningful typecheck, lint, test, build, sylph:preview, and sylph:deploy package scripts, source, tests, TypeScript configuration, and Wrangler configuration. The preview script must deploy a checkpoint-specific Worker, pass SYLPH_CHECKPOINT and SYLPH_DEPLOYMENT as Worker vars, wait until the URL returns the exact values, then print SYLPH_PREVIEW_URL. The production script must print SYLPH_PRODUCTION_URL. Do not run a Check.`
+        `Build a minimal Cloudflare Worker project. Create ${proofFile} containing exactly ${proofMarker}. The root response must contain that marker plus SYLPH_CHECKPOINT=<the deployed checkpoint> and SYLPH_DEPLOYMENT=<preview or production>. Add meaningful typecheck, lint, test, build, sylph:preview, and sylph:deploy package scripts, source, tests, TypeScript configuration, and Wrangler configuration. The preview script must deploy a checkpoint-specific Worker, pass SYLPH_CHECKPOINT and SYLPH_DEPLOYMENT as Worker vars, wait until the URL returns the exact values, then print SYLPH_PREVIEW_URL. The production script must print SYLPH_PRODUCTION_URL. Inspect the workspace diff before your final reply. Do not run a Check.`
       )
     await page.getByRole("button", { name: "Send message" }).click()
+    await expect(
+      page.locator('button[aria-label$=", running"]').first()
+    ).toBeVisible({ timeout: 60 * 1000 })
     await finishWorkspaceTurn(page)
+    await expectExpandableToolCalls(page)
   })
 
   await test.step("checkpoint and verify the Workspace", async () => {
@@ -253,6 +313,17 @@ test("setup through eviction recovery", async ({ page }, testInfo) => {
       })
       .toBeGreaterThan(articleCount + 1)
     await expect(page.locator("article").last()).toContainText(proofMarker)
+  })
+
+  await test.step("verify Check and browser tool details", async () => {
+    await page
+      .getByRole("textbox", { name: "Message the agent" })
+      .fill(
+        `Read the latest Check status. Then open the current Preview in the browser and verify that it contains ${proofMarker}. Do not change any files.`
+      )
+    await page.getByRole("button", { name: "Send message" }).click()
+    await finishWorkspaceTurn(page)
+    await expectCheckAndBrowserToolCalls(page)
   })
 
   await test.step("accept and archive the Workspace", async () => {

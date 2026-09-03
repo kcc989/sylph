@@ -33,6 +33,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 
 import { CommandPalette } from "@/components/command-palette"
 import { validateOnboardingSearch } from "@/lib/onboarding"
+import { toolCallEntry } from "@/lib/tool-call-entries"
 import { getDashboard } from "@/functions/installation"
 import {
   deployProjectCommit,
@@ -352,16 +353,43 @@ function WorkspaceScreen() {
           },
         ]
       : runtime.messages.length
-        ? runtime.messages.map((message) => ({
-            id: message.id,
-            kind: message.role === "user" ? "user" : "agent",
-            title: message.error ? "Assistant error" : undefined,
-            body: message.error ?? message.text,
-            skill:
-              message.role === "user" ? matchedSkill(message.text) : undefined,
-            meta: message.role === "user" ? "You" : "Assistant",
-            details: message.tools.length ? [...message.tools] : undefined,
-          }))
+        ? runtime.messages.flatMap((message) => {
+            if (!message.parts.length && message.error) {
+              return [
+                {
+                  id: message.id,
+                  kind: "agent" as const,
+                  title: "Assistant error",
+                  body: message.error,
+                  meta: "Assistant",
+                },
+              ]
+            }
+            return message.parts.map((part, index): ThreadEntry => {
+              if (part.type === "tool") {
+                return {
+                  id: `${message.id}:${part.id}`,
+                  kind: "tool",
+                  title:
+                    index === 0 && message.error
+                      ? "Assistant error"
+                      : undefined,
+                  body: "",
+                  tool: toolCallEntry(part),
+                }
+              }
+              return {
+                id: `${message.id}:text:${index}`,
+                kind: message.role === "user" ? "user" : "agent",
+                title:
+                  index === 0 && message.error ? "Assistant error" : undefined,
+                body: index === 0 && message.error ? message.error : part.text,
+                skill:
+                  message.role === "user" ? matchedSkill(part.text) : undefined,
+                meta: message.role === "user" ? "You" : "Assistant",
+              }
+            })
+          })
         : [
             {
               id: "workspace-ready",
