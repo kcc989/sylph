@@ -63,6 +63,40 @@ const meta = {
     previewContent: <DemoPreview />,
     agentControllingBrowser: true,
     demo: true,
+    models: [
+      {
+        providerId: "openrouter",
+        modelId: "aion/aion-2.0",
+        name: "Aion-2.0",
+        providerName: "OpenRouter",
+        scope: "organization",
+      },
+      {
+        providerId: "openrouter",
+        modelId: "aion/aion-3.0",
+        name: "Aion-3.0",
+        providerName: "OpenRouter",
+        scope: "organization",
+      },
+      {
+        providerId: "openai",
+        modelId: "gpt-5.6-sol",
+        name: "GPT-5.6 Sol",
+        providerName: "OpenAI",
+        scope: "personal",
+      },
+      {
+        providerId: "anthropic",
+        modelId: "claude-opus-4-7",
+        name: "Claude Opus 4.7",
+        providerName: "Anthropic",
+        scope: "organization",
+      },
+    ],
+    selectedModel: {
+      providerId: "openrouter",
+      modelId: "aion/aion-2.0",
+    },
   },
 } satisfies Meta<typeof WorkspaceShell>
 
