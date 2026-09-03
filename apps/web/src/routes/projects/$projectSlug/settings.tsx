@@ -25,7 +25,6 @@ import {
   getWorkspaceCreationContext,
   setProjectDeliveryMode,
 } from "@/functions/projects"
-import { useWorkspaceCreation } from "@/lib/use-workspace-creation"
 
 export const Route = createFileRoute("/projects/$projectSlug/settings")({
   loader: async ({ params }) => {
@@ -57,8 +56,6 @@ function ProjectSettingsScreen() {
   const [deployPending, setDeployPending] = useState<string | null>(null)
   const [deployKey, setDeployKey] = useState(() => crypto.randomUUID())
   const canDeploy = dashboard.installation.canAdminister
-  const { creatingProjectId, creationError, startWorkspace } =
-    useWorkspaceCreation()
 
   useEffect(() => {
     const pending = deploymentContext?.deployments.some(
@@ -92,24 +89,18 @@ function ProjectSettingsScreen() {
       <div className="mx-auto max-w-3xl px-5 py-10 sm:px-8 sm:py-14">
         <Button
           className="ml-auto"
+          nativeButton={false}
           size="sm"
-          disabled={creatingProjectId !== null}
-          onClick={() =>
-            void startWorkspace({ id: context.project.id, slug: projectSlug })
+          render={
+            <Link
+              params={{ projectSlug }}
+              to="/projects/$projectSlug/workspaces/new"
+            />
           }
         >
-          {creatingProjectId === context.project.id ? (
-            <LoaderCircle className="animate-spin" />
-          ) : (
-            <Plus />
-          )}
+          <Plus />
           New Workspace
         </Button>
-        {creationError?.projectId === context.project.id ? (
-          <p role="alert" className="mt-2 text-right text-xs text-destructive">
-            {creationError.message}
-          </p>
-        ) : null}
         <div className="flex items-center gap-3">
           <div className="grid size-9 place-items-center rounded-[7px] bg-white/[.05] text-muted-foreground">
             <Settings2 className="size-4" />

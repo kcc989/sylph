@@ -25,6 +25,7 @@ import {
   WorkspacePromptInput,
   WorkspaceQuestionReplyInput,
   WorkspaceRebaseResult,
+  randomWorkspaceName,
   WorkspaceRepairCheckInput,
   WorkspaceRequestInput,
   WorkspaceRetryCheckInput,
@@ -33,8 +34,8 @@ import {
   WorkspaceVersionControl,
   WorkspaceReadFileInput,
 } from "@workspace/domain"
-import { env, waitUntil } from "cloudflare:workers"
-import { count, eq } from "drizzle-orm"
+import { env } from "cloudflare:workers"
+import { and, eq } from "drizzle-orm"
 import { Effect, Schema } from "effect"
 
 import { deploymentWorkflowAlreadyStarted } from "@/server/deployment-records"
@@ -143,8 +144,25 @@ const requireVersionControlSnapshot = async (
 export const createWorkspace = createServerFn({ method: "POST" })
   .middleware([projectMember])
   .validator((input) => decodeCreateWorkspaceInputPromise(input))
-  .handler(async ({ context }) => {
+  .handler(async ({ data, context }) => {
     const { database, project, user } = context
+
+    const existingWorkspace = await database
+      .select({
+        errorSummary: schema.workspace.errorSummary,
+        id: schema.workspace.id,
+        status: schema.workspace.status,
+      })
+      .from(schema.workspace)
+      .where(
+        and(
+          eq(schema.workspace.projectId, project.id),
+          eq(schema.workspace.creationKey, data.idempotencyKey)
+        )
+      )
+      .get()
+
+    if (existingWorkspace) return existingWorkspace
 
     const synchronized = await synchronizeProjectRepository(database, user.id, {
       id: project.id,
@@ -155,14 +173,21 @@ export const createWorkspace = createServerFn({ method: "POST" })
       sourceRef: project.importOriginBranch,
     })
 
-    const existingWorkspaceCount = await database
-      .select({ value: count() })
-      .from(schema.workspace)
-      .where(eq(schema.workspace.projectId, project.id))
-      .get()
-    const workspaceNumber = (existingWorkspaceCount?.value ?? 0) + 1
-    const title =
-      workspaceNumber === 1 ? project.name : `Workspace ${workspaceNumber}`
+    let title = randomWorkspaceName()
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const collision = await database
+        .select({ id: schema.workspace.id })
+        .from(schema.workspace)
+        .where(
+          and(
+            eq(schema.workspace.projectId, project.id),
+            eq(schema.workspace.title, title)
+          )
+        )
+        .get()
+      if (!collision) break
+      title = randomWorkspaceName()
+    }
 
     const connection = await effectiveConnection(
       database,
@@ -197,6 +222,8 @@ export const createWorkspace = createServerFn({ method: "POST" })
       projectId: ProjectId.make(project.id),
       organizationId: OrganizationId.make(project.organizationId),
       ownerUserId: user.id,
+      creationKey: data.idempotencyKey,
+      branchName: title,
       title,
       status: "provisioning",
       repositoryMode: "fork",
@@ -210,26 +237,25 @@ export const createWorkspace = createServerFn({ method: "POST" })
       updatedAt: now,
     })
 
-    waitUntil(
-      completeWorkspaceInitialization(
-        database,
+    await completeWorkspaceInitialization(
+      database,
+      workspaceId,
+      new InitializeWorkspaceRuntime({
+        organizationId: OrganizationId.make(project.organizationId),
+        projectId: ProjectId.make(project.id),
         workspaceId,
-        new InitializeWorkspaceRuntime({
-          organizationId: OrganizationId.make(project.organizationId),
-          projectId: ProjectId.make(project.id),
-          workspaceId,
-          projectName: project.name,
-          repositoryName: workspaceRepository.name,
-          repositoryRemote: workspaceRepository.remote,
-          projectRepositoryName: project.repositoryName,
-          projectRepositoryRemote: project.repositoryRemote,
-          defaultRef: project.defaultBranch,
-          baseCommit: head,
-          providerId: connection.providerId,
-          modelId: connection.modelId,
-          credential,
-        })
-      )
+        projectName: project.name,
+        repositoryName: workspaceRepository.name,
+        repositoryRemote: workspaceRepository.remote,
+        projectRepositoryName: project.repositoryName,
+        projectRepositoryRemote: project.repositoryRemote,
+        defaultRef: title,
+        sourceRef: workspaceRepository.defaultBranch,
+        baseCommit: head,
+        providerId: connection.providerId,
+        modelId: connection.modelId,
+        credential,
+      })
     )
 
     return {
@@ -310,7 +336,7 @@ export const getWorkspace = createServerFn({ method: "GET" })
     }
 
     const runtime = workspaceRuntime(data.workspaceId)
-    const readVersionControl = () => runtime.versionControl(true)
+    const readVersionControl = () => runtime.versionControl(false)
     const [runtimeSnapshot, versionControlSnapshot, checks, skills] =
       await Promise.all([
         runtime.snapshot(),
@@ -466,7 +492,7 @@ export const restartWorkspace = createServerFn({ method: "POST" })
       repositoryRemote: repository.remote,
       projectRepositoryName: project.repositoryName,
       projectRepositoryRemote: project.repositoryRemote,
-      defaultRef: project.defaultBranch,
+      defaultRef: workspace.branchName ?? project.defaultBranch,
       baseCommit: workspace.baseCommit,
       providerId: connection.providerId,
       modelId: connection.modelId,

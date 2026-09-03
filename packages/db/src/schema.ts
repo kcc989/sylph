@@ -287,6 +287,8 @@ export const workspace = sqliteTable(
     ownerUserId: text("owner_user_id")
       .notNull()
       .references(() => user.id, { onDelete: "restrict" }),
+    creationKey: text("creation_key"),
+    branchName: text("branch_name"),
     title: text("title").notNull(),
     status: text("status").notNull().default("provisioning"),
     repositoryMode: text("repository_mode").notNull().default("base"),
@@ -307,6 +309,14 @@ export const workspace = sqliteTable(
   (table) => [
     index("workspace_organization_id_idx").on(table.organizationId),
     index("workspace_project_id_idx").on(table.projectId),
+    uniqueIndex("workspace_project_creation_key_unique").on(
+      table.projectId,
+      table.creationKey
+    ),
+    uniqueIndex("workspace_project_branch_name_unique").on(
+      table.projectId,
+      table.branchName
+    ),
   ]
 )
 

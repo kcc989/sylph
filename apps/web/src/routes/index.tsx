@@ -25,7 +25,6 @@ import { OnboardingGuide } from "@/components/onboarding-guide"
 import { getOnboardingState, validateOnboardingSearch } from "@/lib/onboarding"
 import { getDashboard, getLatestMagicLink } from "@/functions/installation"
 import { restartWorkspace } from "@/functions/workspaces"
-import { useWorkspaceCreation } from "@/lib/use-workspace-creation"
 
 export const Route = createFileRoute("/")({
   validateSearch: validateOnboardingSearch,
@@ -52,8 +51,6 @@ function HomeScreen() {
   })
   const needsOnboarding = onboardingState.completedCount < 3
   const [onboardingVisible, setOnboardingVisible] = useState(needsOnboarding)
-  const { creatingProjectId, creationError, startWorkspace } =
-    useWorkspaceCreation()
 
   useEffect(() => {
     if (!needsOnboarding) setOnboardingVisible(false)
@@ -309,16 +306,17 @@ function HomeScreen() {
                       {project.name}
                     </h2>
                     <Button
+                      nativeButton={false}
                       size="sm"
                       variant="ghost"
-                      disabled={creatingProjectId !== null}
-                      onClick={() => void startWorkspace(project)}
+                      render={
+                        <Link
+                          params={{ projectSlug: project.slug }}
+                          to="/projects/$projectSlug/workspaces/new"
+                        />
+                      }
                     >
-                      {creatingProjectId === project.id ? (
-                        <LoaderCircle className="animate-spin" />
-                      ) : (
-                        <Plus />
-                      )}
+                      <Plus />
                       Workspace
                     </Button>
                     <Button
@@ -331,11 +329,6 @@ function HomeScreen() {
                       <MoreHorizontal />
                     </Button>
                   </div>
-                  {creationError?.projectId === project.id ? (
-                    <p role="alert" className="px-1 text-xs text-destructive">
-                      {creationError.message}
-                    </p>
-                  ) : null}
                   <div className="mt-3 grid gap-2">
                     {workspaces.map((workspace) => (
                       <div

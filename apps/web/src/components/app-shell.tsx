@@ -22,10 +22,7 @@ import {
   UserRound,
 } from "lucide-react"
 import type { ReactNode } from "react"
-
 import { CommandPalette } from "@/components/command-palette"
-import { useWorkspaceCreation } from "@/lib/use-workspace-creation"
-
 import { authClient } from "@/lib/auth-client"
 
 type Organization = {
@@ -102,8 +99,6 @@ export function AppShell({
   topbar,
 }: AppShellProps) {
   const router = useRouter()
-  const { startWorkspace, creatingProjectId, creationError } =
-    useWorkspaceCreation()
   const productItems: ProductRailItem[] = [
     {
       icon: House,
@@ -140,16 +135,9 @@ export function AppShell({
       id: project.id,
       issuesHref: `${basePath}/issues`,
       name: project.name,
-      onCreateWorkspace: dashboard.providerConnected
-        ? () => {
-            void startWorkspace(project)
-          }
+      newWorkspaceHref: dashboard.providerConnected
+        ? `${basePath}/workspaces/new`
         : undefined,
-      creatingWorkspace: creatingProjectId === project.id,
-      creationError:
-        creationError?.projectId === project.id
-          ? creationError.message
-          : undefined,
       settingsHref: `${basePath}/settings`,
       workspaces: dashboard.workspaces
         .filter((workspace) => workspace.projectId === project.id)

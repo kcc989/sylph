@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test"
 import {
   artifactGitProtocolVersion,
   isRepositoryMetadata,
+  workspaceHydrationRefs,
   workspaceProjectRemote,
   workspaceRebaseConflictState,
 } from "./workspace-git"
@@ -36,6 +37,17 @@ describe("WorkspaceGit", () => {
       remote: "project",
       url: "https://artifacts.example/project.git",
       force: true,
+    })
+  })
+
+  test("hydrates a named Workspace branch from the Project default branch", () => {
+    expect(workspaceHydrationRefs("quiet-lynx", "main")).toEqual({
+      createRef: "quiet-lynx",
+      sourceRef: "main",
+    })
+    expect(workspaceHydrationRefs("main", "main")).toEqual({
+      createRef: null,
+      sourceRef: "main",
     })
   })
 })

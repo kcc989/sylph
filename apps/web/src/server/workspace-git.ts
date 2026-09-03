@@ -18,6 +18,7 @@ import type {
 import { artifactAuth } from "./repository-store"
 
 export interface WorkspaceRepositoryHandle {
+  readonly defaultBranch: string
   createToken(
     scope: "read" | "write",
     ttlSeconds: number
@@ -91,6 +92,14 @@ export const workspaceProjectRemote = (url: string) => ({
   force: true,
 })
 
+export const workspaceHydrationRefs = (
+  workspaceRef: string,
+  projectRef: string
+) => ({
+  createRef: workspaceRef === projectRef ? null : workspaceRef,
+  sourceRef: projectRef,
+})
+
 export class WorkspaceGit {
   readonly #storage: WorkspaceStorage
   readonly #repositories: WorkspaceRepositoryNamespace
@@ -124,6 +133,7 @@ export class WorkspaceGit {
     projectRepositoryName: string
     projectRepositoryRemote: string
     defaultRef: string
+    sourceRef?: string
     baseCommit: string
   }) {
     const existing = this.#state()
@@ -140,51 +150,33 @@ export class WorkspaceGit {
     this.#filesystem.clear()
     const repository = await this.#repositories.get(input.repositoryName)
     const token = await repository.createToken("write", 300)
-    const refs = await git.listServerRefs({
+    const sourceRef =
+      input.sourceRef ??
+      ((await this.#optionalRemoteHead(
+        input.repositoryRemote,
+        input.defaultRef,
+        token.plaintext,
+        false
+      ))
+        ? input.defaultRef
+        : repository.defaultBranch)
+    await git.clone({
+      fs: this.#filesystem,
       http,
+      dir: directory,
       url: input.repositoryRemote,
-      prefix: `refs/heads/${input.defaultRef}`,
+      ref: sourceRef,
+      singleBranch: true,
+      noTags: true,
       onAuth: artifactAuth(token.plaintext),
     })
-    const workspaceHead = refs.find(
-      (ref) => ref.ref === `refs/heads/${input.defaultRef}`
-    )?.oid
-
-    if (workspaceHead) {
-      await git.clone({
+    const refs = workspaceHydrationRefs(input.defaultRef, sourceRef)
+    if (refs.createRef) {
+      await git.branch({
         fs: this.#filesystem,
-        http,
         dir: directory,
-        url: input.repositoryRemote,
-        ref: input.defaultRef,
-        singleBranch: true,
-        noTags: true,
-        onAuth: artifactAuth(token.plaintext),
-      })
-    } else {
-      const projectRepository = await this.#repositories.get(
-        input.projectRepositoryName
-      )
-      const projectToken = await projectRepository.createToken("read", 300)
-      await git.clone({
-        fs: this.#filesystem,
-        http,
-        dir: directory,
-        url: input.projectRepositoryRemote,
-        ref: input.defaultRef,
-        singleBranch: true,
-        noTags: true,
-        onAuth: artifactAuth(projectToken.plaintext),
-      })
-      await git.push({
-        fs: this.#filesystem,
-        http,
-        dir: directory,
-        url: input.repositoryRemote,
-        ref: input.defaultRef,
-        remoteRef: input.defaultRef,
-        force: false,
-        onAuth: artifactAuth(token.plaintext),
+        ref: refs.createRef,
+        checkout: true,
       })
     }
     const forkHead = await git.resolveRef({
@@ -246,13 +238,13 @@ export class WorkspaceGit {
     }
     const repository = await this.#repositories.get(state.repositoryName)
     const token = await repository.createToken("write", 300)
-    const remoteHead = await this.#remoteHead(
+    const remoteHead = await this.#optionalRemoteHead(
       state.repositoryRemote,
       state.defaultRef,
       token.plaintext,
       true
     )
-    if (remoteHead !== state.forkHead) {
+    if (remoteHead && remoteHead !== state.forkHead) {
       this.#markDiverged()
       throw new Error("Workspace fork changed outside Sylph")
     }
@@ -260,6 +252,7 @@ export class WorkspaceGit {
       state.projectRepositoryName
     )
     const projectToken = await projectRepository.createToken("read", 300)
+    const projectRef = projectRepository.defaultBranch
     await git.addRemote({
       fs: this.#filesystem,
       dir: directory,
@@ -270,7 +263,7 @@ export class WorkspaceGit {
       http,
       dir: directory,
       remote: "project",
-      ref: state.defaultRef,
+      ref: projectRef,
       singleBranch: true,
       tags: false,
       onAuth: artifactAuth(projectToken.plaintext),
@@ -278,7 +271,7 @@ export class WorkspaceGit {
     const projectHead = await git.resolveRef({
       fs: this.#filesystem,
       dir: directory,
-      ref: `refs/remotes/project/${state.defaultRef}`,
+      ref: `refs/remotes/project/${projectRef}`,
     })
     if (projectHead === state.baseCommit) {
       return new WorkspaceRebaseResult({
@@ -382,7 +375,7 @@ export class WorkspaceGit {
     const state = this.#requiredState()
     const repository = await this.#repositories.get(state.repositoryName)
     const token = await repository.createToken("write", 300)
-    const remoteHead = await this.#remoteHead(
+    const remoteHead = await this.#optionalRemoteHead(
       state.repositoryRemote,
       state.defaultRef,
       token.plaintext,
@@ -400,7 +393,7 @@ export class WorkspaceGit {
           replayed: true,
         })
       }
-      if (remoteHead !== state.forkHead) {
+      if (remoteHead && remoteHead !== state.forkHead) {
         this.#markDiverged()
         throw new Error("Workspace fork changed outside Sylph")
       }
@@ -412,7 +405,7 @@ export class WorkspaceGit {
       })
     }
 
-    if (remoteHead !== state.forkHead) {
+    if (remoteHead && remoteHead !== state.forkHead) {
       this.#markDiverged()
       throw new Error("Workspace fork changed outside Sylph")
     }
@@ -487,6 +480,7 @@ export class WorkspaceGit {
       state.projectRepositoryName
     )
     const projectToken = await projectRepository.createToken("read", 300)
+    const projectRef = projectRepository.defaultBranch
     await git.addRemote({
       fs: this.#filesystem,
       dir: directory,
@@ -498,7 +492,7 @@ export class WorkspaceGit {
       dir: directory,
       url: state.projectRepositoryRemote,
       remote: "project",
-      ref: state.defaultRef,
+      ref: projectRef,
       singleBranch: true,
       tags: false,
       onAuth: artifactAuth(projectToken.plaintext),
@@ -506,7 +500,7 @@ export class WorkspaceGit {
     const projectCommit = await git.resolveRef({
       fs: this.#filesystem,
       dir: directory,
-      ref: `refs/remotes/project/${state.defaultRef}`,
+      ref: `refs/remotes/project/${projectRef}`,
     })
     if (projectCommit === state.baseCommit) {
       return {
@@ -521,7 +515,7 @@ export class WorkspaceGit {
         fs: this.#filesystem,
         dir: directory,
         ours: state.defaultRef,
-        theirs: `refs/remotes/project/${state.defaultRef}`,
+        theirs: `refs/remotes/project/${projectRef}`,
         abortOnConflict: false,
         message: "Update Workspace from Project Repository",
         author,
@@ -613,6 +607,28 @@ export class WorkspaceGit {
     plaintext: string,
     forPush: boolean
   ) {
+    const head = await this.#optionalRemoteHead(remote, ref, plaintext, forPush)
+    if (!head) throw new Error("Workspace fork default ref is missing")
+    return head
+  }
+
+  async #readProjectHead(state: WorkspaceGitState) {
+    const repository = await this.#repositories.get(state.projectRepositoryName)
+    const token = await repository.createToken("read", 300)
+    return this.#remoteHead(
+      state.projectRepositoryRemote,
+      repository.defaultBranch,
+      token.plaintext,
+      false
+    )
+  }
+
+  async #optionalRemoteHead(
+    remote: string,
+    ref: string,
+    plaintext: string,
+    forPush: boolean
+  ) {
     const refs = await git.listServerRefs({
       http,
       url: remote,
@@ -621,19 +637,9 @@ export class WorkspaceGit {
       protocolVersion: artifactGitProtocolVersion(forPush),
       onAuth: artifactAuth(plaintext),
     })
-    const head = refs.find((candidate) => candidate.ref === `refs/heads/${ref}`)
-    if (!head) throw new Error("Workspace fork default ref is missing")
-    return head.oid
-  }
-
-  async #readProjectHead(state: WorkspaceGitState) {
-    const repository = await this.#repositories.get(state.projectRepositoryName)
-    const token = await repository.createToken("read", 300)
-    return this.#remoteHead(
-      state.projectRepositoryRemote,
-      state.defaultRef,
-      token.plaintext,
-      false
+    return (
+      refs.find((candidate) => candidate.ref === `refs/heads/${ref}`)?.oid ??
+      null
     )
   }
 

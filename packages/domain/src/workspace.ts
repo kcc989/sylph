@@ -29,7 +29,49 @@ export class CreateWorkspaceInput extends Schema.Class<CreateWorkspaceInput>(
   "@sylph/domain/CreateWorkspaceInput"
 )({
   projectId: ProjectId,
+  idempotencyKey: Schema.NonEmptyString,
 }) {}
+
+const workspaceAdjectives = [
+  "amber",
+  "brisk",
+  "calm",
+  "cobalt",
+  "coral",
+  "eager",
+  "gentle",
+  "golden",
+  "lucky",
+  "quiet",
+  "silver",
+  "swift",
+] as const
+
+const workspaceAnimals = [
+  "badger",
+  "bison",
+  "falcon",
+  "fox",
+  "heron",
+  "lynx",
+  "otter",
+  "panda",
+  "raven",
+  "seal",
+  "tiger",
+  "wolf",
+] as const
+
+const randomItem = <T>(items: readonly T[], random: () => number) => {
+  const index = Math.min(
+    items.length - 1,
+    Math.max(0, Math.floor(random() * items.length))
+  )
+  return items[index]
+}
+
+export const randomWorkspaceName = (random: () => number = Math.random) =>
+  `${randomItem(workspaceAdjectives, random)}-${randomItem(workspaceAnimals, random)}`
 
 export class WorkspaceRequestInput extends Schema.Class<WorkspaceRequestInput>(
   "@sylph/domain/WorkspaceRequestInput"

@@ -1627,6 +1627,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       projectRepositoryName: input.projectRepositoryName,
       projectRepositoryRemote: input.projectRepositoryRemote,
       defaultRef: input.defaultRef,
+      sourceRef: input.sourceRef,
       baseCommit: input.baseCommit,
     })
 
