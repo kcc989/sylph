@@ -100,6 +100,9 @@ export const accessibleProject = (
       deliveryMode: schema.project.deliveryMode,
       deliveredCommit: schema.project.deliveredCommit,
       deliveryUrl: schema.project.deliveryUrl,
+      templateKey: schema.project.templateKey,
+      templateRepo: schema.project.templateRepo,
+      templateCommit: schema.project.templateCommit,
     })
     .from(schema.project)
     .innerJoin(
@@ -186,6 +189,54 @@ export const requireWorkspace = async (
     })
   }
   return workspace
+}
+
+export const accessibleIssue = (
+  database: Database,
+  issueId: string,
+  userId: string
+) =>
+  database
+    .select({
+      id: schema.issue.id,
+      projectId: schema.issue.projectId,
+      organizationId: schema.issue.organizationId,
+      number: schema.issue.number,
+      title: schema.issue.title,
+      body: schema.issue.body,
+      status: schema.issue.status,
+      createdByUserId: schema.issue.createdByUserId,
+      createdAt: schema.issue.createdAt,
+      updatedAt: schema.issue.updatedAt,
+    })
+    .from(schema.issue)
+    .innerJoin(
+      schema.member,
+      and(
+        eq(schema.member.organizationId, schema.issue.organizationId),
+        eq(schema.member.userId, userId)
+      )
+    )
+    .where(eq(schema.issue.id, issueId))
+    .get()
+
+export type AccessibleIssue = NonNullable<
+  Awaited<ReturnType<typeof accessibleIssue>>
+>
+
+export const requireIssue = async (
+  database: Database,
+  issueId: string,
+  userId: string
+) => {
+  const issue = await accessibleIssue(database, issueId, userId)
+  if (!issue) {
+    throw new AccessDenied({
+      message: "This Issue does not exist or you cannot access it",
+      resource: "issue",
+    })
+  }
+  return issue
 }
 
 export const requireWorkspaceNotMerging = <

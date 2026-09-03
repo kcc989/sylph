@@ -25,6 +25,10 @@ An Organization member who can work in its Projects and manage their own persona
 **Project**:
 The product a user creates inside an organization. A Project contains one Project Repository and one or more Workspaces.
 
+**Issue**:
+A durable, numbered unit of work inside a Project that describes what should change. An Issue is open or closed.
+_Avoid_: Ticket, task
+
 **Skill**:
 Reusable instructions and supporting resources that guide an Agent. A Skill can allow user slash invocation, model invocation, both, or neither.
 
@@ -33,6 +37,12 @@ A durable attachment of a Skill to an Installation or Project. A Project Skill w
 
 **Project Repository**:
 The accepted source history for a Project. A Project has exactly one Project Repository.
+
+**Template Repository**:
+An imported source history, pinned to one commit, from which a Project Repository can be forked. An Installation imports each template ref once.
+
+**Template origin**:
+The Template Repository and commit a Project Repository was forked from. A Project keeps no live link to its template.
 
 **Upstream Repository**:
 An external GitHub Repository connected to a Project Repository for ongoing synchronization and delivery. It is not the accepted source history inside Sylph.

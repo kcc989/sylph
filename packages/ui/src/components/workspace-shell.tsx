@@ -34,6 +34,7 @@ import {
   Plus,
   RefreshCw,
   RotateCcw,
+  Search,
   Settings2,
   ShieldCheck,
   Smartphone,
@@ -102,6 +103,7 @@ import {
   TooltipTrigger,
 } from "@workspace/ui/components/tooltip"
 import { cn } from "@workspace/ui/lib/utils"
+import { workspaceStatusStyles } from "@workspace/ui/lib/status-styles"
 import {
   readWorkspaceToolState,
   writeWorkspaceToolState,
@@ -366,6 +368,7 @@ type WorkspaceShellProps = {
     resolved: boolean
   ) => Promise<void>
   onSubmitReview?: (decision: "approved" | "changes_requested") => Promise<void>
+  onOpenSearch?: () => void
   workspaceError?: string | null
 }
 
@@ -487,15 +490,13 @@ const fallbackChecks: CheckItem[] = [
   { name: "Accessibility", detail: "Storybook", status: "passed" },
 ]
 
-const statusStyles = {
-  running: "text-[var(--sylph-live)]",
-  waiting: "text-amber-400",
-  ready: "text-muted-foreground",
-  archived: "text-muted-foreground/50",
-  error: "text-destructive",
-} satisfies Record<WorkspaceStatus, string>
-
-function UtilityRail({ canAdminister }: { canAdminister: boolean }) {
+function UtilityRail({
+  canAdminister,
+  onOpenSearch,
+}: {
+  canAdminister: boolean
+  onOpenSearch?: () => void
+}) {
   const items = [
     { label: "Projects", icon: House, href: "/" },
     ...(canAdminister
@@ -528,6 +529,16 @@ function UtilityRail({ canAdminister }: { canAdminister: boolean }) {
             <TooltipContent side="right">{label}</TooltipContent>
           </Tooltip>
         ))}
+        <Tooltip>
+          <TooltipTrigger
+            aria-label="Search"
+            className="grid size-8 place-items-center rounded-[6px] text-muted-foreground transition-colors hover:bg-white/[.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            onClick={onOpenSearch}
+          >
+            <Search className="size-4" />
+          </TooltipTrigger>
+          <TooltipContent side="right">Search</TooltipContent>
+        </Tooltip>
       </nav>
       <div className="mt-auto grid gap-1">
         <Tooltip>
@@ -694,7 +705,7 @@ function ProjectRail({
                         role="status"
                         className={cn(
                           "grid size-3.5 shrink-0 place-items-center",
-                          statusStyles[workspace.status]
+                          workspaceStatusStyles[workspace.status]
                         )}
                       >
                         <span className="size-1.5 rounded-full bg-current" />
@@ -2910,6 +2921,7 @@ function WorkspaceShell({
   onRebase,
   onResolveReviewComment,
   onSubmitReview,
+  onOpenSearch,
   workspaceError,
 }: WorkspaceShellProps) {
   const isPending = (command: WorkspaceCommandName) =>
@@ -3045,7 +3057,10 @@ function WorkspaceShell({
           className
         )}
       >
-        <UtilityRail canAdminister={canAdminister} />
+        <UtilityRail
+          canAdminister={canAdminister}
+          onOpenSearch={onOpenSearch}
+        />
         <ResizablePanelGroup
           className="min-w-0 flex-1 max-md:[&>#project-navigation]:hidden max-md:[&>#project-navigation-handle]:hidden"
           defaultLayout={projectLayout.defaultLayout}

@@ -26,6 +26,7 @@ import {
 import { isWorkspaceCommandPending } from "@workspace/ui/lib/workspace-commands"
 import { useCallback, useEffect, useRef, useState } from "react"
 
+import { CommandPalette } from "@/components/command-palette"
 import { validateOnboardingSearch } from "@/lib/onboarding"
 import { getDashboard } from "@/functions/installation"
 import {
@@ -511,304 +512,314 @@ function WorkspaceScreen() {
     )
 
   return (
-    <WorkspaceShell
-      key={workspaceId}
-      workspaceId={workspaceId}
-      canAdminister={dashboard.installation.canAdminister}
-      organization={workspace.organizationName}
-      projectName={workspace.projectName}
-      repositoryName={workspace.repositoryName}
-      workspaceName={workspace.title}
-      browser={{
-        url: checkpointCheck?.previewUrl ?? "",
-        title: checkpointCheck?.previewUrl
-          ? `Checkpoint ${checkpointCheck.commit.slice(0, 7)} Preview`
-          : "A preview will appear after its Check passes.",
-        status: checkpointCheck?.previewUrl
-          ? "live"
-          : checkpointCheck?.status === "failed"
-            ? "error"
-            : "loading",
-      }}
-      changedFileCount={workingChanges.length}
-      checkpointHistory={result.checkpoints}
-      review={result.review}
-      reviewPatch={result.versionControl.branch
-        .map((change) => change.patch)
-        .join("\n")}
-      currentReviewer={result.currentReviewer}
-      changeSummary={
-        workingChanges.length ? `+${additions} −${deletions}` : "No changes"
-      }
-      patch={workingChanges.map((change) => change.patch).join("\n")}
-      pending={commands.pending}
-      commandError={commands.error}
-      checks={checkItems}
-      entries={entries}
-      permissionRequests={permissionRequests}
-      presence={presence}
-      questions={runtime.questions}
-      queuedMessages={runtime.queuedMessages}
-      runtimeLimits={runtime.limits}
-      turnActive={runtime.status === "running"}
-      turnInterrupted={runtime.status === "interrupted"}
-      activeTurnStartedAt={runtime.activeTurnStartedAt}
-      onAnswerQuestion={async (
-        questionId,
-        answer: Record<string, WorkspaceQuestionValue>
-      ) => {
-        await commands.run(
-          "answerQuestion",
-          async () => {
-            await answerQuestion({ data: { workspaceId, questionId, answer } })
-          },
-          "The agent question answer could not be sent",
-          { target: questionId }
-        )
-      }}
-      onCancelTurn={async () => {
-        await commands.run(
-          "cancelTurn",
-          async () => {
-            await cancelTurn({ data: { workspaceId } })
-          },
-          "Turn cancellation failed"
-        )
-      }}
-      onPermissionReply={async (requestId, reply) => {
-        await commands.run(
-          "permissionReply",
-          async () => {
-            const response = await fetch(
-              `/api/workspaces/${encodeURIComponent(workspaceId)}`,
-              {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({
-                  workspaceId,
-                  requestId,
-                  reply: reply satisfies WorkspacePermissionReply,
-                }),
-              }
-            )
-            if (!response.ok) throw new Error(await response.text())
-            setLiveState((state) => {
-              const permissionRequests = { ...state.permissionRequests }
-              delete permissionRequests[requestId]
-              const next = { ...state, permissionRequests }
-              liveStateRef.current = next
-              return next
-            })
-          },
-          "The permission response could not be sent",
-          { target: requestId, refresh: false }
-        )
-      }}
-      onAddReviewComment={(comment) =>
-        runReviewMutation(() =>
-          addReviewComment({
-            data: {
-              workspaceId,
-              commit: result.review.commit,
-              ...comment,
-            },
-          })
-        )
-      }
-      onResolveReviewComment={(commentId, resolved) =>
-        runReviewMutation(() =>
-          resolveReviewComment({ data: { workspaceId, commentId, resolved } })
-        ).then(() => undefined)
-      }
-      onSubmitReview={(decision) =>
-        runReviewMutation(() =>
-          submitReview({
-            data: {
-              workspaceId,
-              commit: result.review.commit,
-              decision,
-            },
-          })
-        ).then(() => undefined)
-      }
-      initialPrompt={
-        onboarding && runtime.messages.length === 0
-          ? "Make one small, useful improvement to this starter project. Explain the change, write the files, and leave it ready for review."
-          : undefined
-      }
-      models={result.models}
-      skills={result.skills
-        .filter((skill) => skill.metadata.userInvokable)
-        .map((skill) => ({
-          name: skill.metadata.name,
-          description: skill.metadata.description ?? "No description provided.",
-          scope: skill.scope,
-        }))}
-      selectedModel={selectedModel}
-      modelNotice={modelNotice}
-      onModelChange={(model) => {
-        modelSelectionChanged.current = true
-        setSelectedModel(model)
-        setModelNotice(null)
-      }}
-      onAccept={
-        result.versionControl.branch.length > 0 &&
-        currentCheckpointPassed &&
-        result.review.decision === "approved" &&
-        !result.versionControl.projectChanged &&
-        workspace.status !== "merging" &&
-        workspace.status !== "archived"
-          ? async () => {
-              await commands.run(
-                "accept",
-                async () => {
-                  await accept({
-                    data: { workspaceId, idempotencyKey: acceptKey },
-                  })
-                  setAcceptKey(crypto.randomUUID())
-                },
-                "Accept failed"
-              )
-            }
-          : undefined
-      }
-      onRebase={
-        result.versionControl.projectChanged &&
-        workspace.status !== "merging" &&
-        workspace.status !== "archived"
-          ? async () => {
-              await commands.run(
-                "rebase",
-                async () => {
-                  await rebase({ data: { workspaceId } })
-                },
-                "Rebase failed"
-              )
-            }
-          : undefined
-      }
-      onCheckpoint={
-        workspace.status !== "archived"
-          ? async () => {
-              await commands.run(
-                "checkpoint",
-                async () => {
-                  await checkpoint({
-                    data: {
-                      workspaceId,
-                      idempotencyKey: checkpointKey,
-                      message: "Checkpoint Workspace changes",
-                    },
-                  })
-                  setCheckpointKey(crypto.randomUUID())
-                },
-                "Checkpoint failed"
-              )
-            }
-          : undefined
-      }
-      onSubmitPrompt={async (text, model, delivery) => {
-        const optimisticId = `optimistic-${crypto.randomUUID()}`
-        setOptimisticEntries([
-          {
-            id: optimisticId,
-            kind: "user",
-            body: text,
-            skill: matchedSkill(text),
-            meta:
-              delivery === "steer"
-                ? "You · steering"
-                : delivery === "queue"
-                  ? "You · queued"
-                  : "You",
-          },
-        ])
-
-        await commands.run(
-          "prompt",
-          async () => {
-            const response = await prompt({
-              data: { workspaceId, text, model, delivery },
-            })
-            modelSelectionChanged.current = false
-            setSelectedModel(response.selectedModel)
-            setModelNotice(response.modelNotice)
-            await refresh()
-          },
-          "The assistant could not start the turn",
-          { refresh: false }
-        )
-        setOptimisticEntries([])
-      }}
-      projects={dashboard.projects.map((project) => ({
-        id: project.id,
-        name: project.name,
-        repositoryName: project.repositoryName,
-        creatingWorkspace: creatingProjectId === project.id,
-        onCreateWorkspace: () => void startWorkspace(project),
-        settingsHref: `/projects/${encodeURIComponent(project.slug)}/settings`,
-        workspaces: dashboard.workspaces
-          .filter((item) => item.projectId === project.id)
-          .map((item) => ({
-            id: item.id,
-            name: item.title,
-            href: `/projects/${encodeURIComponent(project.slug)}/workspaces/${encodeURIComponent(item.id)}`,
-            branch: project.defaultBranch,
-            status:
-              item.status === "error"
+    <CommandPalette dashboard={dashboard}>
+      {({ openSearch }) => (
+        <WorkspaceShell
+          key={workspaceId}
+          workspaceId={workspaceId}
+          canAdminister={dashboard.installation.canAdminister}
+          organization={workspace.organizationName}
+          projectName={workspace.projectName}
+          repositoryName={workspace.repositoryName}
+          workspaceName={workspace.title}
+          onOpenSearch={openSearch}
+          browser={{
+            url: checkpointCheck?.previewUrl ?? "",
+            title: checkpointCheck?.previewUrl
+              ? `Checkpoint ${checkpointCheck.commit.slice(0, 7)} Preview`
+              : "A preview will appear after its Check passes.",
+            status: checkpointCheck?.previewUrl
+              ? "live"
+              : checkpointCheck?.status === "failed"
                 ? "error"
-                : item.status === "running"
-                  ? "running"
-                  : item.status === "archived"
-                    ? "archived"
-                    : item.status === "ready"
-                      ? "ready"
-                      : "waiting",
-          })),
-      }))}
-      promptDisabled={
-        runtime.status === "provisioning" ||
-        runtime.status === "error" ||
-        workspace.status === "archived"
-      }
-      workspaceError={
-        runtime.status === "error"
-          ? (workspace.errorSummary ?? "Workspace startup failed")
-          : null
-      }
-      onRestartWorkspace={async () => {
-        await commands.run(
-          "restart",
-          async () => {
-            await restart({ data: { workspaceId, model: selectedModel } })
-          },
-          "Workspace restart failed"
-        )
-      }}
-      onArchiveWorkspace={
-        workspace.status !== "archived"
-          ? async () => {
-              await commands.run(
-                "archive",
-                async () => {
-                  await archive({ data: { workspaceId } })
+                : "loading",
+          }}
+          changedFileCount={workingChanges.length}
+          checkpointHistory={result.checkpoints}
+          review={result.review}
+          reviewPatch={result.versionControl.branch
+            .map((change) => change.patch)
+            .join("\n")}
+          currentReviewer={result.currentReviewer}
+          changeSummary={
+            workingChanges.length ? `+${additions} −${deletions}` : "No changes"
+          }
+          patch={workingChanges.map((change) => change.patch).join("\n")}
+          pending={commands.pending}
+          commandError={commands.error}
+          checks={checkItems}
+          entries={entries}
+          permissionRequests={permissionRequests}
+          presence={presence}
+          questions={runtime.questions}
+          queuedMessages={runtime.queuedMessages}
+          runtimeLimits={runtime.limits}
+          turnActive={runtime.status === "running"}
+          turnInterrupted={runtime.status === "interrupted"}
+          activeTurnStartedAt={runtime.activeTurnStartedAt}
+          onAnswerQuestion={async (
+            questionId,
+            answer: Record<string, WorkspaceQuestionValue>
+          ) => {
+            await commands.run(
+              "answerQuestion",
+              async () => {
+                await answerQuestion({
+                  data: { workspaceId, questionId, answer },
+                })
+              },
+              "The agent question answer could not be sent",
+              { target: questionId }
+            )
+          }}
+          onCancelTurn={async () => {
+            await commands.run(
+              "cancelTurn",
+              async () => {
+                await cancelTurn({ data: { workspaceId } })
+              },
+              "Turn cancellation failed"
+            )
+          }}
+          onPermissionReply={async (requestId, reply) => {
+            await commands.run(
+              "permissionReply",
+              async () => {
+                const response = await fetch(
+                  `/api/workspaces/${encodeURIComponent(workspaceId)}`,
+                  {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({
+                      workspaceId,
+                      requestId,
+                      reply: reply satisfies WorkspacePermissionReply,
+                    }),
+                  }
+                )
+                if (!response.ok) throw new Error(await response.text())
+                setLiveState((state) => {
+                  const permissionRequests = { ...state.permissionRequests }
+                  delete permissionRequests[requestId]
+                  const next = { ...state, permissionRequests }
+                  liveStateRef.current = next
+                  return next
+                })
+              },
+              "The permission response could not be sent",
+              { target: requestId, refresh: false }
+            )
+          }}
+          onAddReviewComment={(comment) =>
+            runReviewMutation(() =>
+              addReviewComment({
+                data: {
+                  workspaceId,
+                  commit: result.review.commit,
+                  ...comment,
                 },
-                "Workspace archive failed"
-              )
-            }
-          : undefined
-      }
-      onDiscardWorkspace={async () => {
-        await commands.run(
-          "discard",
-          async () => {
-            await discard({ data: { workspaceId } })
-            await router.navigate({ to: "/" })
-          },
-          "Workspace discard failed",
-          { refresh: false }
-        )
-      }}
-    />
+              })
+            )
+          }
+          onResolveReviewComment={(commentId, resolved) =>
+            runReviewMutation(() =>
+              resolveReviewComment({
+                data: { workspaceId, commentId, resolved },
+              })
+            ).then(() => undefined)
+          }
+          onSubmitReview={(decision) =>
+            runReviewMutation(() =>
+              submitReview({
+                data: {
+                  workspaceId,
+                  commit: result.review.commit,
+                  decision,
+                },
+              })
+            ).then(() => undefined)
+          }
+          initialPrompt={
+            onboarding && runtime.messages.length === 0
+              ? "Make one small, useful improvement to this starter project. Explain the change, write the files, and leave it ready for review."
+              : undefined
+          }
+          models={result.models}
+          skills={result.skills
+            .filter((skill) => skill.metadata.userInvokable)
+            .map((skill) => ({
+              name: skill.metadata.name,
+              description:
+                skill.metadata.description ?? "No description provided.",
+              scope: skill.scope,
+            }))}
+          selectedModel={selectedModel}
+          modelNotice={modelNotice}
+          onModelChange={(model) => {
+            modelSelectionChanged.current = true
+            setSelectedModel(model)
+            setModelNotice(null)
+          }}
+          onAccept={
+            result.versionControl.branch.length > 0 &&
+            currentCheckpointPassed &&
+            result.review.decision === "approved" &&
+            !result.versionControl.projectChanged &&
+            workspace.status !== "merging" &&
+            workspace.status !== "archived"
+              ? async () => {
+                  await commands.run(
+                    "accept",
+                    async () => {
+                      await accept({
+                        data: { workspaceId, idempotencyKey: acceptKey },
+                      })
+                      setAcceptKey(crypto.randomUUID())
+                    },
+                    "Accept failed"
+                  )
+                }
+              : undefined
+          }
+          onRebase={
+            result.versionControl.projectChanged &&
+            workspace.status !== "merging" &&
+            workspace.status !== "archived"
+              ? async () => {
+                  await commands.run(
+                    "rebase",
+                    async () => {
+                      await rebase({ data: { workspaceId } })
+                    },
+                    "Rebase failed"
+                  )
+                }
+              : undefined
+          }
+          onCheckpoint={
+            workspace.status !== "archived"
+              ? async () => {
+                  await commands.run(
+                    "checkpoint",
+                    async () => {
+                      await checkpoint({
+                        data: {
+                          workspaceId,
+                          idempotencyKey: checkpointKey,
+                          message: "Checkpoint Workspace changes",
+                        },
+                      })
+                      setCheckpointKey(crypto.randomUUID())
+                    },
+                    "Checkpoint failed"
+                  )
+                }
+              : undefined
+          }
+          onSubmitPrompt={async (text, model, delivery) => {
+            const optimisticId = `optimistic-${crypto.randomUUID()}`
+            setOptimisticEntries([
+              {
+                id: optimisticId,
+                kind: "user",
+                body: text,
+                skill: matchedSkill(text),
+                meta:
+                  delivery === "steer"
+                    ? "You · steering"
+                    : delivery === "queue"
+                      ? "You · queued"
+                      : "You",
+              },
+            ])
+
+            await commands.run(
+              "prompt",
+              async () => {
+                const response = await prompt({
+                  data: { workspaceId, text, model, delivery },
+                })
+                modelSelectionChanged.current = false
+                setSelectedModel(response.selectedModel)
+                setModelNotice(response.modelNotice)
+                await refresh()
+              },
+              "The assistant could not start the turn",
+              { refresh: false }
+            )
+            setOptimisticEntries([])
+          }}
+          projects={dashboard.projects.map((project) => ({
+            id: project.id,
+            name: project.name,
+            repositoryName: project.repositoryName,
+            creatingWorkspace: creatingProjectId === project.id,
+            onCreateWorkspace: () => void startWorkspace(project),
+            settingsHref: `/projects/${encodeURIComponent(project.slug)}/settings`,
+            workspaces: dashboard.workspaces
+              .filter((item) => item.projectId === project.id)
+              .map((item) => ({
+                id: item.id,
+                name: item.title,
+                href: `/projects/${encodeURIComponent(project.slug)}/workspaces/${encodeURIComponent(item.id)}`,
+                branch: project.defaultBranch,
+                status:
+                  item.status === "error"
+                    ? "error"
+                    : item.status === "running"
+                      ? "running"
+                      : item.status === "archived"
+                        ? "archived"
+                        : item.status === "ready"
+                          ? "ready"
+                          : "waiting",
+              })),
+          }))}
+          promptDisabled={
+            runtime.status === "provisioning" ||
+            runtime.status === "error" ||
+            workspace.status === "archived"
+          }
+          workspaceError={
+            runtime.status === "error"
+              ? (workspace.errorSummary ?? "Workspace startup failed")
+              : null
+          }
+          onRestartWorkspace={async () => {
+            await commands.run(
+              "restart",
+              async () => {
+                await restart({ data: { workspaceId, model: selectedModel } })
+              },
+              "Workspace restart failed"
+            )
+          }}
+          onArchiveWorkspace={
+            workspace.status !== "archived"
+              ? async () => {
+                  await commands.run(
+                    "archive",
+                    async () => {
+                      await archive({ data: { workspaceId } })
+                    },
+                    "Workspace archive failed"
+                  )
+                }
+              : undefined
+          }
+          onDiscardWorkspace={async () => {
+            await commands.run(
+              "discard",
+              async () => {
+                await discard({ data: { workspaceId } })
+                await router.navigate({ to: "/" })
+              },
+              "Workspace discard failed",
+              { refresh: false }
+            )
+          }}
+        />
+      )}
+    </CommandPalette>
   )
 }

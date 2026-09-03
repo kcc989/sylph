@@ -106,7 +106,19 @@ test("setup through eviction recovery", async ({ page }, testInfo) => {
 
   await test.step("connect OpenRouter", async () => {
     await page.getByRole("tab", { name: "Organization" }).click()
-    await page.getByRole("button", { name: "Add provider" }).click()
+    const chooseProvider = page.getByRole("heading", {
+      name: "Choose a provider",
+    })
+    await expect
+      .poll(
+        async () => {
+          if (await chooseProvider.isVisible()) return true
+          await page.getByRole("button", { name: "Add provider" }).click()
+          return chooseProvider.isVisible()
+        },
+        { timeout: 60 * 1000 }
+      )
+      .toBe(true)
     await page.getByRole("button", { name: /OpenRouter/ }).click()
     await page.getByLabel("OpenRouter API key").fill(openRouterKey)
     await page.getByRole("button", { name: "Connect provider" }).click()
@@ -125,6 +137,18 @@ test("setup through eviction recovery", async ({ page }, testInfo) => {
     await page
       .getByRole("option", { name: `${modelName}, OpenRouter`, exact: true })
       .click()
+    const workspaceUrl = page.url()
+    await page.keyboard.press("Control+K")
+    const palette = page.getByRole("dialog", { name: "Command palette" })
+    await expect(palette).toBeVisible()
+    await palette
+      .getByPlaceholder("Search Projects, Workspaces, Issues, and commands…")
+      .fill(projectName)
+    await palette
+      .getByRole("option")
+      .filter({ hasText: `${projectName} · ready` })
+      .click()
+    await expect(page).toHaveURL(workspaceUrl)
   })
 
   await test.step("build a deployable proof project", async () => {
