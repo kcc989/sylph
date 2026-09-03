@@ -21,7 +21,6 @@ import {
   WorkspaceRepairCheckInput,
   WorkspaceRetryCheckInput,
   WorkspaceRuntimeHealth,
-  type WorkspaceRuntimeMessage,
   WorkspaceRuntimePromptInput,
   WorkspaceSyncResult,
   WorkspaceTurnCancelInput,
@@ -55,6 +54,9 @@ import {
   WorkspaceDisconnectUserInput,
   WorkspaceSocketClientFrame,
   type WorkspaceSocketServerFrame,
+  WorkspaceReadFileInput,
+  WorkspaceFileContent,
+  WorkspaceFileNotFound,
 } from "@workspace/domain"
 import type { OpenCodeWorkerd } from "@opencode-ai/sdk/workerd"
 import { InvalidRequestError } from "@opencode-ai/protocol/errors"
@@ -80,7 +82,14 @@ import {
   createWorkspacePlugin,
   workspaceMutationPermissions,
 } from "./workspace-plugin"
-import { WorkspaceFilesystem } from "./workspace-filesystem"
+import {
+  WorkspaceFilesystem,
+  workspaceFilesystemErrorCode,
+} from "./workspace-filesystem"
+import {
+  workspaceFileDisplayLimit,
+  workspaceFileEncoding,
+} from "./workspace-file-content"
 import { WorkspaceGit } from "./workspace-git"
 import { createOpenCodeWithStorageBootstrap } from "./opencode-storage-bootstrap"
 import { activateCredentialAndWaitForCatalog } from "./opencode-credential-activation"
@@ -91,6 +100,10 @@ import {
 import type { OpenAIOAuthRequestState } from "./opencode-oauth-request"
 import { workspaceRuntimeStatus } from "./workspace-runtime-status"
 import { listWorkspaceMessages } from "./workspace-message-pages"
+import {
+  workspaceRuntimeMessages,
+  type WorkspaceRuntimeMessageSource,
+} from "./workspace-runtime-messages"
 import {
   automaticRepairIdempotencyKey,
   maxWorkspaceAutomaticRepairs,
@@ -154,6 +167,9 @@ const decodeWorkspaceQuestionReplyInputPromise = Schema.decodeUnknownPromise(
 const decodeWorkspaceRepairCheckInputPromise = Schema.decodeUnknownPromise(
   WorkspaceRepairCheckInput
 )
+const decodeWorkspaceReadFileInputPromise = Schema.decodeUnknownPromise(
+  WorkspaceReadFileInput
+)
 const decodeWorkspaceRetryCheckInputPromise = Schema.decodeUnknownPromise(
   WorkspaceRetryCheckInput
 )
@@ -195,6 +211,7 @@ const encodeWorkspaceSyncResultSync = Schema.encodeSync(WorkspaceSyncResult)
 const encodeWorkspaceVersionControlSnapshotSync = Schema.encodeSync(
   WorkspaceVersionControlSnapshot
 )
+const encodeWorkspaceFileContentSync = Schema.encodeSync(WorkspaceFileContent)
 const maxQueuedMessages = 5
 const maxTurnDurationMs = 15 * 60 * 1000
 
@@ -230,66 +247,6 @@ const credentialFingerprint = async (credential: OpenCodeCredential) => {
     byte.toString(16).padStart(2, "0")
   ).join("")
 }
-
-const messageText = (message: {
-  content: ReadonlyArray<{ type: string; text?: string; name?: string }>
-}) =>
-  message.content
-    .filter(
-      (part): part is { type: string; text: string } =>
-        (part.type === "text" || part.type === "reasoning") &&
-        part.text !== undefined
-    )
-    .map((part) => part.text)
-    .join("\n\n")
-
-const messageTools = (message: {
-  content: ReadonlyArray<{ type: string; text?: string; name?: string }>
-}) =>
-  message.content.flatMap((part) =>
-    part.type === "tool" && part.name ? [part.name] : []
-  )
-
-type WorkspaceRuntimeMessageSource = {
-  id: string
-  type: string
-  time: { created: number; completed?: number }
-  text?: string
-  content?: ReadonlyArray<{ type: string; text?: string; name?: string }>
-  error?: { message: string }
-}
-
-const runtimeMessages = (
-  messages: ReadonlyArray<WorkspaceRuntimeMessageSource>
-): WorkspaceRuntimeMessage[] =>
-  messages.reduce<WorkspaceRuntimeMessage[]>((result, message) => {
-    if (message.type === "user" && message.text !== undefined) {
-      result.push({
-        id: message.id,
-        role: "user",
-        text: message.text,
-        createdAt: message.time.created,
-        tools: [],
-        error: null,
-      })
-      return result
-    }
-
-    if (message.type === "assistant" && message.content) {
-      const tools = messageTools({ content: message.content })
-      const text = messageText({ content: message.content })
-      result.push({
-        id: message.id,
-        role: "assistant",
-        text: text || (tools.length ? `Used ${tools.join(", ")}` : ""),
-        createdAt: message.time.created,
-        tools,
-        error: message.error?.message ?? null,
-      })
-    }
-
-    return result
-  }, [])
 
 const activeTurnStartedAt = (
   messages: ReadonlyArray<{
@@ -832,6 +789,46 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     return this.#run(async () => {
       await this.#opencode
       return encodeWorkspaceCheckRunListSync(this.#checks.list())
+    })
+  }
+
+  readFile(input: typeof WorkspaceReadFileInput.Encoded) {
+    return this.#run(async () => {
+      const data = await decodeWorkspaceReadFileInputPromise(input)
+      const state = this.#requiredState()
+      if (state.workspaceId !== data.workspaceId) {
+        throw new InvalidRequest({
+          message: "File belongs to another Workspace",
+        })
+      }
+      try {
+        const file = await this.#filesystem.stat(data.path)
+        const content =
+          file.size > workspaceFileDisplayLimit
+            ? null
+            : await this.#filesystem.readFile(data.path)
+        const encoding = workspaceFileEncoding(file.size, content)
+        return encodeWorkspaceFileContentSync(
+          new WorkspaceFileContent({
+            path: data.path,
+            size: file.size,
+            updatedAt: file.mtimeMs,
+            encoding,
+            content:
+              encoding === "utf8" && content
+                ? new TextDecoder().decode(content)
+                : null,
+          })
+        )
+      } catch (cause) {
+        if (workspaceFilesystemErrorCode(cause) === "ENOENT") {
+          throw new WorkspaceFileNotFound({
+            message: "Workspace File no longer exists",
+            path: data.path,
+          })
+        }
+        throw cause
+      }
     })
   }
 
@@ -1515,7 +1512,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           })
       ),
       instructions:
-        "Production deploys and rollbacks require an Admin to confirm the exact Accepted commit in Project settings. Ask the user to deploy; the agent cannot.",
+        "Production deploys and rollbacks require an Admin to confirm the exact Accepted commit in the Deployments tab or Project settings. Ask the user to deploy; the agent cannot.",
     })
   }
 
@@ -2249,7 +2246,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           ? `${state.providerId}/${state.modelId}`
           : null,
       files,
-      messages: runtimeMessages(messages),
+      messages: workspaceRuntimeMessages(messages),
       queuedMessages: inbox.flatMap((item) =>
         item.type === "user"
           ? [

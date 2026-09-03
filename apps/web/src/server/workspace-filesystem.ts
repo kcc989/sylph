@@ -39,6 +39,11 @@ const filesystemError = (code: string, path: string) => {
   return error
 }
 
+export const workspaceFilesystemErrorCode = (cause: unknown) =>
+  cause instanceof Error
+    ? Object.getOwnPropertyDescriptor(cause, "code")?.value
+    : undefined
+
 const bytes = (value: string | Uint8Array | ArrayBuffer) => {
   if (value instanceof Uint8Array) return value
   if (value instanceof ArrayBuffer) return new Uint8Array(value)
@@ -150,6 +155,11 @@ export class WorkspaceFilesystem implements WorkspaceGitFilesystem {
     }
   }
 
+  async readFile(pathValue: string): Promise<Uint8Array>
+  async readFile(
+    pathValue: string,
+    option: EncodingOption
+  ): Promise<string | Uint8Array>
   async readFile(pathValue: string, option?: EncodingOption) {
     const path = normalizeWorkspacePath(pathValue)
     const row = this.#storage.sql

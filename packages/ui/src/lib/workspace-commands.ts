@@ -11,6 +11,7 @@ export type WorkspaceCommandName =
   | "rebase"
   | "check"
   | "review"
+  | "deploy"
 
 export type WorkspacePendingCommand = {
   readonly command: WorkspaceCommandName

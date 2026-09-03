@@ -27,6 +27,18 @@ const authenticationState = resolve(
 const proofFile = "RELEASE_SMOKE_PROOF.txt"
 const proofMarker = `sylph-release-smoke-${Date.now()}`
 
+const waitForHydration = async (page: Parameters<typeof test>[0]["page"]) => {
+  await page.waitForFunction(() => !("$_TSR" in window))
+}
+
+const openToolMenu = async (page: Parameters<typeof test>[0]["page"]) => {
+  const openToolTab = page.getByRole("button", { name: "Open tool tab" })
+  if (!(await openToolTab.isVisible())) {
+    await page.getByRole("button", { name: "Open tool sidebar" }).click()
+  }
+  await openToolTab.click()
+}
+
 const finishWorkspaceTurn = async (
   page: Parameters<typeof test>[0]["page"]
 ) => {
@@ -34,13 +46,25 @@ const finishWorkspaceTurn = async (
   await expect
     .poll(
       async () => {
-        const permission = page.getByRole("button", { name: "Allow once" })
-        if ((await permission.count()) > 0) await permission.first().click()
-        return page.getByText("Agent working", { exact: true }).count()
+        const permission = page.getByRole("button", { name: "Always allow" })
+        if ((await permission.count()) > 0) {
+          await permission.first().click()
+          return false
+        }
+        if (
+          (await page.getByText("Agent working", { exact: true }).count()) > 0
+        ) {
+          return false
+        }
+        await page.waitForTimeout(1_000)
+        return (
+          (await permission.count()) === 0 &&
+          (await page.getByText("Agent working", { exact: true }).count()) === 0
+        )
       },
       { timeout: 5 * 60 * 1000 }
     )
-    .toBe(0)
+    .toBe(true)
 }
 
 test("setup through eviction recovery", async ({ page }, testInfo) => {
@@ -57,7 +81,7 @@ test("setup through eviction recovery", async ({ page }, testInfo) => {
 
   await test.step("setup and claim the fresh Installation", async () => {
     await page.goto("/")
-    await page.waitForLoadState("networkidle")
+    await waitForHydration(page)
     const magicLink = page.getByRole("button", {
       name: "Send test magic link",
     })
@@ -77,11 +101,7 @@ test("setup through eviction recovery", async ({ page }, testInfo) => {
     } else {
       await page.goto("/setup")
       const github = page.getByRole("button", { name: "Continue with GitHub" })
-      if (!(await github.isVisible())) {
-        await expect(
-          page.getByRole("heading", { name: "Claim this Installation" })
-        ).toBeVisible()
-      } else {
+      if (await github.isVisible()) {
         await github.click()
         if (new URL(page.url()).origin !== new URL(baseURL).origin) {
           process.stdout.write(
@@ -89,22 +109,40 @@ test("setup through eviction recovery", async ({ page }, testInfo) => {
           )
         }
         await page.waitForURL(`${baseURL}/setup`, { timeout: 10 * 60 * 1000 })
-        await mkdir(dirname(authenticationState), { recursive: true })
-        await page.context().storageState({ path: authenticationState })
       }
     }
 
-    await expect(
-      page.getByRole("heading", { name: "Claim this Installation" })
-    ).toBeVisible()
-    await page.getByLabel("Organization name").fill(organizationName)
-    await page.getByLabel("Confirm Admin email").fill(adminEmail)
-    await page.getByLabel("Installation claim secret").fill(claimSecret)
-    await page.getByRole("button", { name: "Claim Installation" }).click()
-    await page.waitForURL(/\/admin\?onboarding=1$/)
+    await waitForHydration(page)
+    await mkdir(dirname(authenticationState), { recursive: true })
+    await page.context().storageState({ path: authenticationState })
+    const claim = page.getByRole("heading", {
+      name: "Claim this Installation",
+    })
+
+    if (await claim.isVisible()) {
+      await page.getByLabel("Organization name").fill(organizationName)
+      await page.getByLabel("Confirm Admin email").fill(adminEmail)
+      await page.getByLabel("Installation claim secret").fill(claimSecret)
+      await page.getByRole("button", { name: "Claim Installation" }).click()
+      await page.waitForURL(/\/admin\?onboarding=1$/)
+    } else {
+      await expect(
+        page.getByRole("heading", { name: "Installation claimed" })
+      ).toBeVisible()
+      await page.getByRole("button", { name: "Continue" }).click()
+      await page.waitForURL(/\/admin$/)
+    }
+    await waitForHydration(page)
   })
 
   await test.step("connect OpenRouter", async () => {
+    await page.goto("/projects/new?onboarding=1")
+    await waitForHydration(page)
+
+    if (await page.getByLabel("Project name").isVisible()) return
+
+    await page.goto("/admin?onboarding=1")
+    await waitForHydration(page)
     await page.getByRole("tab", { name: "Organization" }).click()
     const chooseProvider = page.getByRole("heading", {
       name: "Choose a provider",
@@ -123,12 +161,14 @@ test("setup through eviction recovery", async ({ page }, testInfo) => {
     await page.getByLabel("OpenRouter API key").fill(openRouterKey)
     await page.getByRole("button", { name: "Connect provider" }).click()
     await page.waitForURL(/\/projects\/new\?onboarding=1$/)
+    await waitForHydration(page)
   })
 
   await test.step("create a Project and its initial Workspace", async () => {
     await page.getByLabel("Project name").fill(projectName)
     await page.getByRole("button", { name: "Create Project" }).click()
     await page.waitForURL(/\/projects\/[^/]+\/workspaces\/[^/?]+/)
+    await waitForHydration(page)
     await expect(
       page.getByRole("textbox", { name: "Message the agent" })
     ).toBeEnabled()
@@ -162,6 +202,17 @@ test("setup through eviction recovery", async ({ page }, testInfo) => {
   })
 
   await test.step("checkpoint and verify the Workspace", async () => {
+    await openToolMenu(page)
+    await page.getByRole("menuitem", { name: "Files" }).click()
+    await page.getByRole("button", { name: proofFile }).click()
+    await expect(page.getByRole("tabpanel", { name: "Files" })).toContainText(
+      proofMarker
+    )
+    await openToolMenu(page)
+    await page.getByRole("menuitem", { name: "Deployments" }).click()
+    await expect(
+      page.getByRole("tabpanel", { name: "Deployments" })
+    ).toContainText("Project Deployments")
     const checkpoint = page.getByRole("button", { name: "Checkpoint" })
     await expect(checkpoint).toBeEnabled()
     await checkpoint.click()
@@ -170,7 +221,7 @@ test("setup through eviction recovery", async ({ page }, testInfo) => {
       timeout: 10 * 60 * 1000,
     })
     await expect(checks.getByText("passed", { exact: true })).toHaveCount(7)
-    await page.getByRole("button", { name: "Open tool tab" }).click()
+    await openToolMenu(page)
     await page.getByRole("menuitem", { name: "Review" }).click()
     await page.getByRole("button", { name: "Approve", exact: true }).click()
     const socketCount = workspaceSocketUrls.length

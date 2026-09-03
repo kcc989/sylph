@@ -29,6 +29,8 @@ import {
   WorkspaceTurnCancelResult,
   WorkspaceVersionControlSnapshot,
   WorkspaceDisconnectUserInput,
+  WorkspaceReadFileInput,
+  WorkspaceFileContent,
 } from "@workspace/domain"
 import { Schema } from "effect"
 
@@ -52,6 +54,9 @@ export interface WorkspaceRuntimeStub {
     input: typeof WorkspaceCheckpointInput.Encoded
   ): Promise<typeof WorkspaceCheckpointResult.Encoded>
   listChecks(): Promise<typeof WorkspaceCheckRunList.Encoded>
+  readFile(
+    input: typeof WorkspaceReadFileInput.Encoded
+  ): Promise<typeof WorkspaceFileContent.Encoded>
   applyCheckUpdate(
     update: typeof WorkspaceCheckUpdate.Encoded
   ): Promise<typeof WorkspaceCheckUpdateResult.Encoded>
@@ -113,6 +118,7 @@ export interface WorkspaceRuntime {
     input: WorkspaceCheckpointInput
   ): Promise<WorkspaceCheckpointResult>
   listChecks(): Promise<ReadonlyArray<WorkspaceCheckRun>>
+  readFile(input: WorkspaceReadFileInput): Promise<WorkspaceFileContent>
   applyCheckUpdate(
     update: WorkspaceCheckUpdate
   ): Promise<WorkspaceCheckUpdateResult>
@@ -171,6 +177,8 @@ const decodeCheckpointResult = Schema.decodeUnknownSync(
   WorkspaceCheckpointResult
 )
 const decodeCheckRunList = Schema.decodeUnknownSync(WorkspaceCheckRunList)
+const encodeReadFileInput = Schema.encodeSync(WorkspaceReadFileInput)
+const decodeFileContent = Schema.decodeUnknownSync(WorkspaceFileContent)
 const decodeCheckRun = Schema.decodeUnknownSync(WorkspaceCheckRun)
 const encodeCheckUpdate = Schema.encodeSync(WorkspaceCheckUpdate)
 const decodeCheckUpdateResult = Schema.decodeUnknownSync(
@@ -239,6 +247,10 @@ export const makeWorkspaceRuntime = (
     ),
   listChecks: () =>
     call(async () => decodeCheckRunList(await stub.listChecks())),
+  readFile: (input) =>
+    call(async () =>
+      decodeFileContent(await stub.readFile(encodeReadFileInput(input)))
+    ),
   applyCheckUpdate: (update) =>
     call(async () =>
       decodeCheckUpdateResult(

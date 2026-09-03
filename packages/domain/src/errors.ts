@@ -69,6 +69,14 @@ export class WorkspaceRuntimeFailure extends Schema.TaggedError<WorkspaceRuntime
   }
 ) {}
 
+export class WorkspaceFileNotFound extends Schema.TaggedError<WorkspaceFileNotFound>()(
+  "WorkspaceFileNotFound",
+  {
+    message: Schema.String,
+    path: Schema.String,
+  }
+) {}
+
 export const ServerFailure = Schema.Union([
   AuthenticationRequired,
   AccessDenied,
@@ -78,6 +86,7 @@ export const ServerFailure = Schema.Union([
   ProviderConnectionRequired,
   InstallationClaimRejected,
   WorkspaceRuntimeFailure,
+  WorkspaceFileNotFound,
 ])
 export type ServerFailure = typeof ServerFailure.Type
 export type ServerFailureTag = ServerFailure["_tag"]

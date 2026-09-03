@@ -3,6 +3,8 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { defaultPatch } from "@workspace/ui/components/code-review"
 import {
   BrowserPreview,
+  DeploymentsSurface,
+  FilesSurface,
   ProjectRail,
   ReviewNotesSurface,
   ReviewSurface,
@@ -215,6 +217,81 @@ export const BrowserSurface: Story = {
           title: "Build, preview, and verify in one durable workspace.",
           status: "live",
         }}
+      />
+    </div>
+  ),
+}
+
+export const FilesToolSurface: Story = {
+  render: () => (
+    <div className="h-[640px]">
+      <FilesSurface
+        fileChanges={[
+          { file: "apps/web/src/routes/index.tsx", status: "modified" },
+          { file: "packages/ui/src/components/new-file.tsx", status: "added" },
+          { file: "README.old.md", status: "deleted" },
+        ]}
+        files={[
+          "apps/web/src/routes/index.tsx",
+          "packages/ui/src/components/button.tsx",
+          "packages/ui/src/components/new-file.tsx",
+          "package.json",
+        ]}
+        onReadFile={async (path) => ({
+          path,
+          size: 68,
+          updatedAt: Date.now(),
+          encoding: "utf8",
+          content: `export function WorkspaceFile() {\n  return <main>${path}</main>\n}\n`,
+        })}
+      />
+    </div>
+  ),
+}
+
+export const DeploymentsToolSurface: Story = {
+  render: () => (
+    <div className="h-[640px]">
+      <DeploymentsSurface
+        acceptedCommit="bfd041e99a5ce7db0b13822b8e8b742ea3204bf2"
+        canDeploy
+        deployments={{
+          acceptedCommits: [
+            {
+              commit: "bfd041e99a5ce7db0b13822b8e8b742ea3204bf2",
+              acceptedAt: Date.now(),
+            },
+            {
+              commit: "892ac4b992cd79855ec8aa0191d4fc0ab6516531",
+              acceptedAt: Date.now() - 86_400_000,
+            },
+          ],
+          deployments: [
+            {
+              id: "deployment-1",
+              commit: "bfd041e99a5ce7db0b13822b8e8b742ea3204bf2",
+              status: "running",
+              productionUrl: null,
+              actorName: "Casey Collins",
+              failureDetails: null,
+              startedAt: Date.now(),
+              completedAt: null,
+              createdAt: Date.now(),
+            },
+            {
+              id: "deployment-2",
+              commit: "892ac4b992cd79855ec8aa0191d4fc0ab6516531",
+              status: "succeeded",
+              productionUrl: "https://example.com",
+              actorName: "Casey Collins",
+              failureDetails: null,
+              startedAt: Date.now() - 86_400_000,
+              completedAt: Date.now() - 86_340_000,
+              createdAt: Date.now() - 86_400_000,
+            },
+          ],
+        }}
+        onDeploy={async () => undefined}
       />
     </div>
   ),
