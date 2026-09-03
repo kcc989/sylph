@@ -19,6 +19,7 @@ import { Route as SkillsIndexRouteImport } from './routes/skills/index'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiWorkspacesWorkspaceIdRouteImport } from './routes/api/workspaces/$workspaceId'
 import { Route as ProjectsProjectSlugSettingsRouteImport } from './routes/projects/$projectSlug/settings'
+import { Route as ApiWorkspacesWorkspaceIdSocketRouteImport } from './routes/api/workspaces/$workspaceId/socket'
 import { Route as ProjectsProjectSlugIssuesIndexRouteImport } from './routes/projects/$projectSlug/issues/index'
 import { Route as ProjectsProjectSlugIssuesIssueNumberRouteImport } from './routes/projects/$projectSlug/issues/$issueNumber'
 import { Route as ProjectsProjectSlugWorkspacesWorkspaceIdRouteImport } from './routes/projects/$projectSlug/workspaces/$workspaceId'
@@ -78,6 +79,12 @@ const ProjectsProjectSlugSettingsRoute =
     path: '/projects/$projectSlug/settings',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiWorkspacesWorkspaceIdSocketRoute =
+  ApiWorkspacesWorkspaceIdSocketRouteImport.update({
+    id: '/socket',
+    path: '/socket',
+    getParentRoute: () => ApiWorkspacesWorkspaceIdRoute,
+  } as any)
 const ProjectsProjectSlugIssuesIndexRoute =
   ProjectsProjectSlugIssuesIndexRouteImport.update({
     id: '/projects/$projectSlug/issues/',
@@ -126,6 +133,7 @@ export interface FileRoutesByFullPath {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/workspaces/$workspaceId': typeof ApiWorkspacesWorkspaceIdRouteWithChildren
   '/projects/$projectSlug/settings': typeof ProjectsProjectSlugSettingsRoute
+  '/api/workspaces/$workspaceId/socket': typeof ApiWorkspacesWorkspaceIdSocketRoute
   '/projects/$projectSlug/issues/$issueNumber': typeof ProjectsProjectSlugIssuesIssueNumberRoute
   '/projects/$projectSlug/workspaces/$workspaceId': typeof ProjectsProjectSlugWorkspacesWorkspaceIdRoute
   '/projects/$projectSlug/workspaces/new': typeof ProjectsProjectSlugWorkspacesNewRoute
@@ -144,6 +152,7 @@ export interface FileRoutesByTo {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/workspaces/$workspaceId': typeof ApiWorkspacesWorkspaceIdRouteWithChildren
   '/projects/$projectSlug/settings': typeof ProjectsProjectSlugSettingsRoute
+  '/api/workspaces/$workspaceId/socket': typeof ApiWorkspacesWorkspaceIdSocketRoute
   '/projects/$projectSlug/issues/$issueNumber': typeof ProjectsProjectSlugIssuesIssueNumberRoute
   '/projects/$projectSlug/workspaces/$workspaceId': typeof ProjectsProjectSlugWorkspacesWorkspaceIdRoute
   '/projects/$projectSlug/workspaces/new': typeof ProjectsProjectSlugWorkspacesNewRoute
@@ -163,6 +172,7 @@ export interface FileRoutesById {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/workspaces/$workspaceId': typeof ApiWorkspacesWorkspaceIdRouteWithChildren
   '/projects/$projectSlug/settings': typeof ProjectsProjectSlugSettingsRoute
+  '/api/workspaces/$workspaceId/socket': typeof ApiWorkspacesWorkspaceIdSocketRoute
   '/projects/$projectSlug/issues/$issueNumber': typeof ProjectsProjectSlugIssuesIssueNumberRoute
   '/projects/$projectSlug/workspaces/$workspaceId': typeof ProjectsProjectSlugWorkspacesWorkspaceIdRoute
   '/projects/$projectSlug/workspaces/new': typeof ProjectsProjectSlugWorkspacesNewRoute
@@ -183,6 +193,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/workspaces/$workspaceId'
     | '/projects/$projectSlug/settings'
+    | '/api/workspaces/$workspaceId/socket'
     | '/projects/$projectSlug/issues/$issueNumber'
     | '/projects/$projectSlug/workspaces/$workspaceId'
     | '/projects/$projectSlug/workspaces/new'
@@ -201,6 +212,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/workspaces/$workspaceId'
     | '/projects/$projectSlug/settings'
+    | '/api/workspaces/$workspaceId/socket'
     | '/projects/$projectSlug/issues/$issueNumber'
     | '/projects/$projectSlug/workspaces/$workspaceId'
     | '/projects/$projectSlug/workspaces/new'
@@ -219,6 +231,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/workspaces/$workspaceId'
     | '/projects/$projectSlug/settings'
+    | '/api/workspaces/$workspaceId/socket'
     | '/projects/$projectSlug/issues/$issueNumber'
     | '/projects/$projectSlug/workspaces/$workspaceId'
     | '/projects/$projectSlug/workspaces/new'
@@ -317,6 +330,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjectsProjectSlugSettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/workspaces/$workspaceId/socket': {
+      id: '/api/workspaces/$workspaceId/socket'
+      path: '/socket'
+      fullPath: '/api/workspaces/$workspaceId/socket'
+      preLoaderRoute: typeof ApiWorkspacesWorkspaceIdSocketRouteImport
+      parentRoute: typeof ApiWorkspacesWorkspaceIdRoute
+    }
     '/projects/$projectSlug/issues/': {
       id: '/projects/$projectSlug/issues/'
       path: '/projects/$projectSlug/issues'
@@ -363,11 +383,13 @@ declare module '@tanstack/react-router' {
 }
 
 interface ApiWorkspacesWorkspaceIdRouteChildren {
+  ApiWorkspacesWorkspaceIdSocketRoute: typeof ApiWorkspacesWorkspaceIdSocketRoute
   ApiWorkspacesWorkspaceIdEvidenceEvidenceIdRoute: typeof ApiWorkspacesWorkspaceIdEvidenceEvidenceIdRoute
 }
 
 const ApiWorkspacesWorkspaceIdRouteChildren: ApiWorkspacesWorkspaceIdRouteChildren =
   {
+    ApiWorkspacesWorkspaceIdSocketRoute: ApiWorkspacesWorkspaceIdSocketRoute,
     ApiWorkspacesWorkspaceIdEvidenceEvidenceIdRoute:
       ApiWorkspacesWorkspaceIdEvidenceEvidenceIdRoute,
   }

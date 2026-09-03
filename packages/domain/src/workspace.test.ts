@@ -20,6 +20,8 @@ import {
   WorkspacePermissionReplyInput,
   WorkspaceRuntimeEvent,
   WorkspaceRuntimeHealth,
+  WorkspaceSocketClientFrame,
+  WorkspaceSocketServerFrame,
 } from "./conversation"
 import { InstallationClaimInput } from "./installation"
 import { WorkspaceWriteFileInput } from "./workspace-files"
@@ -63,6 +65,12 @@ const decodeWorkspaceRuntimeEventPromise = Schema.decodeUnknownPromise(
 )
 const decodeWorkspaceRuntimeHealth = Schema.decodeUnknownPromise(
   WorkspaceRuntimeHealth
+)
+const decodeWorkspaceSocketClientFrame = Schema.decodeUnknownPromise(
+  WorkspaceSocketClientFrame
+)
+const decodeWorkspaceSocketServerFrame = Schema.decodeUnknownPromise(
+  WorkspaceSocketServerFrame
 )
 const decodeWorkspaceSummary = Schema.decodeUnknownEffect(WorkspaceSummary)
 const decodeWorkspaceVersionControl = Schema.decodeUnknownPromise(
@@ -239,10 +247,32 @@ describe("Project and runtime inputs", () => {
     expect(event.durable).toEqual({ seq: 2 })
   })
 
+  test("decodes Workspace socket frames at the transport boundary", async () => {
+    const hello = await decodeWorkspaceSocketClientFrame({
+      type: "hello",
+      sessionId: "session-1",
+      cursor: 12,
+    })
+    const event = await decodeWorkspaceSocketServerFrame({
+      type: "event",
+      event: {
+        id: "event-1",
+        created: 1,
+        type: "session.idle",
+        data: { sessionID: "session-1" },
+        durable: { aggregateID: "session-1", seq: 13, version: 1 },
+      },
+    })
+
+    expect(hello.type).toBe("hello")
+    expect(event.type).toBe("event")
+  })
+
   test("preserves pending permission requests in runtime health", async () => {
     const health = await decodeWorkspaceRuntimeHealth({
       workspaceId: "workspace-1",
       sessionId: "session-1",
+      eventCursor: 2,
       status: "running",
       model: "openrouter/model-1",
       files: [],
@@ -272,6 +302,7 @@ describe("Project and runtime inputs", () => {
     })
 
     expect(health.permissions[0]?.action).toBe("workspace_write_file")
+    expect(health.eventCursor).toBe(2)
   })
 
   test("requires an API key for OpenCode setup", async () => {

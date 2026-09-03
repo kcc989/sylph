@@ -45,6 +45,15 @@ const finishWorkspaceTurn = async (
 
 test("setup through eviction recovery", async ({ page }, testInfo) => {
   testInfo.annotations.push({ type: "baseURL", description: baseURL })
+  const workspaceSocketUrls: string[] = []
+
+  page.on("websocket", (socket) => {
+    const url = new URL(socket.url())
+
+    if (/\/api\/workspaces\/[^/]+\/socket$/.test(url.pathname)) {
+      workspaceSocketUrls.push(socket.url())
+    }
+  })
 
   await test.step("setup and claim the fresh Installation", async () => {
     await page.goto("/")
@@ -123,6 +132,7 @@ test("setup through eviction recovery", async ({ page }, testInfo) => {
     await expect(
       page.getByRole("textbox", { name: "Message the agent" })
     ).toBeEnabled()
+    await expect.poll(() => workspaceSocketUrls.length).toBeGreaterThan(0)
     await page.getByRole("combobox", { name: "Model for next turn" }).click()
     await page
       .getByRole("option", { name: `${modelName}, OpenRouter`, exact: true })
@@ -163,7 +173,11 @@ test("setup through eviction recovery", async ({ page }, testInfo) => {
     await page.getByRole("button", { name: "Open tool tab" }).click()
     await page.getByRole("menuitem", { name: "Review" }).click()
     await page.getByRole("button", { name: "Approve", exact: true }).click()
+    const socketCount = workspaceSocketUrls.length
     await page.reload()
+    await expect
+      .poll(() => workspaceSocketUrls.length)
+      .toBeGreaterThan(socketCount)
     await expect(page.getByRole("button", { name: "Accept" })).toBeEnabled()
   })
 

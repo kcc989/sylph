@@ -52,6 +52,9 @@ import {
   WorkspaceCheckRunList,
   WorkspaceCheckpointResult,
   WorkspaceRebaseResult,
+  WorkspaceDisconnectUserInput,
+  WorkspaceSocketClientFrame,
+  type WorkspaceSocketServerFrame,
 } from "@workspace/domain"
 import type { OpenCodeWorkerd } from "@opencode-ai/sdk/workerd"
 import { InvalidRequestError } from "@opencode-ai/protocol/errors"
@@ -62,9 +65,15 @@ import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { Schema } from "effect"
 
 import {
+  encodeWorkspaceSocketFrame,
+  decodeWorkspaceSocketAttachment,
   shouldForwardWorkspaceEvent,
-  workspaceEventResponse,
-} from "./workspace-event-stream"
+  workspaceEventCursor,
+  workspaceEventFollowsCursor,
+  workspaceEventSessionId,
+  workspacePresence,
+  type WorkspaceSocketAttachment,
+} from "./workspace-socket-server"
 import { providerConnectionErrorSummary } from "./workspace-error-summary"
 import {
   createWorkspacePermissionBridge,
@@ -81,6 +90,7 @@ import {
 } from "./opencode-key-credential"
 import type { OpenAIOAuthRequestState } from "./opencode-oauth-request"
 import { workspaceRuntimeStatus } from "./workspace-runtime-status"
+import { listWorkspaceMessages } from "./workspace-message-pages"
 import {
   automaticRepairIdempotencyKey,
   maxWorkspaceAutomaticRepairs,
@@ -150,6 +160,13 @@ const decodeWorkspaceRetryCheckInputPromise = Schema.decodeUnknownPromise(
 const decodeWorkspaceRuntimeEventPromise = Schema.decodeUnknownPromise(
   WorkspaceRuntimeEvent
 )
+const decodeWorkspaceSocketClientFramePromise = Schema.decodeUnknownPromise(
+  WorkspaceSocketClientFrame
+)
+const decodeWorkspaceDisconnectUserInputPromise = Schema.decodeUnknownPromise(
+  WorkspaceDisconnectUserInput
+)
+const decodeSocketTextPromise = Schema.decodeUnknownPromise(Schema.String)
 const decodeWorkspaceRuntimePromptInputPromise = Schema.decodeUnknownPromise(
   WorkspaceRuntimePromptInput
 )
@@ -200,6 +217,7 @@ const appWorkspaceState = sqliteTable("app_workspace_state", {
   modelId: text("model_id"),
   credentialFingerprint: text("credential_fingerprint"),
   sessionId: text("session_id"),
+  eventCursor: integer("event_cursor"),
   archivedAt: integer("archived_at"),
 })
 
@@ -232,15 +250,17 @@ const messageTools = (message: {
     part.type === "tool" && part.name ? [part.name] : []
   )
 
+type WorkspaceRuntimeMessageSource = {
+  id: string
+  type: string
+  time: { created: number; completed?: number }
+  text?: string
+  content?: ReadonlyArray<{ type: string; text?: string; name?: string }>
+  error?: { message: string }
+}
+
 const runtimeMessages = (
-  messages: ReadonlyArray<{
-    id: string
-    type: string
-    time: { created: number }
-    text?: string
-    content?: ReadonlyArray<{ type: string; text?: string; name?: string }>
-    error?: { message: string }
-  }>
+  messages: ReadonlyArray<WorkspaceRuntimeMessageSource>
 ): WorkspaceRuntimeMessage[] =>
   messages.reduce<WorkspaceRuntimeMessage[]>((result, message) => {
     if (message.type === "user" && message.text !== undefined) {
@@ -365,9 +385,18 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     active: false,
     accountID: null,
   }
+  #socketSubscriber: Promise<void> | null = null
+  #socketSubscriberAbort: AbortController | null = null
+  readonly #socketPendingEvents = new WeakMap<
+    WebSocket,
+    WorkspaceRuntimeEvent[]
+  >()
 
   constructor(context: DurableObjectState, bindings: WorkspaceBindings) {
     super(context, bindings)
+    context.setWebSocketAutoResponse(
+      new WebSocketRequestResponsePair("ping", "pong")
+    )
     this.#database = drizzle(context.storage, { schema: { appWorkspaceState } })
     this.#filesystem = new WorkspaceFilesystem(context.storage)
     this.#workspaceGit = new WorkspaceGit(
@@ -469,6 +498,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           model_id TEXT,
           credential_fingerprint TEXT,
           session_id TEXT,
+          event_cursor INTEGER,
           archived_at INTEGER
         )
       `)
@@ -485,6 +515,11 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       if (!columns.includes("session_id")) {
         context.storage.sql.exec(
           "ALTER TABLE app_workspace_state ADD COLUMN session_id TEXT"
+        )
+      }
+      if (!columns.includes("event_cursor")) {
+        context.storage.sql.exec(
+          "ALTER TABLE app_workspace_state ADD COLUMN event_cursor INTEGER"
         )
       }
       if (!columns.includes("provider_id")) {
@@ -518,12 +553,8 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     if (!state?.sessionId) return
     const active = await opencode.sessions.active()
     if (!active[state.sessionId]) return
-    const messages = await opencode.message.list({
-      sessionID: state.sessionId,
-      limit: 100,
-      order: "asc",
-    })
-    const startedAt = activeTurnStartedAt(messages.data) ?? Date.now()
+    const messages = await this.#messages(opencode, state.sessionId)
+    const startedAt = activeTurnStartedAt(messages) ?? Date.now()
     const deadline = startedAt + maxTurnDurationMs
     if (deadline <= Date.now()) {
       await opencode.sessions.interrupt({
@@ -537,27 +568,100 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
 
   async fetch(request: Request) {
     const url = new URL(request.url)
-    if (request.method !== "GET" || url.pathname !== "/events") {
+    if (request.method !== "GET" || url.pathname !== "/socket") {
       return new Response("Not found", { status: 404 })
     }
-    try {
-      return await this.#run(async () => {
-        const opencode = await this.#opencode
-        const state = this.#database.select().from(appWorkspaceState).get()
-        if (!state?.sessionId) {
-          return new Response("OpenCode session is not initialized", {
-            status: 409,
-          })
-        }
-        return workspaceEventResponse(
-          this.#events(opencode, AgentSessionId.make(state.sessionId))
-        )
-      })
-    } catch (error) {
-      return new Response(
-        error instanceof Error ? error.message : "Workspace runtime failed",
-        { status: 500 }
+    if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+      return new Response("WebSocket upgrade required", { status: 426 })
+    }
+    const userId = request.headers.get("x-sylph-user-id")
+    const name = request.headers.get("x-sylph-user-name")
+    const writable = request.headers.get("x-sylph-workspace-writable") === "1"
+    if (!userId || !name) {
+      return new Response("Workspace actor context is missing", { status: 403 })
+    }
+
+    const existing = this.ctx
+      .getWebSockets(`user:${userId}`)
+      .sort(
+        (left, right) =>
+          this.#attachment(left).connectedAt -
+          this.#attachment(right).connectedAt
       )
+    while (existing.length >= 5) {
+      existing.shift()?.close(4008, "Workspace connection limit reached")
+    }
+
+    const pair = new WebSocketPair()
+    const client = pair[0]
+    const server = pair[1]
+    this.ctx.acceptWebSocket(server, [`user:${userId}`])
+    server.serializeAttachment({
+      userId,
+      name,
+      writable,
+      connectedAt: Date.now(),
+      sessionId: null,
+      cursor: null,
+      synced: false,
+    } satisfies WorkspaceSocketAttachment)
+    return new Response(null, { status: 101, webSocket: client })
+  }
+
+  async webSocketMessage(socket: WebSocket, message: string | ArrayBuffer) {
+    try {
+      const text = await decodeSocketTextPromise(message)
+      if (new TextEncoder().encode(text).byteLength > 16 * 1024) {
+        this.#sendError(
+          socket,
+          "frame_too_large",
+          "Workspace socket frame exceeds the inbound limit",
+          true
+        )
+        return
+      }
+      const frame = await decodeWorkspaceSocketClientFramePromise(
+        JSON.parse(text)
+      )
+      if (frame.type !== "hello") {
+        this.#sendError(
+          socket,
+          "terminal_unavailable",
+          "Workspace terminals require a separate sandbox connection",
+          false
+        )
+        return
+      }
+      await this.#hello(socket, frame.sessionId, frame.cursor)
+    } catch {
+      this.#sendError(
+        socket,
+        "invalid_frame",
+        "Workspace socket frame is invalid",
+        false
+      )
+    }
+  }
+
+  webSocketClose(
+    socket: WebSocket,
+    code: number,
+    reason: string,
+    _wasClean: boolean
+  ) {
+    socket.close(code, reason)
+    this.#broadcastPresence()
+    if (this.#initializedSockets().length === 0) {
+      this.#socketSubscriberAbort?.abort()
+    }
+  }
+
+  webSocketError(socket: WebSocket, cause: unknown) {
+    console.error("Workspace socket failed", cause)
+    socket.close(1011, "Workspace socket failed")
+    this.#broadcastPresence()
+    if (this.#initializedSockets().length === 0) {
+      this.#socketSubscriberAbort?.abort()
     }
   }
 
@@ -581,6 +685,20 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       return encodeOpenCodeConnectionResultSync(
         await this.#connectionResult(opencode, data.providerId)
       )
+    })
+  }
+
+  disconnectUser(input: typeof WorkspaceDisconnectUserInput.Encoded) {
+    return this.#run(async () => {
+      const data = await decodeWorkspaceDisconnectUserInputPromise(input)
+      for (const socket of this.ctx.getWebSockets(`user:${data.userId}`)) {
+        this.#sendError(
+          socket,
+          "access_revoked",
+          "Workspace access was revoked",
+          true
+        )
+      }
     })
   }
 
@@ -723,6 +841,17 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       const opencode = await this.#opencode
       const previous = this.#checks.get(data.run.id)
       const applied = this.#checks.apply(data)
+      if (applied) {
+        const event = new WorkspaceRuntimeEvent({
+          id: `check-${data.run.id}-${data.run.attempt}-${Date.now()}`,
+          created: Date.now(),
+          type: "workspace.check.updated",
+          data: data.run,
+        })
+        for (const socket of this.#initializedSockets()) {
+          this.#send(socket, { type: "event", event })
+        }
+      }
       if (applied && previous?.status !== data.run.status) {
         await this.#afterCheckUpdate(opencode, data.run).catch((cause) =>
           console.error(
@@ -777,6 +906,14 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       )
         .bind(state.workspaceId)
         .run()
+      for (const socket of this.#initializedSockets()) {
+        this.#sendError(
+          socket,
+          "workspace_archived",
+          "Workspace was archived",
+          true
+        )
+      }
       return encodeArchiveResult(new WorkspaceArchiveResult({ archivedAt }))
     })
   }
@@ -1537,27 +1674,192 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     return result
   }
 
-  async *#events(
-    opencode: OpenCodeWorkerd.Interface,
-    sessionId: AgentSessionId
-  ): AsyncIterable<WorkspaceRuntimeEvent> {
+  #attachment(socket: WebSocket): WorkspaceSocketAttachment {
+    return decodeWorkspaceSocketAttachment(socket.deserializeAttachment())
+  }
+
+  #initializedSockets() {
+    return this.ctx
+      .getWebSockets()
+      .filter(
+        (socket) =>
+          socket.readyState === WebSocket.OPEN &&
+          Boolean(this.#attachment(socket).sessionId)
+      )
+  }
+
+  #send(socket: WebSocket, frame: WorkspaceSocketServerFrame) {
+    const encoded = encodeWorkspaceSocketFrame(frame)
+    try {
+      socket.send(encoded)
+    } catch {
+      return false
+    }
+    return true
+  }
+
+  #sendError(socket: WebSocket, code: string, message: string, fatal: boolean) {
+    this.#send(socket, { type: "error", code, message, fatal })
+    if (fatal) socket.close(4001, message.slice(0, 120))
+  }
+
+  #broadcastPresence() {
+    const sockets = this.#initializedSockets()
+    const users = workspacePresence(
+      sockets.map((socket) => this.#attachment(socket))
+    )
+    for (const socket of sockets) {
+      this.#send(socket, { type: "presence", users })
+    }
+  }
+
+  async #hello(socket: WebSocket, sessionId: string, cursor: number | null) {
+    const state = this.#database.select().from(appWorkspaceState).get()
+    if (!state?.sessionId) {
+      this.#sendError(
+        socket,
+        "not_initialized",
+        "OpenCode session is not initialized",
+        true
+      )
+      return
+    }
+    if (state.archivedAt !== null) {
+      this.#sendError(
+        socket,
+        "workspace_archived",
+        "Archived Workspaces do not accept live connections",
+        true
+      )
+      return
+    }
+    if (sessionId !== state.sessionId) {
+      this.#sendError(
+        socket,
+        "session_mismatch",
+        "Workspace session does not match",
+        true
+      )
+      return
+    }
+
+    const attachment = this.#attachment(socket)
+    socket.serializeAttachment({
+      ...attachment,
+      sessionId,
+      cursor,
+      synced: false,
+    } satisfies WorkspaceSocketAttachment)
+    this.#socketPendingEvents.set(socket, [])
+    const opencode = await this.#opencode
+    this.#ensureSocketSubscriber(opencode)
+
     const pending = await opencode.permission.request.list({
       location: { directory: "/workspace" },
     })
-
     for (const request of pending.data) {
       if (request.sessionID !== sessionId) continue
-      yield new WorkspaceRuntimeEvent({
-        id: `pending-${request.id}`,
-        created: Date.now(),
-        type: "permission.asked",
-        data: request,
+      this.#send(socket, {
+        type: "event",
+        event: new WorkspaceRuntimeEvent({
+          id: `pending-${request.id}`,
+          created: Date.now(),
+          type: "permission.asked",
+          data: request,
+        }),
       })
     }
 
-    for await (const event of opencode.events.subscribe()) {
-      if (!shouldForwardWorkspaceEvent(event)) continue
-      yield await decodeWorkspaceRuntimeEventPromise(event)
+    let appliedCursor = cursor
+    for await (const item of opencode.sessions.log({
+      sessionID: sessionId,
+      after: cursor ?? undefined,
+      follow: false,
+    })) {
+      if (item.type === "log.synced") {
+        appliedCursor = Math.max(appliedCursor ?? 0, item.seq ?? 0) || null
+        continue
+      }
+      if (!shouldForwardWorkspaceEvent(item)) continue
+      const event = await decodeWorkspaceRuntimeEventPromise(item)
+      if (!workspaceEventFollowsCursor(event, appliedCursor)) continue
+      this.#send(socket, { type: "event", event })
+      appliedCursor = workspaceEventCursor(event) ?? appliedCursor
+    }
+
+    const queued = this.#socketPendingEvents.get(socket) ?? []
+    for (const event of queued) {
+      if (!workspaceEventFollowsCursor(event, appliedCursor)) continue
+      this.#send(socket, { type: "event", event })
+      appliedCursor = workspaceEventCursor(event) ?? appliedCursor
+    }
+    this.#socketPendingEvents.delete(socket)
+    socket.serializeAttachment({
+      ...this.#attachment(socket),
+      cursor: appliedCursor,
+      synced: true,
+    } satisfies WorkspaceSocketAttachment)
+    this.#send(socket, { type: "synced", cursor: appliedCursor })
+    this.#broadcastPresence()
+  }
+
+  #ensureSocketSubscriber(opencode: OpenCodeWorkerd.Interface) {
+    if (this.#socketSubscriber && !this.#socketSubscriberAbort?.signal.aborted)
+      return
+    const abort = new AbortController()
+    this.#socketSubscriberAbort = abort
+    this.#socketSubscriber = this.#consumeSocketEvents(opencode, abort.signal)
+      .catch((error) => {
+        if (!abort.signal.aborted) {
+          console.error("Workspace event subscriber failed", error)
+          for (const socket of this.#initializedSockets()) {
+            this.#sendError(
+              socket,
+              "event_subscriber_failed",
+              "Workspace event delivery stopped",
+              false
+            )
+          }
+        }
+      })
+      .finally(() => {
+        if (this.#socketSubscriberAbort === abort) {
+          this.#socketSubscriber = null
+          this.#socketSubscriberAbort = null
+        }
+      })
+    this.ctx.waitUntil(this.#socketSubscriber)
+  }
+
+  async #consumeSocketEvents(
+    opencode: OpenCodeWorkerd.Interface,
+    signal: AbortSignal
+  ) {
+    for await (const raw of opencode.events.subscribe({ signal })) {
+      if (!shouldForwardWorkspaceEvent(raw)) continue
+      const event = await decodeWorkspaceRuntimeEventPromise(raw)
+      const cursor = workspaceEventCursor(event)
+      if (cursor !== null) {
+        this.#database
+          .update(appWorkspaceState)
+          .set({ eventCursor: cursor })
+          .run()
+      }
+      for (const socket of this.#initializedSockets()) {
+        const attachment = this.#attachment(socket)
+        const eventSessionId = workspaceEventSessionId(event)
+        if (eventSessionId && eventSessionId !== attachment.sessionId) continue
+        if (!attachment.synced) {
+          this.#socketPendingEvents.get(socket)?.push(event)
+          continue
+        }
+        if (!workspaceEventFollowsCursor(event, attachment.cursor)) continue
+        this.#send(socket, { type: "event", event })
+        socket.serializeAttachment({
+          ...attachment,
+          cursor: cursor ?? attachment.cursor,
+        } satisfies WorkspaceSocketAttachment)
+      }
     }
   }
 
@@ -1864,6 +2166,13 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     }
   }
 
+  async #messages(opencode: OpenCodeWorkerd.Interface, sessionId: string) {
+    return listWorkspaceMessages<WorkspaceRuntimeMessageSource>(
+      sessionId,
+      (input) => opencode.message.list(input)
+    )
+  }
+
   async #snapshot(opencode: OpenCodeWorkerd.Interface) {
     const state = this.#database.select().from(appWorkspaceState).get()
     const health = await opencode.health.get()
@@ -1879,6 +2188,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       return new WorkspaceRuntimeHealth({
         workspaceId: state ? WorkspaceId.make(state.workspaceId) : null,
         sessionId: null,
+        eventCursor: state?.eventCursor ?? null,
         status: health.healthy ? "provisioning" : "error",
         model: null,
         files: [],
@@ -1900,11 +2210,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       await Promise.all([
         opencode.sessions.active(),
         opencode.sessions.get({ sessionID: sessionId }),
-        opencode.message.list({
-          sessionID: sessionId,
-          limit: 100,
-          order: "asc",
-        }),
+        this.#messages(opencode, sessionId),
         opencode.sessions.inbox.list({ sessionID: sessionId }),
         opencode.form.list({ sessionID: sessionId }),
         opencode.permission.request.list({
@@ -1936,17 +2242,14 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     return new WorkspaceRuntimeHealth({
       workspaceId: WorkspaceId.make(state.workspaceId),
       sessionId: AgentSessionId.make(sessionId),
-      status: workspaceRuntimeStatus(
-        turnActive,
-        messages.data,
-        session.outcome
-      ),
+      eventCursor: state.eventCursor,
+      status: workspaceRuntimeStatus(turnActive, messages, session.outcome),
       model:
         state.providerId && state.modelId
           ? `${state.providerId}/${state.modelId}`
           : null,
       files,
-      messages: runtimeMessages(messages.data),
+      messages: runtimeMessages(messages),
       queuedMessages: inbox.flatMap((item) =>
         item.type === "user"
           ? [
@@ -1964,9 +2267,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         permissions.data.filter((request) => request.sessionID === sessionId)
       ),
       lastTurnOutcome: session.outcome ?? null,
-      activeTurnStartedAt: turnActive
-        ? activeTurnStartedAt(messages.data)
-        : null,
+      activeTurnStartedAt: turnActive ? activeTurnStartedAt(messages) : null,
       limits,
       automaticRepairsUsed: this.#checks.automaticRepairsUsed(),
       archivedAt: state.archivedAt,

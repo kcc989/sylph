@@ -28,6 +28,7 @@ import {
   WorkspaceTurnCancelInput,
   WorkspaceTurnCancelResult,
   WorkspaceVersionControlSnapshot,
+  WorkspaceDisconnectUserInput,
 } from "@workspace/domain"
 import { Schema } from "effect"
 
@@ -78,13 +79,22 @@ export interface WorkspaceRuntimeStub {
   replyPermission(
     input: typeof WorkspacePermissionReplyInput.Encoded
   ): Promise<void>
+  disconnectUser(
+    input: typeof WorkspaceDisconnectUserInput.Encoded
+  ): Promise<void>
   answerQuestion(
     input: typeof WorkspaceQuestionReplyInput.Encoded
   ): Promise<void>
   discard(): Promise<void>
   evict(): Promise<void>
   snapshot(): Promise<typeof WorkspaceRuntimeHealth.Encoded>
-  fetch(input: string, init?: RequestInit): Promise<Response>
+  fetch(input: Request | string, init?: RequestInit): Promise<Response>
+}
+
+export type WorkspaceSocketActor = {
+  userId: string
+  name: string
+  writable: boolean
 }
 
 export interface WorkspaceRuntime {
@@ -120,14 +130,15 @@ export interface WorkspaceRuntime {
   ): Promise<WorkspaceTurnCancelResult>
   reloadSkills(): Promise<WorkspaceSkillReloadResult>
   replyPermission(input: WorkspacePermissionReplyInput): Promise<void>
+  disconnectUser(input: WorkspaceDisconnectUserInput): Promise<void>
   answerQuestion(input: WorkspaceQuestionReplyInput): Promise<void>
   discard(): Promise<void>
   evict(): Promise<void>
   snapshot(): Promise<WorkspaceRuntimeHealth>
-  events(): Promise<Response>
+  socket(request: Request, actor: WorkspaceSocketActor): Promise<Response>
 }
 
-const eventsUrl = "https://workspace/events"
+const socketUrl = "https://workspace/socket"
 
 const call = async <Value>(operation: () => Promise<Value>) => {
   try {
@@ -187,6 +198,9 @@ const encodePermissionReplyInput = Schema.encodeSync(
   WorkspacePermissionReplyInput
 )
 const encodeQuestionReplyInput = Schema.encodeSync(WorkspaceQuestionReplyInput)
+const encodeDisconnectUserInput = Schema.encodeSync(
+  WorkspaceDisconnectUserInput
+)
 
 export const makeWorkspaceRuntime = (
   stub: WorkspaceRuntimeStub
@@ -265,13 +279,20 @@ export const makeWorkspaceRuntime = (
     call(async () => decodeSkillReloadResult(await stub.reloadSkills())),
   replyPermission: (input) =>
     call(() => stub.replyPermission(encodePermissionReplyInput(input))),
+  disconnectUser: (input) =>
+    call(() => stub.disconnectUser(encodeDisconnectUserInput(input))),
   answerQuestion: (input) =>
     call(() => stub.answerQuestion(encodeQuestionReplyInput(input))),
   discard: () => call(() => stub.discard()),
   evict: () => call(() => stub.evict()),
   snapshot: () => call(async () => decodeRuntimeHealth(await stub.snapshot())),
-  events: () =>
-    call(() =>
-      stub.fetch(eventsUrl, { headers: { accept: "text/event-stream" } })
-    ),
+  socket: (request, actor) => {
+    const headers = new Headers(request.headers)
+    headers.set("x-sylph-user-id", actor.userId)
+    headers.set("x-sylph-user-name", actor.name)
+    headers.set("x-sylph-workspace-writable", actor.writable ? "1" : "0")
+    return call(() =>
+      stub.fetch(new Request(socketUrl, { method: "GET", headers }))
+    )
+  },
 })

@@ -10,8 +10,8 @@ import {
   failureTag,
   isRuntimeNotInitialized,
   resolveSkillInvocation,
+  type WorkspacePresenceUser,
   type WorkspacePermissionReply,
-  WorkspaceRuntimeEvent,
 } from "@workspace/domain"
 import { useServerFn } from "@tanstack/react-start"
 import { Button } from "@workspace/ui/components/button"
@@ -26,8 +26,8 @@ import {
 import { isWorkspaceCommandPending } from "@workspace/ui/lib/workspace-commands"
 import { useCallback, useEffect, useRef, useState } from "react"
 
-import { validateOnboardingSearch } from "@/lib/onboarding"
 import { CommandPalette } from "@/components/command-palette"
+import { validateOnboardingSearch } from "@/lib/onboarding"
 import { getDashboard } from "@/functions/installation"
 import {
   addWorkspaceReviewComment,
@@ -51,17 +51,13 @@ import {
 } from "@/functions/workspaces"
 import { useWorkspaceCommands } from "@/lib/use-workspace-commands"
 import { useWorkspaceCreation } from "@/lib/use-workspace-creation"
-import { Schema } from "effect"
 
 import {
   applyWorkspaceRuntimeEvent,
   emptyWorkspaceLiveState,
   workspaceEventNeedsSnapshot,
 } from "@/lib/workspace-runtime-events"
-
-const decodeWorkspaceRuntimeEventPromise = Schema.decodeUnknownPromise(
-  WorkspaceRuntimeEvent
-)
+import { WorkspaceSocket } from "@/lib/workspace-socket"
 
 export const Route = createFileRoute(
   "/projects/$projectSlug/workspaces/$workspaceId"
@@ -189,6 +185,16 @@ function WorkspaceScreen() {
   const [repairKey, setRepairKey] = useState(() => crypto.randomUUID())
   const [liveState, setLiveState] = useState(emptyWorkspaceLiveState)
   const liveStateRef = useRef(liveState)
+  const [presence, setPresence] = useState<
+    ReadonlyArray<WorkspacePresenceUser>
+  >([])
+  const socketCursor = useRef({
+    workspaceId,
+    cursor: result.runtime.eventCursor,
+  })
+  if (socketCursor.current.workspaceId !== workspaceId) {
+    socketCursor.current = { workspaceId, cursor: result.runtime.eventCursor }
+  }
   const [optimisticEntries, setOptimisticEntries] = useState<ThreadEntry[]>([])
   const [selectedModel, setSelectedModel] = useState(
     result.selectedModel ?? null
@@ -202,41 +208,50 @@ function WorkspaceScreen() {
     liveStateRef.current = emptyWorkspaceLiveState()
     setLiveState(liveStateRef.current)
     setOptimisticEntries([])
-    const source = new EventSource(
-      `/api/workspaces/${encodeURIComponent(workspaceId)}`
-    )
-    const checkTimer = window.setInterval(() => void router.invalidate(), 3_000)
+    setPresence([])
+    if (!result.runtime.sessionId) return
     let refreshTimer: number | null = null
-    let eventQueue = Promise.resolve()
 
     const refresh = () => {
       if (refreshTimer !== null) window.clearTimeout(refreshTimer)
       refreshTimer = window.setTimeout(() => void router.invalidate(), 80)
     }
 
-    source.onopen = refresh
-    source.onmessage = (message) => {
-      eventQueue = eventQueue
-        .then(async () => {
-          const event = await decodeWorkspaceRuntimeEventPromise(
-            JSON.parse(message.data)
-          )
-          liveStateRef.current = await applyWorkspaceRuntimeEvent(
-            liveStateRef.current,
-            event
-          )
-          setLiveState(liveStateRef.current)
-          if (workspaceEventNeedsSnapshot(event)) refresh()
-        })
-        .catch(() => undefined)
-    }
+    const socket = new WorkspaceSocket({
+      workspaceId,
+      sessionId: result.runtime.sessionId,
+      cursor: socketCursor.current.cursor,
+      onConnecting: () => {
+        liveStateRef.current = emptyWorkspaceLiveState()
+        setLiveState(liveStateRef.current)
+      },
+      onEvent: async (event) => {
+        liveStateRef.current = await applyWorkspaceRuntimeEvent(
+          liveStateRef.current,
+          event
+        )
+        setLiveState(liveStateRef.current)
+        if (workspaceEventNeedsSnapshot(event)) refresh()
+      },
+      onSynced: () => {
+        setOptimisticEntries([])
+        refresh()
+      },
+      onPresence: setPresence,
+    })
+    const pause = () => socket.pause()
+    const resume = () => socket.resume()
+    window.addEventListener("pagehide", pause)
+    window.addEventListener("pageshow", resume)
+    socket.connect()
 
     return () => {
       if (refreshTimer !== null) window.clearTimeout(refreshTimer)
-      window.clearInterval(checkTimer)
-      source.close()
+      window.removeEventListener("pagehide", pause)
+      window.removeEventListener("pageshow", resume)
+      socket.close()
     }
-  }, [router, workspaceId])
+  }, [result.runtime.sessionId, router, workspaceId])
 
   useEffect(() => {
     const workspaceChanged = modelSelectionWorkspaceId.current !== workspaceId
@@ -535,6 +550,7 @@ function WorkspaceScreen() {
           checks={checkItems}
           entries={entries}
           permissionRequests={permissionRequests}
+          presence={presence}
           questions={runtime.questions}
           queuedMessages={runtime.queuedMessages}
           runtimeLimits={runtime.limits}

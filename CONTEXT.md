@@ -118,5 +118,11 @@ A durable User message delivered to the agent during the active Turn to change i
 **Agent question**:
 A durable request for structured User input during a Turn. It remains answerable after the User leaves or reloads the Workspace.
 
+**Presence**:
+The current Users connected to one Workspace. Presence counts browser tabs from Durable Object WebSocket attachments and does not use client heartbeat messages.
+
+**Terminal**:
+A shell connected to a Cloudflare CI sandbox. A Terminal is not part of the OpenCode Workerd host and uses a separate sandbox WebSocket for input and output.
+
 **Conversation model selection**:
 The model used for the next agent turn in one Conversation. It overrides User and Organization preferences without changing them or rewriting earlier turns.

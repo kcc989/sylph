@@ -467,12 +467,14 @@ export const restartWorkspace = createServerFn({ method: "POST" })
       })
       .where(eq(schema.workspace.id, workspace.id))
 
-    const runtime = workspaceRuntime(workspace.id)
     try {
-      await restartDurableWorkspace({
-        evict: () => runtime.evict(),
-        initialize: () =>
-          runtime.initialize(runtimeInput).then(() => undefined),
+      await restartDurableWorkspace(() => {
+        const runtime = workspaceRuntime(workspace.id)
+        return {
+          evict: () => runtime.evict(),
+          initialize: () =>
+            runtime.initialize(runtimeInput).then(() => undefined),
+        }
       })
     } catch (cause) {
       const summary = failureMessage(cause, "Workspace runtime failed")

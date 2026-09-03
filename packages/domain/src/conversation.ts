@@ -120,8 +120,134 @@ export class WorkspaceRuntimeEvent extends Schema.Class<WorkspaceRuntimeEvent>(
   type: Schema.NonEmptyString,
   data: Schema.Unknown,
   metadata: Schema.optional(Schema.Unknown),
-  durable: Schema.optional(Schema.Unknown),
+  durable: Schema.optional(
+    Schema.Struct({
+      aggregateID: Schema.optional(Schema.String),
+      seq: Schema.Int,
+      version: Schema.optional(Schema.Int),
+    })
+  ),
   location: Schema.optional(Schema.Unknown),
+}) {}
+
+export class WorkspaceSocketHello extends Schema.Class<WorkspaceSocketHello>(
+  "@sylph/domain/WorkspaceSocketHello"
+)({
+  type: Schema.Literals(["hello"]),
+  sessionId: AgentSessionId,
+  cursor: Schema.NullOr(Schema.Int),
+}) {}
+
+export class WorkspaceTerminalOpen extends Schema.Class<WorkspaceTerminalOpen>(
+  "@sylph/domain/WorkspaceTerminalOpen"
+)({
+  type: Schema.Literals(["terminal.open"]),
+  terminalId: Schema.NonEmptyString,
+  cols: Schema.Int,
+  rows: Schema.Int,
+}) {}
+
+export class WorkspaceTerminalInput extends Schema.Class<WorkspaceTerminalInput>(
+  "@sylph/domain/WorkspaceTerminalInput"
+)({
+  type: Schema.Literals(["terminal.input"]),
+  terminalId: Schema.NonEmptyString,
+  data: Schema.String,
+}) {}
+
+export class WorkspaceTerminalResize extends Schema.Class<WorkspaceTerminalResize>(
+  "@sylph/domain/WorkspaceTerminalResize"
+)({
+  type: Schema.Literals(["terminal.resize"]),
+  terminalId: Schema.NonEmptyString,
+  cols: Schema.Int,
+  rows: Schema.Int,
+}) {}
+
+export class WorkspaceTerminalClose extends Schema.Class<WorkspaceTerminalClose>(
+  "@sylph/domain/WorkspaceTerminalClose"
+)({
+  type: Schema.Literals(["terminal.close"]),
+  terminalId: Schema.NonEmptyString,
+}) {}
+
+export const WorkspaceSocketClientFrame = Schema.Union([
+  WorkspaceSocketHello,
+  WorkspaceTerminalOpen,
+  WorkspaceTerminalInput,
+  WorkspaceTerminalResize,
+  WorkspaceTerminalClose,
+])
+export type WorkspaceSocketClientFrame = typeof WorkspaceSocketClientFrame.Type
+
+export class WorkspaceSocketEvent extends Schema.Class<WorkspaceSocketEvent>(
+  "@sylph/domain/WorkspaceSocketEvent"
+)({
+  type: Schema.Literals(["event"]),
+  event: WorkspaceRuntimeEvent,
+}) {}
+
+export class WorkspaceSocketSynced extends Schema.Class<WorkspaceSocketSynced>(
+  "@sylph/domain/WorkspaceSocketSynced"
+)({
+  type: Schema.Literals(["synced"]),
+  cursor: Schema.NullOr(Schema.Int),
+}) {}
+
+export class WorkspacePresenceUser extends Schema.Class<WorkspacePresenceUser>(
+  "@sylph/domain/WorkspacePresenceUser"
+)({
+  userId: Schema.NonEmptyString,
+  name: Schema.NonEmptyString,
+  connections: Schema.Int,
+}) {}
+
+export class WorkspaceSocketPresence extends Schema.Class<WorkspaceSocketPresence>(
+  "@sylph/domain/WorkspaceSocketPresence"
+)({
+  type: Schema.Literals(["presence"]),
+  users: Schema.Array(WorkspacePresenceUser),
+}) {}
+
+export class WorkspaceTerminalOutput extends Schema.Class<WorkspaceTerminalOutput>(
+  "@sylph/domain/WorkspaceTerminalOutput"
+)({
+  type: Schema.Literals(["terminal.output"]),
+  terminalId: Schema.NonEmptyString,
+  data: Schema.String,
+}) {}
+
+export class WorkspaceTerminalExited extends Schema.Class<WorkspaceTerminalExited>(
+  "@sylph/domain/WorkspaceTerminalExited"
+)({
+  type: Schema.Literals(["terminal.exited"]),
+  terminalId: Schema.NonEmptyString,
+  exitCode: Schema.NullOr(Schema.Int),
+}) {}
+
+export class WorkspaceSocketError extends Schema.Class<WorkspaceSocketError>(
+  "@sylph/domain/WorkspaceSocketError"
+)({
+  type: Schema.Literals(["error"]),
+  code: Schema.NonEmptyString,
+  message: Schema.NonEmptyString,
+  fatal: Schema.Boolean,
+}) {}
+
+export const WorkspaceSocketServerFrame = Schema.Union([
+  WorkspaceSocketEvent,
+  WorkspaceSocketSynced,
+  WorkspaceSocketPresence,
+  WorkspaceTerminalOutput,
+  WorkspaceTerminalExited,
+  WorkspaceSocketError,
+])
+export type WorkspaceSocketServerFrame = typeof WorkspaceSocketServerFrame.Type
+
+export class WorkspaceDisconnectUserInput extends Schema.Class<WorkspaceDisconnectUserInput>(
+  "@sylph/domain/WorkspaceDisconnectUserInput"
+)({
+  userId: Schema.NonEmptyString,
 }) {}
 
 export class WorkspacePermissionAskedEventData extends Schema.Class<WorkspacePermissionAskedEventData>(
@@ -213,6 +339,7 @@ export class WorkspaceRuntimeHealth extends Schema.Class<WorkspaceRuntimeHealth>
 )({
   workspaceId: Schema.NullOr(WorkspaceId),
   sessionId: Schema.NullOr(AgentSessionId),
+  eventCursor: Schema.NullOr(Schema.Int),
   status: WorkspaceRuntimeStatus,
   model: Schema.NullOr(Schema.NonEmptyString),
   files: Schema.Array(Schema.NonEmptyString),

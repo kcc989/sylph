@@ -38,6 +38,7 @@ const stub = (
   cancelTurn: unreachable,
   reloadSkills: unreachable,
   replyPermission: unreachable,
+  disconnectUser: unreachable,
   answerQuestion: unreachable,
   discard: unreachable,
   evict: unreachable,
@@ -149,19 +150,28 @@ describe("Workspace runtime client", () => {
     expect(failure).toBeInstanceOf(WorkspaceRuntimeFailure)
   })
 
-  test("streams events through the stub's fetch surface", async () => {
+  test("forwards an authenticated socket upgrade through the stub", async () => {
     const requests: string[] = []
     const runtime = makeWorkspaceRuntime(
       stub({
         fetch: async (input, init) => {
-          requests.push(`${input} ${new Headers(init?.headers).get("accept")}`)
-          return new Response("data: hello\n\n")
+          const request =
+            input instanceof Request ? input : new Request(input, init)
+          requests.push(
+            `${request.url} ${request.headers.get("upgrade")} ${request.headers.get("x-sylph-user-id")}`
+          )
+          return new Response(null, { status: 204 })
         },
       })
     )
 
-    const response = await runtime.events()
-    expect(await response.text()).toBe("data: hello\n\n")
-    expect(requests).toEqual(["https://workspace/events text/event-stream"])
+    const response = await runtime.socket(
+      new Request("https://sylph.test/socket", {
+        headers: { upgrade: "websocket" },
+      }),
+      { userId: "user-1", name: "Ada", writable: true }
+    )
+    expect(response.status).toBe(204)
+    expect(requests).toEqual(["https://workspace/socket websocket user-1"])
   })
 })
