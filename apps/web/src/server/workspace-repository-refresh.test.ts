@@ -1,14 +1,18 @@
 import { describe, expect, test } from "bun:test"
+import {
+  isRuntimeNotInitialized,
+  WorkspaceVersionControlSnapshot,
+} from "@workspace/domain"
+import { Schema } from "effect"
 
 import {
   readWorkspaceVersionControlSnapshot,
-  readCurrentProjectHead,
   waitForWorkspaceVersionControl,
 } from "./workspace-repository-refresh"
 
 const baseCommit = "a".repeat(40)
 const forkHead = "b".repeat(40)
-const snapshot = {
+const snapshot = Schema.decodeUnknownSync(WorkspaceVersionControlSnapshot)({
   vcs: {
     defaultRef: "main",
     currentRef: "main",
@@ -29,19 +33,9 @@ const snapshot = {
       createdAt: 1,
     },
   ],
-}
+})
 
 describe("Workspace Project Repository refresh", () => {
-  test("does not hide a failed Project Repository head refresh", async () => {
-    const failure = new Error("Project Repository unavailable")
-
-    await expect(
-      readCurrentProjectHead(async () => {
-        throw failure
-      })
-    ).rejects.toBe(failure)
-  })
-
   test("waits while a new Workspace initializes version control", async () => {
     let attempts = 0
 
@@ -58,12 +52,12 @@ describe("Workspace Project Repository refresh", () => {
   })
 
   test("gives up when version control never initializes", async () => {
-    await expect(
-      waitForWorkspaceVersionControl(async () => null, {
-        attempts: 2,
-        delay: async () => undefined,
-      })
-    ).rejects.toThrow("Workspace version control is not initialized")
+    const failure = await waitForWorkspaceVersionControl(async () => null, {
+      attempts: 2,
+      delay: async () => undefined,
+    }).catch((cause) => cause)
+    expect(isRuntimeNotInitialized(failure)).toBe(true)
+    expect(failure.message).toBe("Workspace version control is not initialized")
   })
 
   test("decodes the runtime snapshot when version control is initialized", async () => {

@@ -7,8 +7,13 @@ import {
   encodeServerFailure,
   failureMessage,
   failureTag,
+  isRuntimeNotInitialized,
   isServerFailure,
+  parseServerFailure,
+  runtimeFailure,
+  serializeServerFailure,
   WorkspaceReadOnly,
+  WorkspaceRuntimeFailure,
 } from "./errors"
 
 describe("Server failures", () => {
@@ -36,6 +41,44 @@ describe("Server failures", () => {
     expect(isServerFailure(new Error("x"))).toBe(false)
     expect(isServerFailure({ _tag: "AccessDenied", message: "x" })).toBe(false)
     expect(failureTag(new Error("x"))).toBeNull()
+  })
+
+  test("crosses a message-only hop inside a failure envelope", () => {
+    const readOnly = new WorkspaceReadOnly({
+      message: "Archived Workspaces are read-only",
+      status: "archived",
+    })
+    const arrived = new Error(serializeServerFailure(readOnly))
+
+    const parsed = parseServerFailure(arrived.message)
+    expect(parsed).toBeInstanceOf(WorkspaceReadOnly)
+    expect(parsed?.message).toBe(readOnly.message)
+    expect(parseServerFailure("plain text")).toBeNull()
+    expect(parseServerFailure("@sylph/failure:{not json")).toBeNull()
+
+    expect(runtimeFailure(arrived)).toBeInstanceOf(WorkspaceReadOnly)
+    expect(runtimeFailure(readOnly)).toBe(readOnly)
+    const wrapped = runtimeFailure(new Error("socket closed"))
+    expect(wrapped).toBeInstanceOf(WorkspaceRuntimeFailure)
+    expect(wrapped.message).toBe("socket closed")
+    expect(runtimeFailure("string").message).toBe("Workspace runtime failed")
+  })
+
+  test("recognizes a runtime that has not initialized yet", () => {
+    const notInitialized = new WorkspaceRuntimeFailure({
+      message: "Workspace version control is not initialized",
+      reason: "not_initialized",
+    })
+    expect(isRuntimeNotInitialized(notInitialized)).toBe(true)
+    expect(
+      isRuntimeNotInitialized(
+        runtimeFailure(new Error(serializeServerFailure(notInitialized)))
+      )
+    ).toBe(true)
+    expect(
+      isRuntimeNotInitialized(new WorkspaceRuntimeFailure({ message: "x" }))
+    ).toBe(false)
+    expect(isRuntimeNotInitialized(new Error("x"))).toBe(false)
   })
 
   test("describes any failure with a fallback for unknown causes", () => {

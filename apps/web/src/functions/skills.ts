@@ -2,11 +2,11 @@ import { createServerFn } from "@tanstack/react-start"
 import { schema } from "@workspace/db"
 import {
   AccessDenied,
-  decodeSkillCatalogRequestPromise,
-  decodeSkillDetailRequestPromise,
-  decodeSkillInstallInputPromise,
   InvalidRequest,
   PreconditionFailed,
+  SkillCatalogRequest,
+  SkillDetailRequest,
+  SkillInstallInput,
 } from "@workspace/domain"
 import { waitUntil } from "cloudflare:workers"
 import { and, eq } from "drizzle-orm"
@@ -17,7 +17,15 @@ import {
   type Database,
 } from "@/server/organization-access"
 import { browseSkills, reviewSkill } from "@/server/skills-sh"
-import { runtimeCall, workspaceRuntime } from "@/server/workspace-runtime"
+import { workspaceRuntime } from "@/server/workspace-runtime"
+import { Schema } from "effect"
+
+const decodeSkillCatalogRequestPromise =
+  Schema.decodeUnknownPromise(SkillCatalogRequest)
+const decodeSkillDetailRequestPromise =
+  Schema.decodeUnknownPromise(SkillDetailRequest)
+const decodeSkillInstallInputPromise =
+  Schema.decodeUnknownPromise(SkillInstallInput)
 
 const accessibleInstallations = (database: Database, userId: string) =>
   database
@@ -45,7 +53,7 @@ const accessibleInstallations = (database: Database, userId: string) =>
 const reloadWorkspaceSkills = (workspaceIds: ReadonlyArray<string>) =>
   Promise.all(
     workspaceIds.map((workspaceId) =>
-      runtimeCall(() => workspaceRuntime(workspaceId).reloadSkills())
+      workspaceRuntime(workspaceId).reloadSkills()
     )
   )
 

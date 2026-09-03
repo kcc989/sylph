@@ -1,8 +1,9 @@
-import {
-  decodeGitHubApiRepositoryJson,
-  GitHubRepositoryInfo,
-} from "@workspace/domain"
+import { GitHubRepositoryInfo, GitHubApiRepository } from "@workspace/domain"
 import { Context, Effect, Layer, Schema } from "effect"
+
+const decodeGitHubApiRepositoryJson = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(GitHubApiRepository)
+)
 
 export class GitHubRepositoryError extends Schema.TaggedError<GitHubRepositoryError>()(
   "GitHubRepositoryError",

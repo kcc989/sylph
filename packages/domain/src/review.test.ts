@@ -1,9 +1,18 @@
 import { describe, expect, test } from "bun:test"
 
+import { Schema } from "effect"
+
 import {
-  decodeWorkspaceReviewCommentInputPromise,
-  decodeWorkspaceReviewDecisionInputPromise,
+  WorkspaceReviewCommentInput,
+  WorkspaceReviewDecisionInput,
 } from "./review"
+
+const decodeWorkspaceReviewCommentInputPromise = Schema.decodeUnknownPromise(
+  WorkspaceReviewCommentInput
+)
+const decodeWorkspaceReviewDecisionInputPromise = Schema.decodeUnknownPromise(
+  WorkspaceReviewDecisionInput
+)
 
 const commit = "a".repeat(40)
 

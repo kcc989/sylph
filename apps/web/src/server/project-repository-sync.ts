@@ -1,14 +1,10 @@
 import { schema } from "@workspace/db"
 import {
-  decodePrepareProjectRepositoryResultPromise,
-  decodeSyncProjectRepositoryResultPromise,
-  encodePrepareProjectRepositoryInputSync,
-  encodeSyncProjectRepositoryInputSync,
-  PrepareProjectRepositoryInput,
   SyncProjectRepositoryInput,
+  SyncProjectRepositoryResult,
 } from "@workspace/domain"
 import { env } from "cloudflare:workers"
-import { Effect } from "effect"
+import { Effect, Schema } from "effect"
 import { and, eq } from "drizzle-orm"
 
 import {
@@ -16,7 +12,11 @@ import {
   GitHubRepositoryService,
 } from "@/server/github-repository-service"
 import type { Database } from "@/server/organization-access"
-import { runtimeCall, workspaceRuntime } from "@/server/workspace-runtime"
+import { workspaceRuntime } from "@/server/workspace-runtime"
+
+const decodeSyncProjectRepositoryResultPromise = Schema.decodeUnknownPromise(
+  SyncProjectRepositoryResult
+)
 
 export const githubUserAccessToken = async (
   database: Database,
@@ -79,18 +79,6 @@ export const githubUserAccessToken = async (
   return refreshed.accessToken
 }
 
-export const prepareProjectRepository = async (
-  workspaceId: string,
-  input: PrepareProjectRepositoryInput
-) =>
-  decodePrepareProjectRepositoryResultPromise(
-    await runtimeCall(() =>
-      workspaceRuntime(workspaceId).prepareProject(
-        encodePrepareProjectRepositoryInputSync(input)
-      )
-    )
-  )
-
 export const synchronizeProjectRepository = async (
   database: Database,
   userId: string,
@@ -113,11 +101,9 @@ export const synchronizeProjectRepository = async (
     sourceRef: project.sourceRef ?? project.defaultRef,
     sourceAccessToken: accessToken,
   })
-  const synchronized = await runtimeCall(() =>
-    workspaceRuntime(`repository-sync-${project.id}`).synchronizeProject(
-      encodeSyncProjectRepositoryInputSync(input)
-    )
-  ).catch(() => null)
+  const synchronized = await workspaceRuntime(`repository-sync-${project.id}`)
+    .synchronizeProject(input)
+    .catch(() => null)
   if (!synchronized) {
     await database
       .update(schema.project)

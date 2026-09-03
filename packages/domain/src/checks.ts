@@ -1,5 +1,7 @@
 import { Schema } from "effect"
 
+import { toolJsonSchema } from "./json-schema"
+
 import { ProjectId, WorkspaceId } from "./ids"
 import { WorkspaceReviewDecision } from "./review"
 import { GitCommitId, WorkspaceFileChange } from "./version-control"
@@ -332,10 +334,11 @@ export class WorkspaceArchiveInput extends Schema.Class<WorkspaceArchiveInput>(
   workspaceId: WorkspaceId,
 }) {}
 
-const toolJsonSchema = (schema: Schema.Constraint) => {
-  const document = Schema.toJsonSchemaDocument(schema)
-  return { ...document.schema, $defs: document.definitions }
-}
+export class WorkspaceArchiveResult extends Schema.Class<WorkspaceArchiveResult>(
+  "@sylph/domain/WorkspaceArchiveResult"
+)({
+  archivedAt: Schema.NullOr(Schema.Number),
+}) {}
 
 export const WorkspaceRunChecksToolJsonSchema = toolJsonSchema(
   WorkspaceRunChecksToolInput
@@ -364,62 +367,6 @@ export const WorkspaceProductionToolJsonSchema = toolJsonSchema(
 export const WorkspaceBrowserToolJsonSchema = toolJsonSchema(
   WorkspaceBrowserToolInput
 )
-export const decodeWorkspaceRunChecksToolInput = Schema.decodeUnknownPromise(
-  WorkspaceRunChecksToolInput
-)
-export const decodeWorkspaceCheckStatusToolInput = Schema.decodeUnknownPromise(
-  WorkspaceCheckStatusToolInput
-)
-export const decodeWorkspaceSyncToolInput = Schema.decodeUnknownPromise(
-  WorkspaceSyncToolInput
-)
-export const decodeWorkspaceCheckpointToolInput = Schema.decodeUnknownPromise(
-  WorkspaceCheckpointToolInput
-)
-export const decodeWorkspaceDiffToolInput = Schema.decodeUnknownPromise(
-  WorkspaceDiffToolInput
-)
-export const decodeWorkspaceMergeToolInput = Schema.decodeUnknownPromise(
-  WorkspaceMergeToolInput
-)
-export const decodeWorkspacePreviewToolInput = Schema.decodeUnknownPromise(
-  WorkspacePreviewToolInput
-)
-export const decodeWorkspaceProductionToolInput = Schema.decodeUnknownPromise(
-  WorkspaceProductionToolInput
-)
-export const decodeWorkspaceBrowserToolInput = Schema.decodeUnknownPromise(
-  WorkspaceBrowserToolInput
-)
-export const decodeWorkspaceArchiveInputPromise = Schema.decodeUnknownPromise(
-  WorkspaceArchiveInput
-)
-export const decodeCiRunSummary = Schema.decodeUnknownSync(CiRunSummary)
-export const encodeCiRunSummary = Schema.encodeSync(CiRunSummary)
-export const decodeCiRunRecordList =
-  Schema.decodeUnknownPromise(CiRunRecordList)
-export const encodeCiRunRecordList = Schema.encodePromise(CiRunRecordList)
-
-export const decodeWorkspaceCheckRun =
-  Schema.decodeUnknownSync(WorkspaceCheckRun)
-export const decodeWorkspaceCheckRunList = Schema.decodeUnknownPromise(
-  WorkspaceCheckRunList
-)
-export const encodeWorkspaceCheckRunList = Schema.encodePromise(
-  WorkspaceCheckRunList
-)
-export const decodeWorkspaceCheckUpdatePromise =
-  Schema.decodeUnknownPromise(WorkspaceCheckUpdate)
-export const decodeWorkspaceCiInput = Schema.decodeUnknownSync(WorkspaceCiInput)
-export const decodeWorkspaceProductionCheckInputPromise =
-  Schema.decodeUnknownPromise(WorkspaceProductionCheckInput)
-export const decodeWorkspaceRetryCheckInputPromise =
-  Schema.decodeUnknownPromise(WorkspaceRetryCheckInput)
-export const decodeWorkspaceRepairCheckInputPromise =
-  Schema.decodeUnknownPromise(WorkspaceRepairCheckInput)
-export const decodeWorkspaceSyncInputPromise =
-  Schema.decodeUnknownPromise(WorkspaceSyncInput)
-
 export class WorkspaceCheckUpdateResult extends Schema.Class<WorkspaceCheckUpdateResult>(
   "@sylph/domain/WorkspaceCheckUpdateResult"
 )({
@@ -431,23 +378,3 @@ export class WorkspaceRepairResult extends Schema.Class<WorkspaceRepairResult>(
 )({
   started: Schema.Boolean,
 }) {}
-
-export const decodeWorkspaceRepairResultPromise = Schema.decodeUnknownPromise(
-  WorkspaceRepairResult
-)
-export const decodeWorkspaceSyncResultPromise =
-  Schema.decodeUnknownPromise(WorkspaceSyncResult)
-export const encodeWorkspaceCheckRunSync = Schema.encodeSync(WorkspaceCheckRun)
-export const encodeWorkspaceCheckRunListSync = Schema.encodeSync(
-  WorkspaceCheckRunList
-)
-export const encodeWorkspaceSyncResultSync =
-  Schema.encodeSync(WorkspaceSyncResult)
-export const encodeWorkspaceCheckUpdateSync =
-  Schema.encodeSync(WorkspaceCheckUpdate)
-export const encodeWorkspaceRetryCheckInputSync = Schema.encodeSync(
-  WorkspaceRetryCheckInput
-)
-export const encodeWorkspaceRepairCheckInputSync = Schema.encodeSync(
-  WorkspaceRepairCheckInput
-)

@@ -60,6 +60,15 @@ import {
 import { Button } from "@workspace/ui/components/button"
 import { ModelCombobox as SharedModelCombobox } from "@workspace/ui/components/model-combobox"
 import {
+  isWorkspaceCommandPending,
+  pendingWorkspaceCommandTarget,
+  workspaceCommandErrorExcept,
+  workspaceCommandErrorMessage,
+  type WorkspaceCommandError,
+  type WorkspaceCommandName,
+  type WorkspacePendingCommand,
+} from "@workspace/ui/lib/workspace-commands"
+import {
   CodeReview,
   type CodeReviewAnnotation,
   type CodeReviewSelection,
@@ -302,8 +311,6 @@ type WorkspaceShellProps = {
   review?: WorkspaceReview
   reviewPatch?: string
   currentReviewer?: WorkspaceReviewActor
-  reviewPending?: boolean
-  reviewError?: string | null
   previewContent?: ReactNode
   agentControllingBrowser?: boolean
   demo?: boolean
@@ -314,8 +321,8 @@ type WorkspaceShellProps = {
   modelNotice?: string | null
   initialPrompt?: string
   promptDisabled?: boolean
-  promptError?: string | null
-  promptPending?: boolean
+  pending?: ReadonlyArray<WorkspacePendingCommand>
+  commandError?: WorkspaceCommandError | null
   permissionRequests?: ReadonlyArray<WorkspacePermissionRequest>
   questions?: ReadonlyArray<WorkspaceQuestion>
   queuedMessages?: ReadonlyArray<WorkspaceQueuedMessage>
@@ -323,15 +330,6 @@ type WorkspaceShellProps = {
   turnActive?: boolean
   turnInterrupted?: boolean
   activeTurnStartedAt?: number | null
-  answeringQuestionId?: string | null
-  replyingPermissionId?: string | null
-  checkpointPending?: boolean
-  acceptPending?: boolean
-  restartPending?: boolean
-  cancelTurnPending?: boolean
-  archivePending?: boolean
-  discardPending?: boolean
-  rebasePending?: boolean
   onAccept?: () => Promise<void>
   onAddReviewComment?: (
     comment: WorkspaceReviewCommentDraft
@@ -829,6 +827,7 @@ function WorkspaceTopbar({
           <Terminal /> <span className="hidden lg:inline">Terminal</span>
         </Button>
         <Button
+          aria-label="Checkpoint"
           size="sm"
           variant="outline"
           disabled={checkpointDisabled || checkpointPending}
@@ -842,6 +841,7 @@ function WorkspaceTopbar({
           <span className="hidden xl:inline">Checkpoint</span>
         </Button>
         <Button
+          aria-label="Accept"
           size="sm"
           disabled={acceptDisabled || acceptPending}
           onClick={() => void onAccept?.()}
@@ -2851,8 +2851,6 @@ function WorkspaceShell({
   review,
   reviewPatch,
   currentReviewer,
-  reviewPending = false,
-  reviewError,
   previewContent,
   agentControllingBrowser = false,
   demo = false,
@@ -2865,8 +2863,8 @@ function WorkspaceShell({
   initialPrompt,
   onSubmitPrompt,
   promptDisabled = false,
-  promptError,
-  promptPending = false,
+  pending = [],
+  commandError,
   permissionRequests = [],
   questions = [],
   queuedMessages = [],
@@ -2874,15 +2872,6 @@ function WorkspaceShell({
   turnActive = false,
   turnInterrupted = false,
   activeTurnStartedAt,
-  answeringQuestionId,
-  replyingPermissionId,
-  checkpointPending = false,
-  acceptPending = false,
-  restartPending = false,
-  cancelTurnPending = false,
-  archivePending = false,
-  discardPending = false,
-  rebasePending = false,
   onCheckpoint,
   onAccept,
   onAddReviewComment,
@@ -2897,6 +2886,27 @@ function WorkspaceShell({
   onSubmitReview,
   workspaceError,
 }: WorkspaceShellProps) {
+  const isPending = (command: WorkspaceCommandName) =>
+    isWorkspaceCommandPending(pending, command)
+  const checkpointPending = isPending("checkpoint")
+  const acceptPending = isPending("accept")
+  const restartPending = isPending("restart")
+  const cancelTurnPending = isPending("cancelTurn")
+  const archivePending = isPending("archive")
+  const discardPending = isPending("discard")
+  const rebasePending = isPending("rebase")
+  const promptPending = isPending("prompt")
+  const reviewPending = isPending("review")
+  const answeringQuestionId = pendingWorkspaceCommandTarget(
+    pending,
+    "answerQuestion"
+  )
+  const replyingPermissionId = pendingWorkspaceCommandTarget(
+    pending,
+    "permissionReply"
+  )
+  const reviewError = workspaceCommandErrorMessage(commandError, "review")
+  const promptError = workspaceCommandErrorExcept(commandError, "review")
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false)
   const [projectRailCollapsed, setProjectRailCollapsed] = useState(false)
   const [tabs, setTabs] = useState<WorkspaceTab[]>(initialWorkspaceTabs)

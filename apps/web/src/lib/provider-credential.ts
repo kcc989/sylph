@@ -1,8 +1,12 @@
+import { Schema } from "effect"
+
 import {
-  decodeOpenCodeCredentialPromise,
-  type OpenCodeCredential,
+  OpenCodeCredential,
   type OpenCodeKeyConfiguration,
 } from "@workspace/domain"
+
+const decodeOpenCodeCredentialPromise =
+  Schema.decodeUnknownPromise(OpenCodeCredential)
 
 export const encodeKeyCredential = (
   key: string,

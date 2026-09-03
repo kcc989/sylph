@@ -1,28 +1,76 @@
 import { describe, expect, test } from "bun:test"
-import { Effect, Exit } from "effect"
+import { Effect, Exit, Schema } from "effect"
 
 import { OrganizationId, ProjectId, WorkspaceId } from "./ids"
+import { CreateProjectInput } from "./project"
 import {
-  decodeCreateProjectInput,
-  decodeCreateWorkspaceInputPromise,
-  decodeInitializeWorkspaceRuntime,
-  decodeInstallationClaimInputPromise,
-  decodeOpenCodeKeySetupInputPromise,
-  decodeOpenCodeSubscriptionStartInputPromise,
-  decodeOpenCodeSubscriptionStatusInputPromise,
-  decodeRestartWorkspaceInputPromise,
-  decodeSetDefaultModelInputPromise,
-  decodeDisconnectOpenCodeConnectionInputPromise,
-  decodeWorkspaceSummary,
-  decodeWorkspacePermissionReplyInputPromise,
-  decodeWorkspaceRuntimeEventPromise,
-  decodeWorkspaceRuntimeHealth,
-  decodeWorkspaceWriteFile,
+  CreateWorkspaceInput,
+  RestartWorkspaceInput,
+  WorkspaceSummary,
 } from "./workspace"
 import {
-  decodeWorkspaceCheckpointInputPromise,
-  decodeWorkspaceVersionControl,
+  DisconnectOpenCodeConnectionInput,
+  OpenCodeKeySetupInput,
+  OpenCodeSubscriptionStartInput,
+  OpenCodeSubscriptionStatusInput,
+  SetDefaultModelInput,
+} from "./provider-connection"
+import {
+  InitializeWorkspaceRuntime,
+  WorkspacePermissionReplyInput,
+  WorkspaceRuntimeEvent,
+  WorkspaceRuntimeHealth,
+} from "./conversation"
+import { InstallationClaimInput } from "./installation"
+import { WorkspaceWriteFileInput } from "./workspace-files"
+import {
+  WorkspaceCheckpointInput,
+  WorkspaceVersionControl,
 } from "./version-control"
+
+const decodeCreateProjectInput = Schema.decodeUnknownEffect(CreateProjectInput)
+const decodeCreateWorkspaceInputPromise =
+  Schema.decodeUnknownPromise(CreateWorkspaceInput)
+const decodeDisconnectOpenCodeConnectionInputPromise =
+  Schema.decodeUnknownPromise(DisconnectOpenCodeConnectionInput)
+const decodeInitializeWorkspaceRuntime = Schema.decodeUnknownPromise(
+  InitializeWorkspaceRuntime
+)
+const decodeInstallationClaimInputPromise = Schema.decodeUnknownPromise(
+  InstallationClaimInput
+)
+const decodeOpenCodeKeySetupInputPromise = Schema.decodeUnknownPromise(
+  OpenCodeKeySetupInput
+)
+const decodeOpenCodeSubscriptionStartInputPromise = Schema.decodeUnknownPromise(
+  OpenCodeSubscriptionStartInput
+)
+const decodeOpenCodeSubscriptionStatusInputPromise =
+  Schema.decodeUnknownPromise(OpenCodeSubscriptionStatusInput)
+const decodeRestartWorkspaceInputPromise = Schema.decodeUnknownPromise(
+  RestartWorkspaceInput
+)
+const decodeSetDefaultModelInputPromise =
+  Schema.decodeUnknownPromise(SetDefaultModelInput)
+const decodeWorkspaceCheckpointInputPromise = Schema.decodeUnknownPromise(
+  WorkspaceCheckpointInput
+)
+const decodeWorkspacePermissionReplyInputPromise = Schema.decodeUnknownPromise(
+  WorkspacePermissionReplyInput
+)
+const decodeWorkspaceRuntimeEventPromise = Schema.decodeUnknownPromise(
+  WorkspaceRuntimeEvent
+)
+const decodeWorkspaceRuntimeHealth = Schema.decodeUnknownPromise(
+  WorkspaceRuntimeHealth
+)
+const decodeWorkspaceSummary = Schema.decodeUnknownEffect(WorkspaceSummary)
+const decodeWorkspaceVersionControl = Schema.decodeUnknownPromise(
+  WorkspaceVersionControl
+)
+const decodeWorkspaceWriteFile = Schema.decodeUnknownPromise(
+  WorkspaceWriteFileInput
+)
 
 describe("WorkspaceSummary", () => {
   test("decodes a valid workspace summary", async () => {
