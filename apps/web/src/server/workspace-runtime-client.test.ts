@@ -20,8 +20,6 @@ const unreachable = () => Promise.reject(new Error("not expected"))
 const stub = (
   overrides: Partial<WorkspaceRuntimeStub>
 ): WorkspaceRuntimeStub => ({
-  prepareProject: unreachable,
-  synchronizeProject: unreachable,
   connectKey: unreachable,
   startSubscriptionSignIn: unreachable,
   subscriptionSignInStatus: unreachable,

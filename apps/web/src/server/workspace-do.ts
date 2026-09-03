@@ -7,9 +7,6 @@ import {
   OpenCodeSubscriptionRuntimeStatus,
   OpenCodeSubscriptionStartInput,
   OpenCodeSubscriptionStatusInput,
-  PrepareProjectRepositoryInput,
-  PrepareProjectRepositoryResult,
-  SyncProjectRepositoryInput,
   OpenCodeCredential,
   WorkspaceRuntimeEvent,
   WorkspaceAgentQuestion,
@@ -52,7 +49,6 @@ import {
   WorkspaceRuntimeFailure,
   WorkspaceSkillReloadResult,
   WorkspaceTurnCancelResult,
-  SyncProjectRepositoryResult,
   WorkspaceCheckRunList,
   WorkspaceCheckpointResult,
   WorkspaceRebaseResult,
@@ -131,12 +127,6 @@ const decodeOpenCodeSubscriptionStartInputPromise = Schema.decodeUnknownPromise(
 )
 const decodeOpenCodeSubscriptionStatusInputPromise =
   Schema.decodeUnknownPromise(OpenCodeSubscriptionStatusInput)
-const decodePrepareProjectRepositoryInputPromise = Schema.decodeUnknownPromise(
-  PrepareProjectRepositoryInput
-)
-const decodeSyncProjectRepositoryInputPromise = Schema.decodeUnknownPromise(
-  SyncProjectRepositoryInput
-)
 const decodeWorkspaceArchiveInputPromise = Schema.decodeUnknownPromise(
   WorkspaceArchiveInput
 )
@@ -174,12 +164,6 @@ const encodeOpenCodeSubscriptionAttemptSync = Schema.encodeSync(
 )
 const encodeOpenCodeSubscriptionRuntimeStatusSync = Schema.encodeSync(
   OpenCodeSubscriptionRuntimeStatus
-)
-const encodePrepareProjectRepositoryResultSync = Schema.encodeSync(
-  PrepareProjectRepositoryResult
-)
-const encodeSyncProjectRepositoryResultSync = Schema.encodeSync(
-  SyncProjectRepositoryResult
 )
 const encodeWorkspaceCheckRunListSync = Schema.encodeSync(WorkspaceCheckRunList)
 const encodeWorkspaceCheckRunSync = Schema.encodeSync(WorkspaceCheckRun)
@@ -575,25 +559,6 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         { status: 500 }
       )
     }
-  }
-
-  prepareProject(input: typeof PrepareProjectRepositoryInput.Encoded) {
-    return this.#run(async () => {
-      const data = await decodePrepareProjectRepositoryInputPromise(input)
-      const head = await this.#workspaceGit.prepareProject(data)
-      return encodePrepareProjectRepositoryResultSync(
-        new PrepareProjectRepositoryResult({ head })
-      )
-    })
-  }
-
-  synchronizeProject(input: typeof SyncProjectRepositoryInput.Encoded) {
-    return this.#run(async () => {
-      const data = await decodeSyncProjectRepositoryInputPromise(input)
-      return encodeSyncProjectRepositoryResultSync(
-        await this.#workspaceGit.synchronizeProject(data)
-      )
-    })
   }
 
   connectKey(input: typeof OpenCodeKeySetupInput.Encoded) {

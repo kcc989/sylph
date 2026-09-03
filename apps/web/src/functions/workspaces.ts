@@ -6,7 +6,6 @@ import {
   InitializeWorkspaceRuntime,
   OrganizationId,
   PreconditionFailed,
-  PrepareProjectRepositoryInput,
   ProjectId,
   ProviderConnectionRequired,
   WorkspaceArchiveInput,
@@ -143,7 +142,7 @@ export const createWorkspace = createServerFn({ method: "POST" })
   .handler(async ({ context }) => {
     const { database, project, user } = context
 
-    await synchronizeProjectRepository(database, user.id, {
+    const synchronized = await synchronizeProjectRepository(database, user.id, {
       id: project.id,
       repositoryName: project.repositoryName,
       repositoryRemote: project.repositoryRemote,
@@ -177,14 +176,9 @@ export const createWorkspace = createServerFn({ method: "POST" })
     const credential = await connectionCredential(connection)
     const workspaceId = WorkspaceId.make(crypto.randomUUID())
     const repositories = repositoryStore()
-    const prepared = await workspaceRuntime(workspaceId).prepareProject(
-      new PrepareProjectRepositoryInput({
-        repositoryName: project.repositoryName,
-        repositoryRemote: project.repositoryRemote,
-        defaultRef: project.defaultBranch,
-        projectName: project.name,
-      })
-    )
+    const head =
+      synchronized?.projectHead ??
+      (await Effect.runPromise(repositories.head(project.repositoryName)))
     const workspaceRepository = await Effect.runPromise(
       repositories.fork({
         sourceName: project.repositoryName,
@@ -204,8 +198,8 @@ export const createWorkspace = createServerFn({ method: "POST" })
       repositoryMode: "fork",
       baseArtifactRepo: project.repositoryName,
       workspaceArtifactRepo: workspaceRepository.name,
-      baseCommit: prepared.head,
-      forkHead: prepared.head,
+      baseCommit: head,
+      forkHead: head,
       syncStatus: "hydrating",
       mergeStatus: "unreviewed",
       createdAt: now,
@@ -226,7 +220,7 @@ export const createWorkspace = createServerFn({ method: "POST" })
           projectRepositoryName: project.repositoryName,
           projectRepositoryRemote: project.repositoryRemote,
           defaultRef: project.defaultBranch,
-          baseCommit: prepared.head,
+          baseCommit: head,
           providerId: connection.providerId,
           modelId: connection.modelId,
           credential,
@@ -259,6 +253,7 @@ export const getWorkspace = createServerFn({ method: "GET" })
         title: schema.workspace.title,
         status: schema.workspace.status,
         repositoryName: schema.project.artifactRepo,
+        repositoryRemote: schema.project.artifactRemote,
         workspaceRepositoryName: schema.workspace.workspaceArtifactRepo,
         defaultBranch: schema.project.defaultBranch,
         importOriginUrl: schema.project.importOriginUrl,
@@ -302,11 +297,7 @@ export const getWorkspace = createServerFn({ method: "GET" })
       await synchronizeProjectRepository(database, user.id, {
         id: workspace.projectId,
         repositoryName: workspace.repositoryName,
-        repositoryRemote: (
-          await Effect.runPromise(
-            repositoryStore().inspect(workspace.repositoryName)
-          )
-        ).remote,
+        repositoryRemote: workspace.repositoryRemote,
         defaultRef: workspace.defaultBranch,
         sourceUrl: workspace.importOriginUrl,
         sourceRef: workspace.importOriginBranch,

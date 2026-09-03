@@ -6,11 +6,7 @@ import {
   OpenCodeSubscriptionRuntimeStatus,
   OpenCodeSubscriptionStartInput,
   OpenCodeSubscriptionStatusInput,
-  PrepareProjectRepositoryInput,
-  PrepareProjectRepositoryResult,
   runtimeFailure,
-  SyncProjectRepositoryInput,
-  SyncProjectRepositoryResult,
   WorkspaceArchiveInput,
   WorkspaceArchiveResult,
   WorkspaceCheckpointInput,
@@ -36,12 +32,6 @@ import {
 import { Schema } from "effect"
 
 export interface WorkspaceRuntimeStub {
-  prepareProject(
-    input: typeof PrepareProjectRepositoryInput.Encoded
-  ): Promise<typeof PrepareProjectRepositoryResult.Encoded>
-  synchronizeProject(
-    input: typeof SyncProjectRepositoryInput.Encoded
-  ): Promise<typeof SyncProjectRepositoryResult.Encoded>
   connectKey(
     input: typeof OpenCodeKeySetupInput.Encoded
   ): Promise<typeof OpenCodeConnectionResult.Encoded>
@@ -98,12 +88,6 @@ export interface WorkspaceRuntimeStub {
 }
 
 export interface WorkspaceRuntime {
-  prepareProject(
-    input: PrepareProjectRepositoryInput
-  ): Promise<PrepareProjectRepositoryResult>
-  synchronizeProject(
-    input: SyncProjectRepositoryInput
-  ): Promise<SyncProjectRepositoryResult>
   connectKey(input: OpenCodeKeySetupInput): Promise<OpenCodeConnectionResult>
   startSubscriptionSignIn(
     input: OpenCodeSubscriptionStartInput
@@ -153,16 +137,6 @@ const call = async <Value>(operation: () => Promise<Value>) => {
   }
 }
 
-const encodePrepareProjectInput = Schema.encodeSync(
-  PrepareProjectRepositoryInput
-)
-const decodePrepareProjectResult = Schema.decodeUnknownSync(
-  PrepareProjectRepositoryResult
-)
-const encodeSyncProjectInput = Schema.encodeSync(SyncProjectRepositoryInput)
-const decodeSyncProjectResult = Schema.decodeUnknownSync(
-  SyncProjectRepositoryResult
-)
 const encodeKeySetupInput = Schema.encodeSync(OpenCodeKeySetupInput)
 const decodeConnectionResult = Schema.decodeUnknownSync(
   OpenCodeConnectionResult
@@ -217,18 +191,6 @@ const encodeQuestionReplyInput = Schema.encodeSync(WorkspaceQuestionReplyInput)
 export const makeWorkspaceRuntime = (
   stub: WorkspaceRuntimeStub
 ): WorkspaceRuntime => ({
-  prepareProject: (input) =>
-    call(async () =>
-      decodePrepareProjectResult(
-        await stub.prepareProject(encodePrepareProjectInput(input))
-      )
-    ),
-  synchronizeProject: (input) =>
-    call(async () =>
-      decodeSyncProjectResult(
-        await stub.synchronizeProject(encodeSyncProjectInput(input))
-      )
-    ),
   connectKey: (input) =>
     call(async () =>
       decodeConnectionResult(await stub.connectKey(encodeKeySetupInput(input)))

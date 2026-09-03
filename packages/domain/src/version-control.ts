@@ -119,12 +119,6 @@ export class PrepareProjectRepositoryInput extends Schema.Class<PrepareProjectRe
   ),
 }) {}
 
-export class PrepareProjectRepositoryResult extends Schema.Class<PrepareProjectRepositoryResult>(
-  "@sylph/domain/PrepareProjectRepositoryResult"
-)({
-  head: GitCommitId,
-}) {}
-
 export const ProjectRepositorySyncStatus = Schema.Literals([
   "up_to_date",
   "fast_forwarded",

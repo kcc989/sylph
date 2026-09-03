@@ -1,10 +1,7 @@
 import { schema } from "@workspace/db"
-import {
-  SyncProjectRepositoryInput,
-  SyncProjectRepositoryResult,
-} from "@workspace/domain"
+import { SyncProjectRepositoryInput } from "@workspace/domain"
 import { env } from "cloudflare:workers"
-import { Effect, Schema } from "effect"
+import { Effect } from "effect"
 import { and, eq } from "drizzle-orm"
 
 import {
@@ -12,11 +9,7 @@ import {
   GitHubRepositoryService,
 } from "@/server/github-repository-service"
 import type { Database } from "@/server/organization-access"
-import { workspaceRuntime } from "@/server/workspace-runtime"
-
-const decodeSyncProjectRepositoryResultPromise = Schema.decodeUnknownPromise(
-  SyncProjectRepositoryResult
-)
+import { syncProjectRepository } from "@/server/project-repository-git"
 
 export const githubUserAccessToken = async (
   database: Database,
@@ -101,10 +94,8 @@ export const synchronizeProjectRepository = async (
     sourceRef: project.sourceRef ?? project.defaultRef,
     sourceAccessToken: accessToken,
   })
-  const synchronized = await workspaceRuntime(`repository-sync-${project.id}`)
-    .synchronizeProject(input)
-    .catch(() => null)
-  if (!synchronized) {
+  const result = await syncProjectRepository(env.REPOS, input).catch(() => null)
+  if (!result) {
     await database
       .update(schema.project)
       .set({
@@ -117,7 +108,6 @@ export const synchronizeProjectRepository = async (
       .where(eq(schema.project.id, project.id))
     return null
   }
-  const result = await decodeSyncProjectRepositoryResultPromise(synchronized)
   await database
     .update(schema.project)
     .set({
