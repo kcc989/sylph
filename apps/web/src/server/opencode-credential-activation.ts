@@ -1,13 +1,16 @@
 type OpenCodeCatalogEvent = { type: string }
 
-type OpenCodeCredentialActivation = {
-  credential: {
-    activate: (input: { credentialID: string }) => Promise<void>
-  }
+export type OpenCodeCatalogRefresh = {
   events: {
     subscribe: (options?: {
       signal?: AbortSignal
     }) => AsyncIterable<OpenCodeCatalogEvent>
+  }
+}
+
+type OpenCodeCredentialActivation = OpenCodeCatalogRefresh & {
+  credential: {
+    activate: (input: { credentialID: string }) => Promise<void>
   }
 }
 
@@ -44,6 +47,17 @@ export const activateCredentialAndWaitForCatalog = async (
   opencode: OpenCodeCredentialActivation,
   credentialID: string,
   timeoutMilliseconds = 5_000
+) =>
+  updateCredentialAndWaitForCatalog(
+    opencode,
+    () => opencode.credential.activate({ credentialID }),
+    timeoutMilliseconds
+  )
+
+export const updateCredentialAndWaitForCatalog = async (
+  opencode: OpenCodeCatalogRefresh,
+  update: () => Promise<void>,
+  timeoutMilliseconds = 5_000
 ) => {
   const controller = new AbortController()
   const events = opencode.events
@@ -55,7 +69,7 @@ export const activateCredentialAndWaitForCatalog = async (
       waitForEvent(events, "server.connected"),
       timeoutMilliseconds
     )
-    await opencode.credential.activate({ credentialID })
+    await update()
     await withTimeout(
       waitForEvent(events, "catalog.updated"),
       timeoutMilliseconds

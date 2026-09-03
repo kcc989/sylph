@@ -1,5 +1,7 @@
 import { Schema } from "effect"
 
+import { toolJsonSchema } from "./json-schema"
+
 import { WorkspaceId } from "./ids"
 
 export const GitCommitId = Schema.NonEmptyString.pipe(
@@ -151,39 +153,8 @@ export class WorkspaceDeleteFileInput extends Schema.Class<WorkspaceDeleteFileIn
   path: Schema.NonEmptyString,
 }) {}
 
-const toolJsonSchema = (schema: Schema.Constraint) => {
-  const document = Schema.toJsonSchemaDocument(schema)
-  return { ...document.schema, $defs: document.definitions }
-}
-
 export const WorkspaceDeleteFileJsonSchema = toolJsonSchema(
   WorkspaceDeleteFileInput
-)
-
-export const decodeWorkspaceCheckpointInputPromise =
-  Schema.decodeUnknownPromise(WorkspaceCheckpointInput)
-export const decodeWorkspaceAcceptInputPromise =
-  Schema.decodeUnknownPromise(WorkspaceAcceptInput)
-export const decodeWorkspaceRebaseResultPromise = Schema.decodeUnknownPromise(
-  WorkspaceRebaseResult
-)
-export const decodeWorkspaceDeleteFile = Schema.decodeUnknownPromise(
-  WorkspaceDeleteFileInput
-)
-export const decodeWorkspaceVersionControl = Schema.decodeUnknownPromise(
-  WorkspaceVersionControl
-)
-export const encodeWorkspaceVersionControl = Schema.encodePromise(
-  WorkspaceVersionControl
-)
-export const decodeWorkspaceCheckpointResult = Schema.decodeUnknownPromise(
-  WorkspaceCheckpointResult
-)
-export const decodeWorkspaceCheckpointList = Schema.decodeUnknownPromise(
-  WorkspaceCheckpointList
-)
-export const encodeWorkspaceCheckpointList = Schema.encodePromise(
-  WorkspaceCheckpointList
 )
 
 export class WorkspaceVersionControlSnapshot extends Schema.Class<WorkspaceVersionControlSnapshot>(
@@ -192,18 +163,3 @@ export class WorkspaceVersionControlSnapshot extends Schema.Class<WorkspaceVersi
   vcs: WorkspaceVersionControl,
   checkpoints: WorkspaceCheckpointList,
 }) {}
-
-export const decodeWorkspaceVersionControlSnapshot =
-  Schema.decodeUnknownPromise(WorkspaceVersionControlSnapshot)
-export const encodeWorkspaceVersionControlSnapshotSync = Schema.encodeSync(
-  WorkspaceVersionControlSnapshot
-)
-export const encodeWorkspaceCheckpointResultSync = Schema.encodeSync(
-  WorkspaceCheckpointResult
-)
-export const encodeWorkspaceRebaseResultSync = Schema.encodeSync(
-  WorkspaceRebaseResult
-)
-export const encodeWorkspaceCheckpointInputSync = Schema.encodeSync(
-  WorkspaceCheckpointInput
-)

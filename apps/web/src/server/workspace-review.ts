@@ -9,5 +9,3 @@ export const reviewAllowsAcceptance = (input: {
   input.decision === "approved" &&
   input.reviewCommit === input.forkHead &&
   input.unresolvedComments === 0
-
-export const reviewDecisionAfterComment = () => "pending" as const

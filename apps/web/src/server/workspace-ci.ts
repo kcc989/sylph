@@ -7,21 +7,17 @@ import {
   type CloudflareArtifacts,
 } from "@cloudflare/ci"
 import {
-  GitCommitId,
-  decodeWorkspaceCheckRun,
-  decodeWorkspaceCiInput,
-  encodeWorkspaceCheckUpdateSync,
   WorkspaceCiInput,
   WorkspaceCheckDiagnostic,
   WorkspaceCheckEvidence,
   WorkspaceCheckRun,
+  WorkspaceCheckStageName,
   WorkspaceCheckUpdate,
-  WorkspaceId,
-  type WorkspaceCheckStageName,
 } from "@workspace/domain"
+import { Schema } from "effect"
 import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers"
 import type { CiBindings } from "@cloudflare/ci/worker"
-import { checkStage } from "./workspace-checks"
+import { checkStage, newCheckRun } from "./workspace-checks"
 import type { WorkspaceDO } from "./workspace-do"
 import { previewRetention, removePreviewWorker } from "./preview-lifecycle"
 import {
@@ -31,6 +27,10 @@ import {
   productionUrl,
 } from "./deployment-records"
 import { ciRunUpsertBindings, ciRunUpsertSql } from "./ci-run-records"
+
+const decodeWorkspaceCheckRun = Schema.decodeUnknownSync(WorkspaceCheckRun)
+const decodeWorkspaceCiInput = Schema.decodeUnknownSync(WorkspaceCiInput)
+const encodeWorkspaceCheckUpdateSync = Schema.encodeSync(WorkspaceCheckUpdate)
 
 type WorkspaceCiBindings = CiBindings & {
   BROWSER: BrowserRun
@@ -45,23 +45,7 @@ type CiRunnerLogs = {
   stderr: string | ReadableStream<Uint8Array>
 }
 
-const checkpointStages: WorkspaceCheckStageName[] = [
-  "install",
-  "typecheck",
-  "lint",
-  "test",
-  "build",
-  "preview",
-  "browser",
-]
-const productionStages: WorkspaceCheckStageName[] = [
-  "install",
-  "build",
-  "production",
-]
-const stageNames = new Map<string, WorkspaceCheckStageName>(
-  [...checkpointStages, ...productionStages].map((name) => [name, name])
-)
+const isStageName = Schema.is(WorkspaceCheckStageName)
 
 export const installCacheInputs = [
   "package.json",
@@ -324,24 +308,15 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
   #workflowInstanceId = ""
 
   #initialRun(input: WorkspaceCiInput) {
-    const stages =
-      input.kind === "production" ? productionStages : checkpointStages
-    return new WorkspaceCheckRun({
+    return newCheckRun({
       id: input.checkRunId,
-      workspaceId: WorkspaceId.make(input.workspaceId),
+      workspaceId: input.workspaceId,
       checkpointId: input.checkpointId,
-      commit: GitCommitId.make(input.sha),
+      commit: input.sha,
       kind: input.kind,
-      status: "queued",
       attempt: input.attempt,
       repairOnFailure: input.repairOnFailure,
-      repairStatus: input.repairOnFailure ? "available" : "disabled",
-      previewUrl: null,
-      stages: stages.map((name) => checkStage(name, "queued", "Waiting")),
-      diagnostics: [],
-      evidence: [],
       createdAt: input.createdAt,
-      updatedAt: input.createdAt,
     })
   }
 
@@ -496,6 +471,6 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
   }
 
   #stageName(value: string): WorkspaceCheckStageName {
-    return stageNames.get(value) ?? "build"
+    return isStageName(value) ? value : "build"
   }
 }

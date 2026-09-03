@@ -1,12 +1,18 @@
+import { Schema } from "effect"
+
 import {
-  decodeWorkspaceCheckpointList,
-  decodeWorkspaceVersionControl,
-  decodeWorkspaceVersionControlSnapshot,
   type WorkspaceVersionControlSnapshot,
+  WorkspaceRuntimeFailure,
+  WorkspaceCheckpointList,
+  WorkspaceVersionControl,
 } from "@workspace/domain"
 
-export const readCurrentProjectHead = <Value>(read: () => Promise<Value>) =>
-  read()
+const decodeWorkspaceCheckpointList = Schema.decodeUnknownPromise(
+  WorkspaceCheckpointList
+)
+const decodeWorkspaceVersionControl = Schema.decodeUnknownPromise(
+  WorkspaceVersionControl
+)
 
 export type WorkspaceVersionControlReadOptions = {
   attempts: number
@@ -19,7 +25,7 @@ const defaultReadOptions: WorkspaceVersionControlReadOptions = {
 }
 
 export const waitForWorkspaceVersionControl = async (
-  read: () => Promise<typeof WorkspaceVersionControlSnapshot.Encoded | null>,
+  read: () => Promise<WorkspaceVersionControlSnapshot | null>,
   options: WorkspaceVersionControlReadOptions = defaultReadOptions
 ) => {
   for (let attempt = 0; attempt < options.attempts; attempt += 1) {
@@ -27,7 +33,10 @@ export const waitForWorkspaceVersionControl = async (
     if (snapshot) return snapshot
     if (attempt + 1 < options.attempts) await options.delay()
   }
-  throw new Error("Workspace version control is not initialized")
+  throw new WorkspaceRuntimeFailure({
+    message: "Workspace version control is not initialized",
+    reason: "not_initialized",
+  })
 }
 
 type PersistedWorkspaceVersionControl = {
@@ -39,16 +48,18 @@ type PersistedWorkspaceVersionControl = {
 }
 
 export const readWorkspaceVersionControlSnapshot = async (
-  snapshot: typeof WorkspaceVersionControlSnapshot.Encoded | null,
+  snapshot: WorkspaceVersionControlSnapshot | null,
   persisted: PersistedWorkspaceVersionControl
 ) => {
   if (snapshot) {
-    const decoded = await decodeWorkspaceVersionControlSnapshot(snapshot)
-    return { versionControl: decoded.vcs, checkpoints: decoded.checkpoints }
+    return { versionControl: snapshot.vcs, checkpoints: snapshot.checkpoints }
   }
 
   if (!persisted.baseCommit || !persisted.forkHead) {
-    throw new Error("Workspace version control is not initialized")
+    throw new WorkspaceRuntimeFailure({
+      message: "Workspace version control is not initialized",
+      reason: "not_initialized",
+    })
   }
 
   return {

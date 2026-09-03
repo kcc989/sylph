@@ -1,18 +1,4 @@
 import {
-  decodeWorkspaceBrowserToolInput,
-  decodeWorkspaceCheckpointToolInput,
-  decodeWorkspaceCheckStatusToolInput,
-  decodeWorkspaceDeleteFile,
-  decodeWorkspaceDiffToolInput,
-  decodeWorkspaceFilePath,
-  decodeWorkspaceListFiles,
-  decodeWorkspaceMergeToolInput,
-  decodeWorkspacePreviewToolInput,
-  decodeWorkspaceProductionToolInput,
-  decodeWorkspaceRunChecksToolInput,
-  decodeWorkspaceSyncToolInput,
-  decodeWorkspaceWriteFile,
-  decodeSkillResourceInputPromise,
   SkillResourceJsonSchema,
   type WorkspaceBrowserResult,
   WorkspaceBrowserToolJsonSchema,
@@ -36,6 +22,20 @@ import {
   WorkspaceSyncToolJsonSchema,
   type WorkspaceSyncResult,
   WorkspaceWriteFileJsonSchema,
+  SkillResourceInput,
+  WorkspaceBrowserToolInput,
+  WorkspaceCheckStatusToolInput,
+  WorkspaceCheckpointToolInput,
+  WorkspaceDeleteFileInput,
+  WorkspaceDiffToolInput,
+  WorkspaceFilePathInput,
+  WorkspaceListFilesInput,
+  WorkspaceMergeToolInput,
+  WorkspacePreviewToolInput,
+  WorkspaceProductionToolInput,
+  WorkspaceRunChecksToolInput,
+  WorkspaceSyncToolInput,
+  WorkspaceWriteFileInput,
 } from "@workspace/domain"
 import { Plugin } from "@opencode-ai/plugin"
 import { Skill } from "@opencode-ai/schema/skill"
@@ -50,11 +50,55 @@ import {
   normalizeWorkspacePath,
 } from "./workspace-filesystem"
 import { WorkspaceGit } from "./workspace-git"
+import { Schema } from "effect"
+
 import {
   runtimeSkillContent,
   runtimeSkillPolicy,
   type WorkspaceSkillRegistry,
 } from "./workspace-skills"
+
+const decodeSkillResourceInputPromise =
+  Schema.decodeUnknownPromise(SkillResourceInput)
+const decodeWorkspaceBrowserToolInput = Schema.decodeUnknownPromise(
+  WorkspaceBrowserToolInput
+)
+const decodeWorkspaceCheckStatusToolInput = Schema.decodeUnknownPromise(
+  WorkspaceCheckStatusToolInput
+)
+const decodeWorkspaceCheckpointToolInput = Schema.decodeUnknownPromise(
+  WorkspaceCheckpointToolInput
+)
+const decodeWorkspaceDeleteFile = Schema.decodeUnknownPromise(
+  WorkspaceDeleteFileInput
+)
+const decodeWorkspaceDiffToolInput = Schema.decodeUnknownPromise(
+  WorkspaceDiffToolInput
+)
+const decodeWorkspaceFilePath = Schema.decodeUnknownPromise(
+  WorkspaceFilePathInput
+)
+const decodeWorkspaceListFiles = Schema.decodeUnknownPromise(
+  WorkspaceListFilesInput
+)
+const decodeWorkspaceMergeToolInput = Schema.decodeUnknownPromise(
+  WorkspaceMergeToolInput
+)
+const decodeWorkspacePreviewToolInput = Schema.decodeUnknownPromise(
+  WorkspacePreviewToolInput
+)
+const decodeWorkspaceProductionToolInput = Schema.decodeUnknownPromise(
+  WorkspaceProductionToolInput
+)
+const decodeWorkspaceRunChecksToolInput = Schema.decodeUnknownPromise(
+  WorkspaceRunChecksToolInput
+)
+const decodeWorkspaceSyncToolInput = Schema.decodeUnknownPromise(
+  WorkspaceSyncToolInput
+)
+const decodeWorkspaceWriteFile = Schema.decodeUnknownPromise(
+  WorkspaceWriteFileInput
+)
 
 export const selectWorkspaceVcs = (draft: {
   readonly default?: { set(selection: string): void }

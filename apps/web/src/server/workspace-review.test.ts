@@ -1,9 +1,6 @@
 import { describe, expect, test } from "bun:test"
 
-import {
-  reviewAllowsAcceptance,
-  reviewDecisionAfterComment,
-} from "./workspace-review"
+import { reviewAllowsAcceptance } from "./workspace-review"
 
 describe("Workspace review", () => {
   test("accepts only an approval for the current Workspace revision", () => {
@@ -39,9 +36,5 @@ describe("Workspace review", () => {
         unresolvedComments: 1,
       })
     ).toBeFalse()
-  })
-
-  test("returns a review to pending when a comment is added", () => {
-    expect(reviewDecisionAfterComment()).toBe("pending")
   })
 })

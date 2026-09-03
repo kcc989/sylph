@@ -11,12 +11,22 @@ import git from "isomorphic-git"
 import http from "isomorphic-git/http/web"
 import { Option, Schema } from "effect"
 
-import {
-  WorkspaceFilesystem,
-  type WorkspaceStorage,
+import type {
+  WorkspaceGitFilesystem,
+  WorkspaceStorage,
 } from "./workspace-filesystem"
 import { artifactAuth } from "./repository-store"
-import { readCurrentProjectHead } from "./workspace-repository-refresh"
+
+export interface WorkspaceRepositoryHandle {
+  createToken(
+    scope: "read" | "write",
+    ttlSeconds: number
+  ): Promise<{ readonly plaintext: string }>
+}
+
+export interface WorkspaceRepositoryNamespace {
+  get(name: string): Promise<WorkspaceRepositoryHandle>
+}
 
 const directory = "/workspace"
 const author = { name: "Sylph", email: "checkpoints@sylph.dev" }
@@ -83,13 +93,13 @@ export const workspaceProjectRemote = (url: string) => ({
 
 export class WorkspaceGit {
   readonly #storage: WorkspaceStorage
-  readonly #repositories: Artifacts
-  readonly #filesystem: WorkspaceFilesystem
+  readonly #repositories: WorkspaceRepositoryNamespace
+  readonly #filesystem: WorkspaceGitFilesystem
 
   constructor(
     storage: WorkspaceStorage,
-    repositories: Artifacts,
-    filesystem: WorkspaceFilesystem
+    repositories: WorkspaceRepositoryNamespace,
+    filesystem: WorkspaceGitFilesystem
   ) {
     this.#storage = storage
     this.#repositories = repositories
@@ -202,7 +212,7 @@ export class WorkspaceGit {
   async versionControl(refreshProjectHead = false) {
     const state = this.#requiredState()
     const latestProjectHead = refreshProjectHead
-      ? await readCurrentProjectHead(() => this.#readProjectHead(state))
+      ? await this.#readProjectHead(state)
       : state.projectHead
     if (latestProjectHead !== state.projectHead) {
       this.#storage.sql.exec(

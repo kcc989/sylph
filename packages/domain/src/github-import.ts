@@ -54,24 +54,6 @@ export class InvalidGitHubRepositoryUrl extends Schema.TaggedError<InvalidGitHub
   }
 ) {}
 
-export const decodeGitHubRepositoryLookupInput = Schema.decodeUnknownEffect(
-  GitHubRepositoryLookupInput
-)
-
-export const decodeGitHubRepositoryLookupInputPromise =
-  Schema.decodeUnknownPromise(GitHubRepositoryLookupInput)
-
-export const decodeGitHubApiRepositoryJson = Schema.decodeUnknownEffect(
-  Schema.fromJsonString(GitHubApiRepository)
-)
-
-export const decodeGitHubApiRepositoryJsonPromise = Schema.decodeUnknownPromise(
-  Schema.fromJsonString(GitHubApiRepository)
-)
-
-export const encodeGitHubRepositoryInfo =
-  Schema.encodePromise(GitHubRepositoryInfo)
-
 export const parseGitHubRepositoryUrl = Effect.fn("parseGitHubRepositoryUrl")(
   function* (repositoryUrl: string) {
     const url = yield* Effect.try({

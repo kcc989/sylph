@@ -1,9 +1,12 @@
+import { Schema } from "effect"
+
 import {
   CiRunSummary,
-  encodeCiRunSummary,
   type CiRunStatus,
   type WorkspaceCheckRun,
 } from "@workspace/domain"
+
+const encodeCiRunSummary = Schema.encodeSync(CiRunSummary)
 
 export const ciRunUpsertSql =
   "INSERT INTO ci_runs (id, project_id, workspace_id, agent_session_id, workflow_instance_id, commit_sha, kind, status, summary_json, started_at, finished_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch()) ON CONFLICT(id) DO UPDATE SET status = excluded.status, summary_json = excluded.summary_json, workflow_instance_id = excluded.workflow_instance_id, agent_session_id = COALESCE(excluded.agent_session_id, ci_runs.agent_session_id), started_at = COALESCE(ci_runs.started_at, excluded.started_at), finished_at = excluded.finished_at, updated_at = unixepoch()"

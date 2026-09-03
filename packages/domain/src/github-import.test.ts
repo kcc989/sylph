@@ -1,11 +1,9 @@
 import { describe, expect, test } from "bun:test"
-import { Effect } from "effect"
+import { Effect, Schema } from "effect"
 
-import {
-  encodeGitHubRepositoryInfo,
-  GitHubRepositoryInfo,
-  parseGitHubRepositoryUrl,
-} from "./github-import"
+import { GitHubRepositoryInfo, parseGitHubRepositoryUrl } from "./github-import"
+
+const encodeGitHubRepositoryInfo = Schema.encodePromise(GitHubRepositoryInfo)
 
 describe("parseGitHubRepositoryUrl", () => {
   test("parses canonical GitHub repository URLs", async () => {

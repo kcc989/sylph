@@ -2,10 +2,7 @@ import { createFileRoute, Link, useRouter } from "@tanstack/react-router"
 import { useServerFn } from "@tanstack/react-start"
 import { failureMessage } from "@workspace/domain"
 import { Button } from "@workspace/ui/components/button"
-import {
-  decodeModelOption,
-  encodeModelOption,
-} from "@workspace/ui/lib/model-option"
+import { ModelCombobox } from "@workspace/ui/components/model-combobox"
 import { ArrowRight, ShieldCheck } from "lucide-react"
 import { useState } from "react"
 
@@ -35,13 +32,13 @@ function UserSettingsScreen() {
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const selected = setup?.personalDefault
-    ? encodeModelOption(setup.personalDefault)
+    ? setup.personalDefault
     : setup?.providerId && setup.modelId
-      ? encodeModelOption({
+      ? {
           providerId: setup.providerId,
           modelId: setup.modelId,
-        })
-      : ""
+        }
+      : null
 
   return (
     <AppShell active="settings" dashboard={dashboard} topbar="User settings">
@@ -67,15 +64,14 @@ function UserSettingsScreen() {
               <label className="text-xs font-medium" htmlFor="default-model">
                 Personal default
               </label>
-              <select
+              <ModelCombobox
                 id="default-model"
-                className="h-10 w-full rounded-[8px] border bg-background px-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                ariaLabel="Personal default model"
                 disabled={pending}
+                models={setup.models}
                 value={selected}
-                onChange={async (event) => {
+                onValueChange={async (model) => {
                   if (!organization) return
-                  const model = decodeModelOption(event.target.value)
-                  if (!model) return
                   setPending(true)
                   setError(null)
                   try {
@@ -96,17 +92,7 @@ function UserSettingsScreen() {
                     setPending(false)
                   }
                 }}
-              >
-                {setup.models.map((model) => (
-                  <option
-                    key={`${model.providerId}/${model.modelId}/${model.scope}`}
-                    value={encodeModelOption(model)}
-                  >
-                    {model.providerName} · {model.name} ·{" "}
-                    {model.scope === "personal" ? "Personal" : "Organization"}
-                  </option>
-                ))}
-              </select>
+              />
               {setup.modelNotice ? (
                 <p className="text-xs leading-5 text-amber-700 dark:text-amber-300">
                   {setup.modelNotice}

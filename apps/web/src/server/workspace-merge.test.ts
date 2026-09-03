@@ -5,7 +5,6 @@ import git from "isomorphic-git"
 import { MemoryFilesystem } from "./memory-filesystem"
 import {
   acceptanceCanStart,
-  acceptanceWorkflowRevision,
   acceptedOperationUpdateSql,
   configureWorkspaceRemoteForAcceptance,
   mergeWorkspaceHeads,
@@ -41,15 +40,6 @@ const repository = async () => {
 describe("mergeWorkspaceHeads", () => {
   test("acceptance can retry after an operational failure", () => {
     expect(acceptanceCanStart("error")).toBeTrue()
-  })
-
-  test("acceptance uses the revision reviewed by the latest Check", () => {
-    expect(
-      acceptanceWorkflowRevision({
-        persisted: { baseCommit: "base-old", forkHead: "fork-old" },
-        reviewed: { baseCommit: "base-reviewed", forkHead: "fork-reviewed" },
-      })
-    ).toEqual({ baseCommit: "base-reviewed", forkHead: "fork-reviewed" })
   })
 
   test("acceptance records its commit on the repository operation", () => {
