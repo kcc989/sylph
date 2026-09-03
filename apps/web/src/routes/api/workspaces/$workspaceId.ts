@@ -13,7 +13,10 @@ const decodeWorkspacePermissionReplyInputPromise = Schema.decodeUnknownPromise(
   WorkspacePermissionReplyInput
 )
 
-const authorizedRuntime = async (request: Request, workspaceId: string) => {
+export const authorizedRuntime = async (
+  request: Request,
+  workspaceId: string
+) => {
   const { session, database } = await createRequestSession(request)
   if (!session) return null
   const workspace = await accessibleWorkspace(
@@ -21,22 +24,28 @@ const authorizedRuntime = async (request: Request, workspaceId: string) => {
     workspaceId,
     session.user.id
   )
-  return workspace ? workspaceRuntime(workspaceId) : null
+  return workspace
+    ? {
+        runtime: workspaceRuntime(workspaceId),
+        actor: {
+          userId: session.user.id,
+          name: session.user.name,
+          writable:
+            workspace.status !== "archived" && workspace.status !== "merging",
+        },
+      }
+    : null
 }
 
 export const Route = createFileRoute("/api/workspaces/$workspaceId")({
   server: {
     handlers: {
-      GET: async ({ request, params }) => {
-        const runtime = await authorizedRuntime(request, params.workspaceId)
-        if (!runtime) return new Response("Not found", { status: 404 })
-
-        const response = await runtime.events()
-        return new Response(response.body, response)
-      },
       POST: async ({ request, params }) => {
-        const runtime = await authorizedRuntime(request, params.workspaceId)
-        if (!runtime) return new Response("Not found", { status: 404 })
+        const authorization = await authorizedRuntime(
+          request,
+          params.workspaceId
+        )
+        if (!authorization) return new Response("Not found", { status: 404 })
 
         const input = await decodeWorkspacePermissionReplyInputPromise(
           await request.json()
@@ -47,7 +56,7 @@ export const Route = createFileRoute("/api/workspaces/$workspaceId")({
           })
         }
         try {
-          await runtime.replyPermission(input)
+          await authorization.runtime.replyPermission(input)
         } catch (cause) {
           return new Response(
             failureMessage(cause, "Workspace runtime failed"),

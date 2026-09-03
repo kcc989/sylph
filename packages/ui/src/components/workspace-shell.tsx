@@ -215,6 +215,12 @@ type WorkspaceRuntimeLimits = {
   maxAutomaticRepairs?: number
 }
 
+type WorkspacePresenceUser = {
+  userId: string
+  name: string
+  connections: number
+}
+
 type BrowserState = {
   url: string
   title: string
@@ -324,6 +330,7 @@ type WorkspaceShellProps = {
   pending?: ReadonlyArray<WorkspacePendingCommand>
   commandError?: WorkspaceCommandError | null
   permissionRequests?: ReadonlyArray<WorkspacePermissionRequest>
+  presence?: ReadonlyArray<WorkspacePresenceUser>
   questions?: ReadonlyArray<WorkspaceQuestion>
   queuedMessages?: ReadonlyArray<WorkspaceQueuedMessage>
   runtimeLimits?: WorkspaceRuntimeLimits
@@ -736,6 +743,7 @@ function WorkspaceTopbar({
   discardPending,
   onRebase,
   rebasePending,
+  presence,
 }: {
   agentControllingBrowser: boolean
   browser: BrowserState
@@ -761,6 +769,7 @@ function WorkspaceTopbar({
   discardPending: boolean
   onRebase?: () => Promise<void>
   rebasePending: boolean
+  presence: ReadonlyArray<WorkspacePresenceUser>
 }) {
   const passedChecks = checks.filter(
     (check) => check.status === "passed"
@@ -803,6 +812,22 @@ function WorkspaceTopbar({
         </Badge>
       )}
       <div className="ml-auto flex items-center gap-1.5">
+        {presence.length > 0 ? (
+          <div className="mr-1 flex -space-x-1" aria-label="Workspace presence">
+            {presence.slice(0, 4).map((user) => (
+              <Avatar
+                className="size-6 border-2 border-background"
+                key={user.userId}
+                size="sm"
+                title={`${user.name}${user.connections > 1 ? ` · ${user.connections} tabs` : ""}`}
+              >
+                <AvatarFallback className="text-[8px]">
+                  {reviewerInitials(user.name)}
+                </AvatarFallback>
+              </Avatar>
+            ))}
+          </div>
+        ) : null}
         <div className="mr-1 hidden items-center gap-2 2xl:flex">
           <span className="text-[10px] text-muted-foreground">
             {checks.length > 0
@@ -2866,6 +2891,7 @@ function WorkspaceShell({
   pending = [],
   commandError,
   permissionRequests = [],
+  presence = [],
   questions = [],
   queuedMessages = [],
   runtimeLimits,
@@ -3087,6 +3113,7 @@ function WorkspaceShell({
                 discardPending={discardPending}
                 onRebase={onRebase}
                 rebasePending={rebasePending}
+                presence={presence}
                 projectName={projectName}
                 repositoryName={repositoryName}
                 workspaceName={workspaceName}

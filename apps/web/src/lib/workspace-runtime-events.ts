@@ -89,6 +89,8 @@ export const applyWorkspaceRuntimeEvent = async (
 }
 
 export const workspaceEventNeedsSnapshot = (event: WorkspaceRuntimeEvent) =>
+  event.type === "workspace.check.updated" ||
+  event.type === "workspace.event.truncated" ||
   event.type === "session.idle" ||
   event.type === "session.execution.succeeded" ||
   event.type === "session.execution.failed" ||

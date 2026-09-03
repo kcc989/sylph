@@ -6,18 +6,22 @@ describe("Durable Workspace runtime lifecycle", () => {
   test("recovers through a new instance after forced eviction", async () => {
     const events: string[] = []
     let initializeAttempts = 0
+    let runtimeInstances = 0
 
     await restartDurableWorkspace(
-      {
-        async evict() {
-          events.push("evict")
-          throw new Error("Durable Object reset")
-        },
-        async initialize() {
-          initializeAttempts += 1
-          events.push(`initialize-${initializeAttempts}`)
-          if (initializeAttempts === 1) throw new Error("instance restarting")
-        },
+      () => {
+        runtimeInstances += 1
+        return {
+          async evict() {
+            events.push("evict")
+            throw new Error("Durable Object reset")
+          },
+          async initialize() {
+            initializeAttempts += 1
+            events.push(`initialize-${initializeAttempts}`)
+            if (initializeAttempts === 1) throw new Error("instance restarting")
+          },
+        }
       },
       {
         attempts: 2,
@@ -34,6 +38,7 @@ describe("Durable Workspace runtime lifecycle", () => {
       "delay",
       "initialize-2",
     ])
+    expect(runtimeInstances).toBe(4)
   })
 
   test("reports the final initialization failure", async () => {
@@ -41,14 +46,14 @@ describe("Durable Workspace runtime lifecycle", () => {
 
     await expect(
       restartDurableWorkspace(
-        {
+        () => ({
           async evict() {
             throw new Error("Durable Object reset")
           },
           async initialize() {
             throw failure
           },
-        },
+        }),
         { attempts: 2, delay: async () => undefined }
       )
     ).rejects.toBe(failure)

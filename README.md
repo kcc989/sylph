@@ -90,7 +90,7 @@ D1 must not store full agent transcripts, file contents, build logs, or secret v
 
 ### Data plane: one `WorkspaceDO` per workspace
 
-The Durable Object is the single writer for live workspace state. Its name must be derived from the immutable workspace ID. During construction, use `blockConcurrencyWhile` to create one `OpenCodeWorkerd` host and retain its promise for later requests.
+The Durable Object is the single writer for live workspace state. Its name must be derived from the immutable workspace ID. The current runtime creates one `OpenCodeWorkerd` host during construction and retains its promise for later requests. Move that boot behind a lazy getter before claiming idle hibernation.
 
 The OpenCode Cloudflare profile already uses the object's SQLite storage and persists durable events for eviction recovery. Do not copy those internal event rows into D1. Subscribe to OpenCode's event stream for live updates and derived status only.
 
@@ -99,10 +99,10 @@ Use the Durable Object for:
 - OpenCode sessions and their durable events.
 - The OpenCode virtual working filesystem.
 - Prompt ordering and one active turn per session.
-- Pending approvals and questions.
+- Live approvals and durable questions. Approval prompts are listed again on socket connect but are not yet durable across eviction.
 - Workspace-local jobs and idempotency keys.
 - An outbox for Artifacts, CI, and D1 side effects.
-- Hibernatable WebSocket connections for the UI.
+- Browser WebSockets accepted through the Hibernatable WebSocket API, with durable-sequence replay and presence attachments. The live OpenCode subscription can still keep the object active.
 
 Use Drizzle's Durable SQLite driver for product-owned tables. Prefix these tables with `app_` so they do not collide with OpenCode's private schema.
 
@@ -146,7 +146,7 @@ Do not keep a Durable Object request open while CI runs. `ci.run` should checkpo
 
 This callback must be idempotent. Key it by the Workflow instance ID and attempt number.
 
-The object owns the resume policy. Automatic repair is bounded twice: each Check accepts at most two repair turns, and the Workspace accepts at most three automatic repair turns in a row. A User prompt or a passing Check restores the Workspace budget; when it is exhausted, the agent is told the Check failed and waits for direction. See [ADR 0004](./docs/adr/0004-workspace-owned-check-loop.md).
+The object owns the resume policy. Automatic repair is bounded twice: each Check accepts at most two repair turns, and the Workspace accepts at most three automatic repair turns in a row. A User prompt or a passing Check restores the Workspace budget; when it is exhausted, the agent is told the Check failed and waits for direction. See [ADR 0008](./docs/adr/0008-workspace-owned-check-loop.md).
 
 The agent also gets the Preview browser. `workspace_browser` opens a path on the current Preview through the Cloudflare Browser Run binding, returns the rendered markdown and accessibility tree, and stores a screenshot as Check evidence. The tool refuses every origin other than the Preview.
 
@@ -484,7 +484,7 @@ Do not build CI, previews, plugin installation, collaboration, or transcript sea
 
 ### Phase 2: durable workspace runtime
 
-Add eviction recovery, event replay, WebSocket hibernation, prompt ordering, pending interactions, the outbox, idempotent hydration, and D1 status projection.
+The browser transport now uses Hibernatable WebSockets with durable event replay, check updates, and presence. Remaining runtime work includes proven idle hibernation, durable approval recovery, the outbox, and D1 status projection.
 
 Prove that a workspace resumes after object eviction without losing the transcript or working tree.
 
@@ -520,7 +520,7 @@ Preserve bb's strongest product ideas:
 - Threads have explicit lifecycle and attention state.
 - The event stream is append-only and replayable.
 - Execution settings can inherit from project defaults and accept session overrides.
-- Waiting interactions are durable.
+- Agent questions are durable. Permission prompts still need the durable bridge described in ADR 0007.
 - Presentation state stays client-local unless users need to share it.
 
 Remove the parts that exist only because bb controls local computers:

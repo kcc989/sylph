@@ -3,6 +3,8 @@ export interface DurableWorkspaceRuntime {
   initialize(): Promise<void>
 }
 
+export type DurableWorkspaceRuntimeFactory = () => DurableWorkspaceRuntime
+
 export type DurableWorkspaceRestartOptions = {
   readonly attempts: number
   readonly delay: () => Promise<void>
@@ -14,21 +16,25 @@ const defaultRestartOptions: DurableWorkspaceRestartOptions = {
 }
 
 export const restartDurableWorkspace = async (
-  runtime: DurableWorkspaceRuntime,
+  runtime: DurableWorkspaceRuntimeFactory,
   options: DurableWorkspaceRestartOptions = defaultRestartOptions
 ) => {
-  await runtime.evict().catch(() => undefined)
+  await runtime()
+    .evict()
+    .catch(() => undefined)
 
   let failure: unknown
 
   for (let attempt = 0; attempt < options.attempts; attempt += 1) {
     try {
-      await runtime.initialize()
+      await runtime().initialize()
       return
     } catch (cause) {
       failure = cause
       if (attempt + 1 < options.attempts) {
-        await runtime.evict().catch(() => undefined)
+        await runtime()
+          .evict()
+          .catch(() => undefined)
         await options.delay()
       }
     }
