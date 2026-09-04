@@ -1,4 +1,4 @@
-import type { CursorContainer } from "./cursor-container"
+import type { CursorConnectionObject } from "./cursor-connection-object"
 import { createCursorProvider } from "./cursor-plugin"
 import {
   maxQueuedMessages,
@@ -296,7 +296,7 @@ const subscriptionProviderId = "openai"
 const subscriptionMethodId = "chatgpt-headless"
 
 interface WorkspaceBindings extends Cloudflare.Env {
-  CURSOR: DurableObjectNamespace<CursorContainer>
+  CURSOR: DurableObjectNamespace<CursorConnectionObject>
   BROWSER: BrowserRun
   CHECK_EVIDENCE: R2Bucket
   CI_WORKFLOW: Workflow<WorkspaceCiInput>

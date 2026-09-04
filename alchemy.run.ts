@@ -1,5 +1,5 @@
 import type { ProjectSynchronization } from "./apps/web/src/server/project-synchronization"
-import type { CursorContainer } from "./apps/web/src/server/cursor-container"
+import type { CursorConnectionObject } from "./apps/web/src/server/cursor-connection-object"
 import * as Alchemy from "alchemy"
 import * as Cloudflare from "alchemy/Cloudflare"
 import type { WorkspaceDO } from "./apps/web/src/server/workspace-do"
@@ -43,12 +43,8 @@ const WorkspaceRuntime = Cloudflare.Worker(
         CLOUDFLARE_ACCOUNT_ID: Config.string("CLOUDFLARE_ACCOUNT_ID"),
         DB: database,
         CREDENTIAL_ENCRYPTION_KEY: Config.redacted("CREDENTIAL_ENCRYPTION_KEY"),
-        CURSOR: Cloudflare.Container<CursorContainer>("Cursor", {
-          context: ".",
-          dockerfile: "apps/cursor-provider/Dockerfile",
+        CURSOR: Cloudflare.DurableObject<CursorConnectionObject>("Cursor", {
           className: "CursorContainer",
-          instanceType: "basic",
-          maxInstances: 10,
         }),
         CF_TOKEN: Config.redacted("CF_TOKEN"),
         PREVIEW_RETENTION_SECONDS: Config.string(
@@ -110,7 +106,7 @@ export class Website extends Cloudflare.Website.Vite<Website>()(
         OAUTH_PROXY_TRUSTED_ORIGINS: Config.string(
           "OAUTH_PROXY_TRUSTED_ORIGINS"
         ).pipe(Config.withDefault("")),
-        CURSOR: Cloudflare.DurableObject<CursorContainer>("Cursor", {
+        CURSOR: Cloudflare.DurableObject<CursorConnectionObject>("Cursor", {
           className: "CursorContainer",
           scriptName: workspaceRuntime.workerName,
         }),

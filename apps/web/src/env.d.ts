@@ -1,6 +1,6 @@
 import type { ProjectSynchronization } from "./server/project-synchronization"
 import type { WorkspaceRequestInput, WorkspaceCiInput } from "@workspace/domain"
-import type { CursorContainer } from "./server/cursor-container"
+import type { CursorConnectionObject } from "./server/cursor-connection-object"
 import type { WorkspaceDO } from "./server/workspace-do"
 import type { WorkspaceMergeInput } from "./server/workspace-merge"
 import type { WorkspaceRetentionInput } from "./server/workspace-retention"
@@ -10,7 +10,7 @@ declare global {
     interface Env {
       BETTER_AUTH_SECRET: string
       ALLOW_TEST_MAGIC_LINKS: string
-      CURSOR: DurableObjectNamespace<CursorContainer>
+      CURSOR: DurableObjectNamespace<CursorConnectionObject>
       DB: D1Database
       GITHUB_CLIENT_ID: string
       GITHUB_CLIENT_SECRET: string

@@ -1,0 +1,413 @@
+diff --git a/package.json b/package.json
+--- a/package.json
++++ b/package.json
+@@ -59,6 +59,18 @@
+     "./image-save": {
+       "types": "./dist/image-save.d.ts",
+       "import": "./dist/image-save.js"
++    },
++    "./transport": {
++      "types": "./dist/transport/connect.d.ts",
++      "import": "./dist/transport/connect.js"
++    },
++    "./session": {
++      "types": "./dist/session.d.ts",
++      "import": "./dist/session.js"
++    },
++    "./sdk": {
++      "types": "./dist/plugin-core.d.ts",
++      "import": "./dist/plugin-core.js"
+     }
+   },
+   "files": [
+diff --git a/dist/transport/connect.js b/dist/transport/connect.js
+--- a/dist/transport/connect.js
++++ b/dist/transport/connect.js
+@@ -7,6 +7,10 @@
+ import { CursorLocalCancellationError, CursorProtocolError, CursorTransportError, cursorGrpcError, cursorHttpError, errorCode, CursorProviderError, } from "../errors.js";
+ import { withAbortDeadline } from "../deadline.js";
+ import http2 from "node:http2";
++let http2Connector;
++export function setHttp2Connector(connector) {
++    http2Connector = connector;
++}
+ const API_BASE = `https://${CURSOR_API_HOST}`;
+ const DEFAULT_UNARY_TIMEOUT_MS = 5_000;
+ const MAX_TIMER_MS = 2_147_483_647;
+@@ -407,7 +411,7 @@
+ }
+ function connectSession(origin) {
+     return new Promise((resolve, reject) => {
+-        const session = http2.connect(origin);
++        const session = http2Connector ? http2Connector(origin) : http2.connect(origin);
+         let settled = false;
+         const cleanup = () => {
+             clearTimeout(timer);
+@@ -442,7 +446,7 @@
+                 return;
+             }
+             _http2SessionCreatedAt.set(session, Date.now());
+-            _http2Sessions.set(origin, session);
++            if (!http2Connector) _http2Sessions.set(origin, session);
+             trace(`h2 session connected: origin=${origin}`);
+             resolve(session);
+         };
+@@ -456,6 +460,7 @@
+     });
+ }
+ export function getSession(baseURL, options = {}) {
++    if (http2Connector) return connectSession(resolveAgentOrigin(baseURL));
+     const origin = resolveAgentOrigin(baseURL);
+     const pingTimeoutMs = timeoutMs("Cursor provider pingTimeoutMs", options.pingTimeoutMs, DEFAULT_SESSION_PING_TIMEOUT_MS);
+     const inflight = _http2Connecting.get(origin);
+diff --git a/dist/transport/connect.d.ts b/dist/transport/connect.d.ts
+--- a/dist/transport/connect.d.ts
++++ b/dist/transport/connect.d.ts
+@@ -84,3 +84,5 @@
+     pingTimeoutMs?: number;
+ }): Promise<BidiStream>;
+ export declare function makeRequestId(): string;
++
++export declare function setHttp2Connector(connector: (origin: string) => unknown): void;
+diff --git a/dist/session.js b/dist/session.js
+--- a/dist/session.js
++++ b/dist/session.js
+@@ -1,3 +1,4 @@
++import { AsyncLocalStorage } from "node:async_hooks";
+ import { trace } from "./debug.js";
+ import { CursorProtocolError } from "./errors.js";
+ import { sessionActivity } from "./activity.js";
+@@ -510,6 +511,23 @@
+     }
+ }
+ export const sessionManager = new SessionManager();
++const sessionScope = new AsyncLocalStorage();
++export function getSessionManager() { return sessionScope.getStore() ?? sessionManager; }
++export function createScopedReadableStream(source) {
++    const manager = getSessionManager();
++    return new ReadableStream({
++        start(controller) { return sessionScope.run(manager, () => source.start?.(controller)); },
++        pull(controller) { return sessionScope.run(manager, () => source.pull?.(controller)); },
++        cancel(reason) { return sessionScope.run(manager, () => source.cancel?.(reason)); },
++    });
++}
++export function createSessionScope() {
++    const manager = new SessionManager();
++    return {
++        run(callback) { return sessionScope.run(manager, callback); },
++        dispose() { manager.dispose(); },
++    };
++}
+ function installProcessCleanup() {
+     const dispose = () => {
+         try {
+diff --git a/dist/session.d.ts b/dist/session.d.ts
+--- a/dist/session.d.ts
++++ b/dist/session.d.ts
+@@ -287,3 +287,7 @@
+ }
+ export declare const sessionManager: SessionManager;
+ export {};
++
++export declare function createSessionScope(): { run<T>(callback: () => T): T; dispose(): void };
++export declare function getSessionManager(): SessionManager;
++export declare function createScopedReadableStream<T>(source: UnderlyingDefaultSource<T>): ReadableStream<T>;
+diff --git a/dist/language-model.js b/dist/language-model.js
+--- a/dist/language-model.js
++++ b/dist/language-model.js
+@@ -27,7 +27,7 @@
+ import { bindConversationId, resolveConversationGroupId, } from "./protocol/conversation-bind.js";
+ import { clearPersistedConversationState, hydrateConversationState, persistConversationState, } from "./protocol/conversation-state.js";
+ import { initializeConversationPersistence } from "./protocol/conversation-persistence.js";
+-import { resolveContinuationPolicy, sessionManager, } from "./session.js";
++import { resolveContinuationPolicy, getSessionManager, createScopedReadableStream, } from "./session.js";
+ import { CursorAuthError, CursorLocalCancellationError, CursorProtocolError, CursorProviderError, CursorRetryExhaustedError, CursorServerError, CursorTransportError, isTransientGrpcStatus, retrySuppressedError, toCursorProviderError, } from "./errors.js";
+ import { readCache, cacheFilePath, resolveVariantParameters, resolveVariantMaxMode, extractCursorVariantParameters, resolveCursorWireModelId } from "./models.js";
+ import { getOrBuildRequestContext } from "./context/frozen.js";
+@@ -455,7 +455,7 @@
+     }
+     let activeSession = session;
+     return {
+-        stream: new ReadableStream({
++        stream: createScopedReadableStream({
+             async pull(controller) {
+                 // The outer try is a safety net for any throw that escapes pump() —
+                 // e.g. an unhandled decode/gunzip error or a frames-iterator throw on
+@@ -505,7 +505,7 @@
+                 catch (e) {
+                     activeSession.pumpActive = false;
+                     trace(`pull: pump threw (cleaning up): ${e.message}`);
+-                    sessionManager.close(activeSession);
++                    getSessionManager().close(activeSession);
+                     try {
+                         controller.error(e instanceof Error ? e : new Error(String(e)));
+                     }
+@@ -518,7 +518,7 @@
+                 // OpenCode cancels the ReadableStream after "tool-calls"; keep the
+                 // Cursor Run stream alive so the next doStream can write results.
+                 trace("ReadableStream cancel() → closeUnlessPending");
+-                sessionManager.closeUnlessPending(activeSession);
++                getSessionManager().closeUnlessPending(activeSession);
+             },
+         }),
+     };
+@@ -534,7 +534,7 @@
+     for (let attempt = 0;; attempt++) {
+         const pumpedSession = session;
+         const pumpOwner = Symbol("cursor-pump");
+-        sessionManager.beginPump(pumpedSession, pumpOwner);
++        getSessionManager().beginPump(pumpedSession, pumpOwner);
+         try {
+             await pump(pumpedSession, input.controller, {
+                 textId: crypto.randomUUID(),
+@@ -558,7 +558,7 @@
+             }
+             trace(`Run interrupted: sessionId=${pumpedSession.sessionId} attempt=${attempt + 1}/${maxRecoveries} ` +
+                 `err=${failure.message} — ${checkpoint ? `resuming ${checkpoint.length}B checkpoint` : "rebasing fresh Run"}`);
+-            sessionManager.close(pumpedSession, "remote-error", failure);
++            getSessionManager().close(pumpedSession, "remote-error", failure);
+             const delayMs = retryDelayMs(failure, attempt + 1, retryPolicy);
+             trace(`Run retry backoff: attempt=${attempt + 1}/${maxRecoveries} delayMs=${delayMs}`);
+             await sleepForRetry(delayMs, input.abortSignal);
+@@ -577,7 +577,7 @@
+             input.onSession?.(session);
+         }
+         finally {
+-            sessionManager.endPump(pumpedSession, pumpOwner);
++            getSessionManager().endPump(pumpedSession, pumpOwner);
+         }
+     }
+ }
+@@ -613,12 +613,12 @@
+             .then(() => {
+             if (!isCurrentHeartbeatGeneration(session, generation) || session.closed)
+                 return;
+-            sessionManager.recordHeartbeatWrite(session);
++            getSessionManager().recordHeartbeatWrite(session);
+         })
+             .catch((cause) => {
+             if (!isCurrentHeartbeatGeneration(session, generation) || session.closed)
+                 return;
+-            sessionManager.close(session, "heartbeat-write-failed", toCursorProviderError(cause, {
++            getSessionManager().close(session, "heartbeat-write-failed", toCursorProviderError(cause, {
+                 replaySafe: false,
+                 fallback: "Cursor heartbeat write failed",
+             }));
+@@ -1001,7 +1001,7 @@
+         closeError: null,
+         closed: false,
+     };
+-    sessionManager.registerSession(session);
++    getSessionManager().registerSession(session);
+     attachSessionHeartbeat(session);
+     const abortIfNeeded = (stream) => {
+         if (!session.closed && !callOptions.abortSignal?.aborted)
+@@ -1055,13 +1055,13 @@
+         session.heartbeatCancel?.();
+         await waitForStreamWrites(session.stream);
+         abortIfNeeded(next);
+-        sessionManager.replaceStream(session, next);
++        getSessionManager().replaceStream(session, next);
+         attachSessionHeartbeat(session);
+     };
+     callOptions.abortSignal?.addEventListener("abort", () => {
+         // Abort after tool-calls is normal — preserve pending sessions.
+         trace("abortSignal aborted → closeUnlessPending");
+-        sessionManager.closeUnlessPending(session);
++        getSessionManager().closeUnlessPending(session);
+     }, { once: true });
+     return session;
+ }
+@@ -1072,7 +1072,7 @@
+ export function findContinuationSession(toolResults) {
+     for (let i = toolResults.length - 1; i >= 0; i--) {
+         const r = toolResults[i];
+-        const s = sessionManager.findByExecIds(r.sessionId, [r.execId]);
++        const s = getSessionManager().findByExecIds(r.sessionId, [r.execId]);
+         if (s)
+             return s;
+     }
+@@ -1208,7 +1208,7 @@
+         `${pendingResults.length} pending for sessionId=${session.sessionId} ` +
+         `pending={${[...session.pending.keys()].join(",")}}`);
+     for (const r of pendingResults) {
+-        const claim = sessionManager.claim(session.sessionId, r.execId);
++        const claim = getSessionManager().claim(session.sessionId, r.execId);
+         if ("kind" in claim) {
+             if (claim.kind === "deliverable") {
+                 throw new CursorProtocolError("Cursor continuation claim remained unclaimed");
+@@ -1232,7 +1232,7 @@
+             }
+             catch (error) {
+                 trace(`continuation: ask_question encode FAILED execId=${r.execId} err=${error.message}`);
+-                sessionManager.close(session, "result-write-failed");
++                getSessionManager().close(session, "result-write-failed");
+                 return undefined;
+             }
+         }
+@@ -1245,7 +1245,7 @@
+             }
+             catch (error) {
+                 trace(`continuation: switch_mode encode FAILED execId=${r.execId} err=${error.message}`);
+-                sessionManager.close(session, "result-write-failed");
++                getSessionManager().close(session, "result-write-failed");
+                 return undefined;
+             }
+         }
+@@ -1255,7 +1255,7 @@
+             }
+             catch (error) {
+                 trace(`continuation: create_plan encode FAILED execId=${r.execId} err=${error.message}`);
+-                sessionManager.close(session, "result-write-failed");
++                getSessionManager().close(session, "result-write-failed");
+                 return undefined;
+             }
+         }
+@@ -1351,11 +1351,11 @@
+             }
+             catch (error) {
+                 trace(`continuation: result encode FAILED execId=${r.execId} err=${error.message}`);
+-                sessionManager.close(session, "result-write-failed");
++                getSessionManager().close(session, "result-write-failed");
+                 return undefined;
+             }
+         }
+-        const outcome = sessionManager.deliverClaim(claim, frames);
++        const outcome = getSessionManager().deliverClaim(claim, frames);
+         if (outcome.kind !== "delivered") {
+             trace(`continuation: delivery stopped execId=${r.execId} reason=${outcome.reason}`);
+             if (outcome.kind === "duplicate")
+@@ -1513,7 +1513,7 @@
+  *  - transport EOF before turn_ended → throw for one fresh-Run recovery.
+  */
+ export async function pump(session, controller, ids, abortSignal) {
+-    sessionManager.registerSession(session);
++    getSessionManager().registerSession(session);
+     const cacheDiagnostics = session.cacheDiagnostics ??= {
+         sessionKey: session.openCodeSessionId,
+         conversationId: session.conversationId,
+@@ -1542,7 +1542,7 @@
+     const failRunProtocol = (message, code) => {
+         replaySafety.markBarrier("unknown-or-malformed-frame");
+         const error = new CursorProtocolError(message, { code });
+-        sessionManager.close(session, "remote-error", error);
++        getSessionManager().close(session, "remote-error", error);
+         throw error;
+     };
+     const rethrowTransportWriteFailure = (error) => {
+@@ -1561,7 +1561,7 @@
+             const wrapped = new Error(`Failed to ${operation}: ${error.message}`);
+             trace(`exec: reply FAILED ${wrapped.message}`);
+             safeError(wrapped);
+-            sessionManager.close(session);
++            getSessionManager().close(session);
+             return false;
+         }
+     };
+@@ -1709,7 +1709,7 @@
+             const error = new Error(`Failed to recover Cursor edit read: ${e.message}`);
+             trace(`exec: edit read recovery FAILED ${error.message}`);
+             safeError(error);
+-            sessionManager.close(session);
++            getSessionManager().close(session);
+             return true;
+         }
+     };
+@@ -1759,7 +1759,7 @@
+             const error = new Error(`Failed to reject Cursor read of a missing path: ${e.message}`);
+             trace(`exec: missing read rejection FAILED ${error.message}`);
+             safeError(error);
+-            sessionManager.close(session);
++            getSessionManager().close(session);
+             return true;
+         }
+     };
+@@ -1882,14 +1882,14 @@
+         // keeping the loop alive would discard frames the next pump needs.
+         if (streamClosed) {
+             trace(`pump: stream closed (consumer cancelled) pending=${session.pending.size}`);
+-            sessionManager.closeUnlessPending(session);
++            getSessionManager().closeUnlessPending(session);
+             return;
+         }
+         if (abortSignal?.aborted) {
+             // Stop feeding this ReadableStream, but keep the Run session if we still
+             // owe Cursor an exec result (OpenCode aborts between tool-call turns).
+             trace(`pump: abortSignal aborted pending=${session.pending.size}`);
+-            sessionManager.closeUnlessPending(session);
++            getSessionManager().closeUnlessPending(session);
+             return;
+         }
+         let next;
+@@ -1982,7 +1982,7 @@
+             checkpointBytes: checkpointProgress,
+         });
+         if (replayFrame.semanticProgress) {
+-            sessionManager.recordSemanticProgress(session);
++            getSessionManager().recordSemanticProgress(session);
+         }
+         if (replayFrame.barrier)
+             replaySafety.markBarrier(replayFrame.barrier);
+@@ -2062,7 +2062,7 @@
+                     }
+                 }
+                 emitFinish(turnEnded, { unified: "stop", raw: undefined });
+-                sessionManager.close(session);
++                getSessionManager().close(session);
+                 return;
+             }
+             else if (iu?.tool_call_started) {
+@@ -2135,7 +2135,7 @@
+                         }
+                         else {
+                             const execId = session.nextBridgedExecId++;
+-                            sessionManager.registerPending(execId, session, "bridged", bridged.toolName, true);
++                            getSessionManager().registerPending(execId, session, "bridged", bridged.toolName, true);
+                             const toolCallId = `cursor_${session.sessionId}_${execId}`;
+                             const input = JSON.stringify(bridged.args ?? {});
+                             trace(`display BRIDGED tool-call toolCallId=${toolCallId} toolName=${bridged.toolName} ` +
+@@ -2337,7 +2337,7 @@
+                             }
+                             if (displayCallId)
+                                 session.displayToolCalls.delete(displayCallId);
+-                            sessionManager.registerPending(parsed.id, session, parsed.resultField, CURSOR_IMAGE_SAVE_TOOL, false, {
++                            getSessionManager().registerPending(parsed.id, session, parsed.resultField, CURSOR_IMAGE_SAVE_TOOL, false, {
+                                 ...parsed.resultMetadata,
+                                 path: target,
+                                 binaryWriteBytes: undefined,
+@@ -2395,7 +2395,7 @@
+                             registerCursorShellCall(tc.toolCallId, parsed.resultMetadata);
+                         }
+                         // Keep the stream open; the result arrives on the next doStream call.
+-                        sessionManager.registerPending(parsed.id, session, parsed.resultField, parsed.toolName, false, parsed.resultMetadata);
++                        getSessionManager().registerPending(parsed.id, session, parsed.resultField, parsed.toolName, false, parsed.resultMetadata);
+                         // tc.input is already a JSON string (LanguageModelV3ToolCall.input).
+                         trace(`exec: EMITTED tool-call toolCallId=${tc.toolCallId} toolName=${tc.toolName} inputLen=${tc.input.length}`);
+                         emittedHostTools++;
+@@ -2504,7 +2504,7 @@
+                     // ConversationAction when it was already acknowledged with `async`).
+                     const ask = handled.askQuestion;
+                     const execId = session.nextBridgedExecId++;
+-                    sessionManager.registerPending(execId, session, ASK_QUESTION_RESULT_FIELD, "question", false, {
++                    getSessionManager().registerPending(execId, session, ASK_QUESTION_RESULT_FIELD, "question", false, {
+                         interactionId: handled.id,
+                         askQuestionArgs: ask.args,
+                         askQuestionRawArgs: ask.rawArgs,
+@@ -2550,7 +2550,7 @@
+                     const bridgeKind = sw.bridge.kind;
+                     const toolName = sw.toolName ?? "plan_exit";
+                     const execId = session.nextBridgedExecId++;
+-                    sessionManager.registerPending(execId, session, SWITCH_MODE_RESULT_FIELD, toolName, false, {
++                    getSessionManager().registerPending(execId, session, SWITCH_MODE_RESULT_FIELD, toolName, false, {
+                         interactionId: handled.id,
+                         switchModeTarget: sw.args.targetModeId,
+                         switchModeToolCallId: sw.toolCallId,
+@@ -2582,7 +2582,7 @@
+                     const planUri = staged?.plan_uri ?? plan.planUri ?? "";
+                     const input = staged ?? plan.questionInput ?? {};
+                     const stageExecId = session.nextBridgedExecId++;
+-                    sessionManager.registerPending(stageExecId, session, CREATE_PLAN_RESULT_FIELD, plan.toolName, false, {
++                    getSessionManager().registerPending(stageExecId, session, CREATE_PLAN_RESULT_FIELD, plan.toolName, false, {
+                         interactionId: handled.id,
+                         createPlanToolCallId: plan.toolCallId,
+                         createPlanBridgeKind: plan.bridge.kind,

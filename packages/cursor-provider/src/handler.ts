@@ -3,7 +3,7 @@ import {
   CursorTokens,
 } from "@workspace/domain/cursor-provider"
 import { Schema } from "effect"
-import { createCursor } from "cursor-opencode-provider"
+import { createSdk as createCursor } from "cursor-opencode-provider/sdk"
 import {
   buildLoginUrl,
   generatePkceParams,
@@ -14,9 +14,11 @@ import { discoverModels } from "cursor-opencode-provider/models"
 
 const decodeRequest = Schema.decodeUnknownPromise(CursorBridgeRequest)
 const decodeTokens = Schema.decodeUnknownPromise(CursorTokens)
-const cacheDir = "/tmp/cursor-cache"
 
-export const handleCursorRequest = async (request: Request) => {
+export const handleCursorRequest = async (
+  request: Request,
+  cacheDir = "/tmp/cursor-cache"
+) => {
   const input = await decodeRequest(await request.json())
   switch (input.operation) {
     case "login": {
@@ -60,7 +62,7 @@ export const handleCursorRequest = async (request: Request) => {
         name: "cursor",
         accessToken: input.accessToken,
         cacheDir,
-        workspaceRoot: "/tmp/cursor-workspace",
+        workspaceRoot: `${cacheDir}/workspace`,
         retry: { maxAttempts: 1 },
       })
       const result = await provider.languageModel(input.call.modelId).doStream({

@@ -1,4 +1,4 @@
-import { Container } from "@cloudflare/containers"
+import { DurableObject } from "cloudflare:workers"
 import { Schema } from "effect"
 import {
   CursorBridgeRequest,
@@ -21,13 +21,17 @@ const decodeSecret = Schema.decodeUnknownPromise(CursorStoredSecret)
 const decodeRequest = Schema.decodeUnknownPromise(CursorRuntimeRequest)
 const decodeModels = Schema.decodeUnknownPromise(CursorModels)
 
-export class CursorContainer extends Container<{
+export class CursorConnectionObject extends DurableObject<{
   CREDENTIAL_ENCRYPTION_KEY: string
 }> {
-  defaultPort = 8080
-  sleepAfter = "20m"
-  enableInternet = true
   #pending: Promise<void> = Promise.resolve()
+  #native:
+    | Promise<
+        ReturnType<
+          typeof import("@workspace/cursor-provider/worker").createWorkerCursorHandler
+        >
+      >
+    | undefined
 
   #exclusive<T>(run: () => Promise<T>): Promise<T> {
     const result = this.#pending.then(run)
@@ -39,7 +43,12 @@ export class CursorContainer extends Container<{
   }
 
   async #send(input: typeof CursorBridgeRequest.Type, signal?: AbortSignal) {
-    return this.containerFetch(
+    this.#native ??= import("@workspace/cursor-provider/worker").then(
+      ({ createWorkerCursorHandler }) =>
+        createWorkerCursorHandler(this.ctx.id.toString())
+    )
+    const native = await this.#native
+    return native.fetch(
       new Request("http://cursor/", {
         method: "POST",
         body: JSON.stringify(input),
@@ -122,7 +131,10 @@ export class CursorContainer extends Container<{
       const models = await decodeModels(await catalog.json())
       if (models.length === 0)
         throw new Error("Cursor returned no available models")
-      if (await this.#read("connection")) await this.destroy()
+      if (await this.#read("connection")) {
+        ;(await this.#native)?.dispose()
+        this.#native = undefined
+      }
       const key = crypto.randomUUID()
       await this.#write(
         "connection",
@@ -145,7 +157,9 @@ export class CursorContainer extends Container<{
   async disconnect() {
     await this.#exclusive(async () => {
       await this.ctx.storage.deleteAll()
-      await this.destroy()
+      const native = await this.#native
+      native?.dispose()
+      this.#native = undefined
     })
   }
 

@@ -6,7 +6,7 @@ All notable changes to Sylph are recorded here. The format follows [Keep a Chang
 
 ### Added
 
-- Personal Cursor subscription connections through OpenCode, using encrypted OAuth credentials and a per-user Cloudflare Container for the provider transport.
+- Personal Cursor subscription connections through OpenCode, using encrypted OAuth credentials and a Worker-native HTTP/2 transport with per-user Durable Object isolation.
 
 ### Fixed
 

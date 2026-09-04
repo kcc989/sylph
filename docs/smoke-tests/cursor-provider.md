@@ -1,13 +1,16 @@
 # Cursor subscription through OpenCode
 
 Sylph registers a Cursor language-model provider in OpenCode 2. OpenCode still
-owns the conversation, tool execution, permissions, and checkpoints. The adapter
-forwards model requests and tool results to a private Node service in a
-Cloudflare Container. That service uses `cursor-opencode-provider@0.6.6`.
+owns the conversation, tool execution, permissions, and checkpoints. A private
+per-user Durable Object uses `cursor-opencode-provider@0.6.6` with a Worker-native
+HTTP/2 connector. The connector opens `cloudflare:sockets` TLS connections and
+implements framing, HPACK headers, stream flow control, and cancellation.
 
-The community provider uses Cursor's HTTP/2 transport. Workers do not implement
-`node:http2.connect`, so the transport runs in a container. This integration does
-not use the Cursor Agent SDK and is not an official Cursor API integration.
+This integration does not use the Cursor Agent SDK and is not an official
+Cursor API integration. A pinned provider patch injects the connector and
+isolates continuation state per Durable Object, including asynchronous stream
+callbacks. Each Cursor Run gets its own connection; no network socket is reused
+across users. There is no Node service or container fallback.
 
 A pinned OpenCode patch runs the dynamic npm provider loader after bundled
 provider hooks. Cursor uses the bundled adapter; existing native providers use
@@ -16,20 +19,17 @@ catalog transform itself remains synchronous.
 
 ## Credentials and isolation
 
-Each Sylph user has a separate named Cursor Durable Object and container. The
-Durable Object encrypts OAuth tokens and pending login state with AES-GCM, using
-the existing `CREDENTIAL_ENCRYPTION_KEY`. The personal provider connection stores
-an encrypted handle. OpenCode resolves that handle for each request; the bridge
-checks it against the current connection before sending a request to Cursor.
+Each Sylph user has a separate named Cursor Durable Object. It encrypts OAuth
+tokens and pending login state with AES-GCM, using the existing
+`CREDENTIAL_ENCRYPTION_KEY`. The personal provider connection stores an
+encrypted handle. OpenCode resolves that handle for each request; the Durable
+Object checks it against the current connection before sending to Cursor.
 
-The browser receives a PKCE login URL and status, never the OAuth tokens. Tokens
-are passed to the private Node process for requests. The process keeps transient
-provider state and caches on its ephemeral filesystem. Disconnect removes
-stored credentials and destroys the container.
-
-Alchemy configures the container and private cross-worker binding in
-`alchemy.run.ts`. The existing Cloudflare registry and Containers access are
-required. There is no public bridge route or separate bridge API key.
+The browser receives a PKCE login URL and status, never OAuth tokens. The
+provider keeps transient conversation data in memory and the Worker's temporary
+filesystem. Disconnect removes stored credentials and closes that user's
+continuation sessions. Alchemy configures the private cross-worker binding in
+`alchemy.run.ts`. No public provider route or separate provider API key exists.
 
 ## Verification
 
@@ -43,7 +43,7 @@ required. There is no public bridge route or separate bridge API key.
 6. Send a follow-up prompt to verify continuation after tool results.
 7. Cancel an active turn and verify it stops. Reconnect, then disconnect and
    verify subsequent Cursor requests require a new connection.
-8. Test a container restart separately. Persistent OpenCode history does not
+8. Test a Durable Object restart separately. Persistent OpenCode history does not
    make Cursor's in-memory HTTP/2 continuation durable. An interrupted stream
    must fail rather than report a successful completion.
 
@@ -52,7 +52,7 @@ for local validation. Stream tests cover tool results, compaction metadata,
 session identity, cancellation signal forwarding, and truncated responses.
 They do not prove live Cursor authentication, inference, or checkpoint recovery.
 
-## Preview evidence: 2026-09-04
+## Container implementation preview evidence: 2026-09-04
 
 The `cursor-4595` Cloudflare stage passed personal Cursor login and model
 discovery. Test magic-link login was disabled after claiming the Installation.
@@ -101,8 +101,8 @@ server DATA frame arrived 32 ms after the request had been written. A Node
 HTTP/2 control also received the authentication error before request closure.
 
 This proves direct HTTP/2 transport to the tested Cursor host from a deployed
-Worker is possible. The container is required by the current community
-provider implementation, not by every possible Cursor integration.
+Worker is possible. The unmodified community provider requires Node, but the socket probe establishes
+a path for the Worker-native adapter.
 
 This does not prove authenticated inference, account-specific host routing,
 tool-result continuation, or a complete HTTP/2 client. A replacement needs
@@ -111,3 +111,26 @@ live authenticated verification. Other tested servers rejected the same TLS
 approach, so acceptance without explicit ALPN must not be assumed for all
 Cursor hosts. Large-body fetch behavior is evidence of buffering effects, not
 a reliable workaround for short model requests.
+
+## Native implementation verification: 2026-09-04
+
+The implemented adapter passed eight provider tests, including a real Node
+HTTP/2 server fixture. Tests cover a 200 KB duplex exchange through small
+flow-control windows, cancellation during a pending write, split compressed
+header blocks, trailers, server resets, malformed frame lengths, and per-user
+continuation scope across asynchronous stream pulls.
+
+The actual native connector and community provider protocol code were deployed
+in the isolated probe Worker. With an invalid test token, they received a
+Connect authentication error while the request stream remained open. This
+verifies the native connector in Workerd, not authenticated inference. The final
+packaged handler also generated PKCE login parameters in the deployed Worker.
+The model-only SDK import avoids upstream CLI startup code that Workerd cannot
+run.
+
+An intermediate native implementation was deployed to `cursor-4595`, retaining
+its existing resources and credentials. The final Alchemy plan updates the
+Workers and removes the old Cursor container application. That removal has not
+been applied. Authenticated inference and tool-result continuation for the
+native implementation remain pending browser authorization. The successful
+container checkpoint evidence above does not validate this replacement.
