@@ -71,3 +71,9 @@ Clean package installation and the frozen repository installation applied the sa
 The local production deployment of this follow-up succeeded. Cloudflare confirmed both updated Workers at 100 percent traffic, and the authenticated Todo Workspace loaded. All GitHub verification jobs passed for the deployed source revision.
 
 The new live dependency repair still failed after approximately four minutes and twenty-three seconds with `Network connection lost`. Cloudflare recorded a hung `CI.jsrpc` request on the newly deployed runtime. The stream-persistence regression is fixed locally, but this deployed result confirms that it is not the complete explanation for the production failure. A pause was requested for the next automatic retry to stop repeated attempts while the CI-to-Sandbox path is investigated. No successful dependency repair or Todo deployment is claimed.
+
+## Dependency job bounds and CI diagnostics
+
+Dependency installation now has a durable three-job budget, shared across new job IDs and changed commits. A new user prompt or a passing checkpoint Check resets the budget. Replayed creation does not consume another attempt. Checkpoint Checks cannot start while a dependency job is pending, except for the dependency job's own verification handoff. Failed dependency notifications no longer instruct unconditional retries of network failures.
+
+The CI runner emits named stage markers for checkout, process start and exit, preview reads, backup creation, log reads, and cleanup. Markers omit commands, credentials, and file contents. These markers identify the pending operation if the runtime terminates a hung request. Eleven focused Check tests, the full test suite, type checks, lint, frozen installation, and the local CI Workflow replay smoke passed. Production diagnosis remains in progress.

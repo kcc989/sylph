@@ -174,3 +174,94 @@ diff --git a/src/pipeline/runner-group.ts b/src/pipeline/runner-group.ts
 +    reader.releaseLock();
 +  }
 +}
+diff --git a/src/ci/runners/sandbox.ts b/src/ci/runners/sandbox.ts
+--- a/src/ci/runners/sandbox.ts
++++ b/src/ci/runners/sandbox.ts
+@@ -39,7 +39,9 @@
+     input: RunStepInput & { restore?: DirectoryBackup }
+   ): Promise<RunStepResult<DirectoryBackup>> {
+     // create the sandbox handle
+-    const sandbox = getSandbox(this.env.SANDBOX, createRunnerId(input.label), {
++    const runnerId = createRunnerId(input.label);
++    const mark = (stage: string) => console.info('CI runner stage', { runnerId, stage });
++    const sandbox = getSandbox(this.env.SANDBOX, runnerId, {
+       transport: 'http',
+       enableDefaultSession: false,
+       containerTimeouts: { portReadyTimeoutMS: PORT_READY_TIMEOUT_MS },
+@@ -47,6 +49,7 @@
+ 
+     let cleanupTransferredToStreams = false;
+     try {
++      mark('checkout');
+       if (input.restore) {
+         await sandbox.restoreBackup(input.restore);
+         // Overlay (no rm) so cached node_modules survive while tracked source
+@@ -70,6 +73,7 @@
+         });
+       }
+ 
++      mark('start-process');
+       const proc = await sandbox.startProcess(
+         `(${input.command}) > ${STDOUT_FILE} 2> ${STDERR_FILE}`,
+         {
+@@ -81,22 +85,27 @@
+           autoCleanup: false,
+         }
+       );
++      mark('wait-for-exit');
+       const { exitCode } = await proc.waitForExit(
+         input.timeoutMs ?? COMMAND_TIMEOUT_MS
+       );
++      mark('read-preview');
+       const preview = await readPreviews(sandbox);
+ 
+       if (exitCode !== 0) {
+         return { exitCode, logs: preview, preview };
+       }
+ 
++      mark('create-backup');
+       const snapshot = await sandbox.createBackup({
+         dir: WORKSPACE_DIR,
+         name: input.label,
+         multipart: true,
+         ttl: input.ttlSeconds,
+       });
++      mark('read-logs');
+       const rawLogs = await readLogs(sandbox);
++      mark('logs-ready');
+       const streams = [rawLogs.stdout, rawLogs.stderr].filter(
+         (value): value is ReadableStream<Uint8Array> =>
+           typeof value !== 'string'
+@@ -109,7 +118,9 @@
+       const releaseStream = async () => {
+         remainingStreams -= 1;
+         if (remainingStreams === 0) {
++          mark('stream-cleanup');
+           await destroySandbox(sandbox);
++          mark('stream-cleaned');
+         }
+       };
+       cleanupTransferredToStreams = true;
+@@ -130,7 +141,9 @@
+       };
+     } finally {
+       if (!cleanupTransferredToStreams) {
++        mark('cleanup');
+         await destroySandbox(sandbox);
++        mark('cleaned');
+       }
+     }
+   }
+diff --git a/src/ci/capabilities.ts b/src/ci/capabilities.ts
+--- a/src/ci/capabilities.ts
++++ b/src/ci/capabilities.ts
+@@ -64,7 +64,9 @@
+     repo: input.source.repo,
+   });
+   const sourceControlProvider = sourceControl.create(env);
++  console.info('CI step stage', { stage: 'prepare', instanceId: input.instanceId });
+   const prepared = await prepareStep(env, sourceControlProvider, input);
++  console.info('CI step stage', { stage: 'prepared', instanceId: input.instanceId });
+   const handle = await sourceControlProvider.startStepNotification({
+     source: prepared.source,
+     instanceId: input.instanceId,

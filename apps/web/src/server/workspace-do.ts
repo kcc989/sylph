@@ -1386,7 +1386,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         opencode,
         run.status === "passed"
           ? "Dependency installation succeeded. The generated bun.lock is saved in the durable Workspace and a normal frozen-install Check has started. Wait for its result; do not edit bun.lock or start duplicate Checks."
-          : `Dependency installation failed. No successful repair is claimed. Inspect these diagnostics, correct the package.json dependency declarations if needed, then call workspace_install_dependencies with {}.\n${run.diagnostics.map((item) => item.output || item.summary).join("\n")}`
+          : `Dependency installation failed. No successful repair is claimed. Inspect these diagnostics. Retry only after correcting an actionable cause; do not repeat unchanged attempts after network or platform failures. Report the failure if it needs platform recovery.\n${run.diagnostics.map((item) => item.output || item.summary).join("\n")}`
       )
       return
     }
@@ -1674,6 +1674,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     checkId?: string
   ) {
     const id = checkId ?? `check-${checkpointId}`
+    this.#checks.assertCheckpointCanStart(id)
     const existing = this.#checks.get(id)
     if (existing) {
       await this.#startWorkflow(existing)
@@ -1729,7 +1730,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       repairOnFailure: false,
       createdAt: Date.now(),
     })
-    this.#checks.create(run)
+    this.#checks.createDependencyRun(run)
     await this.#startWorkflow(run)
     return run
   }
