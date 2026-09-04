@@ -1,4 +1,5 @@
 import type { PromiseFsClient } from "isomorphic-git"
+import { WorkspaceEditConflict } from "@workspace/domain"
 
 const workspaceRoot = "/workspace"
 const defaultFileLimit = 5 * 1024 * 1024
@@ -161,6 +162,12 @@ export class WorkspaceFilesystem implements WorkspaceGitFilesystem {
     option: EncodingOption
   ): Promise<string | Uint8Array>
   async readFile(pathValue: string, option?: EncodingOption) {
+    const data = this.#readBytes(pathValue)
+    const encoding = option instanceof Object ? option.encoding : option
+    return encoding ? new TextDecoder().decode(data) : data
+  }
+
+  #readBytes(pathValue: string) {
     const path = normalizeWorkspacePath(pathValue)
     const row = this.#storage.sql
       .exec<{ [key: string]: SqlStorageValue; content: SqlStorageValue }>(
@@ -170,9 +177,32 @@ export class WorkspaceFilesystem implements WorkspaceGitFilesystem {
       .toArray()[0]
 
     if (!row) throw filesystemError("ENOENT", pathValue)
-    const data = contentBytes(row.content)
-    const encoding = option instanceof Object ? option.encoding : option
-    return encoding ? new TextDecoder().decode(data) : data
+    return contentBytes(row.content)
+  }
+
+  async editFile(pathValue: string, oldText: string, newText: string) {
+    const path = normalizeWorkspacePath(pathValue)
+    const content = new TextDecoder("utf-8", { fatal: true }).decode(
+      this.#readBytes(path)
+    )
+    const position = content.indexOf(oldText)
+    if (
+      !oldText ||
+      position < 0 ||
+      content.indexOf(oldText, position + 1) >= 0
+    ) {
+      throw new WorkspaceEditConflict({
+        path,
+        message:
+          "oldText must match exactly once. Read the file and include unique context.",
+      })
+    }
+    return this.writeFile(
+      path,
+      content.slice(0, position) +
+        newText +
+        content.slice(position + oldText.length)
+    )
   }
 
   async writeFile(

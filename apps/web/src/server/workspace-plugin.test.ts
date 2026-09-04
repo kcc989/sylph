@@ -67,7 +67,7 @@ describe("Workspace plugin", () => {
   test("asks before mutating the durable Workspace", () => {
     const write: WorkspacePermissionEvaluation = {
       action: "workspace_write_file",
-      effect: "allow",
+      effect: "ask",
     }
     const read: WorkspacePermissionEvaluation = {
       action: "workspace_read_file",
@@ -86,6 +86,18 @@ describe("Workspace plugin", () => {
       action: "workspace_read_file",
       effect: "allow",
     })
+  })
+
+  test("preserves saved approvals and explicit denials for Workspace mutations", () => {
+    for (const action of ["workspace_write_file", "workspace_delete_file"]) {
+      for (const effect of ["allow", "deny"] as const) {
+        const evaluation: WorkspacePermissionEvaluation = { action, effect }
+
+        requireWorkspaceMutationPermission(evaluation)
+
+        expect(evaluation).toEqual({ action, effect })
+      }
+    }
   })
 
   test("waits for the OpenCode permission decision", async () => {

@@ -23,6 +23,8 @@ import {
   WorkspaceSyncToolJsonSchema,
   type WorkspaceSyncResult,
   WorkspaceWriteFileJsonSchema,
+  WorkspaceEditFileJsonSchema,
+  WorkspaceEditFileInput,
   SkillResourceInput,
   WorkspaceBrowserToolInput,
   WorkspaceCheckStatusToolInput,
@@ -99,6 +101,9 @@ const decodeWorkspaceSyncToolInput = Schema.decodeUnknownPromise(
 )
 const decodeWorkspaceWriteFile = Schema.decodeUnknownPromise(
   WorkspaceWriteFileInput
+)
+const decodeWorkspaceEditFile = Schema.decodeUnknownPromise(
+  WorkspaceEditFileInput
 )
 
 export const selectWorkspaceVcs = (draft: {
@@ -197,7 +202,8 @@ export type WorkspacePluginActions = {
 
 export const workspaceSystemPrompt = [
   "You are coding inside a Cloudflare Durable Object.",
-  "Use workspace_list_files, workspace_read_file, workspace_write_file, and workspace_delete_file for source work. The durable workspace filesystem is authoritative.",
+  "Use workspace_list_files, workspace_read_file, workspace_edit_file, workspace_write_file, and workspace_delete_file for source work. The durable workspace filesystem is authoritative. Use workspace_edit_file for exact, unique text replacements, especially in large files and lockfiles; workspace_write_file replaces the entire file.",
+  "Use workspace_restore_file to discard the changes to one file and restore it from the latest Checkpoint. This can recover a damaged file without rewriting its contents through model output.",
   "Use workspace_checkpoint to commit the Working copy to the Workspace fork without running CI, and workspace_diff to review uncommitted or Checkpoint changes against the Project Repository base.",
   "Use workspace_run_checks after a coherent change; Sylph delivers the Check result to this Conversation when Cloudflare CI finishes, so do not poll workspace_check_status in a loop. Use workspace_check_status for diagnostics, Preview state, and browser evidence.",
   "Use workspace_preview to find or build the Preview of the current Checkpoint, then workspace_browser to open the Preview in a Cloudflare browser, read its rendered content and accessibility tree, and capture screenshot evidence. The browser is limited to the Preview origin.",
@@ -239,8 +245,9 @@ export const requireWorkspaceMutationPermission = (
     return
   }
 
-  evaluation.effect = "ask"
-  evaluation.message = "Allow the assistant to change this Workspace?"
+  if (evaluation.effect === "ask") {
+    evaluation.message = "Allow the assistant to change this Workspace?"
+  }
 }
 
 export const createWorkspacePlugin = (
@@ -483,6 +490,53 @@ export const createWorkspacePlugin = (
             await filesystem.writeFile(path, decoded.content)
 
             return { content: `Wrote ${path}` }
+          },
+        })
+        draft.add({
+          name: "workspace_edit_file",
+          description:
+            "Replace one exact, unique text match in a durable Workspace file. Include enough oldText context to match exactly once. Other content is preserved; missing or ambiguous matches fail without changing the file.",
+          input: WorkspaceEditFileJsonSchema,
+          options: workspaceWriteToolOptions,
+          async execute(input, context) {
+            const decoded = await decodeWorkspaceEditFile(input)
+            const path = normalizeWorkspacePath(decoded.path)
+            actions.assertWritable()
+            await permissionBridge.request({
+              sessionID: context.sessionID,
+              agent: context.agent,
+              messageID: context.messageID,
+              toolCallID: context.id,
+              action: "workspace_write_file",
+              path,
+            })
+            actions.assertWritable()
+            await filesystem.editFile(path, decoded.oldText, decoded.newText)
+            return { content: `Edited ${path}` }
+          },
+        })
+        draft.add({
+          name: "workspace_restore_file",
+          description:
+            "Restore one file from the latest Checkpoint, discarding that file's uncommitted changes. Other Workspace files are preserved. The file must exist in the Checkpoint.",
+          input: WorkspaceFilePathJsonSchema,
+          options: workspaceWriteToolOptions,
+          async execute(input, context) {
+            const decoded = await decodeWorkspaceFilePath(input)
+            const path = normalizeWorkspacePath(decoded.path)
+            actions.assertWritable()
+            await permissionBridge.request({
+              sessionID: context.sessionID,
+              agent: context.agent,
+              messageID: context.messageID,
+              toolCallID: context.id,
+              action: "workspace_write_file",
+              path,
+            })
+            const checkpointFile = await workspaceGit.readCheckpointFile(path)
+            actions.assertWritable()
+            await filesystem.writeFile(path, checkpointFile.content)
+            return { content: `Restored ${path} from ${checkpointFile.commit}` }
           },
         })
         draft.add({
