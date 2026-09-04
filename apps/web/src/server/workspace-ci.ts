@@ -13,11 +13,16 @@ import {
   WorkspaceCheckRun,
   WorkspaceCheckStageName,
   WorkspaceCheckUpdate,
+  WorkspaceDependencyRepair,
 } from "@workspace/domain"
 import { Schema } from "effect"
 import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers"
 import type { CiBindings } from "@cloudflare/ci/worker"
 import { checkStage, newCheckRun } from "./workspace-checks"
+import {
+  dependencyRepairCommand,
+  readDependencyRepairOutput,
+} from "./dependency-repair"
 import type { WorkspaceDO } from "./workspace-do"
 import { previewRetention, removePreviewWorker } from "./preview-lifecycle"
 import {
@@ -130,6 +135,35 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
     }
 
     try {
+      if (input.kind === "dependencies") {
+        const installation = await this.#runner(step, ci, run, "install", {
+          name: "install",
+          command: dependencyRepairCommand,
+          config: verificationRunnerConfig,
+        })
+        run = installation.run
+        const output = readDependencyRepairOutput(installation.logs.stdout)
+        await step.do("save-generated-lockfile", async () => {
+          const workspace = this.env.WORKSPACES.get(
+            this.env.WORKSPACES.idFromName(input.workspaceId)
+          )
+          await workspace.applyDependencyRepair(
+            Schema.encodeSync(WorkspaceDependencyRepair)(
+              new WorkspaceDependencyRepair({
+                runId: run.id,
+                commit: run.commit,
+                output,
+              })
+            )
+          )
+          return { saved: true }
+        })
+        await this.#publish(step, "run-passed", run, {
+          status: "passed",
+          repairStatus: "disabled",
+        })
+        return
+      }
       const install = await this.#runner(step, ci, run, "install", {
         name: "install",
         command: dependencyInstallCommand,
@@ -264,11 +298,13 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
         : [
             new WorkspaceCheckDiagnostic({
               stage:
-                input.kind === "production"
-                  ? "production"
-                  : run.previewUrl
-                    ? "browser"
-                    : "preview",
+                input.kind === "dependencies"
+                  ? "install"
+                  : input.kind === "production"
+                    ? "production"
+                    : run.previewUrl
+                      ? "browser"
+                      : "preview",
               summary: cause instanceof Error ? cause.message : "Check failed",
               output: safeDiagnosticOutput(
                 cause instanceof Error

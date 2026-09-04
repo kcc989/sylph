@@ -40,7 +40,7 @@ export const checkPassedNotification = (run: WorkspaceCheckRun) =>
   ].join("\n")
 
 export const checkRepairPrompt = (run: WorkspaceCheckRun) =>
-  `Repair the failures from Check ${run.id} without weakening validation. Inspect the current Working copy, make the smallest correct changes, then run Workspace checks again.\n\n${checkDiagnosticsText(run)}`
+  `Repair the failures from Check ${run.id} without weakening validation. Inspect the current Working copy, make the smallest correct changes, then run Workspace checks again. For Bun dependency or lockfile failures, correct package.json if needed and call workspace_install_dependencies with {}. It generates bun.lock and starts normal Checks automatically; do not hand-edit lockfiles or hashes, and do not start duplicate Checks.\n\n${checkDiagnosticsText(run)}`
 
 export const checkFailedNotification = (
   run: WorkspaceCheckRun,

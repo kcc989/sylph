@@ -45,7 +45,11 @@ const productionStages: ReadonlyArray<WorkspaceCheckStageName> = [
 ]
 
 export const checkStages = (kind: WorkspaceCheckKind) =>
-  kind === "production" ? productionStages : checkpointStages
+  kind === "dependencies"
+    ? (["install"] as const)
+    : kind === "production"
+      ? productionStages
+      : checkpointStages
 
 export const checkStage = (
   name: WorkspaceCheckStageName,

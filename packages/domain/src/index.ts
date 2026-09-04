@@ -16,3 +16,4 @@ export * from "./workspace-files"
 export * from "./skills"
 
 export * from "./acceptance"
+export * from "./dependency-repair"
