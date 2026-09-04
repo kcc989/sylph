@@ -57,3 +57,13 @@ A local production redeploy found all ten resources unchanged. PR #49 adds a fai
 A follow-up model attempt produced no tool call and was interrupted at the configured fifteen-minute deadline. Cloudflare recorded successful alarm events and the browser displayed the interrupted-turn notice. This verifies the deadline for this stalled request, not every multi-step or queued-turn case.
 
 A fresh isolated Workspace under the same Project successfully read `package.json` and reported its package name using a model that previously failed in the original conversation. This comparison shows that the provider and tool path can work in a short session; it does not isolate the cause of the earlier failures. The original Workspace and its files are preserved. A new Todo build is running in the fresh Workspace; no Preview or production Todo deployment has passed yet.
+
+## CI runner output persistence
+
+The installed Cloudflare CI runner returns large stdout and stderr as streams nested inside its result object. A local Workflows reproduction rejected that result as non-serializable. Direct byte-stream results passed. The dependency repair failures observed in production are consistent with a transport problem, but the local reproduction does not establish their complete cause.
+
+The CI patch persists one bounded byte stream for the result envelope, then reconstructs logs and snapshot metadata after the durable step. It preserves existing inline results, cancels source streams on overflow or cancellation, and limits persisted output to 16 MiB. It does not truncate dependency output.
+
+Six focused tests cover a five MiB lockfile, split Unicode, escaping, cancellation, size limits, and older inline output. The real CIWorkflow smoke test preserved 6,990,533 stdout bytes and 440,000 stderr bytes across a local runtime restart, then chained the next runner using the saved snapshot. Exactly two runner invocations occurred, so the completed first command was not repeated. The Sandbox command implementation is replaced by a fixture; Workflows persistence and the CIWorkflow implementation are real.
+
+Clean package installation and the frozen repository installation applied the saved patch. Lint, formatting, type checks, eight runtime unit tests, the OpenCode Durable Object smoke, and the CI Workflow smoke passed locally. The production plan updates Website and WorkspaceRuntime with eight unchanged resources and no deletions. Live dependency repair and the Todo lifecycle remain to be verified after deployment.

@@ -23,7 +23,8 @@
     "postinstall": "bash scripts/prepare-workerd.sh",
     "prepare": "lefthook install",
     "test:opencode": "bun test tools/runtime-smoke",
-    "smoke:runtime": "node tools/runtime-smoke/run.mjs"
+    "smoke:runtime": "node tools/runtime-smoke/run.mjs",
+    "smoke:ci": "node tools/runtime-smoke/ci-run.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20260901.1",
@@ -67,6 +68,7 @@
   "patchedDependencies": {
     "@opencode-ai/sdk@0.0.0-dev-18308": "patches/@opencode-ai%2Fsdk@0.0.0-dev-18308.patch",
     "@opencode-ai/core@0.0.0-dev-18308": "patches/@opencode-ai%2Fcore@0.0.0-dev-18308.patch",
-    "cursor-opencode-provider@0.6.6": "patches/cursor-opencode-provider@0.6.6.patch"
+    "cursor-opencode-provider@0.6.6": "patches/cursor-opencode-provider@0.6.6.patch",
+    "@cloudflare/ci@0.1.0": "patches/@cloudflare%2Fci@0.1.0.patch"
   }
 }
