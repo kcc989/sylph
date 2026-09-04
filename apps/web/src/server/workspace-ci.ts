@@ -51,6 +51,10 @@ type CiRunnerLogs = {
 
 const isStageName = Schema.is(WorkspaceCheckStageName)
 
+const verificationRunnerConfig = {
+  retries: { limit: 0, delay: 1_000 },
+}
+
 export const installCacheInputs = [
   "package.json",
   "**/package.json",
@@ -151,6 +155,7 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
         const build = await this.#runner(step, install.result, run, "build", {
           name: "build",
           command: requiredScriptCommand("build", "production build"),
+          config: verificationRunnerConfig,
         })
         run = build.run
         const deployment = await this.#runner(
@@ -197,6 +202,7 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
           const stage = await this.#runner(step, parent, run, name, {
             name,
             command: requiredScriptCommand(name, `${name} verification`),
+            config: verificationRunnerConfig,
           })
           run = stage.run
           parent = stage.result
@@ -204,6 +210,7 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
         const build = await this.#runner(step, parent, run, "build", {
           name: "build",
           command: requiredScriptCommand("build", "build verification"),
+          config: verificationRunnerConfig,
         })
         run = build.run
 

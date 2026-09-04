@@ -22,6 +22,22 @@ export class WorkspaceWriteFileInput extends Schema.Class<WorkspaceWriteFileInpu
   content: Schema.String,
 }) {}
 
+export class WorkspaceEditFileInput extends Schema.Class<WorkspaceEditFileInput>(
+  "@sylph/domain/WorkspaceEditFileInput"
+)({
+  path: Schema.NonEmptyString,
+  oldText: Schema.NonEmptyString,
+  newText: Schema.String,
+}) {}
+
+export class WorkspaceEditConflict extends Schema.TaggedError<WorkspaceEditConflict>()(
+  "WorkspaceEditConflict",
+  {
+    path: Schema.String,
+    message: Schema.String,
+  }
+) {}
+
 export class WorkspaceReadFileInput extends Schema.Class<WorkspaceReadFileInput>(
   "@sylph/domain/WorkspaceReadFileInput"
 )({
@@ -47,4 +63,7 @@ export const WorkspaceFilePathJsonSchema = toolJsonSchema(
 )
 export const WorkspaceWriteFileJsonSchema = toolJsonSchema(
   WorkspaceWriteFileInput
+)
+export const WorkspaceEditFileJsonSchema = toolJsonSchema(
+  WorkspaceEditFileInput
 )

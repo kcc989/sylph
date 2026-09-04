@@ -55,6 +55,37 @@ const run = () =>
   })
 
 describe("WorkspaceChecks", () => {
+  test("keeps the newer Check first when an older Check finishes later", () => {
+    const checks = new WorkspaceChecks(new TestSqlStorage())
+    checks.initialize()
+    checks.create(run())
+    const newer = new WorkspaceCheckRun({
+      ...run(),
+      id: "check-2",
+      createdAt: 2,
+      updatedAt: 2,
+      status: "running",
+    })
+    checks.create(newer)
+    checks.apply(
+      new WorkspaceCheckUpdate({
+        callbackId: "check-1:failed:1",
+        run: new WorkspaceCheckRun({
+          ...run(),
+          status: "failed",
+          updatedAt: 3,
+        }),
+      })
+    )
+
+    expect(checks.list().map((check) => check.id)).toEqual([
+      "check-2",
+      "check-1",
+    ])
+    expect(checks.list()[0]).toEqual(newer)
+    expect(checks.get("check-1")?.status).toBe("failed")
+  })
+
   test("applies callbacks once and preserves the structured run", () => {
     const checks = new WorkspaceChecks(new TestSqlStorage())
     checks.initialize()

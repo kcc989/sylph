@@ -15,6 +15,7 @@ import type {
   WorkspaceGitFilesystem,
   WorkspaceStorage,
 } from "./workspace-filesystem"
+import { normalizeWorkspacePath } from "./workspace-filesystem"
 import { artifactAuth } from "./repository-store"
 
 export interface WorkspaceRepositoryHandle {
@@ -116,6 +117,25 @@ export class WorkspaceGit {
     this.#storage.sql.exec(
       "CREATE TABLE IF NOT EXISTS app_workspace_outbox (id TEXT PRIMARY KEY NOT NULL, kind TEXT NOT NULL, payload TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL, completed_at INTEGER)"
     )
+  }
+
+  async readCheckpointFile(pathValue: string) {
+    const path = normalizeWorkspacePath(pathValue)
+    if (!path || isRepositoryMetadata(path)) {
+      throw new Error("Choose a source file inside the Workspace")
+    }
+    const commit = await git.resolveRef({
+      fs: this.#filesystem,
+      dir: directory,
+      ref: "HEAD",
+    })
+    const { blob } = await git.readBlob({
+      fs: this.#filesystem,
+      dir: directory,
+      oid: commit,
+      filepath: path,
+    })
+    return { commit, content: blob }
   }
 
   async hydrate(input: {

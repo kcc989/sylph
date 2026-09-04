@@ -194,6 +194,7 @@ export class WorkspaceChecks {
       )
       .toArray()
       .map((row) => decodeWorkspaceCheckRun(JSON.parse(row.payload)))
+      .sort((left, right) => right.createdAt - left.createdAt)
   }
 
   retry(runId: string, idempotencyKey: string) {

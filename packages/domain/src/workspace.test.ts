@@ -24,7 +24,10 @@ import {
   WorkspaceSocketServerFrame,
 } from "./conversation"
 import { InstallationClaimInput } from "./installation"
-import { WorkspaceWriteFileInput } from "./workspace-files"
+import {
+  WorkspaceEditFileInput,
+  WorkspaceWriteFileInput,
+} from "./workspace-files"
 import {
   WorkspaceCheckpointInput,
   WorkspaceVersionControl,
@@ -194,6 +197,16 @@ describe("Project and runtime inputs", () => {
     await expect(
       decodeWorkspaceWriteFile({ path: "", content: "hello" })
     ).rejects.toBeDefined()
+  })
+
+  test("requires nonempty edit context and permits deleting matched text", () => {
+    const decode = Schema.decodeUnknownSync(WorkspaceEditFileInput)
+    expect(() =>
+      decode({ path: "bun.lock", oldText: "", newText: "new" })
+    ).toThrow()
+    expect(
+      decode({ path: "bun.lock", oldText: "old", newText: "" }).newText
+    ).toBe("")
   })
 
   test("decodes a Workspace for an existing Project", async () => {
