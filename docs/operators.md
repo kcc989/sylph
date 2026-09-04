@@ -50,6 +50,19 @@ If you would rather not grant Account API Tokens Write, create the runtime token
 
 ## What the first deployment creates
 
+Cursor connections add a `Cursor` container application and Durable Object
+binding. Alchemy builds its Node image with Docker and publishes it to your
+Cloudflare registry. It uses `basic` instances, a maximum of ten instances, and
+a twenty-minute idle timeout. Active Cursor users can therefore add container
+compute costs. Existing Containers and registry access are required.
+
+Upgrades reuse `CREDENTIAL_ENCRYPTION_KEY`; no new secret or database migration
+is required. The key also encrypts per-user Cursor OAuth state in Durable Object
+storage. Users connect their own subscriptions under **User settings → Cursor
+subscription**. This uses a community Cursor provider, not an official Cursor
+API integration. See [Cursor verification and limits](smoke-tests/cursor-provider.md)
+before enabling it for users.
+
 All resources are created in your account under the Alchemy stage `prod`.
 
 | Resource                  | Notes                                                                                                   |

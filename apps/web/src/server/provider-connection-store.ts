@@ -165,7 +165,7 @@ const saveProviderModels = async ({
 
 export const saveProviderConnection = async (
   input: Parameters<typeof saveProviderModels>[0] & {
-    authMethod: "api-key" | "chatgpt-subscription"
+    authMethod: "api-key" | "chatgpt-subscription" | "cursor-subscription"
     credential: string
     encryptionSecret: string
   }

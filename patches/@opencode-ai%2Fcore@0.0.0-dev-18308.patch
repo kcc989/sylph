@@ -72,3 +72,24 @@ index 97846c0cb44431280f049ee1487d7cf323cfd576..a3d5fec8ca72c7a72650408ddc5c29bd
        yield* writeCache(text);
        yield* invalidate;
        yield* bus.publish(ModelsDev.Event.Refreshed, {});
+diff --git a/dist/chunks/reference-1dtpyw9b.js b/dist/chunks/reference-1dtpyw9b.js
+index 784c3e6382ad8bb855a9297571705293d09ea717..2b0d3ce125904b7d2ce7c98411e1397a6670cb4d 100644
+--- a/dist/chunks/reference-1dtpyw9b.js
++++ b/dist/chunks/reference-1dtpyw9b.js
+@@ -360,7 +360,7 @@ var pre = [
+   exports_hg.Plugin,
+   ...exports_system_prompt.Plugins,
+   ModelsDevPlugin,
+-  ...ProviderPlugins,
++  ...ProviderPlugins.filter((plugin) => plugin.id !== "opencode.provider.dynamic"),
+   ...WebSearchPlugins,
+   exports_patch.Plugin,
+   exports_edit.Plugin,
+@@ -377,6 +377,7 @@ var pre = [
+   exports_warming.Plugin
+ ];
+ var post = [
++  ...ProviderPlugins.filter((plugin) => plugin.id === "opencode.provider.dynamic"),
+   exports_instruction.Plugin,
+   exports_reference2.Plugin,
+   exports_agent2.Plugin,

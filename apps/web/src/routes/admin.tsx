@@ -55,12 +55,18 @@ export const Route = createFileRoute("/admin")({
 })
 
 const authMethodName = (authMethod: string) =>
-  authMethod === "chatgpt-subscription" ? "Codex subscription" : "API key"
+  authMethod === "cursor-subscription"
+    ? "Cursor subscription"
+    : authMethod === "chatgpt-subscription"
+      ? "Codex subscription"
+      : "API key"
 
 const connectionName = (providerId: string, authMethod: string) =>
-  authMethod === "chatgpt-subscription"
-    ? "ChatGPT subscription"
-    : (findProviderOption(providerId)?.name ?? providerId)
+  providerId === "cursor"
+    ? "Cursor subscription"
+    : authMethod === "chatgpt-subscription"
+      ? "ChatGPT subscription"
+      : (findProviderOption(providerId)?.name ?? providerId)
 
 type SetupFlow = "list" | "choose" | "openai" | "subscription" | "key"
 
@@ -269,6 +275,10 @@ function OrganizationSettingsScreen() {
     setError(null)
     setApiKey("")
     setAccountId("")
+    if (connection.providerId === "cursor") {
+      window.location.assign("/settings")
+      return
+    }
     if (connection.authMethod === "chatgpt-subscription") {
       setFlow("openai")
       return

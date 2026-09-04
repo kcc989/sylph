@@ -1,0 +1,16 @@
+.git
+.env
+.env.*
+**/.env
+**/.env.*
+**/node_modules
+**/dist
+.alchemy
+.codex
+.agents
+.agent
+.claude
+**/.output
+**/.turbo
+**/test-results
+**/playwright-report

@@ -283,6 +283,13 @@ export const disconnectOpenCodeConnection = createServerFn({ method: "POST" })
   .validator((input) => decodeDisconnectOpenCodeConnectionInputPromise(input))
   .handler(async ({ data, context }) => {
     const { database, user } = context
+    if (data.providerId === "cursor") {
+      if (data.scope !== "user")
+        throw new InvalidRequest({
+          message: "Cursor subscriptions are personal connections",
+        })
+      await env.CURSOR.get(env.CURSOR.idFromName(user.id)).disconnect()
+    }
     if (data.scope === "organization") {
       await database
         .delete(schema.openCodeConnection)
