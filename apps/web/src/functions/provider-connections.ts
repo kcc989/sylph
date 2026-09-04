@@ -1,3 +1,5 @@
+import { env } from "cloudflare:workers"
+import { saveProviderConnection } from "@/server/provider-connection-store"
 import { createServerFn } from "@tanstack/react-start"
 import { schema } from "@workspace/db"
 import {
@@ -11,7 +13,6 @@ import {
   OrganizationRequestInput,
   SetDefaultModelInput,
 } from "@workspace/domain"
-import { env } from "cloudflare:workers"
 import { and, desc, eq } from "drizzle-orm"
 
 import { connectionManager, organizationMember } from "@/functions/middleware"
@@ -20,7 +21,6 @@ import {
   encodeKeyCredential,
   normalizeProviderApiKey,
 } from "@/lib/provider-credential"
-import { encryptCredential } from "@/server/credentials.server"
 import { isOrganizationAdmin } from "@/server/organization-access"
 import {
   ProviderApiKeyValidationError,
@@ -29,7 +29,6 @@ import {
 import {
   connectionRuntimeName,
   effectiveConnection,
-  saveProviderModels,
   subscriptionProviderId,
 } from "@/server/provider-connections"
 import { workspaceRuntime } from "@/server/workspace-runtime"
@@ -372,69 +371,15 @@ export const saveOpenCodeSetup = createServerFn({ method: "POST" })
     )
     const result = await runtime.connectKey({ ...data, apiKey })
 
-    const credential = await encryptCredential(
-      encodeKeyCredential(apiKey, data.configuration),
-      env.CREDENTIAL_ENCRYPTION_KEY
-    )
-    const now = new Date()
-    if (data.scope === "organization") {
-      await database
-        .insert(schema.openCodeConnection)
-        .values({
-          organizationId: data.organizationId,
-          configuredByUserId: user.id,
-          providerId: data.providerId,
-          authMethod: "api-key",
-          encryptedCredential: credential.encrypted,
-          encryptionIv: credential.iv,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .onConflictDoUpdate({
-          target: [
-            schema.openCodeConnection.organizationId,
-            schema.openCodeConnection.providerId,
-          ],
-          set: {
-            configuredByUserId: user.id,
-            authMethod: "api-key",
-            encryptedCredential: credential.encrypted,
-            encryptionIv: credential.iv,
-            updatedAt: now,
-          },
-        })
-    } else {
-      await database
-        .insert(schema.userOpenCodeConnection)
-        .values({
-          userId: user.id,
-          providerId: data.providerId,
-          authMethod: "api-key",
-          encryptedCredential: credential.encrypted,
-          encryptionIv: credential.iv,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .onConflictDoUpdate({
-          target: [
-            schema.userOpenCodeConnection.userId,
-            schema.userOpenCodeConnection.providerId,
-          ],
-          set: {
-            authMethod: "api-key",
-            encryptedCredential: credential.encrypted,
-            encryptionIv: credential.iv,
-            updatedAt: now,
-          },
-        })
-    }
-
-    const availableModelCount = await saveProviderModels({
+    const availableModelCount = await saveProviderConnection({
       database,
       organizationId: data.organizationId,
       userId: user.id,
       scope: data.scope,
       providerId: data.providerId,
+      authMethod: "api-key",
+      credential: encodeKeyCredential(apiKey, data.configuration),
+      encryptionSecret: env.CREDENTIAL_ENCRYPTION_KEY,
       models: result.models,
       recommendedModelId: result.recommendedModelId,
     })
@@ -489,69 +434,15 @@ export const getOpenCodeSubscriptionStatus = createServerFn({ method: "POST" })
       })
     }
 
-    const encrypted = await encryptCredential(
-      JSON.stringify(result.credential),
-      env.CREDENTIAL_ENCRYPTION_KEY
-    )
-    const now = new Date()
-    if (data.scope === "organization") {
-      await database
-        .insert(schema.openCodeConnection)
-        .values({
-          organizationId: data.organizationId,
-          configuredByUserId: user.id,
-          providerId: subscriptionProviderId,
-          authMethod: "chatgpt-subscription",
-          encryptedCredential: encrypted.encrypted,
-          encryptionIv: encrypted.iv,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .onConflictDoUpdate({
-          target: [
-            schema.openCodeConnection.organizationId,
-            schema.openCodeConnection.providerId,
-          ],
-          set: {
-            configuredByUserId: user.id,
-            authMethod: "chatgpt-subscription",
-            encryptedCredential: encrypted.encrypted,
-            encryptionIv: encrypted.iv,
-            updatedAt: now,
-          },
-        })
-    } else {
-      await database
-        .insert(schema.userOpenCodeConnection)
-        .values({
-          userId: user.id,
-          providerId: subscriptionProviderId,
-          authMethod: "chatgpt-subscription",
-          encryptedCredential: encrypted.encrypted,
-          encryptionIv: encrypted.iv,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .onConflictDoUpdate({
-          target: [
-            schema.userOpenCodeConnection.userId,
-            schema.userOpenCodeConnection.providerId,
-          ],
-          set: {
-            authMethod: "chatgpt-subscription",
-            encryptedCredential: encrypted.encrypted,
-            encryptionIv: encrypted.iv,
-            updatedAt: now,
-          },
-        })
-    }
-
-    await saveProviderModels({
+    await saveProviderConnection({
       database,
       organizationId: data.organizationId,
       userId: user.id,
       scope: data.scope,
       providerId: subscriptionProviderId,
+      authMethod: "chatgpt-subscription",
+      credential: JSON.stringify(result.credential),
+      encryptionSecret: env.CREDENTIAL_ENCRYPTION_KEY,
       models: result.models,
       recommendedModelId: result.recommendedModelId ?? null,
     })

@@ -1,4 +1,3 @@
-import type { SearchResult } from "@workspace/domain"
 import {
   Blocks,
   CircleDot,
@@ -34,6 +33,7 @@ import {
   type CommandPaletteIcon,
   type CommandPaletteSelection,
   type RecentItem,
+  type SearchResultView,
 } from "@workspace/ui/lib/command-palette"
 import { cn } from "@workspace/ui/lib/utils"
 import {
@@ -61,12 +61,12 @@ type CommandPaletteProps = {
   loading: boolean
   error?: string | null
   commands: ReadonlyArray<CommandItem>
-  results: ReadonlyArray<SearchResult>
+  results: ReadonlyArray<SearchResultView>
   recent: ReadonlyArray<RecentItem>
   onSelect: (item: CommandPaletteSelection) => void
 }
 
-const resultDescription = (result: SearchResult) => {
+const resultDescription = (result: SearchResultView) => {
   if (result.kind === "project") return result.slug
   if (result.kind === "issue") {
     return `${result.projectName} · #${result.number} · ${result.status}`

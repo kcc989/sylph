@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start"
 import { schema } from "@workspace/db"
 import {
   AccessDenied,
+  workspaceAcceptance,
   failureMessage,
   InitializeWorkspaceRuntime,
   OrganizationId,
@@ -66,7 +67,6 @@ import {
   readWorkspaceVersionControlSnapshot,
   waitForWorkspaceVersionControl,
 } from "@/server/workspace-repository-refresh"
-import { reviewAllowsAcceptance } from "@/server/workspace-review"
 import { loadWorkspaceReview } from "@/server/workspace-review-store"
 import {
   completeWorkspaceInitialization,
@@ -772,51 +772,25 @@ export const acceptWorkspace = createServerFn({ method: "POST" })
       requireVersionControlSnapshot(data.workspaceId, true),
       runtime.listChecks(),
     ])
-    if (
-      !snapshot.opencode.healthy ||
-      snapshot.status === "running" ||
-      versionControl.working.length
-    ) {
-      throw new PreconditionFailed({
-        message: "Checkpoint all changes and pass checks before accepting",
-      })
-    }
-    const passingCheck = checks.find(
-      (run) =>
-        run.kind === "checkpoint" &&
-        run.commit === versionControl.forkHead &&
-        run.status === "passed"
-    )
-    if (!passingCheck) {
-      throw new PreconditionFailed({
-        message:
-          "The latest Checkpoint must pass its Check, Preview, and browser verification before acceptance",
-      })
-    }
-    if (versionControl.projectChanged) {
-      throw new PreconditionFailed({
-        message:
-          "Update this Workspace from the Project Repository, resolve any conflicts, and run a new Check before acceptance",
-      })
-    }
     const review = await loadWorkspaceReview(
       database,
       data.workspaceId,
       versionControl.forkHead
     )
-    if (
-      !reviewAllowsAcceptance({
-        decision: review.decision,
-        reviewCommit: review.commit,
-        forkHead: versionControl.forkHead,
-        unresolvedComments: review.comments.filter(
-          (comment) => comment.resolvedAt === null
-        ).length,
-      })
-    ) {
-      throw new PreconditionFailed({
-        message: "Approve the current Workspace review before accepting",
-      })
+    const acceptance = workspaceAcceptance({
+      versionControl,
+      checks,
+      workspaceStatus: workspace.status,
+      reviewDecision: review.decision,
+      reviewCommit: review.commit,
+      unresolvedComments: review.comments.filter(
+        (comment) => comment.resolvedAt === null
+      ).length,
+      turnActive: snapshot.status === "running",
+      runtimeHealthy: snapshot.opencode.healthy,
+    })
+    if (!acceptance.ready) {
+      throw new PreconditionFailed({ message: acceptance.blockers.join(" ") })
     }
 
     const operationId = `${data.workspaceId}-${data.idempotencyKey}`

@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test"
-import { IssueId, ProjectId, WorkspaceId } from "@workspace/domain"
 
 import {
   filterCommandItems,
@@ -39,14 +38,14 @@ describe("command palette grouping", () => {
     const grouped = groupSearchResults([
       {
         kind: "project",
-        id: ProjectId.make("project"),
+        id: "project",
         name: "Sylph",
         slug: "sylph",
       },
       {
         kind: "workspace",
-        id: WorkspaceId.make("workspace"),
-        projectId: ProjectId.make("project"),
+        id: "workspace",
+        projectId: "project",
         projectSlug: "sylph",
         projectName: "Sylph",
         title: "Search",
@@ -54,8 +53,8 @@ describe("command palette grouping", () => {
       },
       {
         kind: "issue",
-        id: IssueId.make("issue"),
-        projectId: ProjectId.make("project"),
+        id: "issue",
+        projectId: "project",
         projectSlug: "sylph",
         projectName: "Sylph",
         number: 1,

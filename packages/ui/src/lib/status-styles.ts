@@ -1,4 +1,15 @@
-import type { IssueStatus, WorkspaceStatus } from "@workspace/domain"
+type WorkspaceStatus =
+  | "provisioning"
+  | "ready"
+  | "running"
+  | "waiting"
+  | "idle"
+  | "interrupted"
+  | "merging"
+  | "archived"
+  | "error"
+
+type IssueStatus = "open" | "closed"
 
 export const workspaceStatusStyles = {
   provisioning: "text-amber-400",

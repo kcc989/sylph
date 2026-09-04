@@ -1,16 +1,23 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { expect, fn, userEvent, within } from "storybook/test"
+import type { ComponentProps } from "react"
 
 import { defaultPatch } from "@workspace/ui/components/code-review"
 import {
   BrowserPreview,
-  DeploymentsSurface,
-  FilesSurface,
-  ProjectRail,
   ReviewNotesSurface,
   ReviewSurface,
-  WorkspaceShell,
-  fallbackProjects,
+  WorkspaceChat,
+  WorkspacePanes,
+  WorkspaceRoot,
+  WorkspaceToolPane,
+  WorkspaceTopbar,
 } from "@workspace/ui/components/workspace-shell"
+import {
+  workspaceBrowser,
+  workspaceChecks,
+  workspaceEntries,
+} from "./workspace/fixtures"
 
 function DemoPreview() {
   return (
@@ -47,15 +54,72 @@ function DemoPreview() {
   )
 }
 
+type WorkspaceStoryProps = {
+  workspaceId: string
+  projectName: string
+  repositoryName: string
+  workspaceName: string
+} & Partial<
+  ComponentProps<typeof WorkspaceTopbar> &
+    ComponentProps<typeof WorkspaceChat> &
+    ComponentProps<typeof WorkspaceToolPane>
+>
+
+function WorkspaceStory(props: WorkspaceStoryProps) {
+  const browser = props.browser ?? workspaceBrowser
+  const checks = props.checks ?? workspaceChecks
+
+  return (
+    <WorkspaceRoot workspaceId={props.workspaceId}>
+      <WorkspaceTopbar
+        {...props}
+        acceptDisabled={!props.onAccept}
+        acceptPending={false}
+        agentControllingBrowser={props.agentControllingBrowser ?? false}
+        archivePending={false}
+        browser={browser}
+        checkpointDisabled={!props.onCheckpoint}
+        checkpointPending={false}
+        checks={checks}
+        discardPending={false}
+        projectName={props.projectName}
+        rebasePending={false}
+        repositoryName={props.repositoryName}
+        restartPending={false}
+        workspaceName={props.workspaceName}
+      />
+      <WorkspacePanes
+        chat={
+          <WorkspaceChat
+            {...props}
+            cancelTurnPending={false}
+            entries={props.entries ?? workspaceEntries}
+            models={props.models ?? []}
+            permissionRequests={props.permissionRequests ?? []}
+            promptPending={false}
+            questions={props.questions ?? []}
+            queuedMessages={props.queuedMessages ?? []}
+            restartPending={false}
+            skills={props.skills ?? []}
+            turnActive={props.turnActive ?? false}
+            turnInterrupted={props.turnInterrupted ?? false}
+          />
+        }
+      >
+        <WorkspaceToolPane {...props} browser={browser} checks={checks} />
+      </WorkspacePanes>
+    </WorkspaceRoot>
+  )
+}
+
 const meta = {
   title: "Workspace/Workspace shell",
-  component: WorkspaceShell,
+  component: WorkspaceStory,
   parameters: {
     viewport: { defaultViewport: "responsive" },
   },
   args: {
     workspaceId: "storybook-workspace",
-    organization: "Folk Hero",
     projectName: "Sylph",
     repositoryName: "sylph",
     workspaceName: "Browser preview shell",
@@ -64,7 +128,9 @@ const meta = {
     changedFileCount: 4,
     previewContent: <DemoPreview />,
     agentControllingBrowser: true,
-    demo: true,
+    browser: workspaceBrowser,
+    checks: workspaceChecks,
+    entries: workspaceEntries,
     models: [
       {
         providerId: "openrouter",
@@ -99,13 +165,31 @@ const meta = {
       providerId: "openrouter",
       modelId: "aion/aion-2.0",
     },
+    onAccept: fn(async () => undefined),
+    onCheckpoint: fn(async () => undefined),
+    onRestartWorkspace: fn(async () => undefined),
   },
-} satisfies Meta<typeof WorkspaceShell>
+} satisfies Meta<typeof WorkspaceStory>
 
 export default meta
 type Story = StoryObj<typeof meta>
 
-export const TabbedWorkspace: Story = {}
+export const TabbedWorkspace: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.getByLabelText("Message the agent")).toBeVisible()
+    await expect(canvas.getByLabelText("Send message")).toBeVisible()
+    await expect(canvas.getByLabelText("Model for next turn")).toBeVisible()
+    await expect(
+      canvas.getByRole("button", { name: "Checkpoint" })
+    ).toBeVisible()
+    const closeTools = canvas.queryByLabelText("Hide tool sidebar")
+    if (closeTools) await userEvent.click(closeTools)
+    await userEvent.click(canvas.getByLabelText("Open tool sidebar"))
+    await expect(canvas.getByLabelText("Open tool tab")).toBeVisible()
+    await expect(canvas.getByLabelText("More workspace actions")).toBeVisible()
+  },
+}
 
 export const WaitingForAgent: Story = {
   args: {
@@ -196,18 +280,6 @@ export const Compact: Story = {
   },
 }
 
-export const ProjectNavigator: Story = {
-  render: () => (
-    <div className="h-[760px] w-[268px]">
-      <ProjectRail
-        organization="Folk Hero"
-        projects={fallbackProjects}
-        workspaceName="Browser preview shell"
-      />
-    </div>
-  ),
-}
-
 export const BrowserSurface: Story = {
   render: () => (
     <div className="h-[640px]">
@@ -217,81 +289,6 @@ export const BrowserSurface: Story = {
           title: "Build, preview, and verify in one durable workspace.",
           status: "live",
         }}
-      />
-    </div>
-  ),
-}
-
-export const FilesToolSurface: Story = {
-  render: () => (
-    <div className="h-[640px]">
-      <FilesSurface
-        fileChanges={[
-          { file: "apps/web/src/routes/index.tsx", status: "modified" },
-          { file: "packages/ui/src/components/new-file.tsx", status: "added" },
-          { file: "README.old.md", status: "deleted" },
-        ]}
-        files={[
-          "apps/web/src/routes/index.tsx",
-          "packages/ui/src/components/button.tsx",
-          "packages/ui/src/components/new-file.tsx",
-          "package.json",
-        ]}
-        onReadFile={async (path) => ({
-          path,
-          size: 68,
-          updatedAt: Date.now(),
-          encoding: "utf8",
-          content: `export function WorkspaceFile() {\n  return <main>${path}</main>\n}\n`,
-        })}
-      />
-    </div>
-  ),
-}
-
-export const DeploymentsToolSurface: Story = {
-  render: () => (
-    <div className="h-[640px]">
-      <DeploymentsSurface
-        acceptedCommit="bfd041e99a5ce7db0b13822b8e8b742ea3204bf2"
-        canDeploy
-        deployments={{
-          acceptedCommits: [
-            {
-              commit: "bfd041e99a5ce7db0b13822b8e8b742ea3204bf2",
-              acceptedAt: Date.now(),
-            },
-            {
-              commit: "892ac4b992cd79855ec8aa0191d4fc0ab6516531",
-              acceptedAt: Date.now() - 86_400_000,
-            },
-          ],
-          deployments: [
-            {
-              id: "deployment-1",
-              commit: "bfd041e99a5ce7db0b13822b8e8b742ea3204bf2",
-              status: "running",
-              productionUrl: null,
-              actorName: "Casey Collins",
-              failureDetails: null,
-              startedAt: Date.now(),
-              completedAt: null,
-              createdAt: Date.now(),
-            },
-            {
-              id: "deployment-2",
-              commit: "892ac4b992cd79855ec8aa0191d4fc0ab6516531",
-              status: "succeeded",
-              productionUrl: "https://example.com",
-              actorName: "Casey Collins",
-              failureDetails: null,
-              startedAt: Date.now() - 86_400_000,
-              completedAt: Date.now() - 86_340_000,
-              createdAt: Date.now() - 86_400_000,
-            },
-          ],
-        }}
-        onDeploy={async () => undefined}
       />
     </div>
   ),
@@ -347,160 +344,4 @@ export const ReviewWorkflow: Story = {
       />
     </div>
   ),
-}
-
-const completedTool = {
-  status: "completed" as const,
-  outputTruncated: false,
-  files: [],
-  error: null,
-}
-
-export const RunningToolCall: Story = {
-  args: {
-    entries: [
-      {
-        id: "tool-running",
-        kind: "tool",
-        body: "",
-        tool: {
-          id: "tool-running",
-          name: "workspace_read_file",
-          status: "running",
-          input: { path: "apps/web/src/routes/index.tsx" },
-          output: "",
-          outputTruncated: false,
-          files: [],
-          error: null,
-        },
-      },
-    ],
-    turnActive: true,
-  },
-}
-
-export const CompletedToolCall: Story = {
-  args: {
-    entries: [
-      {
-        id: "tool-completed",
-        kind: "tool",
-        body: "",
-        tool: {
-          id: "tool-completed",
-          name: "workspace_write_file",
-          input: {
-            path: "apps/web/src/routes/index.tsx",
-            content: "export function Home() {\n  return <main>Ready</main>\n}",
-          },
-          output: "Wrote apps/web/src/routes/index.tsx",
-          ...completedTool,
-        },
-      },
-    ],
-  },
-}
-
-export const ErrorToolCall: Story = {
-  args: {
-    entries: [
-      {
-        id: "tool-error",
-        kind: "tool",
-        body: "",
-        tool: {
-          id: "tool-error",
-          name: "workspace_run_checks",
-          status: "error",
-          input: {},
-          output: "Typecheck failed in apps/web/src/routes/index.tsx",
-          outputTruncated: false,
-          files: [],
-          error: "Checks did not pass.",
-        },
-      },
-    ],
-  },
-}
-
-export const DiffToolCall: Story = {
-  args: {
-    entries: [
-      {
-        id: "tool-diff",
-        kind: "tool",
-        body: "",
-        tool: {
-          id: "tool-diff",
-          name: "workspace_diff",
-          input: { scope: "working" },
-          output: "",
-          detail: {
-            kind: "diff",
-            files: [
-              {
-                file: "apps/web/src/routes/workspaces/$workspaceId.tsx",
-                status: "modified",
-                additions: 3,
-                deletions: 1,
-                patch: defaultPatch,
-              },
-            ],
-          },
-          ...completedTool,
-        },
-      },
-    ],
-  },
-}
-
-export const BrowserToolCall: Story = {
-  args: {
-    entries: [
-      {
-        id: "tool-browser",
-        kind: "tool",
-        body: "",
-        tool: {
-          id: "tool-browser",
-          name: "workspace_browser",
-          input: { path: "/login" },
-          output: "",
-          detail: {
-            kind: "browser",
-            url: "https://preview.example.com/login",
-            evidence: [
-              {
-                id: "preview-shot",
-                kind: "screenshot",
-                label: "Login Preview",
-                url: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 800 450'%3E%3Crect width='800' height='450' fill='%23f6f2ec'/%3E%3Crect x='250' y='70' width='300' height='310' rx='18' fill='%23ffffff' stroke='%23d8d0c7'/%3E%3Ctext x='400' y='160' text-anchor='middle' font-family='sans-serif' font-size='32' fill='%23201d19'%3EWelcome back%3C/text%3E%3Crect x='300' y='210' width='200' height='42' rx='6' fill='%23eee8e1'/%3E%3Crect x='300' y='272' width='200' height='42' rx='6' fill='%23ee715d'/%3E%3C/svg%3E",
-              },
-            ],
-            markdown: "# Welcome back\n\nSign in to continue to your Project.",
-            accessibility:
-              "document Login\n  heading Welcome back\n  button Sign in",
-          },
-          ...completedTool,
-        },
-      },
-    ],
-  },
-}
-
-export const FoldedToolCalls: Story = {
-  args: {
-    entries: Array.from({ length: 7 }, (_, index) => ({
-      id: `folded-tool-${index}`,
-      kind: "tool" as const,
-      body: "",
-      tool: {
-        id: `folded-tool-${index}`,
-        name: "workspace_read_file",
-        input: { path: `src/file-${index}.ts` },
-        output: `Contents of src/file-${index}.ts`,
-        ...completedTool,
-      },
-    })),
-  },
 }

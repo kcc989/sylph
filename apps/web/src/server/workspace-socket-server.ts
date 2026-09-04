@@ -1,20 +1,11 @@
 import {
   WorkspaceRuntimeEvent,
+  WorkspaceSocketAttachment,
   type WorkspacePresenceUser,
   type WorkspaceSocketServerFrame,
 } from "@workspace/domain"
 import { Option, Schema } from "effect"
 
-export const WorkspaceSocketAttachment = Schema.Struct({
-  userId: Schema.NonEmptyString,
-  name: Schema.NonEmptyString,
-  writable: Schema.Boolean,
-  connectedAt: Schema.Number,
-  sessionId: Schema.NullOr(Schema.NonEmptyString),
-  cursor: Schema.NullOr(Schema.Int),
-  synced: Schema.Boolean,
-})
-export type WorkspaceSocketAttachment = typeof WorkspaceSocketAttachment.Type
 export const decodeWorkspaceSocketAttachment = Schema.decodeUnknownSync(
   WorkspaceSocketAttachment
 )
@@ -119,3 +110,5 @@ export const encodeWorkspaceSocketFrame = (
   }
   return truncated
 }
+
+export { WorkspaceSocketAttachment } from "@workspace/domain"

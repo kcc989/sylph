@@ -402,3 +402,14 @@ export class WorkspaceTurnCancelResult extends Schema.Class<WorkspaceTurnCancelR
 )({
   interrupted: Schema.Boolean,
 }) {}
+
+export const WorkspaceSocketAttachment = Schema.Struct({
+  userId: Schema.NonEmptyString,
+  name: Schema.NonEmptyString,
+  writable: Schema.Boolean,
+  connectedAt: Schema.Number,
+  sessionId: Schema.NullOr(Schema.NonEmptyString),
+  cursor: Schema.NullOr(Schema.Int),
+  synced: Schema.Boolean,
+})
+export type WorkspaceSocketAttachment = typeof WorkspaceSocketAttachment.Type

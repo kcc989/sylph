@@ -1,4 +1,33 @@
-import type { SearchResult } from "@workspace/domain"
+export type SearchResultView =
+  | { kind: "project"; id: string; name: string; slug: string }
+  | {
+      kind: "workspace"
+      id: string
+      projectId: string
+      projectSlug: string
+      projectName: string
+      title: string
+      status:
+        | "provisioning"
+        | "ready"
+        | "running"
+        | "waiting"
+        | "idle"
+        | "interrupted"
+        | "merging"
+        | "archived"
+        | "error"
+    }
+  | {
+      kind: "issue"
+      id: string
+      projectId: string
+      projectSlug: string
+      projectName: string
+      number: number
+      title: string
+      status: "open" | "closed"
+    }
 
 export type CommandPaletteIcon =
   | "admin"
@@ -45,7 +74,10 @@ export type RecentItem = {
   destination: CommandPaletteDestination
 }
 
-export type CommandPaletteSelection = CommandItem | RecentItem | SearchResult
+export type CommandPaletteSelection =
+  | CommandItem
+  | RecentItem
+  | SearchResultView
 
 export const filterCommandItems = (
   query: string,
@@ -61,7 +93,9 @@ export const filterCommandItems = (
   )
 }
 
-export const groupSearchResults = (results: ReadonlyArray<SearchResult>) => ({
+export const groupSearchResults = (
+  results: ReadonlyArray<SearchResultView>
+) => ({
   projects: results.filter((result) => result.kind === "project"),
   workspaces: results.filter((result) => result.kind === "workspace"),
   issues: results.filter((result) => result.kind === "issue"),

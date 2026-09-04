@@ -5,7 +5,7 @@ import {
   WorkspaceTextDeltaEventData,
   WorkspaceTextEndedEventData,
 } from "@workspace/domain"
-import type { WorkspacePermissionRequest } from "@workspace/ui/components/workspace-shell"
+import type { WorkspacePermissionRequest } from "@workspace/ui/components/workspace/types"
 import { Schema } from "effect"
 
 const decodeWorkspacePermissionAskedEventDataPromise =

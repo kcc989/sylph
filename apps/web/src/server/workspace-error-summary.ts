@@ -1,3 +1,18 @@
+import { Schema } from "effect"
+
+const providerFailureMessage = Schema.Struct({ message: Schema.String })
+const wrappedProviderFailureMessage = Schema.Struct({
+  error: providerFailureMessage,
+})
+
+export const providerFailureDetail = (cause: unknown): string | null => {
+  if (cause instanceof Error) return cause.message
+  if (Schema.is(providerFailureMessage)(cause)) return cause.message
+  if (Schema.is(wrappedProviderFailureMessage)(cause))
+    return cause.error.message
+  return Schema.is(Schema.String)(cause) ? cause : null
+}
+
 interface ProviderRequestFailure {
   readonly _tag: "InvalidRequestError"
   readonly message: string
