@@ -7,7 +7,7 @@ import { fetchOpenCodeProviderModels } from "@/lib/provider-catalog"
 import {
   replaceOrganizationProviderModels,
   replaceUserProviderModels,
-} from "@/server/provider-connections"
+} from "@/server/provider-connection-store"
 
 export const refreshProviderCatalogs = async () => {
   const providerId = "openrouter"

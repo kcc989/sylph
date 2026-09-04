@@ -1,4 +1,4 @@
-import type { SearchResult } from "@workspace/domain"
+import type { SearchResultView } from "@workspace/ui/lib/command-palette"
 import type {
   CommandItem,
   CommandPaletteDestination,
@@ -75,7 +75,7 @@ const destinationToRouter = (
 }
 
 export const commandPaletteDestination = (
-  item: CommandItem | RecentItem | SearchResult
+  item: CommandItem | RecentItem | SearchResultView
 ): RouterDestination | null => {
   if (item.kind === "recent") return destinationToRouter(item.destination)
   if (item.kind === "command") {

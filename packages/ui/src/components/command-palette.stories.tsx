@@ -1,14 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import {
-  IssueId,
-  ProjectId,
-  WorkspaceId,
-  type SearchResult,
-} from "@workspace/domain"
 import { useState, type ComponentProps } from "react"
 
 import { CommandPalette } from "@workspace/ui/components/command-palette"
-import type { CommandItem, RecentItem } from "@workspace/ui/lib/command-palette"
+import type {
+  CommandItem,
+  RecentItem,
+  SearchResultView,
+} from "@workspace/ui/lib/command-palette"
 
 const commands: CommandItem[] = [
   {
@@ -50,17 +48,17 @@ const recent: RecentItem[] = [
   },
 ]
 
-const results: SearchResult[] = [
+const results: SearchResultView[] = [
   {
     kind: "project",
-    id: ProjectId.make("project-1"),
+    id: "project-1",
     name: "Sylph",
     slug: "sylph",
   },
   {
     kind: "workspace",
-    id: WorkspaceId.make("workspace-1"),
-    projectId: ProjectId.make("project-1"),
+    id: "workspace-1",
+    projectId: "project-1",
     projectSlug: "sylph",
     projectName: "Sylph",
     title: "Search functionality",
@@ -68,8 +66,8 @@ const results: SearchResult[] = [
   },
   {
     kind: "workspace",
-    id: WorkspaceId.make("workspace-2"),
-    projectId: ProjectId.make("project-1"),
+    id: "workspace-2",
+    projectId: "project-1",
     projectSlug: "sylph",
     projectName: "Sylph",
     title: "Search exploration",
@@ -77,8 +75,8 @@ const results: SearchResult[] = [
   },
   {
     kind: "issue",
-    id: IssueId.make("issue-1"),
-    projectId: ProjectId.make("project-1"),
+    id: "issue-1",
+    projectId: "project-1",
     projectSlug: "sylph",
     projectName: "Sylph",
     number: 17,

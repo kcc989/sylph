@@ -52,31 +52,28 @@ import {
   WorkspaceCheckpointResult,
   WorkspaceRebaseResult,
   WorkspaceDisconnectUserInput,
-  WorkspaceSocketClientFrame,
-  type WorkspaceSocketServerFrame,
+  type WorkspaceSocketAttachment,
   WorkspaceReadFileInput,
   WorkspaceFileContent,
   WorkspaceFileNotFound,
 } from "@workspace/domain"
 import type { OpenCodeWorkerd } from "@opencode-ai/sdk/workerd"
-import { InvalidRequestError } from "@opencode-ai/protocol/errors"
 import { DurableObject } from "cloudflare:workers"
 import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/durable-sqlite"
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
-import { Schema } from "effect"
+import { Effect, Schema } from "effect"
 
+import { decodeWorkspaceSocketAttachment } from "./workspace-socket-server"
+import { WorkspaceSockets } from "./workspace-sockets"
 import {
-  encodeWorkspaceSocketFrame,
-  decodeWorkspaceSocketAttachment,
-  shouldForwardWorkspaceEvent,
-  workspaceEventCursor,
-  workspaceEventFollowsCursor,
-  workspaceEventSessionId,
-  workspacePresence,
-  type WorkspaceSocketAttachment,
-} from "./workspace-socket-server"
-import { providerConnectionErrorSummary } from "./workspace-error-summary"
+  WorkspaceCredentials,
+  subscriptionCredentialLabel,
+} from "./workspace-credentials"
+import {
+  providerConnectionErrorSummary,
+  providerFailureDetail,
+} from "./workspace-error-summary"
 import {
   createWorkspacePermissionBridge,
   createWorkspacePlugin,
@@ -92,7 +89,6 @@ import {
 } from "./workspace-file-content"
 import { WorkspaceGit } from "./workspace-git"
 import { createOpenCodeWithStorageBootstrap } from "./opencode-storage-bootstrap"
-import { activateCredentialAndWaitForCatalog } from "./opencode-credential-activation"
 import {
   connectOpenCodeKeyCredential,
   OpenCodeCredentialReloadRequired,
@@ -173,16 +169,9 @@ const decodeWorkspaceReadFileInputPromise = Schema.decodeUnknownPromise(
 const decodeWorkspaceRetryCheckInputPromise = Schema.decodeUnknownPromise(
   WorkspaceRetryCheckInput
 )
-const decodeWorkspaceRuntimeEventPromise = Schema.decodeUnknownPromise(
-  WorkspaceRuntimeEvent
-)
-const decodeWorkspaceSocketClientFramePromise = Schema.decodeUnknownPromise(
-  WorkspaceSocketClientFrame
-)
 const decodeWorkspaceDisconnectUserInputPromise = Schema.decodeUnknownPromise(
   WorkspaceDisconnectUserInput
 )
-const decodeSocketTextPromise = Schema.decodeUnknownPromise(Schema.String)
 const decodeWorkspaceRuntimePromptInputPromise = Schema.decodeUnknownPromise(
   WorkspaceRuntimePromptInput
 )
@@ -218,11 +207,6 @@ const maxTurnDurationMs = 15 * 60 * 1000
 const decodePermissionRequests = Schema.decodeUnknownSync(
   Schema.Array(WorkspacePermissionAskedEventData)
 )
-const providerFailureMessage = Schema.Struct({ message: Schema.String })
-const wrappedProviderFailureMessage = Schema.Struct({
-  error: providerFailureMessage,
-})
-
 const appWorkspaceState = sqliteTable("app_workspace_state", {
   workspaceId: text("workspace_id").primaryKey(),
   organizationId: text("organization_id").notNull(),
@@ -294,7 +278,6 @@ const workspaceQuestionField = (field: {
 
 const subscriptionProviderId = "openai"
 const subscriptionMethodId = "chatgpt-headless"
-const subscriptionCredentialLabel = "Sylph connection"
 
 interface WorkspaceBindings extends Cloudflare.Env {
   BROWSER: BrowserRun
@@ -342,12 +325,8 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     active: false,
     accountID: null,
   }
-  #socketSubscriber: Promise<void> | null = null
-  #socketSubscriberAbort: AbortController | null = null
-  readonly #socketPendingEvents = new WeakMap<
-    WebSocket,
-    WorkspaceRuntimeEvent[]
-  >()
+  readonly #credentials
+  readonly #sockets
 
   constructor(context: DurableObjectState, bindings: WorkspaceBindings) {
     super(context, bindings)
@@ -502,6 +481,32 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
 
       return opencode
     })
+    const credentialLayer = WorkspaceCredentials.layer(
+      this.#opencode,
+      context.storage,
+      this.#openAIOAuth
+    )
+    this.#credentials = Effect.runSync(
+      Effect.gen(function* () {
+        return yield* WorkspaceCredentials
+      }).pipe(Effect.provide(credentialLayer))
+    )
+    const socketLayer = WorkspaceSockets.layer(
+      context,
+      this.#opencode,
+      () => this.#database.select().from(appWorkspaceState).get(),
+      (cursor) => {
+        this.#database
+          .update(appWorkspaceState)
+          .set({ eventCursor: cursor })
+          .run()
+      }
+    )
+    this.#sockets = Effect.runSync(
+      Effect.gen(function* () {
+        return yield* WorkspaceSockets
+      }).pipe(Effect.provide(socketLayer))
+    )
   }
 
   async alarm() {
@@ -542,8 +547,10 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       .getWebSockets(`user:${userId}`)
       .sort(
         (left, right) =>
-          this.#attachment(left).connectedAt -
-          this.#attachment(right).connectedAt
+          decodeWorkspaceSocketAttachment(left.deserializeAttachment())
+            .connectedAt -
+          decodeWorkspaceSocketAttachment(right.deserializeAttachment())
+            .connectedAt
       )
     while (existing.length >= 5) {
       existing.shift()?.close(4008, "Workspace connection limit reached")
@@ -565,68 +572,28 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     return new Response(null, { status: 101, webSocket: client })
   }
 
-  async webSocketMessage(socket: WebSocket, message: string | ArrayBuffer) {
-    try {
-      const text = await decodeSocketTextPromise(message)
-      if (new TextEncoder().encode(text).byteLength > 16 * 1024) {
-        this.#sendError(
-          socket,
-          "frame_too_large",
-          "Workspace socket frame exceeds the inbound limit",
-          true
-        )
-        return
-      }
-      const frame = await decodeWorkspaceSocketClientFramePromise(
-        JSON.parse(text)
-      )
-      if (frame.type !== "hello") {
-        this.#sendError(
-          socket,
-          "terminal_unavailable",
-          "Workspace terminals require a separate sandbox connection",
-          false
-        )
-        return
-      }
-      await this.#hello(socket, frame.sessionId, frame.cursor)
-    } catch {
-      this.#sendError(
-        socket,
-        "invalid_frame",
-        "Workspace socket frame is invalid",
-        false
-      )
-    }
+  webSocketMessage(socket: WebSocket, message: string | ArrayBuffer) {
+    return this.#sockets.webSocketMessage(socket, message)
   }
 
   webSocketClose(
     socket: WebSocket,
     code: number,
     reason: string,
-    _wasClean: boolean
+    wasClean: boolean
   ) {
-    socket.close(code, reason)
-    this.#broadcastPresence()
-    if (this.#initializedSockets().length === 0) {
-      this.#socketSubscriberAbort?.abort()
-    }
+    this.#sockets.webSocketClose(socket, code, reason, wasClean)
   }
 
   webSocketError(socket: WebSocket, cause: unknown) {
-    console.error("Workspace socket failed", cause)
-    socket.close(1011, "Workspace socket failed")
-    this.#broadcastPresence()
-    if (this.#initializedSockets().length === 0) {
-      this.#socketSubscriberAbort?.abort()
-    }
+    this.#sockets.webSocketError(socket, cause)
   }
 
   connectKey(input: typeof OpenCodeKeySetupInput.Encoded) {
     return this.#run(async () => {
       const data = await decodeOpenCodeKeySetupInputPromise(input)
       const opencode = await this.#opencode
-      await this.#waitForIntegration(opencode, data.providerId)
+      await this.#credentials.waitForIntegration(data.providerId)
       try {
         await connectOpenCodeKeyCredential(opencode, {
           providerId: data.providerId,
@@ -648,14 +615,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   disconnectUser(input: typeof WorkspaceDisconnectUserInput.Encoded) {
     return this.#run(async () => {
       const data = await decodeWorkspaceDisconnectUserInputPromise(input)
-      for (const socket of this.ctx.getWebSockets(`user:${data.userId}`)) {
-        this.#sendError(
-          socket,
-          "access_revoked",
-          "Workspace access was revoked",
-          true
-        )
-      }
+      this.#sockets.disconnectUser(data.userId)
     })
   }
 
@@ -665,7 +625,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     return this.#run(async () => {
       await decodeOpenCodeSubscriptionStartInputPromise(input)
       const opencode = await this.#opencode
-      await this.#waitForIntegration(opencode, subscriptionProviderId)
+      await this.#credentials.waitForIntegration(subscriptionProviderId)
       const attempt = await opencode.integration.oauth.connect({
         integrationID: subscriptionProviderId,
         methodID: subscriptionMethodId,
@@ -845,9 +805,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           type: "workspace.check.updated",
           data: data.run,
         })
-        for (const socket of this.#initializedSockets()) {
-          this.#send(socket, { type: "event", event })
-        }
+        this.#sockets.broadcast(event)
       }
       if (applied && previous?.status !== data.run.status) {
         await this.#afterCheckUpdate(opencode, data.run).catch((cause) =>
@@ -903,14 +861,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       )
         .bind(state.workspaceId)
         .run()
-      for (const socket of this.#initializedSockets()) {
-        this.#sendError(
-          socket,
-          "workspace_archived",
-          "Workspace was archived",
-          true
-        )
-      }
+      this.#sockets.archive()
       return encodeArchiveResult(new WorkspaceArchiveResult({ archivedAt }))
     })
   }
@@ -1042,8 +993,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       try {
         if (!turnActive) {
           if (state.credentialFingerprint !== nextCredentialFingerprint) {
-            await this.#installCredential(
-              opencode,
+            await this.#credentials.install(
               data.model.providerId,
               data.credential
             )
@@ -1065,14 +1015,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           })
           .run()
       } catch (error) {
-        const detail =
-          error instanceof Error
-            ? error.message
-            : Schema.is(providerFailureMessage)(error)
-              ? error.message
-              : Schema.is(wrappedProviderFailureMessage)(error)
-                ? error.error.message
-                : null
+        const detail = providerFailureDetail(error)
         throw new Error(
           detail
             ? `OpenCode could not use ${data.model.providerId}/${data.model.modelId}: ${detail}`
@@ -1204,12 +1147,14 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           .interrupt({ sessionID: state.sessionId, continue: false })
           .catch(() => undefined)
       }
+      this.#sockets.stop()
       await opencode.close()
       await this.ctx.storage.deleteAll()
     })
   }
 
   evict() {
+    this.#sockets.stop()
     this.ctx.abort("Sylph requested Workspace runtime eviction", {
       retryAlarm: false,
     })
@@ -1671,195 +1616,6 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     return result
   }
 
-  #attachment(socket: WebSocket): WorkspaceSocketAttachment {
-    return decodeWorkspaceSocketAttachment(socket.deserializeAttachment())
-  }
-
-  #initializedSockets() {
-    return this.ctx
-      .getWebSockets()
-      .filter(
-        (socket) =>
-          socket.readyState === WebSocket.OPEN &&
-          Boolean(this.#attachment(socket).sessionId)
-      )
-  }
-
-  #send(socket: WebSocket, frame: WorkspaceSocketServerFrame) {
-    const encoded = encodeWorkspaceSocketFrame(frame)
-    try {
-      socket.send(encoded)
-    } catch {
-      return false
-    }
-    return true
-  }
-
-  #sendError(socket: WebSocket, code: string, message: string, fatal: boolean) {
-    this.#send(socket, { type: "error", code, message, fatal })
-    if (fatal) socket.close(4001, message.slice(0, 120))
-  }
-
-  #broadcastPresence() {
-    const sockets = this.#initializedSockets()
-    const users = workspacePresence(
-      sockets.map((socket) => this.#attachment(socket))
-    )
-    for (const socket of sockets) {
-      this.#send(socket, { type: "presence", users })
-    }
-  }
-
-  async #hello(socket: WebSocket, sessionId: string, cursor: number | null) {
-    const state = this.#database.select().from(appWorkspaceState).get()
-    if (!state?.sessionId) {
-      this.#sendError(
-        socket,
-        "not_initialized",
-        "OpenCode session is not initialized",
-        true
-      )
-      return
-    }
-    if (state.archivedAt !== null) {
-      this.#sendError(
-        socket,
-        "workspace_archived",
-        "Archived Workspaces do not accept live connections",
-        true
-      )
-      return
-    }
-    if (sessionId !== state.sessionId) {
-      this.#sendError(
-        socket,
-        "session_mismatch",
-        "Workspace session does not match",
-        true
-      )
-      return
-    }
-
-    const attachment = this.#attachment(socket)
-    socket.serializeAttachment({
-      ...attachment,
-      sessionId,
-      cursor,
-      synced: false,
-    } satisfies WorkspaceSocketAttachment)
-    this.#socketPendingEvents.set(socket, [])
-    const opencode = await this.#opencode
-    this.#ensureSocketSubscriber(opencode)
-
-    const pending = await opencode.permission.request.list({
-      location: { directory: "/workspace" },
-    })
-    for (const request of pending.data) {
-      if (request.sessionID !== sessionId) continue
-      this.#send(socket, {
-        type: "event",
-        event: new WorkspaceRuntimeEvent({
-          id: `pending-${request.id}`,
-          created: Date.now(),
-          type: "permission.asked",
-          data: request,
-        }),
-      })
-    }
-
-    let appliedCursor = cursor
-    for await (const item of opencode.sessions.log({
-      sessionID: sessionId,
-      after: cursor ?? undefined,
-      follow: false,
-    })) {
-      if (item.type === "log.synced") {
-        appliedCursor = Math.max(appliedCursor ?? 0, item.seq ?? 0) || null
-        continue
-      }
-      if (!shouldForwardWorkspaceEvent(item)) continue
-      const event = await decodeWorkspaceRuntimeEventPromise(item)
-      if (!workspaceEventFollowsCursor(event, appliedCursor)) continue
-      this.#send(socket, { type: "event", event })
-      appliedCursor = workspaceEventCursor(event) ?? appliedCursor
-    }
-
-    const queued = this.#socketPendingEvents.get(socket) ?? []
-    for (const event of queued) {
-      if (!workspaceEventFollowsCursor(event, appliedCursor)) continue
-      this.#send(socket, { type: "event", event })
-      appliedCursor = workspaceEventCursor(event) ?? appliedCursor
-    }
-    this.#socketPendingEvents.delete(socket)
-    socket.serializeAttachment({
-      ...this.#attachment(socket),
-      cursor: appliedCursor,
-      synced: true,
-    } satisfies WorkspaceSocketAttachment)
-    this.#send(socket, { type: "synced", cursor: appliedCursor })
-    this.#broadcastPresence()
-  }
-
-  #ensureSocketSubscriber(opencode: OpenCodeWorkerd.Interface) {
-    if (this.#socketSubscriber && !this.#socketSubscriberAbort?.signal.aborted)
-      return
-    const abort = new AbortController()
-    this.#socketSubscriberAbort = abort
-    this.#socketSubscriber = this.#consumeSocketEvents(opencode, abort.signal)
-      .catch((error) => {
-        if (!abort.signal.aborted) {
-          console.error("Workspace event subscriber failed", error)
-          for (const socket of this.#initializedSockets()) {
-            this.#sendError(
-              socket,
-              "event_subscriber_failed",
-              "Workspace event delivery stopped",
-              false
-            )
-          }
-        }
-      })
-      .finally(() => {
-        if (this.#socketSubscriberAbort === abort) {
-          this.#socketSubscriber = null
-          this.#socketSubscriberAbort = null
-        }
-      })
-    this.ctx.waitUntil(this.#socketSubscriber)
-  }
-
-  async #consumeSocketEvents(
-    opencode: OpenCodeWorkerd.Interface,
-    signal: AbortSignal
-  ) {
-    for await (const raw of opencode.events.subscribe({ signal })) {
-      if (!shouldForwardWorkspaceEvent(raw)) continue
-      const event = await decodeWorkspaceRuntimeEventPromise(raw)
-      const cursor = workspaceEventCursor(event)
-      if (cursor !== null) {
-        this.#database
-          .update(appWorkspaceState)
-          .set({ eventCursor: cursor })
-          .run()
-      }
-      for (const socket of this.#initializedSockets()) {
-        const attachment = this.#attachment(socket)
-        const eventSessionId = workspaceEventSessionId(event)
-        if (eventSessionId && eventSessionId !== attachment.sessionId) continue
-        if (!attachment.synced) {
-          this.#socketPendingEvents.get(socket)?.push(event)
-          continue
-        }
-        if (!workspaceEventFollowsCursor(event, attachment.cursor)) continue
-        this.#send(socket, { type: "event", event })
-        socket.serializeAttachment({
-          ...attachment,
-          cursor: cursor ?? attachment.cursor,
-        } satisfies WorkspaceSocketAttachment)
-      }
-    }
-  }
-
   async #initialize(
     opencode: OpenCodeWorkerd.Interface,
     input: InitializeWorkspaceRuntime
@@ -1912,11 +1668,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     )
 
     try {
-      await this.#installCredential(
-        opencode,
-        input.providerId,
-        input.credential
-      )
+      await this.#credentials.install(input.providerId, input.credential)
       this.#database
         .update(appWorkspaceState)
         .set({
@@ -1925,20 +1677,13 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         .run()
     } catch (error) {
       if (error instanceof OpenCodeCredentialReloadRequired) throw error
+      const detail = providerFailureDetail(error)
       const failure =
         error instanceof Error
           ? error
-          : Schema.is(InvalidRequestError)(error) ||
-              Schema.is(providerFailureMessage)(error)
-            ? { _tag: "InvalidRequestError" as const, message: error.message }
-            : Schema.is(wrappedProviderFailureMessage)(error)
-              ? {
-                  _tag: "InvalidRequestError" as const,
-                  message: error.error.message,
-                }
-              : Schema.is(Schema.String)(error)
-                ? { _tag: "InvalidRequestError" as const, message: error }
-                : null
+          : detail
+            ? { _tag: "InvalidRequestError" as const, message: detail }
+            : null
       throw new Error(providerConnectionErrorSummary(input.providerId, failure))
     }
 
@@ -1978,127 +1723,13 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         model: { providerID: input.providerId, id: input.modelId },
       })
     } catch (error) {
-      const detail =
-        error instanceof Error
-          ? error.message
-          : Schema.is(providerFailureMessage)(error)
-            ? error.message
-            : Schema.is(wrappedProviderFailureMessage)(error)
-              ? error.error.message
-              : null
+      const detail = providerFailureDetail(error)
       throw new Error(
         detail
           ? `OpenCode could not use ${input.providerId}/${input.modelId}: ${detail}`
           : `OpenCode could not use ${input.providerId}/${input.modelId}. Update the model and try again.`
       )
     }
-  }
-
-  async #installCredential(
-    opencode: OpenCodeWorkerd.Interface,
-    providerId: string,
-    credential: OpenCodeCredential
-  ) {
-    try {
-      await this.#waitForIntegration(opencode, providerId)
-    } catch {
-      throw new Error(`OpenCode could not load the ${providerId} integration`)
-    }
-
-    if (credential.type === "key") {
-      if (providerId === subscriptionProviderId) {
-        this.#openAIOAuth.active = false
-        this.#openAIOAuth.accountID = null
-      }
-      try {
-        await connectOpenCodeKeyCredential(opencode, {
-          providerId,
-          key: credential.key,
-          configuration: credential.configuration,
-        })
-      } catch (error) {
-        if (error instanceof OpenCodeCredentialReloadRequired) {
-          throw error
-        }
-        const detail =
-          Schema.is(InvalidRequestError)(error) ||
-          Schema.is(providerFailureMessage)(error)
-            ? error.message
-            : Schema.is(wrappedProviderFailureMessage)(error)
-              ? error.error.message
-              : Schema.is(Schema.String)(error)
-                ? error
-                : null
-        throw new Error(
-          detail
-            ? `OpenCode rejected the ${providerId} credential: ${detail}`
-            : `OpenCode rejected the ${providerId} credential without a diagnostic`
-        )
-      }
-      return
-    }
-
-    if (providerId === subscriptionProviderId) {
-      const accountID = credential.metadata?.["accountID"]
-      this.#openAIOAuth.active = true
-      this.#openAIOAuth.accountID = Schema.is(Schema.String)(accountID)
-        ? accountID
-        : null
-    }
-
-    const existing = this.ctx.storage.sql
-      .exec<{ id: string }>(
-        "SELECT id FROM credential WHERE integration_id = ? AND label = ? LIMIT 1",
-        providerId,
-        subscriptionCredentialLabel
-      )
-      .toArray()[0]
-    const credentialId = existing?.id ?? `cred_sylph_${crypto.randomUUID()}`
-    const switchCredentialId = `cred_sylph_switch_${providerId}`
-    const now = Date.now()
-
-    this.ctx.storage.sql.exec(
-      "UPDATE credential SET active = 0, time_updated = ? WHERE integration_id = ?",
-      now,
-      providerId
-    )
-
-    if (existing) {
-      this.ctx.storage.sql.exec(
-        "UPDATE credential SET value = ?, method_id = ?, active = 0, time_updated = ? WHERE id = ?",
-        JSON.stringify(credential),
-        credential.methodID,
-        now,
-        credentialId
-      )
-    } else {
-      this.ctx.storage.sql.exec(
-        "INSERT INTO credential (id, integration_id, label, value, connector_id, method_id, active, time_created, time_updated) VALUES (?, ?, ?, ?, NULL, ?, 0, ?, ?)",
-        credentialId,
-        providerId,
-        subscriptionCredentialLabel,
-        JSON.stringify(credential),
-        credential.methodID,
-        now,
-        now
-      )
-    }
-
-    this.ctx.storage.sql.exec(
-      "INSERT INTO credential (id, integration_id, label, value, connector_id, method_id, active, time_created, time_updated) VALUES (?, ?, ?, ?, NULL, ?, 1, ?, ?) ON CONFLICT(id) DO UPDATE SET value = excluded.value, method_id = excluded.method_id, active = 1, time_updated = excluded.time_updated",
-      switchCredentialId,
-      providerId,
-      "Sylph connection switch",
-      JSON.stringify(credential),
-      credential.methodID,
-      now,
-      now
-    )
-    await activateCredentialAndWaitForCatalog(opencode, credentialId)
-    this.ctx.storage.sql.exec(
-      "DELETE FROM credential WHERE id = ?",
-      switchCredentialId
-    )
   }
 
   async #connectionResult(
@@ -2135,23 +1766,6 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           ? preferred.data.modelID
           : (models[0]?.modelId ?? null),
     })
-  }
-
-  async #waitForIntegration(
-    opencode: OpenCodeWorkerd.Interface,
-    providerId: string
-  ) {
-    for (let attempt = 0; attempt < 20; attempt += 1) {
-      const integration = await opencode.integration.get({
-        integrationID: providerId,
-      })
-
-      if (integration.data) return
-
-      await new Promise((resolve) => setTimeout(resolve, 100))
-    }
-
-    throw new Error(`OpenCode integration ${providerId} did not start`)
   }
 
   async #scheduleTurnLimit() {
