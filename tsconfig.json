@@ -6,7 +6,10 @@
     "types": ["@cloudflare/workers-types", "node"],
     "noEmit": true,
     "skipLibCheck": true,
-    "strict": true
+    "strict": true,
+    "paths": {
+      "@/*": ["./apps/web/src/*"]
+    }
   },
-  "include": ["alchemy.run.ts", "oxlint.config.ts"]
+  "include": ["alchemy.run.ts", "oxlint.config.ts", "apps/web/src/env.d.ts"]
 }

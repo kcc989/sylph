@@ -1,3 +1,4 @@
+import { useWorkspaceData } from "@/lib/workspace/use-workspace-data"
 import {
   createFileRoute,
   type ErrorComponentProps,
@@ -11,6 +12,7 @@ import {
   failureTag,
   isRuntimeNotInitialized,
   WorkspaceId,
+  GitCommitId,
 } from "@workspace/domain"
 import { Button } from "@workspace/ui/components/button"
 import { Card, CardContent } from "@workspace/ui/components/card"
@@ -33,7 +35,11 @@ import { useCallback } from "react"
 import { validateOnboardingSearch } from "@/lib/onboarding"
 import { getDashboard } from "@/functions/installation"
 import { getProjectDeployments } from "@/functions/projects"
-import { getWorkspace, readWorkspaceFile } from "@/functions/workspaces"
+import {
+  getWorkspace,
+  readWorkspaceFile,
+  readWorkspacePatch,
+} from "@/functions/workspaces"
 import { useWorkspaceActions } from "@/lib/workspace/use-workspace-actions"
 import { useWorkspaceLiveState } from "@/lib/workspace/use-workspace-live-state"
 import { workspaceThreadEntries } from "@/lib/workspace/workspace-thread-entries"
@@ -142,9 +148,38 @@ function WorkspaceLoadError({ error, reset }: ErrorComponentProps) {
 function WorkspaceScreen() {
   const { workspaceId } = Route.useParams()
   const { onboarding } = Route.useSearch()
-  const { dashboard, deployments, result } = Route.useLoaderData()
+  const {
+    dashboard,
+    deployments,
+    result: initialResult,
+  } = Route.useLoaderData()
+  const {
+    result,
+    refresh: refreshLive,
+    refreshError,
+  } = useWorkspaceData(initialResult)
   const router = useRouter()
   const readFile = useServerFn(readWorkspaceFile)
+  const readPatch = useServerFn(readWorkspacePatch)
+  const forkHead = result.versionControl.forkHead
+  const readWorkspaceChanges = useCallback(
+    async (scope: "working" | "branch") => {
+      try {
+        return await readPatch({
+          data: {
+            workspaceId: WorkspaceId.make(workspaceId),
+            scope,
+            expectedCommit: GitCommitId.make(forkHead),
+          },
+        })
+      } catch (cause) {
+        if (failureTag(cause) === "PreconditionFailed")
+          await refreshLive("workspace")
+        throw cause
+      }
+    },
+    [readPatch, forkHead, workspaceId, refreshLive]
+  )
   const refresh = useCallback(() => router.invalidate(), [router])
   const { runtime, workspace } = result
   const {
@@ -155,7 +190,7 @@ function WorkspaceScreen() {
     workspaceId,
     runtime.sessionId,
     runtime.eventCursor,
-    refresh
+    refreshLive
   )
   const actions = useWorkspaceActions({
     dismissPermissionRequest,
@@ -339,9 +374,10 @@ function WorkspaceScreen() {
               turnActive={runtime.status === "running"}
               turnInterrupted={runtime.status === "interrupted"}
               workspaceError={
-                runtime.status === "error"
+                refreshError ??
+                (runtime.status === "error"
                   ? (workspace.errorSummary ?? "Workspace startup failed")
-                  : null
+                  : null)
               }
             />
           }
@@ -375,15 +411,15 @@ function WorkspaceScreen() {
             onReadFile={readWorkspaceFileContent}
             onResolveReviewComment={action.onResolveReviewComment}
             onSubmitReview={action.onSubmitReview}
-            patch={workingChanges.map((change) => change.patch).join("\n")}
+            onReadPatch={readWorkspaceChanges}
+            patchRevision={`${forkHead}:${result.workingRevision}`}
+            reviewPatchRevision={`${result.versionControl.baseCommit}:${forkHead}`}
             review={result.review}
             reviewError={workspaceCommandErrorMessage(
               actions.commandError,
               "review"
             )}
-            reviewPatch={result.versionControl.branch
-              .map((change) => change.patch)
-              .join("\n")}
+
             reviewPending={isPending("review")}
           />
         </WorkspacePanes>

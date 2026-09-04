@@ -10,12 +10,14 @@ import {
 } from "./workspace-filesystem"
 
 class TestSqlStorage {
+  readCount = 0
   readonly #database = new Database(":memory:")
   readonly sql = {
     exec: <Row extends Record<string, SqlStorageValue>>(
       query: string,
       ...bindings: SqlStorageValue[]
     ) => {
+      if (query.startsWith("SELECT content")) this.readCount += 1
       const parameters: SQLQueryBindings[] = bindings.map((binding) =>
         binding instanceof ArrayBuffer ? new Uint8Array(binding) : binding
       )
@@ -293,4 +295,109 @@ describe("WorkspaceFilesystem", () => {
       "ENOSPC"
     )
   })
+})
+
+test("reuses unchanged diffs and invalidates them after edits, deletes, and checkpoints", async () => {
+  const storage = new TestSqlStorage()
+  const filesystem = new WorkspaceFilesystem(storage)
+  filesystem.initialize()
+  const workspaceGit = new WorkspaceGit(
+    storage,
+    {
+      get: async () => {
+        throw new Error("Unexpected remote access")
+      },
+    },
+    filesystem
+  )
+  workspaceGit.initialize()
+  await git.init({ fs: filesystem, dir: "/workspace", defaultBranch: "main" })
+  for (let index = 0; index < 30; index += 1) {
+    const filepath = `files/file-${index}.txt`
+    await filesystem.writeFile(filepath, `original ${index}\n`)
+    await git.add({ fs: filesystem, dir: "/workspace", filepath })
+  }
+  const base = await git.commit({
+    fs: filesystem,
+    dir: "/workspace",
+    message: "Baseline",
+    author: { name: "Test", email: "test@example.com" },
+  })
+  storage.sql.exec(
+    "INSERT INTO app_workspace_vcs (singleton, repository_name, repository_remote, project_repository_name, project_repository_remote, default_ref, base_commit, fork_head, project_head, sync_status, merge_status) VALUES (1, 'workspace', 'https://example.com/workspace', 'project', 'https://example.com/project', 'main', ?, ?, ?, 'ready', 'unreviewed')",
+    base,
+    base,
+    base
+  )
+  const initial = await workspaceGit.versionControl()
+  expect(initial.working).toEqual([])
+  expect(storage.readCount).toBeGreaterThan(0)
+  storage.readCount = 0
+  await workspaceGit.versionControl()
+  expect(storage.readCount).toBe(0)
+  await filesystem.writeFile("files/file-0.txt", "changed\n")
+  const changed = await workspaceGit.versionControl()
+  expect(changed.working.map((change) => change.file)).toEqual([
+    "files/file-0.txt",
+  ])
+  expect(storage.readCount).toBeGreaterThan(0)
+  storage.readCount = 0
+  await workspaceGit.versionControl()
+  expect(storage.readCount).toBe(0)
+  await filesystem.unlink("files/file-1.txt")
+  expect(
+    (await workspaceGit.versionControl()).working
+      .map((change) => change.status)
+      .sort()
+  ).toEqual(["deleted", "modified"])
+  await git.add({
+    fs: filesystem,
+    dir: "/workspace",
+    filepath: "files/file-0.txt",
+  })
+  await git.remove({
+    fs: filesystem,
+    dir: "/workspace",
+    filepath: "files/file-1.txt",
+  })
+  const checkpoint = await git.commit({
+    fs: filesystem,
+    dir: "/workspace",
+    message: "Checkpoint",
+    author: { name: "Test", email: "test@example.com" },
+  })
+  storage.sql.exec("UPDATE app_workspace_vcs SET fork_head = ?", checkpoint)
+  const checkpointed = await workspaceGit.versionControl()
+  expect(checkpointed.working).toEqual([])
+  expect(checkpointed.branch).toHaveLength(2)
+  const summary = await workspaceGit.versionControl(false, false)
+  expect(summary.branch.every((change) => change.patch === "")).toBe(true)
+  expect(summary.branch.map((change) => change.additions)).toEqual(
+    checkpointed.branch.map((change) => change.additions)
+  )
+  expect((await workspaceGit.versionControl()).branch).toEqual(
+    checkpointed.branch
+  )
+  storage.readCount = 0
+  await workspaceGit.versionControl()
+  expect(storage.readCount).toBe(0)
+  await filesystem.writeFile("files/file-2.txt", "later\n")
+  const later = await workspaceGit.versionControl()
+  expect(later.branch).toEqual(checkpointed.branch)
+  expect(later.working.map((change) => change.file)).toEqual([
+    "files/file-2.txt",
+  ])
+})
+
+test("clearing the filesystem invalidates the working revision", async () => {
+  const filesystem = new WorkspaceFilesystem(new TestSqlStorage())
+  filesystem.initialize()
+  const initial = filesystem.workingRevision
+  await filesystem.writeFile(".git/config", "config")
+  expect(filesystem.workingRevision).toBe(initial)
+  await filesystem.writeFile("app.ts", "code")
+  expect(filesystem.workingRevision).toBeGreaterThan(initial)
+  const written = filesystem.workingRevision
+  filesystem.clear()
+  expect(filesystem.workingRevision).toBeGreaterThan(written)
 })

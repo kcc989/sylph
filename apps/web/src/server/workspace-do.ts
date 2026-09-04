@@ -1,4 +1,8 @@
 import {
+  maxQueuedMessages,
+  maxTurnDurationMs,
+} from "./workspace-provisioning-state"
+import {
   AgentSessionId,
   InitializeWorkspaceRuntime,
   OpenCodeConnectionResult,
@@ -202,8 +206,6 @@ const encodeWorkspaceVersionControlSnapshotSync = Schema.encodeSync(
   WorkspaceVersionControlSnapshot
 )
 const encodeWorkspaceFileContentSync = Schema.encodeSync(WorkspaceFileContent)
-const maxQueuedMessages = 5
-const maxTurnDurationMs = 15 * 60 * 1000
 
 const decodePermissionRequests = Schema.decodeUnknownSync(
   Schema.Array(WorkspacePermissionAskedEventData)
@@ -995,13 +997,18 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     })
   }
 
-  versionControl(refreshProjectHead: boolean) {
+  versionControl(refreshProjectHead: boolean, includePatches = true) {
     return this.#run(async () => {
       await this.#opencode
       if (!this.#workspaceGit.hydrated()) return null
+      const vcs = await this.#workspaceGit.versionControl(
+        refreshProjectHead,
+        includePatches
+      )
       return encodeWorkspaceVersionControlSnapshotSync(
         new WorkspaceVersionControlSnapshot({
-          vcs: await this.#workspaceGit.versionControl(refreshProjectHead),
+          vcs,
+          workingRevision: this.#filesystem.workingRevision,
           checkpoints: this.#workspaceGit.checkpoints(),
         })
       )

@@ -32,54 +32,67 @@ export const workspaceThreadEntries = (
             meta: "Action required",
           },
         ]
-      : snapshot.messages.length
-        ? snapshot.messages.flatMap((message) => {
-            if (!message.parts.length && message.error) {
-              return [
-                {
-                  id: message.id,
-                  kind: "agent" as const,
-                  title: "Assistant error",
-                  body: message.error,
-                  meta: "Assistant",
-                },
-              ]
-            }
-            return message.parts.map((part, index): ThreadEntry => {
-              if (part.type === "tool") {
+      : snapshot.status === "provisioning"
+        ? [
+            {
+              id: "workspace-provisioning",
+              kind: "result",
+              title: "Starting your Workspace",
+              body: "Preparing your files and assistant. You can leave this page and return when it is ready.",
+              meta: "Starting",
+            },
+          ]
+        : snapshot.messages.length
+          ? snapshot.messages.flatMap((message) => {
+              if (!message.parts.length && message.error) {
+                return [
+                  {
+                    id: message.id,
+                    kind: "agent" as const,
+                    title: "Assistant error",
+                    body: message.error,
+                    meta: "Assistant",
+                  },
+                ]
+              }
+              return message.parts.map((part, index): ThreadEntry => {
+                if (part.type === "tool") {
+                  return {
+                    id: `${message.id}:${part.id}`,
+                    kind: "tool",
+                    title:
+                      index === 0 && message.error
+                        ? "Assistant error"
+                        : undefined,
+                    body: "",
+                    tool: toolCallEntry(part),
+                  }
+                }
                 return {
-                  id: `${message.id}:${part.id}`,
-                  kind: "tool",
+                  id: `${message.id}:text:${index}`,
+                  kind: message.role === "user" ? "user" : "agent",
                   title:
                     index === 0 && message.error
                       ? "Assistant error"
                       : undefined,
-                  body: "",
-                  tool: toolCallEntry(part),
+                  body:
+                    index === 0 && message.error ? message.error : part.text,
+                  skill:
+                    message.role === "user" ? matchSkill(part.text) : undefined,
+                  meta: message.role === "user" ? "You" : "Assistant",
                 }
-              }
-              return {
-                id: `${message.id}:text:${index}`,
-                kind: message.role === "user" ? "user" : "agent",
-                title:
-                  index === 0 && message.error ? "Assistant error" : undefined,
-                body: index === 0 && message.error ? message.error : part.text,
-                skill:
-                  message.role === "user" ? matchSkill(part.text) : undefined,
-                meta: message.role === "user" ? "You" : "Assistant",
-              }
+              })
             })
-          })
-        : [
-            {
-              id: "workspace-ready",
-              kind: "result",
-              title: "Your durable coding Workspace is ready",
-              body: "Ask the assistant to build the first feature. Your files and conversation stay with this Workspace between turns.",
-              meta: `${snapshot.files.length} starter files`,
-              details: [...snapshot.files],
-            },
-          ]
+          : [
+              {
+                id: "workspace-ready",
+                kind: "result",
+                title: "Your durable coding Workspace is ready",
+                body: "Ask the assistant to build the first feature. Your files and conversation stay with this Workspace between turns.",
+                meta: `${snapshot.files.length} starter files`,
+                details: [...snapshot.files],
+              },
+            ]
 
   const snapshotMessageIds = new Set(
     snapshot.messages.map((message) => message.id)

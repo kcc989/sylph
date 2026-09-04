@@ -49,3 +49,66 @@ describe("Workspace CI verification", () => {
     expect(output).not.toContain("SYLPH_STAGE_STARTED=test")
   })
 })
+
+test("overlaps read-only checks but waits before tests and build", async () => {
+  const { mkdtemp, rm } = await import("node:fs/promises")
+  const { tmpdir } = await import("node:os")
+  const { join } = await import("node:path")
+  const directory = await mkdtemp(join(tmpdir(), "sylph-ci-"))
+  try {
+    const barrier = (own: string, other: string) =>
+      `touch '${directory}/${own}'; attempt=0; while [ ! -f '${directory}/${other}' ]; do attempt=$((attempt + 1)); [ "$attempt" -lt 100 ] || exit 7; sleep 0.01; done`
+    const command = verificationCommand([
+      { name: "typecheck", command: barrier("typecheck", "lint") },
+      { name: "lint", command: barrier("lint", "typecheck") },
+      {
+        name: "test",
+        command: `test -f '${directory}/typecheck' && test -f '${directory}/lint' && touch '${directory}/test'`,
+      },
+      { name: "build", command: `test -f '${directory}/test'` },
+    ])
+    const result = Bun.spawnSync({ cmd: ["sh", "-c", command] })
+    expect(result.exitCode).toBe(0)
+    expect(verificationDurations(result.stdout.toString()).size).toBe(4)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test("retains both parallel failures and their stderr", () => {
+  const result = Bun.spawnSync({
+    cmd: [
+      "sh",
+      "-c",
+      verificationCommand([
+        { name: "typecheck", command: "echo type-error >&2; exit 2" },
+        { name: "lint", command: "echo lint-error >&2; exit 3" },
+        { name: "build", command: "true" },
+      ]),
+    ],
+  })
+  expect(result.exitCode).not.toBe(0)
+  expect(result.stdout.toString()).toContain("SYLPH_STAGE_FAILED=typecheck")
+  expect(result.stdout.toString()).toContain("SYLPH_STAGE_FAILED=lint")
+  expect(result.stdout.toString()).not.toContain("SYLPH_STAGE_STARTED=build")
+  expect(result.stderr.toString()).toContain("type-error")
+  expect(result.stderr.toString()).toContain("lint-error")
+})
+
+test("supports serial verification for scripts with shared outputs", () => {
+  const result = Bun.spawnSync({
+    cmd: [
+      "sh",
+      "-c",
+      verificationCommand(
+        [
+          { name: "typecheck", command: "exit 2" },
+          { name: "lint", command: "true" },
+        ],
+        1
+      ),
+    ],
+  })
+  expect(result.exitCode).toBe(2)
+  expect(result.stdout.toString()).not.toContain("SYLPH_STAGE_STARTED=lint")
+})

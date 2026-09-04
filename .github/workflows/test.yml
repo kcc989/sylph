@@ -26,17 +26,51 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
+  verification:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            .turbo
+          key: ${{ runner.os }}-test-${{ hashFiles('bun.lock') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-test-${{ hashFiles('bun.lock') }}-
+            ${{ runner.os }}-test-
       - run: bun install --frozen-lockfile
       - run: bun run format:check
       - run: bun run lint
       - run: bun run typecheck
       - run: bun run test
+      - run: bun run build
+
+  stories:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            ~/.cache/ms-playwright
+          key: ${{ runner.os }}-stories-${{ hashFiles('bun.lock') }}
+      - run: bun install --frozen-lockfile
       - run: bunx playwright install --with-deps chromium
       - run: bun --cwd packages/ui test:stories
-      - run: bun run build
+
+  test:
+    if: always()
+    needs: [verification, stories]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require all checks
+        env:
+          VERIFICATION_RESULT: ${{ needs.verification.result }}
+          STORIES_RESULT: ${{ needs.stories.result }}
+        run: test "$VERIFICATION_RESULT" = success && test "$STORIES_RESULT" = success

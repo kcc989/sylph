@@ -72,7 +72,8 @@ export interface WorkspaceRuntimeStub {
   updateProject(): Promise<typeof WorkspaceSyncResult.Encoded>
   rebase(): Promise<typeof WorkspaceRebaseResult.Encoded>
   versionControl(
-    refreshProjectHead: boolean
+    refreshProjectHead: boolean,
+    includePatches?: boolean
   ): Promise<typeof WorkspaceVersionControlSnapshot.Encoded | null>
   prompt(
     input: typeof WorkspaceRuntimePromptInput.Encoded
@@ -130,7 +131,8 @@ export interface WorkspaceRuntime {
   updateProject(): Promise<WorkspaceSyncResult>
   rebase(): Promise<WorkspaceRebaseResult>
   versionControl(
-    refreshProjectHead: boolean
+    refreshProjectHead: boolean,
+    includePatches?: boolean
   ): Promise<WorkspaceVersionControlSnapshot | null>
   prompt(input: WorkspaceRuntimePromptInput): Promise<WorkspaceRuntimeHealth>
   cancelTurn(
@@ -277,9 +279,12 @@ export const makeWorkspaceRuntime = (
   updateProject: () =>
     call(async () => decodeSyncResult(await stub.updateProject())),
   rebase: () => call(async () => decodeRebaseResult(await stub.rebase())),
-  versionControl: (refreshProjectHead) =>
+  versionControl: (refreshProjectHead, includePatches) =>
     call(async () => {
-      const snapshot = await stub.versionControl(refreshProjectHead)
+      const snapshot = await stub.versionControl(
+        refreshProjectHead,
+        includePatches
+      )
       return snapshot ? decodeVersionControlSnapshot(snapshot) : null
     }),
   prompt: (input) =>

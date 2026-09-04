@@ -26,6 +26,7 @@ export interface WorkspaceStorage {
 }
 
 export interface WorkspaceGitFilesystem extends PromiseFsClient {
+  readonly workingRevision?: number
   clear(): void
   writeFile(
     path: string,
@@ -95,6 +96,16 @@ export const normalizeWorkspacePath = (value: string) => {
 
 export class WorkspaceFilesystem implements WorkspaceGitFilesystem {
   readonly promises
+  get workingRevision() {
+    return (
+      this.#storage.sql
+        .exec<{ revision: number }>(
+          "SELECT COALESCE(MAX(sequence), 0) AS revision FROM app_filesystem_event"
+        )
+        .toArray()[0]?.revision ?? 0
+    )
+  }
+
   readonly #storage: WorkspaceStorage
   readonly #fileLimit: number
   readonly #repositoryLimit: number
@@ -455,6 +466,7 @@ export class WorkspaceFilesystem implements WorkspaceGitFilesystem {
   }
 
   clear() {
+    this.#emit("cleared", "")
     this.#storage.sql.exec("DELETE FROM app_workspace_file")
     this.#storage.sql.exec(
       "DELETE FROM app_workspace_directory WHERE path <> ''"

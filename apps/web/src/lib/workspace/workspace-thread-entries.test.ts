@@ -46,3 +46,14 @@ describe("Workspace thread entries", () => {
     ])
   })
 })
+
+test("does not claim a provisioning Workspace is ready", () => {
+  const entries = workspaceThreadEntries(
+    { files: [], messages: [], status: "provisioning" },
+    emptyWorkspaceLiveState(),
+    [],
+    () => undefined
+  )
+  expect(entries[0]?.id).toBe("workspace-provisioning")
+  expect(entries[0]?.title).toBe("Starting your Workspace")
+})

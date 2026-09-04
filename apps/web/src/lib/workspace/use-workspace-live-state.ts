@@ -1,3 +1,8 @@
+import {
+  mergeWorkspaceRefreshScope,
+  workspaceRefreshScope,
+  type WorkspaceRefreshScope,
+} from "./workspace-refresh"
 import type { WorkspacePresenceUser } from "@workspace/ui/components/workspace/types"
 import { useCallback, useEffect, useRef, useState } from "react"
 
@@ -13,7 +18,7 @@ export const useWorkspaceLiveState = (
   workspaceId: string,
   sessionId: string | null,
   initialCursor: number | null,
-  refreshSnapshot: () => void
+  refreshSnapshot: (scope: WorkspaceRefreshScope) => void
 ) => {
   const [state, setState] = useState(emptyWorkspaceLiveState)
   const [presence, setPresence] = useState<
@@ -32,9 +37,16 @@ export const useWorkspaceLiveState = (
     if (!sessionId) return
     let refreshTimer: number | null = null
 
-    const scheduleRefresh = () => {
-      if (refreshTimer !== null) window.clearTimeout(refreshTimer)
-      refreshTimer = window.setTimeout(refreshSnapshot, 80)
+    let pendingScope: WorkspaceRefreshScope | null = null
+    const scheduleRefresh = (scope: WorkspaceRefreshScope = "workspace") => {
+      pendingScope = mergeWorkspaceRefreshScope(pendingScope, scope)
+      if (refreshTimer !== null) return
+      refreshTimer = window.setTimeout(() => {
+        refreshTimer = null
+        const next = pendingScope
+        pendingScope = null
+        if (next) refreshSnapshot(next)
+      }, 80)
     }
 
     const socket = new WorkspaceSocket({
@@ -51,7 +63,8 @@ export const useWorkspaceLiveState = (
           event
         )
         setState(stateRef.current)
-        if (workspaceEventNeedsSnapshot(event)) scheduleRefresh()
+        if (workspaceEventNeedsSnapshot(event))
+          scheduleRefresh(workspaceRefreshScope(event.type))
       },
       onSynced: (cursor) => {
         socketCursor.current.cursor = cursor

@@ -1,3 +1,5 @@
+export { ProjectSynchronization } from "./server/project-synchronization"
+export { WorkspaceProvisioning } from "./server/workspace-provisioning"
 import serverEntry from "@tanstack/react-start/server-entry"
 
 import { refreshProviderCatalogs } from "@/server/provider-catalog-refresh"

@@ -24,21 +24,55 @@ const stageMarker = (
   name: VerificationStageName
 ) => `node -e 'console.log("SYLPH_STAGE_${state}=${name}:" + Date.now())'`
 
+const stageCommand = ({ name, command }: VerificationStageCommand) =>
+  [
+    stageMarker("STARTED", name),
+    `if (${command}); then`,
+    stageMarker("PASSED", name),
+    "else",
+    "sylph_stage_status=$?",
+    stageMarker("FAILED", name),
+    'exit "$sylph_stage_status"',
+    "fi",
+  ].join("\n")
+
 export const verificationCommand = (
-  stages: ReadonlyArray<VerificationStageCommand>
-) =>
-  stages
-    .flatMap(({ name, command }) => [
-      stageMarker("STARTED", name),
-      `if (${command}); then`,
-      stageMarker("PASSED", name),
-      "else",
-      "sylph_stage_status=$?",
-      stageMarker("FAILED", name),
-      'exit "$sylph_stage_status"',
-      "fi",
-    ])
-    .join("\n")
+  stages: ReadonlyArray<VerificationStageCommand>,
+  concurrency: 1 | 2 = 2
+) => {
+  const batches: VerificationStageCommand[][] = []
+  for (const stage of stages) {
+    const previous = batches.at(-1)
+    const parallel = stage.name === "lint" || stage.name === "typecheck"
+    if (
+      parallel &&
+      previous &&
+      previous.length < concurrency &&
+      previous.every(
+        (item) => item.name === "lint" || item.name === "typecheck"
+      )
+    )
+      previous.push(stage)
+    else batches.push([stage])
+  }
+  return [
+    "sylph_logs=$(mktemp -d)",
+    `trap 'rm -rf "$sylph_logs"' EXIT`,
+    ...batches.flatMap((batch) => [
+      ...batch.flatMap((stage) => [
+        `(${stageCommand(stage)}) >"$sylph_logs/${stage.name}.out" 2>"$sylph_logs/${stage.name}.err" &`,
+        `sylph_pid_${stage.name}=$!`,
+      ]),
+      "sylph_batch_status=0",
+      ...batch.flatMap((stage) => [
+        `wait "$sylph_pid_${stage.name}" || sylph_batch_status=$?`,
+        `cat "$sylph_logs/${stage.name}.out"`,
+        `cat "$sylph_logs/${stage.name}.err" >&2`,
+      ]),
+      '[ "$sylph_batch_status" -eq 0 ] || exit "$sylph_batch_status"',
+    ]),
+  ].join("\n")
+}
 
 const markerPattern =
   /^SYLPH_STAGE_(STARTED|PASSED|FAILED)=(typecheck|lint|test|build):(\d+)$/gm
@@ -86,3 +120,17 @@ export const verificationFailureStage = (output: string) => {
   }
   return undefined
 }
+
+export const verificationConcurrency = (configured?: string): 1 | 2 => {
+  if (!configured || configured === "2") return 2
+  if (configured === "1") return 1
+  throw new Error("CI_VERIFICATION_CONCURRENCY must be 1 or 2")
+}
+
+export const verificationFailureStages = (output: string) => [
+  ...new Set(
+    verificationMarkers(output)
+      .filter((marker) => marker.state === "FAILED")
+      .map((marker) => marker.name)
+  ),
+]

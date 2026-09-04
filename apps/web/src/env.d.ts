@@ -1,7 +1,8 @@
+import type { ProjectSynchronization } from "./server/project-synchronization"
+import type { WorkspaceRequestInput, WorkspaceCiInput } from "@workspace/domain"
 import type { WorkspaceDO } from "./server/workspace-do"
 import type { WorkspaceMergeInput } from "./server/workspace-merge"
 import type { WorkspaceRetentionInput } from "./server/workspace-retention"
-import type { WorkspaceCiInput } from "./server/workspace-ci"
 
 declare global {
   namespace Cloudflare {
@@ -21,6 +22,8 @@ declare global {
       CHECK_EVIDENCE: R2Bucket
       CI_WORKFLOW: Workflow<WorkspaceCiInput>
       REPOSITORY_NAMESPACE: string
+      PROJECT_SYNCS: DurableObjectNamespace<ProjectSynchronization>
+      PROVISIONING: Workflow<typeof WorkspaceRequestInput.Encoded>
       MERGES: Workflow<WorkspaceMergeInput>
       RETENTION: Workflow<WorkspaceRetentionInput>
       WORKSPACE_FORK_RETENTION_SECONDS: string
