@@ -85,7 +85,9 @@ export const normalizeWorkspacePath = (value: string) => {
 
   if (
     normalized.includes("\0") ||
-    (!normalized.startsWith(workspaceRoot) && normalized.startsWith("/")) ||
+    (normalized !== "/" &&
+      !normalized.startsWith(workspaceRoot) &&
+      normalized.startsWith("/")) ||
     segments.some((segment) => segment === "..")
   ) {
     throw filesystemError("EINVAL", value)
@@ -456,13 +458,16 @@ export class WorkspaceFilesystem implements WorkspaceGitFilesystem {
     }
   }
 
-  listWorkingFiles() {
+  listWorkingFiles(directory = "") {
+    const normalized = normalizeWorkspacePath(directory)
+    const prefix = normalized ? `${normalized}/` : ""
     return this.#storage.sql
       .exec<{ path: string }>(
         "SELECT path FROM app_workspace_file WHERE path NOT LIKE '.git/%' ORDER BY path"
       )
       .toArray()
       .map((row) => row.path)
+      .filter((path) => path.startsWith(prefix))
   }
 
   clear() {

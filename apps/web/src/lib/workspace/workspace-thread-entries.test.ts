@@ -13,7 +13,8 @@ describe("Workspace thread entries", () => {
     )
 
     expect(entries[0]?.id).toBe("workspace-ready")
-    expect(entries[0]?.details).toEqual(["README.md"])
+    expect(entries[0]?.details).toBeUndefined()
+    expect(entries[0]?.meta).toBeUndefined()
   })
 
   test("appends optimistic and unsnapshotted streaming entries", () => {

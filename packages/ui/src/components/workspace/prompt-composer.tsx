@@ -2,11 +2,10 @@
 
 import {
   ArrowUp,
-  AtSign,
+  X,
   Blocks,
   LoaderCircle,
   MessagesSquare,
-  Paperclip,
   Terminal,
 } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
@@ -15,6 +14,7 @@ import { Button } from "@workspace/ui/components/button"
 import { ModelCombobox as SharedModelCombobox } from "@workspace/ui/components/model-combobox"
 import { Textarea } from "@workspace/ui/components/textarea"
 import { cn } from "@workspace/ui/lib/utils"
+import type { WorkspaceReference } from "./workspace-shell-store"
 import type { ComposerModel, ComposerSkill } from "./types"
 
 function ModelCombobox({
@@ -55,6 +55,9 @@ export function PromptComposer({
   onModelChange,
   turnActive = false,
   queueFull = false,
+  references = [],
+  onRemoveReference,
+  onOpenFiles,
 }: {
   disabled?: boolean
   error?: string | null
@@ -63,7 +66,7 @@ export function PromptComposer({
     text: string,
     model: { providerId: string; modelId: string },
     delivery?: "queue" | "steer"
-  ) => Promise<void>
+  ) => Promise<boolean | void>
   pending?: boolean
   models: ReadonlyArray<ComposerModel>
   skills: ReadonlyArray<ComposerSkill>
@@ -72,6 +75,9 @@ export function PromptComposer({
   onModelChange?: (model: { providerId: string; modelId: string }) => void
   turnActive?: boolean
   queueFull?: boolean
+  references?: WorkspaceReference[]
+  onRemoveReference?: (text: string) => void
+  onOpenFiles?: () => void
 }) {
   const [text, setText] = useState(initialPrompt)
   const [activeSkillIndex, setActiveSkillIndex] = useState(0)
@@ -103,19 +109,49 @@ export function PromptComposer({
 
     if (!prompt || disabled || pending || !onSubmit || !selectedModel) return
     if (delivery === "queue" && queueFull) return
-    await onSubmit(prompt, selectedModel, delivery)
-    setText("")
+    const sent = await onSubmit(
+      [prompt, ...references.map((item) => item.text)].join("\n\n"),
+      selectedModel,
+      delivery
+    )
+    if (sent !== false) setText("")
   }
 
   return (
     <div className="shrink-0 p-3 pt-0">
       <form
-        className="@container relative mx-auto max-w-3xl border border-white/[.12] bg-[#1c1a18] shadow-[0_16px_45px_rgba(0,0,0,.24)] focus-within:border-[#ef9b7e]/45"
+        className="@container relative mx-auto max-w-3xl rounded-xl border border-white/[.12] bg-[#1c1a18] focus-within:border-[#ef9b7e]/45"
         onSubmit={async (event) => {
           event.preventDefault()
           await submit(turnActive ? "queue" : undefined)
         }}
       >
+        {references.length ? (
+          <div
+            aria-label="Attached context"
+            className="flex flex-wrap gap-1.5 px-3 pt-3"
+          >
+            {references.map((item) => (
+              <span
+                key={item.text}
+                className="flex max-w-full items-center gap-1 rounded-md bg-accent px-2 py-1 text-xs"
+              >
+                <span className="truncate" title={item.text}>
+                  {item.label}
+                </span>
+                <Button
+                  type="button"
+                  aria-label={`Remove ${item.label} reference`}
+                  size="icon-xs"
+                  variant="ghost"
+                  onClick={() => onRemoveReference?.(item.text)}
+                >
+                  <X />
+                </Button>
+              </span>
+            ))}
+          </div>
+        ) : null}
         {matchingSkills.length ? (
           <div
             aria-label="Skill commands"
@@ -205,17 +241,16 @@ export function PromptComposer({
           </p>
         ) : null}
         <div className="flex min-h-10 min-w-0 items-center gap-1 overflow-hidden border-t border-white/[.07] px-2 py-1">
-          <Button aria-label="Attach file" size="icon-xs" variant="ghost">
-            <Paperclip />
-          </Button>
-          <Button
-            aria-label="Mention context"
-            className="hidden @md:inline-flex"
-            size="icon-xs"
-            variant="ghost"
-          >
-            <AtSign />
-          </Button>
+          {onOpenFiles ? (
+            <Button
+              type="button"
+              size="xs"
+              variant="ghost"
+              onClick={onOpenFiles}
+            >
+              Files
+            </Button>
+          ) : null}
           <Button
             aria-label="Open command"
             className="hidden @lg:inline-flex"

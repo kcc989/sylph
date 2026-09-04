@@ -50,6 +50,8 @@ export const workspaceCheckItems = (
         )
         const attempts = `${checkpointCheck.attempt}/${checkpointCheck.maxAttempts ?? actions.limits.maxCheckAttempts}`
         return {
+          commit: checkpointCheck.commit,
+          target: "checkpoint",
           name: stage.name[0].toUpperCase() + stage.name.slice(1),
           detail:
             stage.durationMs === null
@@ -77,6 +79,8 @@ export const workspaceCheckItems = (
       checkpointCheck.maxRepairAttempts ?? actions.limits.maxRepairAttempts
     const automatic = `${actions.automaticRepairsUsed}/${actions.limits.maxAutomaticRepairs ?? 0} automatic`
     items.push({
+      commit: checkpointCheck.commit,
+      target: "checkpoint",
       name: "Agent repair",
       detail:
         checkpointCheck.repairStatus === "started"
@@ -111,6 +115,8 @@ export const workspaceCheckItems = (
   if (productionCheck) {
     items.push(
       ...productionCheck.stages.map((stage) => ({
+        commit: productionCheck.commit,
+        target: "production" as const,
         name: `Production ${stage.name}`,
         detail: stage.detail,
         status: stageStatus(stage.status),

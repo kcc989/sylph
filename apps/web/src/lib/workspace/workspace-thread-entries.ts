@@ -89,8 +89,6 @@ export const workspaceThreadEntries = (
                 kind: "result",
                 title: "Your durable coding Workspace is ready",
                 body: "Ask the assistant to build the first feature. Your files and conversation stay with this Workspace between turns.",
-                meta: `${snapshot.files.length} starter files`,
-                details: [...snapshot.files],
               },
             ]
 

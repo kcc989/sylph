@@ -23,6 +23,7 @@ import {
   WorkspaceRoot,
   WorkspaceToolPane,
   WorkspaceTopbar,
+  TerminalSurface,
 } from "@workspace/ui/components/workspace-shell"
 import type { WorkspacePermissionRequest } from "@workspace/ui/components/workspace/types"
 import {
@@ -276,6 +277,7 @@ function WorkspaceScreen() {
     command: Parameters<typeof isWorkspaceCommandPending>[1]
   ) => isWorkspaceCommandPending(actions.pending, command)
   const browser = {
+    commit: checkpointCheck?.commit,
     url: checkpointCheck?.previewUrl ?? "",
     title: checkpointCheck?.previewUrl
       ? `Checkpoint ${checkpointCheck.commit.slice(0, 7)} Preview`
@@ -304,25 +306,12 @@ function WorkspaceScreen() {
     >
       <WorkspaceRoot workspaceId={workspaceId}>
         <WorkspaceTopbar
-          acceptDisabled={
-            workingChanges.length > 0 ||
-            !action.onAccept ||
-            isPending("checkpoint")
-          }
-          acceptPending={isPending("accept")}
-          acceptBlockers={actions.acceptance.blockers}
           agentControllingBrowser={false}
           archivePending={isPending("archive")}
           browser={browser}
-          checkpointDisabled={
-            workingChanges.length === 0 || !action.onCheckpoint
-          }
-          checkpointPending={isPending("checkpoint")}
           checks={checkItems}
           discardPending={isPending("discard")}
-          onAccept={action.onAccept}
           onArchiveWorkspace={action.onArchiveWorkspace}
-          onCheckpoint={action.onCheckpoint}
           onDiscardWorkspace={action.onDiscardWorkspace}
           onRebase={action.onRebase}
           onRestartWorkspace={action.onRestartWorkspace}
@@ -334,6 +323,7 @@ function WorkspaceScreen() {
           workspaceName={workspace.title}
         />
         <WorkspacePanes
+          terminal={<TerminalSurface entries={entries} checks={checkItems} />}
           chat={
             <WorkspaceChat
               activeTurnStartedAt={runtime.activeTurnStartedAt}
@@ -421,6 +411,27 @@ function WorkspaceScreen() {
           }
         >
           <WorkspaceToolPane
+            changeError={
+              workspaceCommandErrorMessage(
+                actions.commandError,
+                "checkpoint"
+              ) ?? workspaceCommandErrorMessage(actions.commandError, "accept")
+            }
+            entries={entries}
+            onAccept={action.onAccept}
+            onCheckpoint={action.onCheckpoint}
+            acceptDisabled={
+              workingChanges.length > 0 ||
+              !action.onAccept ||
+              isPending("checkpoint")
+            }
+            acceptPending={isPending("accept")}
+            acceptBlockers={actions.acceptance.blockers}
+            checkpointDisabled={
+              workingChanges.length === 0 || !action.onCheckpoint
+            }
+            checkpointPending={isPending("checkpoint")}
+
             browser={browser}
             changedFileCount={workingChanges.length}
             changeSummary={

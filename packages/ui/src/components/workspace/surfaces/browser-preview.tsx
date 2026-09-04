@@ -1,13 +1,6 @@
 "use client"
 
-import {
-  Globe2,
-  Maximize2,
-  Monitor,
-  Play,
-  RefreshCw,
-  Smartphone,
-} from "lucide-react"
+import { Maximize2, Monitor, Play, RefreshCw, Smartphone } from "lucide-react"
 import { useState, type ReactNode } from "react"
 
 import { Button } from "@workspace/ui/components/button"
@@ -20,16 +13,18 @@ export function BrowserPreview({
   onExpand,
   onRefresh,
   onRunTest,
+  onReference,
 }: {
   browser: BrowserState
   content?: ReactNode
   onExpand?: () => void
   onRefresh?: () => void
   onRunTest?: () => void
+  onReference?: () => void
 }) {
-  const [url, setUrl] = useState(browser.url)
+  const [refresh, setRefresh] = useState(0)
   const [viewportMode, setViewportMode] = useState<"responsive" | "mobile">(
-    "mobile"
+    "responsive"
   )
 
   return (
@@ -39,40 +34,41 @@ export function BrowserPreview({
           aria-label="Refresh preview"
           size="icon-xs"
           variant="ghost"
-          onClick={onRefresh}
+          onClick={() => {
+            setRefresh((value) => value + 1)
+            onRefresh?.()
+          }}
         >
           <RefreshCw />
         </Button>
-        <form
-          className="flex min-w-0 flex-1 items-center gap-2 rounded-[5px] border border-white/[.08] bg-black/20 px-2 py-1 focus-within:border-[#ef9b7e]/50 focus-within:ring-2 focus-within:ring-[#ef9b7e]/20"
-          onSubmit={(event) => event.preventDefault()}
-        >
-          <Globe2 className="size-3 shrink-0 text-muted-foreground" />
-          <input
-            aria-label="Preview URL"
-            value={url}
-            onChange={(event) => setUrl(event.target.value)}
-            className="min-w-0 flex-1 bg-transparent font-mono text-[10px] text-foreground/75 outline-none"
-          />
-        </form>
-        <Button
-          aria-label="Run browser test"
-          size="icon-xs"
-          variant="ghost"
-          onClick={onRunTest}
-        >
-          <Play />
-        </Button>
-        <Button
-          aria-label="Expand preview"
-          size="icon-xs"
-          variant="ghost"
-          onClick={onExpand}
-        >
-          <Maximize2 />
-        </Button>
+        <input
+          aria-label="Preview URL"
+          readOnly
+          value={browser.url}
+          className="min-w-0 flex-1 rounded-md border bg-background px-2 py-1.5 text-xs text-muted-foreground"
+        />
+        {onRunTest ? (
+          <Button
+            aria-label="Run browser test"
+            size="icon-xs"
+            variant="ghost"
+            onClick={onRunTest}
+          >
+            <Play />
+          </Button>
+        ) : null}
+        {onExpand ? (
+          <Button
+            aria-label="Expand preview"
+            size="icon-xs"
+            variant="ghost"
+            onClick={onExpand}
+          >
+            <Maximize2 />
+          </Button>
+        ) : null}
         <span className="hidden font-mono text-[9px] text-muted-foreground lg:inline">
-          {viewportMode === "mobile" ? "390px" : "Responsive"}
+          {viewportMode === "mobile" ? "Up to 390px" : "Responsive"}
         </span>
         <Button
           aria-label="Responsive preview"
@@ -104,6 +100,7 @@ export function BrowserPreview({
           {content ??
             (browser.status === "live" ? (
               <iframe
+                key={`${browser.url}:${refresh}`}
                 className="size-full border-0 bg-white"
                 referrerPolicy="no-referrer"
                 sandbox="allow-forms allow-modals allow-popups allow-same-origin allow-scripts"
@@ -112,9 +109,6 @@ export function BrowserPreview({
               />
             ) : (
               <div className="flex h-full flex-col items-center justify-center px-8 text-center">
-                <span className="mb-5 grid size-10 place-items-center rounded-[9px] border border-white/10 bg-white/[.05] text-[#ef9b7e] shadow-lg">
-                  <Globe2 className="size-5" />
-                </span>
                 <h2 className="max-w-sm text-xl font-semibold tracking-[-0.03em] text-balance">
                   {browser.title}
                 </h2>
@@ -128,10 +122,19 @@ export function BrowserPreview({
               </div>
             ))}
         </div>
-        <div className="absolute right-3 bottom-3 flex items-center gap-1.5 rounded-[4px] border border-black/10 bg-white/90 px-2 py-1 font-mono text-[9px] text-stone-700 shadow-sm backdrop-blur">
-          <span className="size-1.5 rounded-full bg-emerald-500" /> 1440 × 900
-        </div>
       </div>
+      {onReference && browser.status === "live" ? (
+        <footer className="flex shrink-0 items-center justify-between gap-2 border-t px-3 py-2">
+          <span className="truncate text-xs text-muted-foreground">
+            {browser.commit
+              ? `Checkpoint ${browser.commit.slice(0, 7)}`
+              : browser.title}
+          </span>
+          <Button size="xs" variant="outline" onClick={onReference}>
+            Reference preview
+          </Button>
+        </footer>
+      ) : null}
     </section>
   )
 }

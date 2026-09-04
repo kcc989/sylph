@@ -197,6 +197,7 @@ export function ReviewNotesSurface({
   onAddComment,
   onResolveComment,
   onSubmitReview,
+  onReference,
 }: {
   patch?: string
   review?: WorkspaceReview
@@ -205,8 +206,10 @@ export function ReviewNotesSurface({
   error?: string | null
   onAddComment?: (comment: WorkspaceReviewCommentDraft) => Promise<boolean>
   onResolveComment?: (commentId: string, resolved: boolean) => Promise<void>
+  onReference?: (selection: CodeReviewSelection) => void
   onSubmitReview?: (decision: "approved" | "changes_requested") => Promise<void>
 }) {
+  const [reviewOpen, setReviewOpen] = useState(false)
   const [selectionState, setSelectionState] = useState<{
     commit: string
     selection: CodeReviewSelection
@@ -271,6 +274,14 @@ export function ReviewNotesSurface({
             Select changed lines or use + in the gutter to comment.
           </p>
         </div>
+        <Button
+          size="xs"
+          variant="outline"
+          aria-expanded={reviewOpen}
+          onClick={() => setReviewOpen((open) => !open)}
+        >
+          Review · {review.comments.length} comments
+        </Button>
         <Badge
           className={cn(
             "ml-auto rounded-[4px] px-1.5 text-[9px]",
@@ -284,7 +295,25 @@ export function ReviewNotesSurface({
           {decisionLabel}
         </Badge>
       </header>
-      <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_minmax(13rem,40%)] @2xl:grid-cols-[minmax(0,1fr)_17rem] @2xl:grid-rows-1">
+      {selection && onReference ? (
+        <div className="border-b px-3 py-2">
+          <Button
+            size="xs"
+            variant="outline"
+            onClick={() => onReference(selection)}
+          >
+            Reference selected lines
+          </Button>
+        </div>
+      ) : null}
+      <div
+        className={cn(
+          "grid min-h-0 flex-1",
+          reviewOpen
+            ? "grid-rows-[minmax(0,1fr)_minmax(13rem,40%)] @2xl:grid-cols-[minmax(0,1fr)_17rem] @2xl:grid-rows-1"
+            : "grid-rows-1"
+        )}
+      >
         <CodeReview
           annotations={annotations}
           className="h-full min-h-0 border-b border-white/[.08] @2xl:border-r @2xl:border-b-0"
@@ -320,7 +349,12 @@ export function ReviewNotesSurface({
           }}
           selectedLines={selection}
         />
-        <aside className="flex min-h-0 flex-col bg-[#171614]">
+        <aside
+          className={cn(
+            "min-h-0 flex-col bg-[#171614]",
+            reviewOpen ? "flex" : "hidden"
+          )}
+        >
           <div className="border-b border-white/[.07] p-3">
             <ReviewerIdentity actor={currentReviewer} detail="Reviewing as" />
             {review.reviewer ? (

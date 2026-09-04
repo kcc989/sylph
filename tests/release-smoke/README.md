@@ -48,3 +48,5 @@ bun run smoke:release -- --headed
 Playwright stores GitHub browser state at `SYLPH_SMOKE_AUTH_STATE`. The setup wizard defaults it to `~/.config/sylph/release-smoke-auth.json`, so separate worktrees reuse the same login. Treat that file as a credential and delete it when the test account changes. Failure traces, screenshots, video, and the JSON evidence record are stored under `test-results/release-smoke`.
 
 The test leaves its isolated Project and Workspace in the smoke Installation as release evidence. Destroy the dedicated Alchemy stage separately after reviewing the result.
+
+To resume an interrupted test in the same isolated Installation, set `SYLPH_SMOKE_RESUME_CLAIMED=true` and `SYLPH_SMOKE_WORKSPACE_URL` to its existing Workspace URL. If the proof request already completed, set `SYLPH_SMOKE_PROOF_MARKER` to that request's exact marker. The test verifies the existing files and tool details before continuing with checkpoint checks and recovery.

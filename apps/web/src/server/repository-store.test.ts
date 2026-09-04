@@ -257,4 +257,82 @@ describe("Repository Store import", () => {
     expect(failure.code).toBe("ALREADY_EXISTS")
     expect(failure.retryable).toBe(false)
   })
+  test("recognizes the duplicate-repository error after RPC drops its code", async () => {
+    const binding: RepositoryNamespace = {
+      create: async () => {
+        throw new Error("Unexpected create")
+      },
+      delete: async () => {
+        throw new Error("Unexpected delete")
+      },
+      get: async () => {
+        throw new Error("Unexpected get")
+      },
+      import: async () => {
+        throw new Error(
+          "ArtifactsError: repo already exists: sylph-template-cloudflare-tanstack-main"
+        )
+      },
+    }
+    const service = makeCloudflareArtifactsRepositoryStore(binding)
+    const failure = await Effect.runPromise(
+      service
+        .import({
+          name: "sylph-template-cloudflare-tanstack-main",
+          description: "template",
+          sourceUrl: "https://github.com/kcc989/sylph-tanstack-template",
+          sourceRef: "main",
+        })
+        .pipe(Effect.flip)
+    )
+    expect(failure.code).toBe("ALREADY_EXISTS")
+  })
+
+  test("retries asynchronous metadata reads during import recovery", async () => {
+    let reads = 0
+    const metadata = {
+      id: "template-id",
+      name: "template",
+      remote: "https://repositories.example/template",
+      defaultBranch: "main",
+    }
+    const binding: RepositoryNamespace = {
+      create: async () => {
+        throw new Error("Unexpected create")
+      },
+      delete: async () => {
+        throw new Error("Unexpected delete")
+      },
+      import: async () => {
+        throw new Error("Unexpected import")
+      },
+      get: async () => ({
+        ...metadata,
+        info: async () => {
+          reads += 1
+          if (reads < 3)
+            throw Object.assign(new Error("importing"), {
+              code: "IMPORT_IN_PROGRESS",
+            })
+          return metadata
+        },
+        createToken: async () => ({ plaintext: "token", expiresAt: "later" }),
+        fork: async () => {
+          throw new Error("Unexpected fork")
+        },
+      }),
+    }
+    const waits: number[] = []
+    const service = makeCloudflareArtifactsRepositoryStore(
+      binding,
+      async () => [],
+      async (milliseconds) => {
+        waits.push(milliseconds)
+      }
+    )
+    expect(await Effect.runPromise(service.inspect("template"))).toEqual(
+      metadata
+    )
+    expect(waits).toEqual([100, 200])
+  })
 })

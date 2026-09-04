@@ -1,3 +1,4 @@
+import { openRouterErrorResponse } from "./openrouter-response"
 import {
   SkillResourceJsonSchema,
   type WorkspaceBrowserResult,
@@ -301,12 +302,7 @@ export const createWorkspacePlugin = (
           options: workspaceToolOptions,
           async execute(input) {
             const { directory = "" } = await decodeWorkspaceListFiles(input)
-            const prefix = directory
-              ? `${normalizeWorkspacePath(directory).replace(/\/$/, "")}/`
-              : ""
-            const rows = filesystem
-              .listWorkingFiles()
-              .filter((path) => path.startsWith(prefix))
+            const rows = filesystem.listWorkingFiles(directory)
 
             return {
               content: rows.length ? rows.join("\n") : "No files found.",
@@ -638,6 +634,13 @@ export const createWorkspacePlugin = (
         (request) => applyOpenAIOAuthRequest(request, openAIOAuth),
         { providerID: "openai" }
       )
+      const openRouterResponseRegistration = await context.session.hook(
+        "http.response",
+        async (event) => {
+          event.response = await openRouterErrorResponse(event.response)
+        },
+        { providerID: "openrouter" }
+      )
       return async () => {
         await Promise.all([
           toolRegistration.dispose(),
@@ -647,6 +650,7 @@ export const createWorkspacePlugin = (
           vcsRegistration.dispose(),
           sessionRegistration.dispose(),
           openAIRequestRegistration.dispose(),
+          openRouterResponseRegistration.dispose(),
         ])
       }
     },

@@ -5,8 +5,8 @@ import {
   ChevronRight,
   File,
   Folder,
-  FolderTree,
   LoaderCircle,
+  PanelLeft,
 } from "lucide-react"
 import { useEffect, useState } from "react"
 
@@ -15,6 +15,8 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@workspace/ui/components/collapsible"
+import { Button } from "@workspace/ui/components/button"
+import { Input } from "@workspace/ui/components/input"
 import { ScrollArea } from "@workspace/ui/components/scroll-area"
 import { cn } from "@workspace/ui/lib/utils"
 import type {
@@ -158,15 +160,22 @@ export function FilesSurface({
   files,
   fileChanges,
   onReadFile,
+  onReferenceFile,
 }: {
   files: ReadonlyArray<string>
   fileChanges: ReadonlyArray<WorkspaceFileChangeView>
+  onReferenceFile?: (path: string) => void
   onReadFile?: (path: string) => Promise<WorkspaceFileContentView>
 }) {
   const paths = Array.from(
     new Set([...files, ...fileChanges.map((change) => change.file)])
   ).sort()
-  const tree = buildFileTree(paths)
+  const [query, setQuery] = useState("")
+  const [treeOpen, setTreeOpen] = useState(true)
+  const matchingPaths = paths.filter((path) =>
+    path.toLowerCase().includes(query.toLowerCase())
+  )
+  const tree = buildFileTree(matchingPaths)
   const changes = new Map(
     fileChanges.map((change) => [change.file, change.status] as const)
   )
@@ -197,36 +206,81 @@ export function FilesSurface({
   }, [fileChanges, files, onReadFile, selectedPath])
 
   return (
-    <section className="flex size-full min-h-0 flex-col bg-[var(--sylph-ink)]">
-      <header className="flex h-10 shrink-0 items-center gap-2 border-b bg-[#171614] px-3 text-xs text-muted-foreground">
-        <FolderTree className="size-3.5" />
+    <section className="@container flex size-full min-h-0 flex-col bg-[var(--sylph-ink)]">
+      <header className="flex h-10 shrink-0 items-center gap-2 border-b bg-[#171614] px-2 text-xs text-muted-foreground">
+        <Button
+          aria-label={treeOpen ? "Hide file tree" : "Show file tree"}
+          aria-pressed={treeOpen}
+          size="icon-sm"
+          variant="ghost"
+          onClick={() => setTreeOpen(!treeOpen)}
+        >
+          <PanelLeft />
+        </Button>
         Workspace Files
         <span className="ml-auto font-mono text-[10px] tabular-nums">
           {files.length} files
         </span>
       </header>
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(150px,32%)_1fr] max-sm:grid-cols-1 max-sm:grid-rows-[minmax(140px,34%)_1fr]">
-        <ScrollArea className="min-h-0 border-r max-sm:border-r-0 max-sm:border-b">
-          {paths.length ? (
-            <div className="py-1">
-              <FileTreeDirectory
-                changes={changes}
-                entry={tree}
-                onSelect={setSelectedPath}
-                selectedPath={selectedPath}
-              />
-            </div>
-          ) : (
-            <p className="p-3 text-xs leading-5 text-muted-foreground">
-              This Workspace has no files.
-            </p>
+      <div
+        className={cn(
+          "grid min-h-0 flex-1 grid-cols-1",
+          treeOpen && "grid-cols-[clamp(8rem,30%,16rem)_minmax(0,1fr)]"
+        )}
+      >
+        <aside
+          aria-label="File tree"
+          className={cn(
+            "flex min-h-0 min-w-0 flex-col border-r",
+            !treeOpen && "hidden"
           )}
-        </ScrollArea>
-        <div className="flex min-h-0 min-w-0 flex-col">
+        >
+          <div className="shrink-0 p-2">
+            <Input
+              aria-label="Search files"
+              placeholder="Search files"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              className="h-8 text-xs"
+            />
+          </div>
+          <ScrollArea className="min-h-0 flex-1">
+            {matchingPaths.length ? (
+              <div className="py-1">
+                <FileTreeDirectory
+                  changes={changes}
+                  entry={tree}
+                  onSelect={setSelectedPath}
+                  selectedPath={selectedPath}
+                />
+              </div>
+            ) : (
+              <p className="p-3 text-xs leading-5 text-muted-foreground">
+                {paths.length
+                  ? "No files match your search."
+                  : "This Workspace has no files."}
+              </p>
+            )}
+          </ScrollArea>
+        </aside>
+        <div
+          aria-label="File contents"
+          className="flex min-h-0 min-w-0 flex-col"
+        >
           <div className="flex h-8 shrink-0 items-center border-b px-3 font-mono text-[10px] text-muted-foreground">
             <span className="truncate">
               {selectedPath ?? "Select a Workspace File"}
             </span>
+            {selectedPath && onReferenceFile ? (
+              <Button
+                className="ml-auto shrink-0"
+                size="xs"
+                variant="ghost"
+                onClick={() => onReferenceFile(selectedPath)}
+              >
+                Reference file
+              </Button>
+            ) : null}
             {loading ? (
               <LoaderCircle className="ml-auto size-3 animate-spin motion-reduce:animate-none" />
             ) : null}

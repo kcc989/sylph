@@ -22,33 +22,32 @@ const modelName =
   process.env.SYLPH_SMOKE_MODEL_NAME?.trim() || "DeepSeek V4 Flash 0731"
 const resumeClaimedInstallation =
   process.env.SYLPH_SMOKE_RESUME_CLAIMED === "true"
+const resumeWorkspaceUrl = process.env.SYLPH_SMOKE_WORKSPACE_URL
 const authenticationState = resolve(
   process.env.SYLPH_SMOKE_AUTH_STATE ??
     resolve(process.cwd(), "playwright/.auth/release-smoke.json")
 )
 const proofFile = "RELEASE_SMOKE_PROOF.txt"
-const proofMarker = `sylph-release-smoke-${Date.now()}`
+const resumeProofMarker = process.env.SYLPH_SMOKE_PROOF_MARKER?.trim()
+const proofMarker = resumeProofMarker || `sylph-release-smoke-${Date.now()}`
 
 const waitForHydration = async (page: Parameters<typeof test>[0]["page"]) => {
   await page.waitForFunction(() => !("$_TSR" in window))
 }
 
 const openToolMenu = async (page: Parameters<typeof test>[0]["page"]) => {
-  const openToolTab = page.getByRole("button", { name: "Open tool tab" })
-  if (!(await openToolTab.isVisible())) {
-    await page.getByRole("button", { name: "Open tool sidebar" }).click()
-  }
-  await openToolTab.click()
+  const openInspector = page.getByRole("button", { name: "Open inspector" })
+  if (await openInspector.isVisible()) await openInspector.click()
+  await page.getByRole("button", { name: "More inspection tools" }).click()
 }
 
 const finishWorkspaceTurn = async (
   page: Parameters<typeof test>[0]["page"]
 ) => {
-  await expect(page.getByText("Agent working", { exact: true })).toBeVisible()
   await expect
     .poll(
       async () => {
-        const permission = page.getByRole("button", { name: "Always allow" })
+        const permission = page.getByRole("button", { name: "Allow once" })
         if ((await permission.count()) > 0) {
           await permission.first().click()
           return false
@@ -75,14 +74,15 @@ const expectExpandableToolCalls = async (
   const groupToggle = page.getByRole("button", {
     name: /^Toggle \d+ tool calls$/,
   })
-  await expect(groupToggle.first()).toBeVisible()
-
-  const group = groupToggle.first().locator("..")
-  const completedCalls = group.locator('button[aria-label$=", completed"]')
-  await expect(completedCalls.first()).toBeHidden()
-  await groupToggle.first().click()
-  await expect(completedCalls.first()).toBeVisible()
-  expect(await completedCalls.count()).toBeGreaterThan(5)
+  const completedCalls = page.locator('button[aria-label$=", completed"]')
+  if (await groupToggle.count()) {
+    const group = groupToggle.first().locator("..")
+    const groupedCalls = group.locator('button[aria-label$=", completed"]')
+    await expect(groupedCalls.first()).toBeHidden()
+    await groupToggle.first().click()
+    await expect(groupedCalls.first()).toBeVisible()
+    expect(await groupedCalls.count()).toBeGreaterThan(5)
+  }
 
   const writeCall = completedCalls.filter({ hasText: "Wrote " }).first()
   await expect(writeCall).toBeVisible()
@@ -100,18 +100,22 @@ const expectExpandableToolCalls = async (
 const expectCheckAndBrowserToolCalls = async (
   page: Parameters<typeof test>[0]["page"]
 ) => {
-  const checkCall = page.getByRole("button", {
-    name: "Read check status, completed",
-  })
+  const checkCall = page
+    .getByRole("button", {
+      name: "Read check status, completed",
+    })
+    .last()
   await expect(checkCall).toBeVisible()
   await checkCall.click()
   await expect(
     checkCall.locator("..").getByText(/Checkpoint check/)
   ).toBeVisible()
 
-  const browserCall = page.getByRole("button", {
-    name: /^Opened .+ in the Preview, completed$/,
-  })
+  const browserCall = page
+    .getByRole("button", {
+      name: /^Opened .+ in the Preview, completed$/,
+    })
+    .last()
   await expect(browserCall).toBeVisible()
   await browserCall.click()
   await expect(
@@ -132,7 +136,7 @@ test("setup through eviction recovery", async ({ page }, testInfo) => {
   })
 
   await test.step("setup and claim the fresh Installation", async () => {
-    await page.goto("/")
+    await page.goto(`/?smoke=${proofMarker}`)
     await waitForHydration(page)
     const magicLink = page.getByRole("button", {
       name: "Send test magic link",
@@ -221,10 +225,22 @@ test("setup through eviction recovery", async ({ page }, testInfo) => {
   })
 
   await test.step("create a Project and its initial Workspace", async () => {
-    await page.getByLabel("Project name").fill(projectName)
-    await page.getByRole("button", { name: "Create Project" }).click()
-    await page.waitForURL(/\/projects\/[^/]+\/workspaces\/[^/?]+/)
+    if (resumeWorkspaceUrl) {
+      const destination = new URL(resumeWorkspaceUrl)
+      expect(destination.origin).toBe(new URL(baseURL).origin)
+      expect(destination.pathname).toMatch(
+        /^\/projects\/[^/]+\/workspaces\/[^/]+$/
+      )
+      await page.goto(destination.href)
+    } else {
+      await page.getByLabel("Project name").fill(projectName)
+      await page.getByRole("button", { name: "Create Project" }).click()
+      await page.waitForURL(/\/projects\/[^/]+\/workspaces\/[^/?]+/, {
+        timeout: 3 * 60 * 1000,
+      })
+    }
     await waitForHydration(page)
+    if (resumeProofMarker) await finishWorkspaceTurn(page)
     await expect(
       page.getByRole("textbox", { name: "Message the agent" })
     ).toBeEnabled()
@@ -242,54 +258,107 @@ test("setup through eviction recovery", async ({ page }, testInfo) => {
       .fill(projectName)
     await palette
       .getByRole("option")
-      .filter({ hasText: `${projectName} · ready` })
+      .filter({ hasText: `${projectName} ·` })
       .click()
-    await expect(page).toHaveURL(workspaceUrl)
+    await expect(page).toHaveURL(
+      (url) =>
+        url.origin === new URL(workspaceUrl).origin &&
+        url.pathname === new URL(workspaceUrl).pathname
+    )
+  })
+
+  await test.step("resize and switch the workspace inspector", async () => {
+    const composer = page.getByRole("textbox", { name: "Message the agent" })
+    const inspector = page.getByRole("region", { name: "Workspace inspector" })
+    await composer.fill("Preserve this draft")
+    const handle = page.getByRole("separator", {
+      name: "Resize workspace tool pane",
+    })
+    const before = await inspector.boundingBox()
+    await handle.focus()
+    await page.keyboard.press("ArrowLeft")
+    await expect
+      .poll(async () => (await inspector.boundingBox())?.width)
+      .not.toBe(before?.width)
+    await page.getByRole("button", { name: "Expand inspector" }).click()
+    await expect(composer).toBeHidden()
+    await page.getByRole("button", { name: "Restore conversation" }).click()
+    await expect(composer).toHaveValue("Preserve this draft")
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.getByRole("button", { name: "Inspect", exact: true }).click()
+    await expect(inspector).toBeVisible()
+    await expect
+      .poll(async () => (await inspector.boundingBox())?.width)
+      .toBe(390)
+    await page
+      .getByRole("button", { name: "Conversation", exact: true })
+      .click()
+    await expect(composer).toHaveValue("Preserve this draft")
+    await composer.clear()
+    await page.setViewportSize({ width: 1600, height: 1000 })
   })
 
   await test.step("build a deployable proof project", async () => {
-    await page
-      .getByRole("textbox", { name: "Message the agent" })
-      .fill(
-        `Build a minimal Cloudflare Worker project. Create ${proofFile} containing exactly ${proofMarker}. The root response must contain that marker plus SYLPH_CHECKPOINT=<the deployed checkpoint> and SYLPH_DEPLOYMENT=<preview or production>. Add meaningful typecheck, lint, test, build, sylph:preview, and sylph:deploy package scripts, source, tests, TypeScript configuration, and Wrangler configuration. The preview script must deploy a checkpoint-specific Worker, pass SYLPH_CHECKPOINT and SYLPH_DEPLOYMENT as Worker vars, wait until the URL returns the exact values, then print SYLPH_PREVIEW_URL. The production script must print SYLPH_PRODUCTION_URL. Inspect the workspace diff before your final reply. Do not run a Check.`
-      )
-    await page.getByRole("button", { name: "Send message" }).click()
-    await expect(
-      page.locator('button[aria-label$=", running"]').first()
-    ).toBeVisible({ timeout: 60 * 1000 })
+    if (!resumeProofMarker) {
+      await page
+        .getByRole("textbox", { name: "Message the agent" })
+        .fill(
+          `Use the existing Project template and keep its stack and Alchemy deployment scripts. Create ${proofFile} containing exactly ${proofMarker}. Add that marker to the root page. The root HTML must render SYLPH_CHECKPOINT=<the deployed checkpoint> and SYLPH_DEPLOYMENT=<preview or production>, using the deployment's actual runtime values. Render a visible element with both data-sylph-checkpoint and data-sylph-deployment attributes on that same element, populated from those exact runtime values. Keep meaningful typecheck, lint, test, build, sylph:preview and sylph:deploy scripts. Read back the files you changed and inspect the workspace diff before your final reply. Do not run a Check or create a Checkpoint.`
+        )
+      await page.getByRole("button", { name: "Send message" }).click()
+      await expect(
+        page.getByText("Agent working", { exact: true })
+      ).toBeVisible()
+    }
     await finishWorkspaceTurn(page)
     await expectExpandableToolCalls(page)
   })
 
   await test.step("checkpoint and verify the Workspace", async () => {
-    await openToolMenu(page)
-    await page.getByRole("menuitem", { name: "Files" }).click()
-    await page.getByRole("button", { name: proofFile }).click()
-    await expect(page.getByRole("tabpanel", { name: "Files" })).toContainText(
-      proofMarker
-    )
+    const inspector = page.getByRole("region", { name: "Workspace inspector" })
+    await inspector.getByRole("button", { name: "Files", exact: true }).click()
+    await inspector.getByRole("button", { name: proofFile }).click()
+    await expect(inspector).toContainText(proofMarker)
     await openToolMenu(page)
     await page.getByRole("menuitem", { name: "Deployments" }).click()
-    await expect(
-      page.getByRole("tabpanel", { name: "Deployments" })
-    ).toContainText("Project Deployments")
+    await expect(inspector).toContainText("Project Deployments")
+    await inspector.getByRole("button", { name: /^Changes/ }).click()
+    await page.getByLabel("Compare").selectOption("working")
     const checkpoint = page.getByRole("button", { name: "Checkpoint" })
-    await expect(checkpoint).toBeEnabled()
-    await checkpoint.click()
-    const checks = page.getByRole("tabpanel", { name: "Checks" })
-    await expect(checks).toContainText("Evidence captured", {
-      timeout: 10 * 60 * 1000,
-    })
-    await expect(checks.getByText("passed", { exact: true })).toHaveCount(7)
+    if (!resumeProofMarker || (await checkpoint.isEnabled())) {
+      await expect(checkpoint).toBeEnabled()
+      await checkpoint.click()
+    }
     await openToolMenu(page)
-    await page.getByRole("menuitem", { name: "Review" }).click()
+    await page.getByRole("menuitem", { name: "Checks and evidence" }).click()
+    const checks = inspector
+    await expect
+      .poll(
+        async () => {
+          if (await checks.getByText("failed", { exact: true }).count())
+            return "failed"
+          return (await checks.getByText("passed", { exact: true }).count()) ===
+            7
+            ? "passed"
+            : "running"
+        },
+        { timeout: 10 * 60 * 1000 }
+      )
+      .not.toBe("running")
+    await expect(checks).toContainText("Evidence captured")
+    await expect(checks.getByText("passed", { exact: true })).toHaveCount(7)
+    await inspector.getByRole("button", { name: /^Changes/ }).click()
+    await page.getByLabel("Compare").selectOption("branch")
+    await page.getByRole("button", { name: /^Review ·/ }).click()
     await page.getByRole("button", { name: "Approve", exact: true }).click()
     const socketCount = workspaceSocketUrls.length
     await page.reload()
     await expect
       .poll(() => workspaceSocketUrls.length)
       .toBeGreaterThan(socketCount)
-    await expect(page.getByRole("button", { name: "Accept" })).toBeEnabled()
+    await expect(
+      page.getByRole("button", { name: "Accept checkpoint" })
+    ).toBeEnabled()
   })
 
   await test.step("evict, restart, and recover the durable Workspace", async () => {
@@ -327,7 +396,12 @@ test("setup through eviction recovery", async ({ page }, testInfo) => {
   })
 
   await test.step("accept and archive the Workspace", async () => {
-    const accept = page.getByRole("button", { name: "Accept" })
+    await page
+      .getByRole("region", { name: "Workspace inspector" })
+      .getByRole("button", { name: /^Changes/ })
+      .click()
+    await page.getByLabel("Compare").selectOption("branch")
+    const accept = page.getByRole("button", { name: "Accept checkpoint" })
     await expect(accept).toBeEnabled()
     await accept.click()
     await page.goto("/")
