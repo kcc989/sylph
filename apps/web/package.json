@@ -25,14 +25,16 @@
     "@workspace/db": "workspace:*",
     "@workspace/domain": "workspace:*",
     "@workspace/ui": "workspace:*",
-    "better-auth": "^1.7.1",
+    "better-auth": "^1.7.2",
     "diff": "^9.0.0",
     "drizzle-orm": "^0.45.2",
     "isomorphic-git": "^1.41.9",
-    "lucide-react": "^1.34.0",
+    "lucide-react": "^1.39.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
-    "tailwindcss": "^4"
+    "tailwindcss": "^4",
+    "@ai-sdk/provider": "3.0.8",
+    "@workspace/cursor-provider": "workspace:*"
   },
   "devDependencies": {
     "@tanstack/devtools-vite": "^0.8.5",

@@ -1,3 +1,4 @@
+import { CursorConnectionSettings } from "@/components/cursor-connection-settings"
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router"
 import { useServerFn } from "@tanstack/react-start"
 import { failureMessage } from "@workspace/domain"
@@ -53,6 +54,16 @@ function UserSettingsScreen() {
             </p>
           ) : null}
         </section>
+        {organization ? (
+          <CursorConnectionSettings
+            organizationId={organization.id}
+            connected={
+              setup?.personalConnections.some(
+                (connection) => connection.providerId === "cursor"
+              ) ?? false
+            }
+          />
+        ) : null}
         <section className="border-b py-6">
           <h2 className="text-sm font-semibold">Default model</h2>
           <p className="mt-1 max-w-xl text-xs leading-5 text-muted-foreground">

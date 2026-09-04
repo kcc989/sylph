@@ -15,27 +15,31 @@
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
     "typecheck": "turbo typecheck && tsc --noEmit",
-    "test": "bun test tools/oxlint/anti-slop/tests tools/wizard/tests && turbo test",
+    "test": "bun test tools/oxlint/anti-slop/tests tools/wizard/tests && turbo test && bun run test:opencode",
     "smoke:release": "playwright test --config playwright.release-smoke.config.ts",
     "smoke:release:install": "playwright install chromium",
     "deploy": "alchemy deploy",
     "destroy": "alchemy destroy",
     "postinstall": "bash scripts/prepare-workerd.sh",
-    "prepare": "lefthook install"
+    "prepare": "lefthook install",
+    "test:opencode": "bun test tools/runtime-smoke",
+    "smoke:runtime": "node tools/runtime-smoke/run.mjs"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "5.20260826.1",
+    "@cloudflare/workers-types": "5.20260901.1",
     "@types/node": "^26",
     "@effect/platform-bun": "4.0.0-rc.111",
     "@effect/platform-node": "4.0.0-rc.111",
-    "@oxlint/plugins": "1.80.0",
+    "@oxlint/plugins": "1.81.0",
     "@playwright/test": "^1.62.1",
     "alchemy": "2.0.0-beta.76",
-    "lefthook": "2.1.10",
-    "oxfmt": "0.65.0",
-    "oxlint": "1.80.0",
+    "lefthook": "2.1.12",
+    "oxfmt": "0.66.0",
+    "oxlint": "1.81.0",
     "turbo": "^2.9.18",
-    "typescript": "^6"
+    "typescript": "^6",
+    "miniflare": "4.20260730.0",
+    "rolldown": "1.2.5"
   },
   "packageManager": "bun@1.2.7",
   "overrides": {
@@ -59,5 +63,10 @@
     "@cloudflare/ci": "^0.1.0",
     "@cloudflare/sandbox": "^0.12.9",
     "effect": "4.0.0-rc.112"
+  },
+  "patchedDependencies": {
+    "@opencode-ai/sdk@0.0.0-dev-18308": "patches/@opencode-ai%2Fsdk@0.0.0-dev-18308.patch",
+    "@opencode-ai/core@0.0.0-dev-18308": "patches/@opencode-ai%2Fcore@0.0.0-dev-18308.patch",
+    "cursor-opencode-provider@0.6.6": "patches/cursor-opencode-provider@0.6.6.patch"
   }
 }

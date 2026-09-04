@@ -14,6 +14,7 @@ const decodeFrame = Schema.decodeUnknownSync(WorkspaceSocketServerFrame)
 class Socket {
   readyState: WebSocket["readyState"] = 1
   frames: WorkspaceSocketServerFrame[] = []
+  closeCode: number | undefined
   attachment: typeof WorkspaceSocketAttachment.Type = {
     userId: "user",
     name: "Ada",
@@ -33,7 +34,10 @@ class Socket {
     if (this.readyState !== 1) throw new Error("Closed")
     this.frames.push(decodeFrame(JSON.parse(value)))
   }
-  close() {
+  close(code?: number) {
+    if (code === 1005 || code === 1006 || code === 1015)
+      throw new Error("Reserved close code")
+    this.closeCode = code
     this.readyState = 3
   }
 }
@@ -129,6 +133,56 @@ const received = (socket: Socket) =>
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 describe("Workspace socket synchronization", () => {
+  test("reconnects from its saved cursor when live events exceed replay memory", async () => {
+    const started = deferred()
+    const finish = deferred()
+    let block = true
+    const f = fixture(async function* () {
+      if (block) {
+        started.resolve()
+        await finish.promise
+      }
+      yield event(2)
+      yield { type: "log.synced", seq: 2 }
+    })
+    const socket = new Socket()
+    const connecting = f.connect(socket, 1)
+    await started.promise
+    f.emit(
+      new WorkspaceRuntimeEvent({
+        id: "large-event",
+        created: 2,
+        type: "session.idle",
+        data: { sessionID: "session", text: "x".repeat(256 * 1024) },
+        durable: { seq: 2 },
+      })
+    )
+    await tick()
+    expect(socket.closeCode).toBe(1013)
+    expect(socket.attachment.cursor).toBe(1)
+    expect(f.signals[0]?.aborted).toBe(true)
+    finish.resolve()
+    await connecting
+    block = false
+    const reconnected = new Socket()
+    await f.connect(reconnected, socket.attachment.cursor)
+    expect(received(reconnected)).toEqual(["event-2"])
+    expect(reconnected.attachment.synced).toBe(true)
+    await f.stop()
+  })
+  test("cleans up after an abnormal close without echoing its reserved code", async () => {
+    const f = fixture(async function* () {
+      yield { type: "log.synced", seq: 1 }
+    })
+    const socket = new Socket()
+    await f.connect(socket)
+    expect(() =>
+      f.service.webSocketClose(socket, 1006, "Abnormal closure", false)
+    ).not.toThrow()
+    expect(socket.closeCode).toBe(1000)
+    expect(f.signals[0]?.aborted).toBe(true)
+    await f.stop()
+  })
   test("buffers live events during replay and suppresses duplicate durable events", async () => {
     const replayStarted = deferred()
     const finishReplay = deferred()

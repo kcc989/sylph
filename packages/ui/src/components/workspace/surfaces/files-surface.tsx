@@ -306,13 +306,13 @@ export function FilesSurface({
               <p className="p-4 text-xs text-muted-foreground">
                 This Workspace File no longer exists.
               </p>
-            ) : content?.encoding === "utf8" ? (
+            ) : content?.encoding === "utf8" && content.content != null ? (
               <CodeFile
-                file={{ name: selectedPath, contents: content.content ?? "" }}
+                file={{ name: selectedPath, contents: content.content }}
                 disableWorkerPool
                 options={{
+                  theme: "pierre-dark",
                   themeType: "dark",
-                  theme: "github-dark-default",
                   disableFileHeader: true,
                   overflow: "wrap",
                 }}

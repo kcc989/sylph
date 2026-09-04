@@ -1,5 +1,7 @@
 "use client"
 
+import type { ReactNode } from "react"
+
 import { AgentThread } from "./workspace-thread/agent-thread"
 import {
   useWorkspaceShell,
@@ -22,6 +24,7 @@ import type {
 
 export function WorkspaceChat({
   entries,
+  historyControls,
   permissionRequests,
   questions,
   queuedMessages,
@@ -50,6 +53,7 @@ export function WorkspaceChat({
   onModelChange,
 }: {
   entries: ThreadEntry[]
+  historyControls?: ReactNode
   permissionRequests: ReadonlyArray<WorkspacePermissionRequest>
   questions: ReadonlyArray<WorkspaceQuestion>
   queuedMessages: ReadonlyArray<WorkspaceQueuedMessage>
@@ -107,6 +111,7 @@ export function WorkspaceChat({
         onOpenFiles={() => openWorkspaceTool(store, "files")}
         onInspectActivity={(id) => inspectWorkspaceActivity(store, id)}
         entries={entries}
+        historyControls={historyControls}
         permissionRequests={permissionRequests}
         questions={questions}
         queuedMessages={queuedMessages}

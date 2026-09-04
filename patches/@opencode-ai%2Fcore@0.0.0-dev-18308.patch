@@ -1,0 +1,95 @@
+diff --git a/dist/chunks/reference-mqpc4kbv.js b/dist/chunks/reference-mqpc4kbv.js
+index 97846c0cb44431280f049ee1487d7cf323cfd576..a3d5fec8ca72c7a72650408ddc5c29bd504d97a8 100644
+--- a/dist/chunks/reference-mqpc4kbv.js
++++ b/dist/chunks/reference-mqpc4kbv.js
+@@ -513,6 +513,7 @@ var layer = (options) => Layer.effect(Service, Effect.gen(function* () {
+   const key = cacheKey(source);
+   const ttl = Duration.minutes(5);
+   const lock = Semaphore.makeUnsafe(1);
++  let current;
+   const loadFromCache = Effect.fnUntraced(function* () {
+     const value = yield* kv.get(key);
+     const cached = Schema.decodeUnknownOption(Cache)(value);
+@@ -538,40 +539,51 @@ var layer = (options) => Layer.effect(Service, Effect.gen(function* () {
+   const fetchAndWrite = Effect.fn("ModelsDev.fetchAndWrite")(function* () {
+     const text = yield* fetchApi();
+     const catalog = yield* decodeCatalog(text);
++    const providers = normalize(catalog);
++    current = { providers, updatedAt: Date.now(), digest: bodyDigest(text) };
+     yield* writeCache(text);
+-    return catalog;
++    return providers;
+   });
+   const populate = Effect.gen(function* () {
++    if (current && !options?.file) return current.providers;
+     const fromFile = yield* loadFromFile;
+     if (fromFile)
+       return normalize(fromFile);
+     const cached = options?.file ? undefined : yield* loadFromCache();
+-    if (cached)
+-      return normalize(cached.catalog);
++    if (cached) {
++      current = { providers: normalize(cached.catalog), updatedAt: cached.updatedAt, digest: cached.digest };
++      return current.providers;
++    }
+     const bundled = yield* loadSnapshot;
+     if (bundled)
+       return bundled;
+     if (!fetch)
+       return [];
+-    const catalog = yield* lock.withPermit(Effect.gen(function* () {
++    return yield* lock.withPermit(Effect.gen(function* () {
++      if (current && !options?.file) return current.providers;
+       const stored = options?.file ? undefined : yield* loadFromCache();
+-      if (stored)
+-        return stored.catalog;
++      if (stored) {
++        current = { providers: normalize(stored.catalog), updatedAt: stored.updatedAt, digest: stored.digest };
++        return current.providers;
++      }
+       return yield* fetchAndWrite();
+     }));
+-    return normalize(catalog);
+   }).pipe(Effect.withSpan("ModelsDev.populate"), Effect.orDie);
+   const [cachedGet, invalidate] = yield* Effect.cachedInvalidateWithTTL(populate, Duration.infinity);
+   const get = () => cachedGet;
+   const refresh = Effect.fn("ModelsDev.refresh")(function* (force = false) {
+     yield* lock.withPermit(Effect.gen(function* () {
+-      const stored = yield* loadFromCache();
++      const stored = current ?? (yield* loadFromCache());
+       if (!force && stored && Date.now() - stored.updatedAt < Duration.toMillis(ttl))
+         return;
+       const text = yield* fetchApi();
+-      if (!force && stored?.digest === bodyDigest(text))
++      const digest = bodyDigest(text);
++      if (!force && stored?.digest === digest) {
++        if (current) current.updatedAt = Date.now();
+         return;
+-      yield* decodeCatalog(text);
++      }
++      const providers = normalize(yield* decodeCatalog(text));
++      current = { providers, updatedAt: Date.now(), digest };
+       yield* writeCache(text);
+       yield* invalidate;
+       yield* bus.publish(ModelsDev.Event.Refreshed, {});
+diff --git a/dist/chunks/reference-1dtpyw9b.js b/dist/chunks/reference-1dtpyw9b.js
+index 784c3e6382ad8bb855a9297571705293d09ea717..2b0d3ce125904b7d2ce7c98411e1397a6670cb4d 100644
+--- a/dist/chunks/reference-1dtpyw9b.js
++++ b/dist/chunks/reference-1dtpyw9b.js
+@@ -360,7 +360,7 @@ var pre = [
+   exports_hg.Plugin,
+   ...exports_system_prompt.Plugins,
+   ModelsDevPlugin,
+-  ...ProviderPlugins,
++  ...ProviderPlugins.filter((plugin) => plugin.id !== "opencode.provider.dynamic"),
+   ...WebSearchPlugins,
+   exports_patch.Plugin,
+   exports_edit.Plugin,
+@@ -377,6 +377,7 @@ var pre = [
+   exports_warming.Plugin
+ ];
+ var post = [
++  ...ProviderPlugins.filter((plugin) => plugin.id === "opencode.provider.dynamic"),
+   exports_instruction.Plugin,
+   exports_reference2.Plugin,
+   exports_agent2.Plugin,

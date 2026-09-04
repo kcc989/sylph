@@ -5,6 +5,7 @@ import { OrganizationId } from "./ids"
 export const OpenCodeAuthMethod = Schema.Literals([
   "api-key",
   "chatgpt-subscription",
+  "cursor-subscription",
 ])
 export type OpenCodeAuthMethod = typeof OpenCodeAuthMethod.Type
 
