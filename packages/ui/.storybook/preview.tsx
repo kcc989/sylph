@@ -16,6 +16,7 @@ function DarkStory({ Story }: { Story: ComponentType }) {
 }
 
 const preview: Preview = {
+  tags: ["autodocs"],
   decorators: [(Story) => <DarkStory Story={Story} />],
   parameters: {
     layout: "fullscreen",

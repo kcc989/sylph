@@ -5,6 +5,7 @@ import { OrganizationId, ProjectId, WorkspaceId } from "./ids"
 import { CreateProjectInput } from "./project"
 import {
   CreateWorkspaceInput,
+  randomWorkspaceName,
   RestartWorkspaceInput,
   WorkspaceSummary,
 } from "./workspace"
@@ -212,17 +213,25 @@ describe("Project and runtime inputs", () => {
   test("decodes a Workspace for an existing Project", async () => {
     const workspace = await decodeCreateWorkspaceInputPromise({
       projectId: "project-1",
+      idempotencyKey: "creation-1",
     })
 
     expect(workspace.projectId).toBe(ProjectId.make("project-1"))
+    expect(workspace.idempotencyKey).toBe("creation-1")
   })
 
   test("rejects an empty Project id when creating a Workspace", async () => {
     await expect(
       decodeCreateWorkspaceInputPromise({
         projectId: "",
+        idempotencyKey: "creation-1",
       })
     ).rejects.toBeDefined()
+  })
+
+  test("creates a stable adjective-animal Workspace name", () => {
+    const values = [0, 0.5]
+    expect(randomWorkspaceName(() => values.shift() ?? 0)).toBe("amber-otter")
   })
 
   test("restarts a Workspace with a selected model", async () => {

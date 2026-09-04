@@ -15,6 +15,7 @@ export class InitializeWorkspaceRuntime extends Schema.Class<InitializeWorkspace
   projectRepositoryName: Schema.NonEmptyString,
   projectRepositoryRemote: Schema.NonEmptyString,
   defaultRef: Schema.NonEmptyString,
+  sourceRef: Schema.optional(Schema.NonEmptyString),
   baseCommit: Schema.NonEmptyString,
   providerId: Schema.NonEmptyString,
   modelId: Schema.NonEmptyString,

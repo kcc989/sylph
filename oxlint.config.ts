@@ -37,6 +37,25 @@ export default defineConfig({
       specifier: "./tools/oxlint/anti-slop/effect/index.ts",
     },
   ],
+  overrides: [
+    {
+      files: ["**/*.{ts,tsx}"],
+      excludeFiles: ["**/*.stories.tsx"],
+      rules: {
+        "no-restricted-imports": [
+          "error",
+          {
+            patterns: [
+              {
+                group: ["**/fixtures"],
+                message: "Fixtures are available only to Storybook stories.",
+              },
+            ],
+          },
+        ],
+      },
+    },
+  ],
   rules: {
     "anti-slop/no-chained-type-assertions": "error",
     "anti-slop/no-conditional-empty-object-spread": "error",

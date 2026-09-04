@@ -24,7 +24,6 @@ import { searchEntities } from "@/functions/search"
 import { authClient } from "@/lib/auth-client"
 import { commandPaletteDestination } from "@/lib/command-palette-navigation"
 import { navigationStorage } from "@/lib/navigation-storage"
-import { useWorkspaceCreation } from "@/lib/use-workspace-creation"
 
 const recentStorageKey = "sylph:command-palette-recent:v1"
 
@@ -309,7 +308,6 @@ export function CommandPalette({
   const navigate = useNavigate()
   const router = useRouter()
   const search = useServerFn(searchEntities)
-  const { startWorkspace } = useWorkspaceCreation()
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
   const [results, setResults] = useState<SearchResultList>([])
@@ -401,9 +399,10 @@ export function CommandPalette({
   const select = async (item: CommandPaletteSelection) => {
     if (item.kind === "command" && item.action.type === "new-workspace") {
       closeAndReset()
-      await startWorkspace({
-        id: item.action.projectId,
-        slug: item.action.projectSlug,
+      await navigate({
+        to: "/projects/$projectSlug/workspaces/new",
+        params: { projectSlug: item.action.projectSlug },
+        search: {},
       })
       return
     }

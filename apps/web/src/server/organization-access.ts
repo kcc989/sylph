@@ -149,6 +149,7 @@ export const accessibleWorkspace = (
       projectId: schema.workspace.projectId,
       organizationId: schema.workspace.organizationId,
       ownerUserId: schema.workspace.ownerUserId,
+      branchName: schema.workspace.branchName,
       title: schema.workspace.title,
       status: schema.workspace.status,
       repositoryName: schema.workspace.workspaceArtifactRepo,

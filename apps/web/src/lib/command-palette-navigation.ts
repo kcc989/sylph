@@ -1,8 +1,8 @@
-import type { SearchResultView } from "@workspace/ui/lib/command-palette"
 import type {
   CommandItem,
   CommandPaletteDestination,
   RecentItem,
+  SearchResultView,
 } from "@workspace/ui/lib/command-palette"
 
 export type RouterDestination =

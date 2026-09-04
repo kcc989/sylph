@@ -11,7 +11,6 @@ import {
   CircleDot,
   FileText,
   MoreHorizontal,
-  LoaderCircle,
   PanelLeftClose,
   Plus,
   Settings2,
@@ -33,9 +32,6 @@ export type NavigationProject = {
   issuesHref?: string
   name: string
   newWorkspaceHref?: string
-  onCreateWorkspace?: () => void
-  creatingWorkspace?: boolean
-  creationError?: string
   settingsHref: string
   workspaces: ReadonlyArray<NavigationWorkspace>
 }
@@ -98,25 +94,15 @@ export function ProjectNavigation({
                 <a className="min-w-0 flex-1 truncate" href={project.href}>
                   {project.name}
                 </a>
-                {project.newWorkspaceHref || project.onCreateWorkspace ? (
+                {project.newWorkspaceHref ? (
                   <Button
                     aria-label={`New Workspace in ${project.name}`}
-                    nativeButton={!project.newWorkspaceHref}
-                    render={
-                      project.newWorkspaceHref ? (
-                        <a href={project.newWorkspaceHref} />
-                      ) : undefined
-                    }
-                    disabled={project.creatingWorkspace}
-                    onClick={project.onCreateWorkspace}
+                    nativeButton={false}
+                    render={<a href={project.newWorkspaceHref} />}
                     size="icon-xs"
                     variant="ghost"
                   >
-                    {project.creatingWorkspace ? (
-                      <LoaderCircle className="animate-spin" />
-                    ) : (
-                      <Plus />
-                    )}
+                    <Plus />
                   </Button>
                 ) : null}
                 <DropdownMenu>
@@ -127,16 +113,10 @@ export function ProjectNavigation({
                     <MoreHorizontal className="size-3.5" />
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-44">
-                    {project.newWorkspaceHref || project.onCreateWorkspace ? (
+                    {project.newWorkspaceHref ? (
                       <DropdownMenuItem
-                        nativeButton={!project.newWorkspaceHref}
-                        render={
-                          project.newWorkspaceHref ? (
-                            <a href={project.newWorkspaceHref} />
-                          ) : undefined
-                        }
-                        disabled={project.creatingWorkspace}
-                        onClick={project.onCreateWorkspace}
+                        nativeButton={false}
+                        render={<a href={project.newWorkspaceHref} />}
                       >
                         <Plus /> New Workspace
                       </DropdownMenuItem>
@@ -158,11 +138,6 @@ export function ProjectNavigation({
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
-              {project.creationError ? (
-                <p role="alert" className="px-2 py-1 text-xs text-destructive">
-                  {project.creationError}
-                </p>
-              ) : null}
               <div className="grid gap-0.5 px-1">
                 {project.workspaces.map((workspace) => (
                   <a
