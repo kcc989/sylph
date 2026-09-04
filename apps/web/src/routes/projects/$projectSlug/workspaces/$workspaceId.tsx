@@ -238,6 +238,7 @@ function WorkspaceScreen() {
   const entries = workspaceThreadEntries(
     {
       errorSummary: workspace.errorSummary,
+      lastTurnOutcome: history.page ? null : runtime.lastTurnOutcome,
       files: runtime.files,
       messages: history.page?.messages ?? runtime.messages,
       status: runtime.status,

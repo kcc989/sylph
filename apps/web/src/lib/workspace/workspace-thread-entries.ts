@@ -1,10 +1,14 @@
-import type { WorkspaceRuntimeMessage } from "@workspace/domain"
+import type {
+  WorkspaceRuntimeHealth,
+  WorkspaceRuntimeMessage,
+} from "@workspace/domain"
 import type { ThreadEntry } from "@workspace/ui/components/workspace/types"
 
 import { toolCallEntry } from "@/lib/tool-call-entries"
 import type { WorkspaceLiveState } from "@/lib/workspace-runtime-events"
 
 export type WorkspaceThreadSnapshot = {
+  lastTurnOutcome?: WorkspaceRuntimeHealth["lastTurnOutcome"]
   errorSummary?: string | null
   files: ReadonlyArray<string>
   messages: ReadonlyArray<WorkspaceRuntimeMessage>
@@ -95,6 +99,21 @@ export const workspaceThreadEntries = (
   const snapshotMessageIds = new Set(
     snapshot.messages.map((message) => message.id)
   )
+  const latestMessage = snapshot.messages.at(-1)
+  if (
+    snapshot.status === "ready" &&
+    snapshot.lastTurnOutcome === "failed" &&
+    !latestMessage?.error &&
+    !optimisticEntries.length
+  ) {
+    snapshotEntries.push({
+      id: `turn-failed:${latestMessage?.id ?? "empty"}`,
+      kind: "agent",
+      title: "Assistant error",
+      body: "The last Turn failed before it could finish. Send a new message to retry, or choose another model.",
+      meta: "Failed",
+    })
+  }
   const streamingEntries: ThreadEntry[] = Object.entries(
     liveState.partialMessages
   )
