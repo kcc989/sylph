@@ -13,6 +13,8 @@ on:
       - "oxlint.config.ts"
       - "package.json"
       - "packages/**"
+      - "patches/**"
+      - "tools/runtime-smoke/**"
       - "tools/oxlint/**"
       - "tsconfig.json"
       - "turbo.json"
@@ -47,6 +49,7 @@ jobs:
       - run: bun run typecheck
       - run: bun run test
       - run: bun run build
+      - run: bun run smoke:runtime
 
   stories:
     runs-on: ubuntu-latest

@@ -3,7 +3,7 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "types": ["@cloudflare/workers-types", "node"],
+    "types": ["@cloudflare/workers-types", "node", "bun"],
     "noEmit": true,
     "skipLibCheck": true,
     "strict": true,
@@ -11,5 +11,10 @@
       "@/*": ["./apps/web/src/*"]
     }
   },
-  "include": ["alchemy.run.ts", "oxlint.config.ts", "apps/web/src/env.d.ts"]
+  "include": [
+    "alchemy.run.ts",
+    "oxlint.config.ts",
+    "apps/web/src/env.d.ts",
+    "tools/runtime-smoke/*.test.ts"
+  ]
 }

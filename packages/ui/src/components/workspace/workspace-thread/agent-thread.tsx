@@ -1,5 +1,7 @@
 "use client"
 
+import type { ReactNode } from "react"
+
 import {
   Activity,
   Check,
@@ -156,6 +158,7 @@ function ToolCallGroup({ entries }: { entries: ReadonlyArray<ThreadEntry> }) {
 
 export function AgentThread({
   entries,
+  historyControls,
   permissionRequests,
   questions,
   queuedMessages,
@@ -184,6 +187,7 @@ export function AgentThread({
   onModelChange,
 }: {
   entries: ThreadEntry[]
+  historyControls?: ReactNode
   permissionRequests: ReadonlyArray<WorkspacePermissionRequest>
   questions: ReadonlyArray<WorkspaceQuestion>
   queuedMessages: ReadonlyArray<WorkspaceQueuedMessage>
@@ -227,6 +231,7 @@ export function AgentThread({
         <MessageScroller className="min-h-0 flex-1">
           <MessageScrollerViewport>
             <MessageScrollerContent className="mx-auto w-full max-w-3xl justify-end px-4 py-5 sm:px-7">
+              {historyControls}
               {renderEntries.map((entry) =>
                 "entries" in entry ? (
                   <ToolCallGroup entries={entry.entries} key={entry.id} />

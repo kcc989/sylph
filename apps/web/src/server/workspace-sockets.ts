@@ -60,14 +60,18 @@ const decodeWorkspaceSocketClientFramePromise = Schema.decodeUnknownPromise(
   WorkspaceSocketClientFrame
 )
 const decodeSocketTextPromise = Schema.decodeUnknownPromise(Schema.String)
+const maxPendingEventBytes = 256 * 1024
+const maxPendingEventCount = 256
+
+type PendingEvents = {
+  events: WorkspaceRuntimeEvent[]
+  bytes: number
+}
 
 class WorkspaceSocketSession {
   #socketSubscriber: Promise<void> | null = null
   #socketSubscriberAbort: AbortController | null = null
-  readonly #socketPendingEvents = new WeakMap<
-    WorkspaceSocket,
-    WorkspaceRuntimeEvent[]
-  >()
+  readonly #socketPendingEvents = new WeakMap<WorkspaceSocket, PendingEvents>()
   constructor(
     private readonly host: WorkspaceSocketHost,
     private readonly opencode: Promise<WorkspaceSocketSource>,
@@ -157,9 +161,15 @@ class WorkspaceSocketSession {
     reason: string,
     _wasClean: boolean
   ) {
-    socket.close(code, reason)
-    this.#socketPendingEvents.delete(socket)
-    this.#afterClose()
+    const canEcho =
+      (code >= 1000 && code <= 1014 && ![1004, 1005, 1006].includes(code)) ||
+      (code >= 3000 && code <= 4999)
+    try {
+      socket.close(canEcho ? code : 1000, canEcho ? reason : "")
+    } finally {
+      this.#socketPendingEvents.delete(socket)
+      this.#afterClose()
+    }
   }
 
   webSocketError(socket: WorkspaceSocket, cause: unknown) {
@@ -257,7 +267,7 @@ class WorkspaceSocketSession {
       cursor,
       synced: false,
     } satisfies WorkspaceSocketAttachment)
-    const pendingEvents: WorkspaceRuntimeEvent[] = []
+    const pendingEvents: PendingEvents = { events: [], bytes: 0 }
     this.#socketPendingEvents.set(socket, pendingEvents)
     const current = () =>
       socket.readyState === 1 &&
@@ -305,7 +315,7 @@ class WorkspaceSocketSession {
       }
 
       if (!current()) return
-      const queued = pendingEvents
+      const queued = pendingEvents.events
       for (const event of queued) {
         if (!current()) return
         if (!workspaceEventFollowsCursor(event, appliedCursor)) continue
@@ -373,12 +383,34 @@ class WorkspaceSocketSession {
       if (cursor !== null) {
         this.recordCursor(cursor)
       }
+      let eventBytes: number | undefined
       for (const socket of this.#initializedSockets()) {
         const attachment = this.#attachment(socket)
         const eventSessionId = workspaceEventSessionId(event)
         if (eventSessionId && eventSessionId !== attachment.sessionId) continue
         if (!attachment.synced) {
-          this.#socketPendingEvents.get(socket)?.push(event)
+          const pending = this.#socketPendingEvents.get(socket)
+          if (!pending) continue
+          const bytes = (eventBytes ??= new TextEncoder().encode(
+            JSON.stringify(event)
+          ).byteLength)
+          if (
+            pending.events.length >= maxPendingEventCount ||
+            pending.bytes + bytes > maxPendingEventBytes
+          ) {
+            this.#sendError(
+              socket,
+              "replay_backpressure",
+              "Reconnect to continue Workspace synchronization",
+              false
+            )
+            socket.close(1013, "Replay buffer full")
+            this.#socketPendingEvents.delete(socket)
+            this.#afterClose()
+            continue
+          }
+          pending.events.push(event)
+          pending.bytes += bytes
           continue
         }
         if (!workspaceEventFollowsCursor(event, attachment.cursor)) continue
