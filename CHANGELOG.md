@@ -4,6 +4,10 @@ All notable changes to Sylph are recorded here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Added
+
+- Personal Cursor subscription connections through OpenCode, using encrypted OAuth credentials and a Worker-native HTTP/2 transport with per-user Durable Object isolation.
+
 ### Fixed
 
 - Reuse one sandbox for checkpoint typecheck, lint, test, and build, with separate command and shared-runner timings.

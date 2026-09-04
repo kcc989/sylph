@@ -66,6 +66,7 @@
   },
   "patchedDependencies": {
     "@opencode-ai/sdk@0.0.0-dev-18308": "patches/@opencode-ai%2Fsdk@0.0.0-dev-18308.patch",
-    "@opencode-ai/core@0.0.0-dev-18308": "patches/@opencode-ai%2Fcore@0.0.0-dev-18308.patch"
+    "@opencode-ai/core@0.0.0-dev-18308": "patches/@opencode-ai%2Fcore@0.0.0-dev-18308.patch",
+    "cursor-opencode-provider@0.6.6": "patches/cursor-opencode-provider@0.6.6.patch"
   }
 }

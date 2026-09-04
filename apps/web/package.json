@@ -32,7 +32,9 @@
     "lucide-react": "^1.39.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
-    "tailwindcss": "^4"
+    "tailwindcss": "^4",
+    "@ai-sdk/provider": "3.0.8",
+    "@workspace/cursor-provider": "workspace:*"
   },
   "devDependencies": {
     "@tanstack/devtools-vite": "^0.8.5",

@@ -1,24 +1,23 @@
 {
-  "name": "@workspace/domain",
-  "version": "0.0.0",
-  "type": "module",
+  "name": "@workspace/cursor-provider",
   "private": true,
+  "type": "module",
   "scripts": {
-    "lint": "oxlint . --deny-warnings",
-    "format": "oxfmt --write .",
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },
   "dependencies": {
+    "@workspace/domain": "workspace:*",
+    "cursor-opencode-provider": "0.6.6",
     "effect": "4.0.0-rc.112",
-    "@ai-sdk/provider": "3.0.8"
+    "hpack.js": "2.1.6"
   },
   "devDependencies": {
+    "@types/node": "^26",
     "@types/bun": "1.4.0",
     "typescript": "^6"
   },
   "exports": {
-    ".": "./src/index.ts",
-    "./*": "./src/*.ts"
+    "./worker": "./src/worker-handler.ts"
   }
 }

@@ -1,3 +1,4 @@
+export { CursorConnectionObject as CursorContainer } from "./server/cursor-connection-object"
 export { CiSandbox } from "@cloudflare/ci/worker"
 export { WorkspaceDO } from "./server/workspace-do"
 export { CI } from "./server/workspace-ci"

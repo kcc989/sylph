@@ -1,3 +1,5 @@
+import type { CursorConnectionObject } from "./cursor-connection-object"
+import { createCursorProvider } from "./cursor-plugin"
 import {
   maxQueuedMessages,
   maxTurnDurationMs,
@@ -213,6 +215,10 @@ const encodeWorkspaceVersionControlSnapshotSync = Schema.encodeSync(
   WorkspaceVersionControlSnapshot
 )
 const encodeWorkspaceFileContentSync = Schema.encodeSync(WorkspaceFileContent)
+const workerdModelConfiguration = {
+  default_agent: "build",
+  permissions: workspaceMutationPermissions,
+}
 
 const decodePermissionRequests = Schema.decodeUnknownSync(
   Schema.Array(WorkspacePermissionAskedEventData)
@@ -290,6 +296,7 @@ const subscriptionProviderId = "openai"
 const subscriptionMethodId = "chatgpt-headless"
 
 interface WorkspaceBindings extends Cloudflare.Env {
+  CURSOR: DurableObjectNamespace<CursorConnectionObject>
   BROWSER: BrowserRun
   CHECK_EVIDENCE: R2Bucket
   CI_WORKFLOW: Workflow<WorkspaceCiInput>
@@ -336,10 +343,12 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     accountID: null,
   }
   readonly #credentials
+  readonly #cursor
   readonly #sockets
 
   constructor(context: DurableObjectState, bindings: WorkspaceBindings) {
     super(context, bindings)
+    this.#cursor = createCursorProvider(bindings.CURSOR)
     context.setWebSocketAutoResponse(
       new WebSocketRequestResponsePair("ping", "pong")
     )
@@ -367,11 +376,9 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
               emit: ({ message, cause }) =>
                 console.error("OpenCode runtime error", message, cause),
             },
-            config: {
-              default_agent: "build",
-              permissions: workspaceMutationPermissions,
-            },
+            config: workerdModelConfiguration,
             plugins: [
+              this.#cursor.plugin,
               createWorkspacePlugin(
                 this.#filesystem,
                 this.#workspaceGit,
@@ -1082,6 +1089,11 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
               data.credential
             )
           }
+          if (
+            data.model.providerId === "cursor" &&
+            data.credential.type === "key"
+          )
+            await this.#cursor.refresh(data.credential.key)
           await opencode.sessions.switchModel({
             sessionID: sessionId,
             model: {
@@ -1836,6 +1848,8 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
 
     try {
       await this.#credentials.install(input.providerId, input.credential)
+      if (input.providerId === "cursor" && input.credential.type === "key")
+        await this.#cursor.refresh(input.credential.key)
       this.#database
         .update(appWorkspaceState)
         .set({

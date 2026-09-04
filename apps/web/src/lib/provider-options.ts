@@ -62,9 +62,11 @@ export const findProviderOption = (providerId: string) =>
   providerOptions.find((provider) => provider.id === providerId)
 
 export const providerDisplayName = (providerId: string) =>
-  providerId === "openai"
-    ? "OpenAI"
-    : (findProviderOption(providerId)?.name ?? providerId)
+  providerId === "cursor"
+    ? "Cursor"
+    : providerId === "openai"
+      ? "OpenAI"
+      : (findProviderOption(providerId)?.name ?? providerId)
 
 export const providerConfiguration = (
   provider: ProviderOption,
