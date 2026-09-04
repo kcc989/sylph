@@ -182,7 +182,7 @@ diff --git a/src/ci/runners/sandbox.ts b/src/ci/runners/sandbox.ts
  } from '../../shared/source-checkout';
  import { slugify } from '../../shared/slugify';
 -import type { RunStepInput, RunStepResult, Runner } from './runner';
-+import { waitForRunnerProcess, type RunStepInput, type RunStepResult, type Runner } from './runner';
++import { subshellCommand, type RunStepInput, type RunStepResult, type Runner } from './runner';
  
  // Sandbox implementation limits. Pipeline-facing command and Snapshot
  // retention settings are supplied through RunnerConfig.
@@ -205,23 +205,23 @@ diff --git a/src/ci/runners/sandbox.ts b/src/ci/runners/sandbox.ts
        if (input.restore) {
          await sandbox.restoreBackup(input.restore);
          // Overlay (no rm) so cached node_modules survive while tracked source
-@@ -70,6 +73,7 @@
+@@ -70,8 +73,9 @@
          });
        }
  
 +      mark('start-process');
        const proc = await sandbox.startProcess(
-         `(${input.command}) > ${STDOUT_FILE} 2> ${STDERR_FILE}`,
+-        `(${input.command}) > ${STDOUT_FILE} 2> ${STDERR_FILE}`,
++        `${subshellCommand(input.command)} > ${STDOUT_FILE} 2> ${STDERR_FILE}`,
          {
-@@ -81,22 +85,29 @@
+           cwd: resolveCwd(input.cwd),
+           env: {
+@@ -81,22 +85,27 @@
            autoCleanup: false,
          }
        );
--      const { exitCode } = await proc.waitForExit(
 +      mark('wait-for-exit');
-+      const { exitCode } = await waitForRunnerProcess(
-+        sandbox,
-+        proc.id,
+       const { exitCode } = await proc.waitForExit(
          input.timeoutMs ?? COMMAND_TIMEOUT_MS
        );
 +      mark('read-preview');
@@ -244,7 +244,7 @@ diff --git a/src/ci/runners/sandbox.ts b/src/ci/runners/sandbox.ts
        const streams = [rawLogs.stdout, rawLogs.stderr].filter(
          (value): value is ReadableStream<Uint8Array> =>
            typeof value !== 'string'
-@@ -109,7 +120,9 @@
+@@ -109,7 +118,9 @@
        const releaseStream = async () => {
          remainingStreams -= 1;
          if (remainingStreams === 0) {
@@ -254,7 +254,7 @@ diff --git a/src/ci/runners/sandbox.ts b/src/ci/runners/sandbox.ts
          }
        };
        cleanupTransferredToStreams = true;
-@@ -130,7 +143,9 @@
+@@ -130,7 +141,9 @@
        };
      } finally {
        if (!cleanupTransferredToStreams) {
@@ -267,62 +267,12 @@ diff --git a/src/ci/runners/sandbox.ts b/src/ci/runners/sandbox.ts
 diff --git a/src/ci/runners/runner.ts b/src/ci/runners/runner.ts
 --- a/src/ci/runners/runner.ts
 +++ b/src/ci/runners/runner.ts
-@@ -31,3 +31,55 @@
+@@ -31,3 +31,5 @@
    readonly name: string;
    run(input: RunStepInput & { restore?: S }): Promise<RunStepResult<S>>;
  }
 +
-+export async function waitForRunnerProcess(
-+  sandbox: {
-+    getProcess(id: string): Promise<{ status: string; exitCode?: number } | null>;
-+    killProcess(id: string): Promise<void>;
-+  },
-+  processId: string,
-+  timeoutMs: number,
-+  pollIntervalMs = 1000
-+): Promise<{ exitCode: number }> {
-+  const timeoutError = new Error(`CI process exceeded ${timeoutMs} ms`);
-+  let stopped = false;
-+  let timeout: ReturnType<typeof setTimeout> | undefined;
-+  let delay: ReturnType<typeof setTimeout> | undefined;
-+  let releaseDelay: (() => void) | undefined;
-+  const poll = async () => {
-+    while (!stopped) {
-+      const process = await sandbox.getProcess(processId);
-+      if (stopped) throw timeoutError;
-+      if (!process) throw new Error('CI process disappeared before completion');
-+      if (['completed', 'failed', 'killed', 'error'].includes(process.status)) {
-+        if (process.status === 'completed' && process.exitCode === undefined)
-+          throw new Error('Completed CI process has no exit code');
-+        return { exitCode: process.exitCode ?? 1 };
-+      }
-+      await new Promise<void>(resolve => {
-+        releaseDelay = resolve;
-+        delay = setTimeout(resolve, pollIntervalMs);
-+      });
-+    }
-+    throw timeoutError;
-+  };
-+  try {
-+    return await Promise.race([
-+      poll(),
-+      new Promise<never>((_, reject) => {
-+        timeout = setTimeout(() => {
-+          stopped = true;
-+          reject(timeoutError);
-+        }, timeoutMs);
-+      }),
-+    ]);
-+  } catch (cause) {
-+    if (cause === timeoutError) await sandbox.killProcess(processId).catch(() => undefined);
-+    throw cause;
-+  } finally {
-+    stopped = true;
-+    clearTimeout(timeout);
-+    clearTimeout(delay);
-+    releaseDelay?.();
-+  }
-+}
++export const subshellCommand = (command: string) => `(\n${command}\n)`;
 diff --git a/src/ci/capabilities.ts b/src/ci/capabilities.ts
 --- a/src/ci/capabilities.ts
 +++ b/src/ci/capabilities.ts
