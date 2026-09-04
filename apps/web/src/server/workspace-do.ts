@@ -2040,7 +2040,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       workspaceId: WorkspaceId.make(state.workspaceId),
       sessionId: AgentSessionId.make(sessionId),
       eventCursor: state.eventCursor,
-      status: workspaceRuntimeStatus(turnActive, messages, session.outcome),
+      status: workspaceRuntimeStatus(turnActive, session.outcome),
       model:
         state.providerId && state.modelId
           ? `${state.providerId}/${state.modelId}`

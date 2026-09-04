@@ -3,38 +3,20 @@ import { describe, expect, test } from "bun:test"
 import { workspaceRuntimeStatus } from "./workspace-runtime-status"
 
 describe("Workspace runtime status", () => {
-  test("is running while the latest assistant message is incomplete", () => {
-    expect(
-      workspaceRuntimeStatus(true, [
-        { type: "assistant", time: { created: 1 } },
-      ])
-    ).toBe("running")
+  test("keeps the turn running until OpenCode releases the active session", () => {
+    expect(workspaceRuntimeStatus(true)).toBe("running")
+    expect(workspaceRuntimeStatus(true, "succeeded")).toBe("running")
+    expect(workspaceRuntimeStatus(true, "failed")).toBe("running")
+    expect(workspaceRuntimeStatus(true, "interrupted")).toBe("running")
   })
 
-  test("is ready once the latest assistant message is complete", () => {
-    expect(
-      workspaceRuntimeStatus(true, [
-        { type: "assistant", time: { created: 1, completed: 2 } },
-      ])
-    ).toBe("ready")
+  test("allows another prompt after success or failure", () => {
+    expect(workspaceRuntimeStatus(false)).toBe("ready")
+    expect(workspaceRuntimeStatus(false, "succeeded")).toBe("ready")
+    expect(workspaceRuntimeStatus(false, "failed")).toBe("ready")
   })
 
-  test("remains running when another user message is queued", () => {
-    expect(
-      workspaceRuntimeStatus(true, [
-        { type: "assistant", time: { created: 1, completed: 2 } },
-        { type: "user", time: { created: 3 } },
-      ])
-    ).toBe("running")
-  })
-
-  test("reports an interrupted turn after the runtime becomes idle", () => {
-    expect(
-      workspaceRuntimeStatus(
-        false,
-        [{ type: "assistant", time: { created: 1, completed: 2 } }],
-        "interrupted"
-      )
-    ).toBe("interrupted")
+  test("reports interruption once OpenCode releases the active session", () => {
+    expect(workspaceRuntimeStatus(false, "interrupted")).toBe("interrupted")
   })
 })
