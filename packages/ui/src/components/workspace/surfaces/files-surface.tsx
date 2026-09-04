@@ -1,5 +1,6 @@
 "use client"
 
+import { File as CodeFile } from "@pierre/diffs/react"
 import {
   ChevronRight,
   File,
@@ -195,9 +196,6 @@ export function FilesSurface({
     }
   }, [fileChanges, files, onReadFile, selectedPath])
 
-  const lines =
-    content?.encoding === "utf8" ? content.content?.split("\n") : null
-
   return (
     <section className="flex size-full min-h-0 flex-col bg-[var(--sylph-ink)]">
       <header className="flex h-10 shrink-0 items-center gap-2 border-b bg-[#171614] px-3 text-xs text-muted-foreground">
@@ -254,17 +252,17 @@ export function FilesSurface({
               <p className="p-4 text-xs text-muted-foreground">
                 This Workspace File no longer exists.
               </p>
-            ) : lines ? (
-              <pre className="min-w-max p-3 font-mono text-[11px] leading-5">
-                {lines.map((line, index) => (
-                  <span className="block" key={`${index}-${line}`}>
-                    <span className="mr-4 inline-block w-8 text-right text-muted-foreground/70 tabular-nums select-none">
-                      {index + 1}
-                    </span>
-                    {line || " "}
-                  </span>
-                ))}
-              </pre>
+            ) : content?.encoding === "utf8" && content.content != null ? (
+              <CodeFile
+                file={{ name: selectedPath, contents: content.content }}
+                disableWorkerPool
+                options={{
+                  theme: "pierre-dark",
+                  themeType: "dark",
+                  disableFileHeader: true,
+                  overflow: "wrap",
+                }}
+              />
             ) : null}
           </ScrollArea>
         </div>
