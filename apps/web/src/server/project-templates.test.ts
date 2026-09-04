@@ -20,6 +20,9 @@ describe("project templates", () => {
     expect(resolveProjectTemplate(defaultProjectTemplateKey)?.sourceUrl).toBe(
       builtInProjectTemplates[0]?.sourceUrl
     )
+    expect(resolveProjectTemplate(defaultProjectTemplateKey)?.sourceRef).toBe(
+      "main"
+    )
   })
 
   test("an unknown template key resolves to nothing", () => {

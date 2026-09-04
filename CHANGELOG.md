@@ -4,6 +4,17 @@ All notable changes to Sylph are recorded here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Fixed
+
+- Reuse one sandbox for checkpoint typecheck, lint, test, and build, with separate command and shared-runner timings.
+- Decode provider setup inputs after server serialization before forwarding them to the Workspace runtime.
+- Wait for an exact visible checkpoint/deployment DOM marker before collecting browser evidence.
+
+### Changed
+
+- New built-in template imports use `main` instead of the `v0.1.0` tag. Existing Projects remain independent copies.
+- Preview pages must expose `data-sylph-checkpoint` and `data-sylph-deployment` on the same visible element. See the operator upgrade notes.
+
 ## [0.1.0] - 2026-09-03
 
 First public release.

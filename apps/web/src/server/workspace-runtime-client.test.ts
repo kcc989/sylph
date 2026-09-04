@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import {
   GitCommitId,
+  OpenCodeKeySetupInput,
+  OrganizationId,
   PreconditionFailed,
   serializeServerFailure,
   WorkspaceCheckpointInput,
@@ -54,6 +56,28 @@ const malformedChecks = JSON.parse('[{"id":"broken"}]')
 const commit = GitCommitId.make("a".repeat(40))
 
 describe("Workspace runtime client", () => {
+  test("encodes provider input after a server serialization hop", async () => {
+    const received: string[] = []
+    const runtime = makeWorkspaceRuntime(
+      stub({
+        connectKey: async (input) => {
+          received.push(`${input.providerId}:${input.apiKey}`)
+          return { models: [], recommendedModelId: null }
+        },
+      })
+    )
+    const decoded = new OpenCodeKeySetupInput({
+      organizationId: OrganizationId.make("organization-1"),
+      scope: "organization",
+      providerId: "openrouter",
+      apiKey: "provider-key",
+    })
+
+    await runtime.connectKey({ ...decoded })
+
+    expect(received).toEqual(["openrouter:provider-key"])
+  })
+
   test("encodes inputs for the stub and decodes its results", async () => {
     const received: string[] = []
     const runtime = makeWorkspaceRuntime(

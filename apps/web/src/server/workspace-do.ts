@@ -1478,6 +1478,8 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       formats: ["markdown", "screenshot", "accessibilityTree"],
       viewport: { width: 1440, height: 900 },
       gotoOptions: { waitUntil: "networkidle2", timeout: 60_000 },
+      waitForTimeout: 5_000,
+      actionTimeout: 120_000,
       screenshotOptions: { type: "png", fullPage: input.fullPage },
       cacheTTL: 0,
     })
