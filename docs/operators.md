@@ -109,6 +109,10 @@ Alchemy reads `.env` from the repository root and authenticates with the deploy 
 
 ## Upgrading
 
+Checkpoint browser checks now wait for one visible element with both `data-sylph-checkpoint="<exact commit SHA>"` and `data-sylph-deployment="preview"`. Keep the existing visible `SYLPH_CHECKPOINT` and `SYLPH_DEPLOYMENT` text. Update existing Project preview pages before running new checks; changing the built-in template does not update an existing Project. A footer is suitable for these attributes. This update needs no new Installation secrets, token permissions, or migrations.
+
+New built-in Project imports use the template's `main` branch. Review the resolved template commit when creating a Project. Existing Projects retain their own code.
+
 ```sh
 git fetch upstream
 git merge upstream/main
