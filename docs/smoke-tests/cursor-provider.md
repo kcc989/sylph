@@ -76,3 +76,38 @@ After rebasing onto current main, local checks passed: type checking, Oxlint,
 Oxfmt, and all test tasks, including 249 web tests and both OpenCode runtime
 regression tests. The live preview evidence above predates that rebase.
 No Project deployment or merge was performed.
+
+## Alternate transport evidence: 2026-09-04
+
+An isolated Alchemy Worker in stage `h2-probe-4595` tested direct transports
+without Cursor credentials. The working provider implementation was unchanged.
+
+| Probe                                                               | Deployed result                                                                                          |
+| ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Streaming fetch, 5-byte and 65,535-byte bodies                      | Cursor response headers arrived only after closing the request at 7 seconds.                             |
+| Streaming fetch, 1,048,575-byte body                                | Headers arrived at 250 ms before closing the request; response-body completion still waited for closure. |
+| Streaming fetch, small body left open                               | No response headers before the 10-second abort.                                                          |
+| Node TLS with `ALPNProtocols: ["h2"]`                               | Rejected with `ERR_OPTION_NOT_IMPLEMENTED`.                                                              |
+| Worker TLS socket to `nghttp2.org:443`, HTTP/2 preface              | HTTP/1.1 400 response.                                                                                   |
+| Worker plaintext socket to `nghttp2.org:80`, HTTP/2 preface         | Valid HTTP/2 SETTINGS frame.                                                                             |
+| Worker TLS socket to `agentn.us.api5.cursor.sh:443`, HTTP/2 preface | Valid HTTP/2 SETTINGS and WINDOW_UPDATE frames without explicit ALPN.                                    |
+| Worker TLS socket to Cursor, HEADERS plus DATA on stream 1          | Cursor returned HEADERS and a Connect unauthenticated DATA frame while the request stream remained open. |
+
+The final socket probe used `cloudflare:sockets.connect` with
+`secureTransport: "on"`, sent the HTTP/2 connection preface and SETTINGS, encoded
+request headers with literal HPACK fields, and sent an empty Connect message.
+It acknowledged the server SETTINGS. It never sent request END_STREAM. The
+server DATA frame arrived 32 ms after the request had been written. A Node
+HTTP/2 control also received the authentication error before request closure.
+
+This proves direct HTTP/2 transport to the tested Cursor host from a deployed
+Worker is possible. The container is required by the current community
+provider implementation, not by every possible Cursor integration.
+
+This does not prove authenticated inference, account-specific host routing,
+tool-result continuation, or a complete HTTP/2 client. A replacement needs
+HPACK decoding, flow control, stream cancellation, connection lifecycle, and
+live authenticated verification. Other tested servers rejected the same TLS
+approach, so acceptance without explicit ALPN must not be assumed for all
+Cursor hosts. Large-body fetch behavior is evidence of buffering effects, not
+a reliable workaround for short model requests.
