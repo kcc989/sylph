@@ -62,7 +62,7 @@
   ],
   "dependencies": {
     "@cloudflare/ci": "^0.1.0",
-    "@cloudflare/sandbox": "^0.12.9",
+    "@cloudflare/sandbox": "0.12.1",
     "effect": "4.0.0-rc.112"
   },
   "patchedDependencies": {
