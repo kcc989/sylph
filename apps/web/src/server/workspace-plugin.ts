@@ -182,6 +182,7 @@ export type WorkspacePermissionBridge = ReturnType<
 
 export type WorkspacePluginActions = {
   assertWritable(): void
+  installDependencies(): Promise<WorkspaceCheckRun>
   runChecks(input: {
     message: string
     repairOnFailure: boolean
@@ -202,7 +203,8 @@ export type WorkspacePluginActions = {
 
 export const workspaceSystemPrompt = [
   "You are coding inside a Cloudflare Durable Object.",
-  "Use workspace_list_files, workspace_read_file, workspace_edit_file, workspace_write_file, and workspace_delete_file for source work. The durable workspace filesystem is authoritative. Use workspace_edit_file for exact, unique text replacements, especially in large files and lockfiles; workspace_write_file replaces the entire file.",
+  "Use workspace_list_files, workspace_read_file, workspace_edit_file, workspace_write_file, and workspace_delete_file for source work. The durable workspace filesystem is authoritative. Use workspace_edit_file for exact, unique text replacements; workspace_write_file replaces the entire file.",
+  "After changing Bun package.json dependencies or when bun.lock is missing, stale, truncated, or invalid, call workspace_install_dependencies with {}. Cloudflare CI runs Bun, saves the generated lockfile back to the durable Workspace, and starts normal frozen-install Checks automatically. Never generate lockfile entries or integrity hashes yourself, edit the lockfile by hand, or remove frozen validation. Do not run another Check while dependency installation is pending; Sylph delivers the result to this Conversation.",
   "Use workspace_restore_file to discard the changes to one file and restore it from the latest Checkpoint. This can recover a damaged file without rewriting its contents through model output.",
   "Use workspace_checkpoint to commit the Working copy to the Workspace fork without running CI, and workspace_diff to review uncommitted or Checkpoint changes against the Project Repository base.",
   "Use workspace_run_checks after a coherent change; Sylph delivers the Check result to this Conversation when Cloudflare CI finishes, so do not poll workspace_check_status in a loop. Use workspace_check_status for diagnostics, Preview state, and browser evidence.",
@@ -308,6 +310,29 @@ export const createWorkspacePlugin = (
 
             return {
               content: rows.length ? rows.join("\n") : "No files found.",
+            }
+          },
+        })
+        draft.add({
+          name: "workspace_install_dependencies",
+          description:
+            "Generate or repair bun.lock from package.json using Bun in Cloudflare CI, verify a frozen install, save the generated lockfile to this Workspace, and automatically run normal Checks. Call with {} after dependency changes or lockfile errors; no manual lockfile edits are needed. Currently supports Bun projects with a text bun.lock or packageManager bun@version.",
+          input: WorkspaceCheckStatusToolJsonSchema,
+          options: workspaceWriteToolOptions,
+          async execute(input, context) {
+            await decodeWorkspaceCheckStatusToolInput(input)
+            actions.assertWritable()
+            await permissionBridge.request({
+              sessionID: context.sessionID,
+              agent: context.agent,
+              messageID: context.messageID,
+              toolCallID: context.id,
+              action: "workspace_write_file",
+              path: "bun.lock",
+            })
+            actions.assertWritable()
+            return {
+              content: JSON.stringify(await actions.installDependencies()),
             }
           },
         })

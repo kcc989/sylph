@@ -478,6 +478,10 @@ export class WorkspaceGit {
     })
   }
 
+  hasCheckpoint(id: string) {
+    return Boolean(this.#checkpoint(id))
+  }
+
   checkpoints() {
     return this.#storage.sql
       .exec<CheckpointRow>(

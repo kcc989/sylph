@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { Database, type SQLQueryBindings } from "bun:sqlite"
 import git from "isomorphic-git"
+import { DependencyInputFile, DependencyRepairOutput } from "@workspace/domain"
 import { WorkspaceGit } from "./workspace-git"
 
 import {
@@ -27,6 +28,82 @@ class TestSqlStorage {
 }
 
 describe("WorkspaceFilesystem", () => {
+  test("imports a generated lockfile and preserves unrelated concurrent edits", async () => {
+    const filesystem = new WorkspaceFilesystem(new TestSqlStorage())
+    filesystem.initialize()
+    await filesystem.writeFile("package.json", '{"name":"demo"}')
+    await filesystem.writeFile("bun.lock", "damaged")
+    const inputs = await Promise.all(
+      ["bun.lock", "package.json"].map(
+        async (path) =>
+          new DependencyInputFile({
+            path,
+            digest: Array.from(
+              new Uint8Array(
+                await crypto.subtle.digest(
+                  "SHA-256",
+                  new Uint8Array(await filesystem.readFile(path))
+                )
+              )
+            )
+              .map((byte) => byte.toString(16).padStart(2, "0"))
+              .join(""),
+          })
+      )
+    )
+    await filesystem.writeFile("app.ts", "concurrent change")
+    const lockfile = "generated ünicode\n".repeat(20_000)
+    await filesystem.applyDependencyRepair(
+      new DependencyRepairOutput({ inputs, lockfile })
+    )
+    await filesystem.applyDependencyRepair(
+      new DependencyRepairOutput({ inputs, lockfile })
+    )
+    expect(await filesystem.readFile("bun.lock", "utf8")).toBe(lockfile)
+    expect(await filesystem.readFile("app.ts", "utf8")).toBe(
+      "concurrent change"
+    )
+    await expect(
+      filesystem.applyDependencyRepair(
+        new DependencyRepairOutput({ inputs, lockfile: "stale" })
+      )
+    ).rejects.toMatchObject({ _tag: "DependencyRepairConflict" })
+    expect(await filesystem.readFile("bun.lock", "utf8")).toBe(lockfile)
+  })
+
+  test("rejects repairs when dependency manifests change or new inputs appear", async () => {
+    for (const changed of [
+      "package.json",
+      "nested/package.json",
+      ".npmrc",
+      "patches/fix.patch",
+    ]) {
+      const filesystem = new WorkspaceFilesystem(new TestSqlStorage())
+      filesystem.initialize()
+      await filesystem.writeFile("package.json", "{}")
+      const digest = Array.from(
+        new Uint8Array(
+          await crypto.subtle.digest("SHA-256", new TextEncoder().encode("{}"))
+        )
+      )
+        .map((byte) => byte.toString(16).padStart(2, "0"))
+        .join("")
+      const inputs = [new DependencyInputFile({ path: "package.json", digest })]
+      await filesystem.writeFile(changed, "changed during install")
+      await expect(
+        filesystem.applyDependencyRepair(
+          new DependencyRepairOutput({ inputs, lockfile: "generated" })
+        )
+      ).rejects.toMatchObject({ _tag: "DependencyRepairConflict" })
+      await expect(filesystem.readFile("bun.lock")).rejects.toMatchObject({
+        code: "ENOENT",
+      })
+      expect(await filesystem.readFile(changed, "utf8")).toBe(
+        "changed during install"
+      )
+    }
+  })
+
   test("recovers a damaged file from a Checkpoint without reverting other files", async () => {
     const storage = new TestSqlStorage()
     const filesystem = new WorkspaceFilesystem(storage)

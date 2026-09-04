@@ -55,6 +55,17 @@ const run = () =>
   })
 
 describe("WorkspaceChecks", () => {
+  test("a successful dependency repair cannot authorize Acceptance", () => {
+    const checks = new WorkspaceChecks(new TestSqlStorage())
+    checks.initialize()
+    const repaired = new WorkspaceCheckRun({
+      ...run(),
+      kind: "dependencies",
+      status: "passed",
+    })
+    checks.create(repaired)
+    expect(checks.latestPassingCheckpoint(repaired.commit)).toBeNull()
+  })
   test("keeps the newer Check first when an older Check finishes later", () => {
     const checks = new WorkspaceChecks(new TestSqlStorage())
     checks.initialize()

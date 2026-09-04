@@ -6,7 +6,11 @@ import { ProjectId, WorkspaceId } from "./ids"
 import { WorkspaceReviewDecision } from "./review"
 import { GitCommitId, WorkspaceFileChange } from "./version-control"
 
-export const WorkspaceCheckKind = Schema.Literals(["checkpoint", "production"])
+export const WorkspaceCheckKind = Schema.Literals([
+  "checkpoint",
+  "production",
+  "dependencies",
+])
 export type WorkspaceCheckKind = typeof WorkspaceCheckKind.Type
 
 export const WorkspaceCheckStatus = Schema.Literals([
