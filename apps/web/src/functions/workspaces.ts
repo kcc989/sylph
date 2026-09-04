@@ -1,3 +1,4 @@
+import { provisioningRuntimeHealth } from "@/server/workspace-provisioning-state"
 import { createServerFn } from "@tanstack/react-start"
 import { schema } from "@workspace/db"
 import {
@@ -9,6 +10,8 @@ import {
   PreconditionFailed,
   ProjectId,
   ProviderConnectionRequired,
+  WorkspaceReadInput,
+  WorkspacePatchReadInput,
   WorkspaceArchiveInput,
   WorkspaceId,
   WorkspaceRuntimeFailure,
@@ -34,7 +37,7 @@ import {
   WorkspaceVersionControl,
   WorkspaceReadFileInput,
 } from "@workspace/domain"
-import { env } from "cloudflare:workers"
+import { env, waitUntil } from "cloudflare:workers"
 import { and, eq } from "drizzle-orm"
 import { Effect, Schema } from "effect"
 
@@ -64,16 +67,19 @@ import {
 } from "@/server/provider-connections"
 import { repositoryStore } from "@/server/repositories"
 import { acceptanceCanStart } from "@/server/workspace-merge-heads"
-import {
-  readWorkspaceVersionControlSnapshot,
-  waitForWorkspaceVersionControl,
-} from "@/server/workspace-repository-refresh"
+import { readWorkspaceVersionControlSnapshot } from "@/server/workspace-repository-refresh"
 import { loadWorkspaceReview } from "@/server/workspace-review-store"
 import {
-  completeWorkspaceInitialization,
+  scheduleWorkspaceProvisioning,
   workspaceRuntime,
 } from "@/server/workspace-runtime"
 import { restartDurableWorkspace } from "@/server/workspace-runtime-lifecycle"
+
+const decodeWorkspacePatchReadInput = Schema.decodeUnknownPromise(
+  WorkspacePatchReadInput
+)
+
+const decodeWorkspaceReadInput = Schema.decodeUnknownPromise(WorkspaceReadInput)
 
 const decodeCreateWorkspaceInputPromise =
   Schema.decodeUnknownPromise(CreateWorkspaceInput)
@@ -162,7 +168,11 @@ export const createWorkspace = createServerFn({ method: "POST" })
       )
       .get()
 
-    if (existingWorkspace) return existingWorkspace
+    if (existingWorkspace) {
+      if (existingWorkspace.status === "provisioning")
+        await scheduleWorkspaceProvisioning(existingWorkspace.id)
+      return existingWorkspace
+    }
 
     const synchronized = await synchronizeProjectRepository(database, user.id, {
       id: project.id,
@@ -202,7 +212,6 @@ export const createWorkspace = createServerFn({ method: "POST" })
       })
     }
 
-    const credential = await connectionCredential(connection)
     const workspaceId = WorkspaceId.make(crypto.randomUUID())
     const repositories = repositoryStore()
     const head =
@@ -237,26 +246,7 @@ export const createWorkspace = createServerFn({ method: "POST" })
       updatedAt: now,
     })
 
-    await completeWorkspaceInitialization(
-      database,
-      workspaceId,
-      new InitializeWorkspaceRuntime({
-        organizationId: OrganizationId.make(project.organizationId),
-        projectId: ProjectId.make(project.id),
-        workspaceId,
-        projectName: project.name,
-        repositoryName: workspaceRepository.name,
-        repositoryRemote: workspaceRepository.remote,
-        projectRepositoryName: project.repositoryName,
-        projectRepositoryRemote: project.repositoryRemote,
-        defaultRef: title,
-        sourceRef: workspaceRepository.defaultBranch,
-        baseCommit: head,
-        providerId: connection.providerId,
-        modelId: connection.modelId,
-        credential,
-      })
-    )
+    await scheduleWorkspaceProvisioning(workspaceId)
 
     return {
       id: workspaceId,
@@ -267,7 +257,7 @@ export const createWorkspace = createServerFn({ method: "POST" })
 
 export const getWorkspace = createServerFn({ method: "GET" })
   .middleware([workspaceMember])
-  .validator((input) => decodeWorkspaceRequestInputPromise(input))
+  .validator((input) => decodeWorkspaceReadInput(input))
   .handler(async ({ data, context }) => {
     const { database, user } = context
 
@@ -324,31 +314,35 @@ export const getWorkspace = createServerFn({ method: "GET" })
       workspace.importOriginUrl &&
       (!workspace.upstreamSyncedAt ||
         Date.now() - workspace.upstreamSyncedAt.getTime() > 5 * 60 * 1000)
-    if (shouldSynchronize) {
-      await synchronizeProjectRepository(database, user.id, {
-        id: workspace.projectId,
-        repositoryName: workspace.repositoryName,
-        repositoryRemote: workspace.repositoryRemote,
-        defaultRef: workspace.defaultBranch,
-        sourceUrl: workspace.importOriginUrl,
-        sourceRef: workspace.importOriginBranch,
-      })
+    if (shouldSynchronize && data.includeOptions !== false) {
+      waitUntil(
+        synchronizeProjectRepository(database, user.id, {
+          id: workspace.projectId,
+          repositoryName: workspace.repositoryName,
+          repositoryRemote: workspace.repositoryRemote,
+          defaultRef: workspace.defaultBranch,
+          sourceUrl: workspace.importOriginUrl,
+          sourceRef: workspace.importOriginBranch,
+        })
+      )
     }
 
     const runtime = workspaceRuntime(data.workspaceId)
-    const readVersionControl = () => runtime.versionControl(false)
+    const readVersionControl = () => runtime.versionControl(false, false)
     const [runtimeSnapshot, versionControlSnapshot, checks, skills] =
       await Promise.all([
-        runtime.snapshot(),
-        workspace.status === "error" || workspace.errorSummary
-          ? readVersionControl()
-          : waitForWorkspaceVersionControl(readVersionControl),
-        runtime.listChecks(),
-        loadInstalledSkills(
-          env.DB,
-          workspace.organizationId,
-          workspace.projectId
-        ),
+        workspace.status === "provisioning"
+          ? provisioningRuntimeHealth(workspace.id)
+          : runtime.snapshot(),
+        workspace.status === "provisioning" ? null : readVersionControl(),
+        workspace.status === "provisioning" ? [] : runtime.listChecks(),
+        data.includeOptions === false
+          ? []
+          : loadInstalledSkills(
+              env.DB,
+              workspace.organizationId,
+              workspace.projectId
+            ),
       ])
 
     const separator = runtimeSnapshot.model?.indexOf("/") ?? -1
@@ -359,12 +353,15 @@ export const getWorkspace = createServerFn({ method: "GET" })
             modelId: runtimeSnapshot.model.slice(separator + 1),
           }
         : null
-    const connection = await effectiveConnection(
-      database,
-      workspace.organizationId,
-      user.id,
-      conversationModel
-    )
+    const connection =
+      data.includeOptions === false
+        ? null
+        : await effectiveConnection(
+            database,
+            workspace.organizationId,
+            user.id,
+            conversationModel
+          )
     const { versionControl, checkpoints } =
       await readWorkspaceVersionControlSnapshot(versionControlSnapshot, {
         defaultRef: workspace.defaultBranch,
@@ -391,8 +388,7 @@ export const getWorkspace = createServerFn({ method: "GET" })
     ])
 
     const runtimeStatus =
-      (workspace.status === "error" || workspace.errorSummary) &&
-      runtimeSnapshot.status === "provisioning"
+      workspace.status === "error" || workspace.errorSummary
         ? "error"
         : runtimeSnapshot.status
     const status =
@@ -420,6 +416,7 @@ export const getWorkspace = createServerFn({ method: "GET" })
         })
       ),
       versionControl: encodedVersionControl,
+      workingRevision: versionControlSnapshot?.workingRevision ?? 0,
       checkpoints: encodedCheckpoints,
       checks: encodedChecks,
       review: encodedReview,
@@ -865,4 +862,38 @@ export const acceptWorkspace = createServerFn({ method: "POST" })
       })
       .where(eq(schema.workspace.id, data.workspaceId))
     return { operationId: instance.id, status: "merging" as const }
+  })
+
+export const getWorkspaceActivity = createServerFn({ method: "GET" })
+  .middleware([workspaceMember])
+  .validator((input) => decodeWorkspaceRequestInputPromise(input))
+  .handler(async ({ data }) =>
+    encodeWorkspaceRuntimeHealth(
+      await workspaceRuntime(data.workspaceId).snapshot()
+    )
+  )
+
+export const getWorkspaceChecks = createServerFn({ method: "GET" })
+  .middleware([workspaceMember])
+  .validator((input) => decodeWorkspaceRequestInputPromise(input))
+  .handler(async ({ data }) =>
+    encodeWorkspaceCheckRunList(
+      await workspaceRuntime(data.workspaceId).listChecks()
+    )
+  )
+
+export const readWorkspacePatch = createServerFn({ method: "GET" })
+  .middleware([workspaceMember])
+  .validator((input) => decodeWorkspacePatchReadInput(input))
+  .handler(async ({ data }) => {
+    const snapshot = await requireVersionControlSnapshot(
+      data.workspaceId,
+      false
+    )
+    if (snapshot.vcs.forkHead !== data.expectedCommit)
+      throw new PreconditionFailed({
+        message:
+          "The Workspace Checkpoint changed. Refresh the Workspace before reviewing.",
+      })
+    return snapshot.vcs[data.scope].map((change) => change.patch).join("\n")
   })

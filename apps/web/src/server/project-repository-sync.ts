@@ -1,7 +1,12 @@
 import { schema } from "@workspace/db"
-import { SyncProjectRepositoryInput } from "@workspace/domain"
+import {
+  SyncProjectRepositoryInput,
+  ProjectSynchronizationInput,
+  ProjectId,
+  type SyncProjectRepositoryResult,
+} from "@workspace/domain"
 import { env } from "cloudflare:workers"
-import { Effect } from "effect"
+import { Effect, Schema } from "effect"
 import { and, eq } from "drizzle-orm"
 
 import {
@@ -72,7 +77,7 @@ export const githubUserAccessToken = async (
   return refreshed.accessToken
 }
 
-export const synchronizeProjectRepository = async (
+export const synchronizeProjectRepositoryDirect = async (
   database: Database,
   userId: string,
   project: {
@@ -82,7 +87,8 @@ export const synchronizeProjectRepository = async (
     defaultRef: string
     sourceUrl: string | null
     sourceRef: string | null
-  }
+  },
+  previous?: SyncProjectRepositoryResult
 ) => {
   if (!project.sourceUrl) return null
   const accessToken = await githubUserAccessToken(database, userId)
@@ -94,7 +100,12 @@ export const synchronizeProjectRepository = async (
     sourceRef: project.sourceRef ?? project.defaultRef,
     sourceAccessToken: accessToken,
   })
-  const result = await syncProjectRepository(env.REPOS, input).catch(() => null)
+  const result = await syncProjectRepository(
+    env.REPOS,
+    input,
+    undefined,
+    previous
+  ).catch(() => null)
   if (!result) {
     await database
       .update(schema.project)
@@ -118,4 +129,27 @@ export const synchronizeProjectRepository = async (
     })
     .where(eq(schema.project.id, project.id))
   return result
+}
+
+const encodeSynchronizationInput = Schema.encodeSync(
+  ProjectSynchronizationInput
+)
+
+export const synchronizeProjectRepository = (
+  _database: Database,
+  userId: string,
+  project: Parameters<typeof synchronizeProjectRepositoryDirect>[2]
+) => {
+  if (!project.sourceUrl) return Promise.resolve(null)
+  return env.PROJECT_SYNCS.get(
+    env.PROJECT_SYNCS.idFromName(project.id)
+  ).synchronize(
+    encodeSynchronizationInput(
+      new ProjectSynchronizationInput({
+        ...project,
+        id: ProjectId.make(project.id),
+        userId,
+      })
+    )
+  )
 }

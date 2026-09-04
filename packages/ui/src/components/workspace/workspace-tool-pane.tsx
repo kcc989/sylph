@@ -14,6 +14,10 @@ import {
   X,
 } from "lucide-react"
 import type { ReactNode } from "react"
+import {
+  WorkspacePatchSurface,
+  type WorkspacePatchReader,
+} from "./surfaces/workspace-patch-surface"
 
 import { Button } from "@workspace/ui/components/button"
 import {
@@ -101,6 +105,9 @@ function WorkspaceTabs({
   files,
   fileChanges,
   onReadFile,
+  onReadPatch,
+  patchRevision,
+  reviewPatchRevision,
   deployments,
   canDeploy,
   acceptedCommit,
@@ -137,6 +144,9 @@ function WorkspaceTabs({
   files: ReadonlyArray<string>
   fileChanges: ReadonlyArray<WorkspaceFileChangeView>
   onReadFile?: (path: string) => Promise<WorkspaceFileContentView>
+  onReadPatch?: WorkspacePatchReader
+  patchRevision?: string | number
+  reviewPatchRevision?: string | number
   deployments: WorkspaceDeployments
   canDeploy: boolean
   acceptedCommit?: string | null
@@ -259,27 +269,45 @@ function WorkspaceTabs({
           <BrowserPreview browser={browser} content={previewContent} />
         ) : null}
         {activeTab?.kind === "changes" ? (
-          <ReviewSurface
-            changedFileCount={changedFileCount}
-            changeSummary={changeSummary}
-            checkpointHistory={checkpointHistory}
+          <WorkspacePatchSurface
+            scope="working"
+            revision={patchRevision}
+            readPatch={onReadPatch}
             patch={patch}
-          />
+          >
+            {(loadedPatch) => (
+              <ReviewSurface
+                changedFileCount={changedFileCount}
+                changeSummary={changeSummary}
+                checkpointHistory={checkpointHistory}
+                patch={loadedPatch}
+              />
+            )}
+          </WorkspacePatchSurface>
         ) : null}
         {activeTab?.kind === "checks" ? (
           <ChecksSurface checks={checks} />
         ) : null}
         {activeTab?.kind === "review" ? (
-          <ReviewNotesSurface
-            currentReviewer={currentReviewer}
-            error={reviewError}
-            onAddComment={onAddReviewComment}
-            onResolveComment={onResolveReviewComment}
-            onSubmitReview={onSubmitReview}
+          <WorkspacePatchSurface
+            scope="branch"
+            revision={reviewPatchRevision}
+            readPatch={onReadPatch}
             patch={reviewPatch}
-            pending={reviewPending}
-            review={review}
-          />
+          >
+            {(loadedPatch) => (
+              <ReviewNotesSurface
+                currentReviewer={currentReviewer}
+                error={reviewError}
+                onAddComment={onAddReviewComment}
+                onResolveComment={onResolveReviewComment}
+                onSubmitReview={onSubmitReview}
+                patch={loadedPatch}
+                pending={reviewPending}
+                review={review}
+              />
+            )}
+          </WorkspacePatchSurface>
         ) : null}
         {activeTab?.kind === "terminal" ? <TerminalSurface /> : null}
         {activeTab?.kind === "files" ? (
@@ -323,6 +351,9 @@ export function WorkspaceToolPane({
   files = [],
   fileChanges = [],
   onReadFile,
+  onReadPatch,
+  patchRevision,
+  reviewPatchRevision,
   deployments = { acceptedCommits: [], deployments: [] },
   canDeploy = false,
   acceptedCommit,
@@ -353,6 +384,9 @@ export function WorkspaceToolPane({
   files?: ReadonlyArray<string>
   fileChanges?: ReadonlyArray<WorkspaceFileChangeView>
   onReadFile?: (path: string) => Promise<WorkspaceFileContentView>
+  onReadPatch?: WorkspacePatchReader
+  patchRevision?: string | number
+  reviewPatchRevision?: string | number
   deployments?: WorkspaceDeployments
   canDeploy?: boolean
   acceptedCommit?: string | null
@@ -390,6 +424,9 @@ export function WorkspaceToolPane({
       files={files}
       fileChanges={fileChanges}
       onReadFile={onReadFile}
+      onReadPatch={onReadPatch}
+      patchRevision={patchRevision}
+      reviewPatchRevision={reviewPatchRevision}
       deployments={deployments}
       canDeploy={canDeploy}
       acceptedCommit={acceptedCommit}

@@ -1,3 +1,4 @@
+import { GitCommitId } from "./version-control"
 import { Schema } from "effect"
 
 import { ProjectId, WorkspaceId } from "./ids"
@@ -92,3 +93,30 @@ export class InvalidWorkspaceInput extends Schema.TaggedError<InvalidWorkspaceIn
     message: Schema.String,
   }
 ) {}
+
+export class WorkspaceReadInput extends Schema.Class<WorkspaceReadInput>(
+  "@sylph/domain/WorkspaceReadInput"
+)({
+  workspaceId: WorkspaceId,
+  includeOptions: Schema.optional(Schema.Boolean),
+}) {}
+
+export class ProjectSynchronizationInput extends Schema.Class<ProjectSynchronizationInput>(
+  "@sylph/domain/ProjectSynchronizationInput"
+)({
+  id: ProjectId,
+  userId: Schema.NonEmptyString,
+  repositoryName: Schema.NonEmptyString,
+  repositoryRemote: Schema.NonEmptyString,
+  defaultRef: Schema.NonEmptyString,
+  sourceUrl: Schema.NullOr(Schema.String),
+  sourceRef: Schema.NullOr(Schema.String),
+}) {}
+
+export class WorkspacePatchReadInput extends Schema.Class<WorkspacePatchReadInput>(
+  "@sylph/domain/WorkspacePatchReadInput"
+)({
+  workspaceId: WorkspaceId,
+  scope: Schema.Literals(["working", "branch"]),
+  expectedCommit: GitCommitId,
+}) {}

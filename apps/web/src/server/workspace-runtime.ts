@@ -1,12 +1,6 @@
-import { schema } from "@workspace/db"
-import {
-  failureMessage,
-  type InitializeWorkspaceRuntime,
-} from "@workspace/domain"
+import { WorkspaceId } from "@workspace/domain"
+import { deploymentWorkflowAlreadyStarted } from "./deployment-records"
 import { env } from "cloudflare:workers"
-import { eq } from "drizzle-orm"
-
-import type { Database } from "@/server/organization-access"
 import {
   makeWorkspaceRuntime,
   type WorkspaceRuntime,
@@ -17,30 +11,13 @@ export type { WorkspaceRuntime } from "@/server/workspace-runtime-client"
 export const workspaceRuntime = (name: string): WorkspaceRuntime =>
   makeWorkspaceRuntime(env.WORKSPACES.get(env.WORKSPACES.idFromName(name)))
 
-export const completeWorkspaceInitialization = async (
-  database: Database,
-  workspaceId: string,
-  input: InitializeWorkspaceRuntime
-) => {
+export const scheduleWorkspaceProvisioning = async (workspaceId: string) => {
   try {
-    await workspaceRuntime(workspaceId).initialize(input)
-    await database
-      .update(schema.workspace)
-      .set({
-        status: "ready",
-        syncStatus: "ready",
-        errorSummary: null,
-        updatedAt: new Date(),
-      })
-      .where(eq(schema.workspace.id, workspaceId))
+    await env.PROVISIONING.create({
+      id: `provision-${workspaceId}`,
+      params: { workspaceId: WorkspaceId.make(workspaceId) },
+    })
   } catch (cause) {
-    await database
-      .update(schema.workspace)
-      .set({
-        status: "error",
-        errorSummary: failureMessage(cause, "Workspace runtime failed"),
-        updatedAt: new Date(),
-      })
-      .where(eq(schema.workspace.id, workspaceId))
+    if (!deploymentWorkflowAlreadyStarted(cause)) throw cause
   }
 }

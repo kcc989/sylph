@@ -1,14 +1,8 @@
 import { describe, expect, test } from "bun:test"
-import {
-  isRuntimeNotInitialized,
-  WorkspaceVersionControlSnapshot,
-} from "@workspace/domain"
+import { WorkspaceVersionControlSnapshot } from "@workspace/domain"
 import { Schema } from "effect"
 
-import {
-  readWorkspaceVersionControlSnapshot,
-  waitForWorkspaceVersionControl,
-} from "./workspace-repository-refresh"
+import { readWorkspaceVersionControlSnapshot } from "./workspace-repository-refresh"
 
 const baseCommit = "a".repeat(40)
 const forkHead = "b".repeat(40)
@@ -36,30 +30,6 @@ const snapshot = Schema.decodeUnknownSync(WorkspaceVersionControlSnapshot)({
 })
 
 describe("Workspace Project Repository refresh", () => {
-  test("waits while a new Workspace initializes version control", async () => {
-    let attempts = 0
-
-    const result = await waitForWorkspaceVersionControl(
-      async () => {
-        attempts += 1
-        return attempts === 1 ? null : snapshot
-      },
-      { attempts: 2, delay: async () => undefined }
-    )
-
-    expect(result).toBe(snapshot)
-    expect(attempts).toBe(2)
-  })
-
-  test("gives up when version control never initializes", async () => {
-    const failure = await waitForWorkspaceVersionControl(async () => null, {
-      attempts: 2,
-      delay: async () => undefined,
-    }).catch((cause) => cause)
-    expect(isRuntimeNotInitialized(failure)).toBe(true)
-    expect(failure.message).toBe("Workspace version control is not initialized")
-  })
-
   test("decodes the runtime snapshot when version control is initialized", async () => {
     const result = await readWorkspaceVersionControlSnapshot(snapshot, {
       defaultRef: "main",
@@ -73,7 +43,7 @@ describe("Workspace Project Repository refresh", () => {
     expect(result.checkpoints).toHaveLength(1)
   })
 
-  test("uses persisted commits when an error-state Workspace has no runtime VCS", async () => {
+  test("returns persisted commits immediately while a Workspace initializes", async () => {
     const result = await readWorkspaceVersionControlSnapshot(null, {
       defaultRef: "main",
       baseCommit,

@@ -157,7 +157,8 @@ export const prepareProjectRepository = async (
 export const syncProjectRepository = async (
   repositories: RepositoryNamespace,
   input: SyncProjectRepositoryInput,
-  listRefs: ListRemoteRefs = git.listServerRefs
+  listRefs: ListRemoteRefs = git.listServerRefs,
+  previous?: SyncProjectRepositoryResult
 ) => {
   const repository = await repositories.get(input.repositoryName)
   const token = await repository.createToken("write", 300)
@@ -179,6 +180,13 @@ export const syncProjectRepository = async (
       projectHead: GitCommitId.make(projectHead),
       upstreamHead: GitCommitId.make(upstreamHead),
     })
+  }
+
+  if (
+    previous?.projectHead === projectHead &&
+    previous.upstreamHead === upstreamHead
+  ) {
+    return previous
   }
 
   const filesystem = new MemoryFilesystem()

@@ -161,5 +161,6 @@ export class WorkspaceVersionControlSnapshot extends Schema.Class<WorkspaceVersi
   "@sylph/domain/WorkspaceVersionControlSnapshot"
 )({
   vcs: WorkspaceVersionControl,
+  workingRevision: Schema.optional(Schema.Int),
   checkpoints: WorkspaceCheckpointList,
 }) {}

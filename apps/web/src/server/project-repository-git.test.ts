@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test"
-import { GitCommitId, SyncProjectRepositoryInput } from "@workspace/domain"
+import {
+  GitCommitId,
+  SyncProjectRepositoryInput,
+  SyncProjectRepositoryResult,
+} from "@workspace/domain"
 import git from "isomorphic-git"
 
 import { MemoryFilesystem } from "./memory-filesystem"
@@ -72,6 +76,49 @@ describe("syncProjectRepository", () => {
       "https://github.com/acme/project.git",
       "https://repositories.example/project",
     ])
+  })
+
+  test("reuses an ahead result only after checking both remote heads", async () => {
+    const previous = new SyncProjectRepositoryResult({
+      status: "ahead",
+      projectHead: projectOid,
+      upstreamHead: upstreamOid,
+    })
+    const listed: string[] = []
+    const result = await syncProjectRepository(
+      repositories,
+      input,
+      async ({ url, prefix }) => {
+        listed.push(url)
+        return [
+          {
+            ref: prefix ?? "",
+            oid: url === input.sourceRemote ? upstreamOid : projectOid,
+          },
+        ]
+      },
+      previous
+    )
+    expect(result).toBe(previous)
+    expect(listed).toHaveLength(2)
+  })
+
+  test("does not reuse a cached result when upstream access fails", async () => {
+    const previous = new SyncProjectRepositoryResult({
+      status: "ahead",
+      projectHead: projectOid,
+      upstreamHead: upstreamOid,
+    })
+    await expect(
+      syncProjectRepository(
+        repositories,
+        input,
+        async () => {
+          throw new Error("Unauthorized")
+        },
+        previous
+      )
+    ).rejects.toThrow("Unauthorized")
   })
 
   test("fails clearly when the upstream branch no longer exists", async () => {

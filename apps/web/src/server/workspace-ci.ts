@@ -41,7 +41,8 @@ import {
   isVerificationStageName,
   verificationCommand,
   verificationDurations,
-  verificationFailureStage,
+  verificationFailureStages,
+  verificationConcurrency,
   verificationStageNames,
 } from "./workspace-ci-verification"
 import {
@@ -54,6 +55,7 @@ const decodeWorkspaceCiInput = Schema.decodeUnknownSync(WorkspaceCiInput)
 const encodeWorkspaceCheckUpdateSync = Schema.encodeSync(WorkspaceCheckUpdate)
 
 type WorkspaceCiBindings = CiBindings & {
+  CI_VERIFICATION_CONCURRENCY: string
   BROWSER: BrowserRun
   CHECK_EVIDENCE: R2Bucket
   DB: D1Database
@@ -285,15 +287,19 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
       }
     } catch (cause) {
       const diagnostics = isCiRunnerFailure(cause)
-        ? cause.diagnostics.failures.map((failure) => {
-            const stage =
-              verificationFailureStage(failure.output) ??
-              this.#stageName(failure.runner.name)
-            return new WorkspaceCheckDiagnostic({
-              stage,
-              summary: `${stage} failed`,
-              output: safeDiagnosticOutput(failure.output),
-            })
+        ? cause.diagnostics.failures.flatMap((failure) => {
+            const failedStages = verificationFailureStages(failure.output)
+            const stages = failedStages.length
+              ? failedStages
+              : [this.#stageName(failure.runner.name)]
+            return stages.map(
+              (stage) =>
+                new WorkspaceCheckDiagnostic({
+                  stage,
+                  summary: `${stage} failed`,
+                  output: safeDiagnosticOutput(failure.output),
+                })
+            )
           })
         : [
             new WorkspaceCheckDiagnostic({
@@ -412,7 +418,8 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
         verificationStageNames.map((name) => ({
           name,
           command: requiredScriptCommand(name, `${name} verification`),
-        }))
+        })),
+        verificationConcurrency(this.env.CI_VERIFICATION_CONCURRENCY)
       ),
     })
     const logs = await logsText(result.logs)

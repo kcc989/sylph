@@ -102,6 +102,12 @@ export const workspaceHydrationRefs = (
 })
 
 export class WorkspaceGit {
+  #branchChanges:
+    | { key: string; changes: Promise<WorkspaceFileChange[]> }
+    | undefined
+  #workingChanges:
+    | { key: string; changes: Promise<WorkspaceFileChange[]> }
+    | undefined
   readonly #storage: WorkspaceStorage
   readonly #repositories: WorkspaceRepositoryNamespace
   readonly #filesystem: WorkspaceGitFilesystem
@@ -221,7 +227,7 @@ export class WorkspaceGit {
     return GitCommitId.make(forkHead)
   }
 
-  async versionControl(refreshProjectHead = false) {
+  async versionControl(refreshProjectHead = false, includePatches = true) {
     const state = this.#requiredState()
     const latestProjectHead = refreshProjectHead
       ? await this.#readProjectHead(state)
@@ -243,8 +249,16 @@ export class WorkspaceGit {
       projectChanged: latestProjectHead !== state.baseCommit,
       syncStatus: state.syncStatus === "diverged" ? "diverged" : "ready",
       mergeStatus: state.mergeStatus === "ready" ? "ready" : "unreviewed",
-      working,
-      branch,
+      working: includePatches
+        ? working
+        : working.map(
+            (change) => new WorkspaceFileChange({ ...change, patch: "" })
+          ),
+      branch: includePatches
+        ? branch
+        : branch.map(
+            (change) => new WorkspaceFileChange({ ...change, patch: "" })
+          ),
     })
   }
 
@@ -585,6 +599,26 @@ export class WorkspaceGit {
   }
 
   async #changes(from: string, to: "working" | string) {
+    if (from === to) return []
+    const revision = this.#filesystem.workingRevision
+    if (to === "working" && revision === undefined)
+      return this.#readChanges(from, to)
+    const key = `${from}:${to}:${to === "working" ? revision : ""}`
+    const cached = to === "working" ? this.#workingChanges : this.#branchChanges
+    if (cached?.key === key) return cached.changes
+    const entry = { key, changes: this.#readChanges(from, to) }
+    if (to === "working") this.#workingChanges = entry
+    else this.#branchChanges = entry
+    try {
+      return await entry.changes
+    } catch (cause) {
+      if (this.#workingChanges === entry) this.#workingChanges = undefined
+      if (this.#branchChanges === entry) this.#branchChanges = undefined
+      throw cause
+    }
+  }
+
+  async #readChanges(from: string, to: "working" | string) {
     const changes: WorkspaceFileChange[] = []
     const trees =
       to === "working"
@@ -595,7 +629,14 @@ export class WorkspaceGit {
       dir: directory,
       trees,
       map: async (file, entries) => {
-        if (file === "." || isRepositoryMetadata(file)) return
+        if (isRepositoryMetadata(file)) return null
+        if (to !== "working" && entries[0] && entries[1]) {
+          const [beforeOid, afterOid] = await Promise.all(
+            entries.map((entry) => entry?.oid())
+          )
+          if (beforeOid === afterOid) return null
+        }
+        if (file === ".") return
         const [before, after] = entries
         const beforeType = before ? await before.type() : null
         const afterType = after ? await after.type() : null

@@ -4,7 +4,6 @@ import {
   AccessDenied,
   failureMessage,
   GitCommitId,
-  InitializeWorkspaceRuntime,
   InvalidRequest,
   parseGitHubRepositoryUrl,
   PreconditionFailed,
@@ -26,7 +25,7 @@ import {
   ProjectRequestInput,
   ProjectTemplateCatalog,
 } from "@workspace/domain"
-import { env, waitUntil } from "cloudflare:workers"
+import { env } from "cloudflare:workers"
 import { and, desc, eq, isNull } from "drizzle-orm"
 import { Effect, Schema } from "effect"
 
@@ -42,10 +41,7 @@ import {
   isOrganizationAdmin,
   requireOrganizationMembership,
 } from "@/server/organization-access"
-import {
-  connectionCredential,
-  effectiveConnection,
-} from "@/server/provider-connections"
+import { effectiveConnection } from "@/server/provider-connections"
 import type { Database } from "@/server/organization-access"
 import {
   ensureTemplateRepository,
@@ -54,7 +50,7 @@ import {
 } from "@/server/project-templates"
 import { repositoryStore } from "@/server/repositories"
 import type { RepositoryStore } from "@/server/repository-store"
-import { completeWorkspaceInitialization } from "@/server/workspace-runtime"
+import { scheduleWorkspaceProvisioning } from "@/server/workspace-runtime"
 
 const decodeCiRunRecordList = Schema.decodeUnknownPromise(CiRunRecordList)
 const decodeCiRunSummary = Schema.decodeUnknownSync(CiRunSummary)
@@ -528,7 +524,6 @@ export const createProject = createServerFn({ method: "POST" })
         message: "Connect an AI provider before creating a Project",
       })
     }
-    const credential = await connectionCredential(connection)
 
     const projectSlug = normalizeName(data.name)
 
@@ -619,27 +614,7 @@ export const createProject = createServerFn({ method: "POST" })
       throw error
     }
 
-    waitUntil(
-      completeWorkspaceInitialization(
-        database,
-        workspaceId,
-        new InitializeWorkspaceRuntime({
-          organizationId: data.organizationId,
-          projectId,
-          workspaceId,
-          projectName: data.name,
-          repositoryName: workspaceArtifact.name,
-          repositoryRemote: workspaceArtifact.remote,
-          projectRepositoryName: artifact.name,
-          projectRepositoryRemote: artifact.remote,
-          defaultRef: artifact.defaultBranch,
-          baseCommit: head,
-          providerId: connection.providerId,
-          modelId: connection.modelId,
-          credential,
-        })
-      )
-    )
+    await scheduleWorkspaceProvisioning(workspaceId)
 
     return {
       id: workspaceId,

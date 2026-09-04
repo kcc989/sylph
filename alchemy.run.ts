@@ -1,7 +1,8 @@
+import type { ProjectSynchronization } from "./apps/web/src/server/project-synchronization"
 import * as Alchemy from "alchemy"
 import * as Cloudflare from "alchemy/Cloudflare"
 import type { WorkspaceDO } from "./apps/web/src/server/workspace-do"
-import type { WorkspaceCiInput } from "@workspace/domain"
+import type { WorkspaceRequestInput, WorkspaceCiInput } from "@workspace/domain"
 import type { WorkspaceMergeInput } from "./apps/web/src/server/workspace-merge"
 import type { WorkspaceRetentionInput } from "./apps/web/src/server/workspace-retention"
 import type { CiSandbox } from "@cloudflare/ci/worker"
@@ -29,6 +30,9 @@ const WorkspaceRuntime = Cloudflare.Worker(
         flags: ["nodejs_compat"],
       },
       env: {
+        CI_VERIFICATION_CONCURRENCY: Config.string(
+          "CI_VERIFICATION_CONCURRENCY"
+        ).pipe(Config.withDefault("2")),
         ARTIFACTS: repositories,
         BACKUP_BUCKET: checkBackups,
         BACKUP_BUCKET_NAME: checkBackups.bucketName,
@@ -104,6 +108,14 @@ export class Website extends Cloudflare.Website.Vite<Website>()(
           scriptName: workspaceRuntime.workerName,
         }),
         REPOSITORY_NAMESPACE: repositories.namespace,
+        PROJECT_SYNCS: Cloudflare.DurableObject<ProjectSynchronization>(
+          "ProjectSynchronization",
+          { className: "ProjectSynchronization" }
+        ),
+        PROVISIONING: Cloudflare.Workflow<typeof WorkspaceRequestInput.Encoded>(
+          "WorkspaceProvisioning",
+          { className: "WorkspaceProvisioning" }
+        ),
         MERGES: Cloudflare.Workflow<WorkspaceMergeInput>("WorkspaceMerge", {
           className: "WorkspaceMerge",
         }),
