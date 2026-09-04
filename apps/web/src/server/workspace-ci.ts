@@ -1,3 +1,4 @@
+import { readWorkspaceCiLogs } from "./workspace-ci-logs"
 import {
   CIWorkflow,
   isCiRunnerFailure,
@@ -63,11 +64,6 @@ type WorkspaceCiBindings = CiBindings & {
   WORKSPACES: DurableObjectNamespace<WorkspaceDO>
 }
 
-type CiRunnerLogs = {
-  stdout: string | ReadableStream<Uint8Array>
-  stderr: string | ReadableStream<Uint8Array>
-}
-
 const isStageName = Schema.is(WorkspaceCheckStageName)
 
 const verificationRunnerConfig = {
@@ -84,19 +80,6 @@ const packageRun = (script: string) =>
 
 const requiredScriptCommand = (script: string, purpose: string) =>
   `if node -e 'const p=require("./package.json");process.exit(p.scripts?.["${script}"]?0:1)'; then ${packageRun(script)}; else echo "Missing package script ${script} for ${purpose}" >&2; exit 64; fi`
-
-const streamText = async (value: string | ReadableStream<Uint8Array>) => {
-  if (value instanceof ReadableStream) return new Response(value).text()
-  return value
-}
-
-const logsText = async (logs: CiRunnerLogs) => {
-  const [stdout, stderr] = await Promise.all([
-    streamText(logs.stdout),
-    streamText(logs.stderr),
-  ])
-  return { stdout, stderr }
-}
 
 const safeDiagnosticOutput = (value: string) =>
   value
@@ -382,7 +365,7 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
       ),
     })
     const result = await parent.runner(options)
-    const logs = await logsText(result.logs)
+    const logs = await readWorkspaceCiLogs(result.logs)
     const completedAt = await step.do(`${stage}-completed-at`, async () =>
       Date.now()
     )
@@ -422,7 +405,7 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
         verificationConcurrency(this.env.CI_VERIFICATION_CONCURRENCY)
       ),
     })
-    const logs = await logsText(result.logs)
+    const logs = await readWorkspaceCiLogs(result.logs)
     const completedAt = await step.do("verification-completed-at", async () =>
       Date.now()
     )

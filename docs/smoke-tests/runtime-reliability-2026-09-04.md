@@ -7,6 +7,7 @@ The implementation patches OpenCode SDK and core version `0.0.0-dev-18308`. Bun 
 - Register initial plugins before starting suspended-session recovery. The regression test failed against the original SDK because recovery observed an empty plugin registry; it passes with the patch.
 - Keep the normalized live model catalog when persistent cache writes fail. A forced `SQLITE_TOOBIG` regression test failed against the original core and passes with the patch. A normal refresh reuses the live catalog within its five-minute freshness period.
 - Limit pending socket replay events to 256 events or 256 KiB of serialized raw event data. On overflow, close with retry code 1013 and let the client replay from its durable cursor.
+- Limit combined CI stdout and stderr to 12 MiB and cancel streams that exceed that budget. This preserves room for the supported 5 MiB generated lockfile while preventing unlimited log collection.
 - Convert reserved incoming WebSocket close codes, including 1006, to a valid outgoing close code and always release subscription state.
 - Load conversation history in pages of 20 messages. The initial snapshot reads the latest page. Earlier messages remain accessible through an authenticated paging endpoint and the Earlier messages control. The browser retains one selected history page.
 

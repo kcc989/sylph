@@ -383,6 +383,7 @@ class WorkspaceSocketSession {
       if (cursor !== null) {
         this.recordCursor(cursor)
       }
+      let eventBytes: number | undefined
       for (const socket of this.#initializedSockets()) {
         const attachment = this.#attachment(socket)
         const eventSessionId = workspaceEventSessionId(event)
@@ -390,9 +391,9 @@ class WorkspaceSocketSession {
         if (!attachment.synced) {
           const pending = this.#socketPendingEvents.get(socket)
           if (!pending) continue
-          const bytes = new TextEncoder().encode(
+          const bytes = (eventBytes ??= new TextEncoder().encode(
             JSON.stringify(event)
-          ).byteLength
+          ).byteLength)
           if (
             pending.events.length >= maxPendingEventCount ||
             pending.bytes + bytes > maxPendingEventBytes
