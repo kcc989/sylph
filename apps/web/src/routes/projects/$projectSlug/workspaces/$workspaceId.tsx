@@ -1,3 +1,4 @@
+import { useWorkspaceHistory } from "@/lib/workspace/use-workspace-history"
 import { useWorkspaceData } from "@/lib/workspace/use-workspace-data"
 import {
   createFileRoute,
@@ -182,6 +183,11 @@ function WorkspaceScreen() {
   )
   const refresh = useCallback(() => router.invalidate(), [router])
   const { runtime, workspace } = result
+  const history = useWorkspaceHistory(
+    workspaceId,
+    runtime.sessionId,
+    runtime.messagesCursor
+  )
   const {
     dismissPermissionRequest,
     presence,
@@ -232,11 +238,11 @@ function WorkspaceScreen() {
     {
       errorSummary: workspace.errorSummary,
       files: runtime.files,
-      messages: runtime.messages,
+      messages: history.page?.messages ?? runtime.messages,
       status: runtime.status,
     },
-    liveState,
-    actions.optimisticEntries,
+    history.page ? { ...liveState, partialMessages: {} } : liveState,
+    history.page ? [] : actions.optimisticEntries,
     actions.matchedSkill
   )
   const permissionRequests: WorkspacePermissionRequest[] = Object.values({
@@ -337,6 +343,38 @@ function WorkspaceScreen() {
               )}
               cancelTurnPending={isPending("cancelTurn")}
               entries={entries}
+              historyControls={
+                history.page || history.hasOlder || history.error ? (
+                  <div className="mb-4 flex flex-wrap items-center gap-2">
+                    {history.hasOlder ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={history.pending}
+                        onClick={() => void history.loadOlder()}
+                      >
+                        {history.pending
+                          ? "Loading messages…"
+                          : "Earlier messages"}
+                      </Button>
+                    ) : null}
+                    {history.page ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={history.showLatest}
+                      >
+                        Latest messages
+                      </Button>
+                    ) : null}
+                    {history.error ? (
+                      <p role="alert" className="text-sm text-destructive">
+                        {history.error}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : undefined
+              }
               initialPrompt={
                 onboarding && runtime.messages.length === 0
                   ? "Make one small, useful improvement to this starter project. Explain the change, write the files, and leave it ready for review."

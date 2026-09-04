@@ -11,6 +11,7 @@ import {
   WorkspaceRuntimeFailure,
   WorkspaceTurnCancelInput,
   WorkspaceReadFileInput,
+  WorkspaceMessagePageInput,
 } from "@workspace/domain"
 
 import {
@@ -47,6 +48,7 @@ const stub = (
   discard: unreachable,
   evict: unreachable,
   snapshot: unreachable,
+  listMessages: unreachable,
   fetch: unreachable,
   ...overrides,
 })
@@ -136,6 +138,25 @@ describe("Workspace runtime client", () => {
     expect(received).toEqual(["workspace-1:src/index.ts"])
     expect(result.path).toBe("src/index.ts")
     expect(result.content).toBe("hello world\n")
+  })
+
+  test("reads one conversation page through the runtime boundary", async () => {
+    const runtime = makeWorkspaceRuntime(
+      stub({
+        listMessages: async (input) => {
+          expect(input.cursor).toBe("older-page")
+          return { messages: [], cursor: null }
+        },
+      })
+    )
+    const page = await runtime.listMessages(
+      new WorkspaceMessagePageInput({
+        workspaceId: WorkspaceId.make("workspace-1"),
+        cursor: "older-page",
+      })
+    )
+    expect(page.messages).toEqual([])
+    expect(page.cursor).toBeNull()
   })
 
   test("restores a tagged failure that crossed the hop as a message", async () => {

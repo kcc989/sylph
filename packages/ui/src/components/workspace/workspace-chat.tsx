@@ -1,5 +1,7 @@
 "use client"
 
+import type { ReactNode } from "react"
+
 import { PanelRightClose, PanelRightOpen } from "lucide-react"
 
 import {
@@ -57,6 +59,7 @@ function WorkspaceToolToggle({
 
 export function WorkspaceChat({
   entries,
+  historyControls,
   permissionRequests,
   questions,
   queuedMessages,
@@ -85,6 +88,7 @@ export function WorkspaceChat({
   onModelChange,
 }: {
   entries: ThreadEntry[]
+  historyControls?: ReactNode
   permissionRequests: ReadonlyArray<WorkspacePermissionRequest>
   questions: ReadonlyArray<WorkspaceQuestion>
   queuedMessages: ReadonlyArray<WorkspaceQueuedMessage>
@@ -138,6 +142,7 @@ export function WorkspaceChat({
       </header>
       <AgentThread
         entries={entries}
+        historyControls={historyControls}
         permissionRequests={permissionRequests}
         questions={questions}
         queuedMessages={queuedMessages}

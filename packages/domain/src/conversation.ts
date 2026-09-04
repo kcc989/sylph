@@ -356,6 +356,20 @@ export class WorkspaceRuntimeMessage extends Schema.Class<WorkspaceRuntimeMessag
   error: Schema.NullOr(Schema.String),
 }) {}
 
+export class WorkspaceMessagePageInput extends Schema.Class<WorkspaceMessagePageInput>(
+  "@sylph/domain/WorkspaceMessagePageInput"
+)({
+  workspaceId: WorkspaceId,
+  cursor: Schema.NonEmptyString,
+}) {}
+
+export class WorkspaceMessagePage extends Schema.Class<WorkspaceMessagePage>(
+  "@sylph/domain/WorkspaceMessagePage"
+)({
+  messages: Schema.Array(WorkspaceRuntimeMessage),
+  cursor: Schema.NullOr(Schema.NonEmptyString),
+}) {}
+
 export class WorkspaceQueuedMessage extends Schema.Class<WorkspaceQueuedMessage>(
   "@sylph/domain/WorkspaceQueuedMessage"
 )({
@@ -385,6 +399,7 @@ export class WorkspaceRuntimeHealth extends Schema.Class<WorkspaceRuntimeHealth>
   model: Schema.NullOr(Schema.NonEmptyString),
   files: Schema.Array(Schema.NonEmptyString),
   messages: Schema.Array(WorkspaceRuntimeMessage),
+  messagesCursor: Schema.optional(Schema.NullOr(Schema.NonEmptyString)),
   queuedMessages: Schema.Array(WorkspaceQueuedMessage),
   questions: Schema.Array(WorkspaceAgentQuestion),
   permissions: Schema.Array(WorkspacePermissionAskedEventData),

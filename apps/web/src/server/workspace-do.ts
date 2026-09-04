@@ -25,6 +25,8 @@ import {
   WorkspaceRepairCheckInput,
   WorkspaceRetryCheckInput,
   WorkspaceRuntimeHealth,
+  WorkspaceMessagePageInput,
+  WorkspaceMessagePage,
   WorkspaceRuntimePromptInput,
   WorkspaceSyncResult,
   WorkspaceTurnCancelInput,
@@ -168,6 +170,11 @@ const decodeWorkspaceQuestionReplyInputPromise = Schema.decodeUnknownPromise(
 const decodeWorkspaceRepairCheckInputPromise = Schema.decodeUnknownPromise(
   WorkspaceRepairCheckInput
 )
+const decodeMessagePageInput = Schema.decodeUnknownPromise(
+  WorkspaceMessagePageInput
+)
+const encodeMessagePage = Schema.encodeSync(WorkspaceMessagePage)
+
 const decodeWorkspaceReadFileInputPromise = Schema.decodeUnknownPromise(
   WorkspaceReadFileInput
 )
@@ -522,7 +529,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     if (!state?.sessionId) return
     const active = await opencode.sessions.active()
     if (!active[state.sessionId]) return
-    const messages = await this.#messages(opencode, state.sessionId)
+    const { messages } = await this.#messages(opencode, state.sessionId)
     const startedAt = activeTurnStartedAt(messages) ?? Date.now()
     const deadline = startedAt + maxTurnDurationMs
     if (deadline <= Date.now()) {
@@ -1237,6 +1244,33 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     })
   }
 
+  listMessages(input: typeof WorkspaceMessagePageInput.Encoded) {
+    return this.#run(async () => {
+      const data = await decodeMessagePageInput(input)
+      const state = this.#requiredState()
+      if (data.workspaceId !== state.workspaceId) {
+        throw new InvalidRequest({
+          message: "Conversation belongs to another Workspace",
+        })
+      }
+      if (!state.sessionId)
+        return encodeMessagePage(
+          new WorkspaceMessagePage({ messages: [], cursor: null })
+        )
+      const page = await this.#messages(
+        await this.#opencode,
+        state.sessionId,
+        data.cursor
+      )
+      return encodeMessagePage(
+        new WorkspaceMessagePage({
+          messages: workspaceRuntimeMessages(page.messages),
+          cursor: page.cursor,
+        })
+      )
+    })
+  }
+
   snapshot() {
     return this.#run(async () =>
       encodeWorkspaceRuntimeHealthSync(
@@ -1909,10 +1943,15 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     }
   }
 
-  async #messages(opencode: OpenCodeWorkerd.Interface, sessionId: string) {
+  async #messages(
+    opencode: OpenCodeWorkerd.Interface,
+    sessionId: string,
+    cursor?: string
+  ) {
     return listWorkspaceMessages<WorkspaceRuntimeMessageSource>(
       sessionId,
-      (input) => opencode.message.list(input)
+      (input) => opencode.message.list(input),
+      cursor
     )
   }
 
@@ -1949,7 +1988,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     }
     const sessionId = state.sessionId
 
-    const [active, session, messages, inbox, forms, permissions] =
+    const [active, session, messagePage, inbox, forms, permissions] =
       await Promise.all([
         opencode.sessions.active(),
         opencode.sessions.get({ sessionID: sessionId }),
@@ -1969,6 +2008,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         }),
       }))
     )
+    const messages = messagePage.messages
     const files = this.#filesystem.listWorkingFiles()
     const turnActive = Boolean(active[sessionId])
     const questions = formStates.map(
@@ -1993,6 +2033,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           : null,
       files,
       messages: workspaceRuntimeMessages(messages),
+      messagesCursor: messagePage.cursor,
       queuedMessages: inbox.flatMap((item) =>
         item.type === "user"
           ? [

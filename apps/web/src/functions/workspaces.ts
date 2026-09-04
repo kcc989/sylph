@@ -16,6 +16,8 @@ import {
   WorkspaceId,
   WorkspaceRuntimeFailure,
   WorkspaceRuntimeHealth,
+  WorkspaceMessagePageInput,
+  WorkspaceMessagePage,
   WorkspaceRuntimePromptInput,
   WorkspaceTurnCancelInput,
   CreateWorkspaceInput,
@@ -863,6 +865,20 @@ export const acceptWorkspace = createServerFn({ method: "POST" })
       .where(eq(schema.workspace.id, data.workspaceId))
     return { operationId: instance.id, status: "merging" as const }
   })
+
+const decodeMessagePageInput = Schema.decodeUnknownPromise(
+  WorkspaceMessagePageInput
+)
+const encodeMessagePage = Schema.encodeSync(WorkspaceMessagePage)
+
+export const getWorkspaceMessages = createServerFn({ method: "GET" })
+  .middleware([workspaceMember])
+  .validator((input) => decodeMessagePageInput(input))
+  .handler(async ({ data }) =>
+    encodeMessagePage(
+      await workspaceRuntime(data.workspaceId).listMessages(data)
+    )
+  )
 
 export const getWorkspaceActivity = createServerFn({ method: "GET" })
   .middleware([workspaceMember])

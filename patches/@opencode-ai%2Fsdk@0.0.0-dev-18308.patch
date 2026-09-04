@@ -1,0 +1,50 @@
+diff --git a/dist/internal/host.d.ts b/dist/internal/host.d.ts
+index 1ea709a1699aea9d42a058eaf1ea3969cb152c85..6f66a882e87e7265aee4fd4cfd0265c1b7132751 100644
+--- a/dist/internal/host.d.ts
++++ b/dist/internal/host.d.ts
+@@ -15,6 +15,7 @@ export interface CreateOptions extends Omit<ServerOptions, "hostname" | "port" |
+ /** Host hooks for embedding opencode on a non-default runtime profile. */
+ export interface EmbedOptions {
+     readonly overrides?: LayerNode.Replacements;
++    readonly initialPlugins?: ReadonlyArray<Parameters<SdkPlugins.Interface["register"]>[0]>;
+ }
+ export declare const create: (options?: CreateOptions | undefined, embed?: EmbedOptions | undefined) => Effect.Effect<{
+     runtime: ManagedRuntime.ManagedRuntime<import("effect/unstable/http/HttpClient").HttpClient | import("@opencode-ai/util/global").Service | import("@opencode-ai/core/database/database").Service | import("@opencode-ai/core/credential").Service | import("@opencode-ai/core/bus").Service | import("@opencode-ai/core/wellknown").Service | Workspace.Service | import("@opencode-ai/core/job").Service | import("@opencode-ai/core/permission/saved").Service | SdkPlugins.Service | import("@opencode-ai/core/worktree").Service | import("@opencode-ai/core/location-service-map").Service | import("@opencode-ai/core/project").Service | import("@opencode-ai/core/session").Service | SessionRestart.Service | import("@opencode-ai/core/pty/ticket").Service | import("@opencode-ai/core/persistent-pty/index").Service | import("@opencode-ai/core/session/transfer").Service | import("@opencode-ai/core/location-activity").Service | import("@opencode-ai/server/pty-environment").Service | HttpRouter.HttpRouter, Error>;
+diff --git a/dist/internal/host.js b/dist/internal/host.js
+index 9a5e08e4af88195434e497684a8dd7c298d7eeec..1fd618739b34f67e74d3befc0096f0dfd5a1f505 100644
+--- a/dist/internal/host.js
++++ b/dist/internal/host.js
+@@ -16,6 +16,8 @@ export const create = Effect.fn("EmbeddedHost.create")(function* (options = {},
+   }, workspaceProviders ? [...embed.overrides ?? [], [WorkspaceDriver.node, WorkspaceDriver.registryNode(workspaceProviders)]] : embed.overrides).pipe(Layer.provide(HttpServer.layerServices), Layer.provideMerge(layer(log))));
+   return yield* Effect.gen(function* () {
+     const services = yield* runtime.contextEffect;
++    for (const plugin of embed.initialPlugins ?? [])
++      yield* Effect.promise(() => runtime.runPromise(Context.get(services, SdkPlugins.Service).register(plugin)));
+     runtime.runFork(Context.get(services, SessionRestart.Service).resumeSuspendedSessions);
+     const handler = HttpEffect.toWebHandlerWith(context(services))(Context.get(services, HttpRouter.HttpRouter).asHttpEffect()), transport = OwnedFetch.make(handler, runtime.dispose);
+     return {
+diff --git a/dist/promise.js b/dist/promise.js
+index ed699e7a6935ed559c94c554286cdca7e9617d4a..1f2da0ffd8508be7045d97365511b3b53bd5c7b1 100644
+--- a/dist/promise.js
++++ b/dist/promise.js
+@@ -3,12 +3,17 @@ import { OpenCode } from "@opencode-ai/client";
+ import { Effect } from "effect";
+ import { EmbeddedHost } from "./internal/host";
+ export async function create(options = {}, embed = {}) {
+-  const { plugins, ...hostOptions } = options, host = await Effect.runPromise(EmbeddedHost.create(hostOptions, embed)), client = OpenCode.make({ baseUrl: "http://opencode.local", fetch: host.fetch }), register = async (plugin) => {
++  const { plugins, ...hostOptions } = options;
++  const initialPlugins = [...embed.initialPlugins ?? []];
++  if (plugins?.length) {
++    const { PluginPromise } = await import("@opencode-ai/core/plugin/promise");
++    for (const plugin of plugins)
++      initialPlugins.push(PluginPromise.fromPromise(plugin));
++  }
++  const host = await Effect.runPromise(EmbeddedHost.create(hostOptions, { ...embed, initialPlugins })), client = OpenCode.make({ baseUrl: "http://opencode.local", fetch: host.fetch }), register = async (plugin) => {
+     const { PluginPromise } = await import("@opencode-ai/core/plugin/promise");
+     return host.runtime.runPromise(host.plugins.register(PluginPromise.fromPromise(plugin)));
+   };
+-  for (const plugin of plugins ?? [])
+-    await register(plugin);
+   return {
+     ...client,
+     sessions: client.session,

@@ -1,31 +1,47 @@
 import { describe, expect, test } from "bun:test"
-
-import { listWorkspaceMessages } from "./workspace-message-pages"
+import {
+  listWorkspaceMessages,
+  workspaceMessagePageSize,
+} from "./workspace-message-pages"
 
 describe("listWorkspaceMessages", () => {
-  test("uses the initial order only before cursor pagination", async () => {
-    const inputs: Array<{
-      sessionID: string
-      limit: number
-      order?: "asc"
-      cursor?: string
-    }> = []
-    const pages = [
-      { data: ["first"], cursor: { next: "next-page" } },
-      { data: ["second"], cursor: {} },
-    ]
-
-    const messages = await listWorkspaceMessages("session-1", async (input) => {
+  test("loads only the latest bounded page in chronological order", async () => {
+    const inputs: unknown[] = []
+    const page = await listWorkspaceMessages("session-1", async (input) => {
       inputs.push(input)
-      const page = pages.shift()
-      if (!page) throw new Error("Unexpected page request")
-      return page
+      return {
+        data: Array.from(
+          { length: workspaceMessagePageSize },
+          (_, index) => 1000 - index
+        ),
+        cursor: { next: "older" },
+      }
     })
-
-    expect(messages).toEqual(["first", "second"])
     expect(inputs).toEqual([
-      { sessionID: "session-1", limit: 100, order: "asc" },
-      { sessionID: "session-1", limit: 100, cursor: "next-page" },
+      {
+        sessionID: "session-1",
+        limit: workspaceMessagePageSize,
+        order: "desc",
+      },
     ])
+    expect(page.messages[0]).toBe(981)
+    expect(page.messages.at(-1)).toBe(1000)
+    expect(page.cursor).toBe("older")
+  })
+
+  test("uses the cursor without order and ends on a partial page", async () => {
+    const page = await listWorkspaceMessages(
+      "session-1",
+      async (input) => {
+        expect(input).toEqual({
+          sessionID: "session-1",
+          limit: workspaceMessagePageSize,
+          cursor: "older",
+        })
+        return { data: [2, 1], cursor: { next: "unused" } }
+      },
+      "older"
+    )
+    expect(page).toEqual({ messages: [1, 2], cursor: null })
   })
 })

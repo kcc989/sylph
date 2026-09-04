@@ -1,35 +1,34 @@
+export const workspaceMessagePageSize = 20
+
 type WorkspaceMessagePageInput = {
   sessionID: string
   limit: number
-  order?: "asc"
+  order?: "desc"
   cursor?: string
 }
 
 type WorkspaceMessagePage<Message> = {
   data: ReadonlyArray<Message>
-  cursor: {
-    next?: string | null
-  }
+  cursor: { next?: string | null }
 }
 
 export const listWorkspaceMessages = async <Message>(
   sessionId: string,
   list: (
     input: WorkspaceMessagePageInput
-  ) => Promise<WorkspaceMessagePage<Message>>
+  ) => Promise<WorkspaceMessagePage<Message>>,
+  cursor?: string
 ) => {
-  const messages: Message[] = []
-  let cursor: string | undefined
-
-  do {
-    const page = await list(
-      cursor
-        ? { sessionID: sessionId, limit: 100, cursor }
-        : { sessionID: sessionId, limit: 100, order: "asc" }
-    )
-    messages.push(...page.data)
-    cursor = page.cursor.next ?? undefined
-  } while (cursor)
-
-  return messages
+  const page = await list(
+    cursor
+      ? { sessionID: sessionId, limit: workspaceMessagePageSize, cursor }
+      : { sessionID: sessionId, limit: workspaceMessagePageSize, order: "desc" }
+  )
+  return {
+    messages: [...page.data].reverse(),
+    cursor:
+      page.data.length < workspaceMessagePageSize
+        ? null
+        : (page.cursor.next ?? null),
+  }
 }

@@ -22,6 +22,8 @@ import {
   WorkspaceRepairResult,
   WorkspaceRetryCheckInput,
   WorkspaceRuntimeHealth,
+  WorkspaceMessagePageInput,
+  WorkspaceMessagePage,
   WorkspaceRuntimePromptInput,
   WorkspaceSkillReloadResult,
   WorkspaceSyncResult,
@@ -93,6 +95,9 @@ export interface WorkspaceRuntimeStub {
   ): Promise<void>
   discard(): Promise<void>
   evict(): Promise<void>
+  listMessages(
+    input: typeof WorkspaceMessagePageInput.Encoded
+  ): Promise<typeof WorkspaceMessagePage.Encoded>
   snapshot(): Promise<typeof WorkspaceRuntimeHealth.Encoded>
   fetch(input: Request | string, init?: RequestInit): Promise<Response>
 }
@@ -144,6 +149,7 @@ export interface WorkspaceRuntime {
   answerQuestion(input: WorkspaceQuestionReplyInput): Promise<void>
   discard(): Promise<void>
   evict(): Promise<void>
+  listMessages(input: WorkspaceMessagePageInput): Promise<WorkspaceMessagePage>
   snapshot(): Promise<WorkspaceRuntimeHealth>
   socket(request: Request, actor: WorkspaceSocketActor): Promise<Response>
 }
@@ -178,6 +184,8 @@ const decodeSubscriptionRuntimeStatus = Schema.decodeUnknownSync(
   OpenCodeSubscriptionRuntimeStatus
 )
 const encodeInitializeInput = Schema.encodeSync(InitializeWorkspaceRuntime)
+const encodeMessagePageInput = Schema.encodeSync(WorkspaceMessagePageInput)
+const decodeMessagePage = Schema.decodeUnknownSync(WorkspaceMessagePage)
 const decodeRuntimeHealth = Schema.decodeUnknownSync(WorkspaceRuntimeHealth)
 const encodeCheckpointInput = Schema.encodeSync(WorkspaceCheckpointInput)
 const decodeCheckpointResult = Schema.decodeUnknownSync(
@@ -307,6 +315,10 @@ export const makeWorkspaceRuntime = (
     call(() => stub.answerQuestion(encodeQuestionReplyInput(input))),
   discard: () => call(() => stub.discard()),
   evict: () => call(() => stub.evict()),
+  listMessages: (input) =>
+    call(async () =>
+      decodeMessagePage(await stub.listMessages(encodeMessagePageInput(input)))
+    ),
   snapshot: () => call(async () => decodeRuntimeHealth(await stub.snapshot())),
   socket: (request, actor) => {
     const headers = new Headers(request.headers)
