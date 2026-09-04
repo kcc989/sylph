@@ -93,7 +93,7 @@ function CodeReview({
             }))}
             options={{
               themeType: "dark",
-              theme: "github-dark-default",
+              theme: "pierre-dark",
               diffStyle: split ? "split" : "unified",
               diffIndicators: "bars",
               enableGutterUtility: Boolean(onLineSelected),
