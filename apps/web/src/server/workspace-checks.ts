@@ -23,6 +23,7 @@ type CountRow = { [key: string]: SqlStorageValue; value: number }
 export const maxWorkspaceCheckAttempts = 3
 export const maxWorkspaceRepairAttempts = 2
 export const maxWorkspaceAutomaticRepairs = 3
+export const maxWorkspaceDependencyInstallations = 3
 
 export type WorkspaceRepairSource = "manual" | "automatic"
 
@@ -149,6 +150,39 @@ export class WorkspaceChecks {
       JSON.stringify(run)
     )
     return this.get(run.id)
+  }
+
+  createDependencyRun(run: WorkspaceCheckRun) {
+    if (run.kind !== "dependencies")
+      throw new InvalidRequest({ message: "Expected a dependency Check" })
+    const existing = this.get(run.id)
+    if (existing) return existing
+    if (
+      this.dependencyInstallationsUsed() >= maxWorkspaceDependencyInstallations
+    )
+      throw new PreconditionFailed({
+        message:
+          "Dependency installation reached its automatic attempt limit. Report the last failure and wait for a new user request.",
+      })
+    this.#storage.sql.exec(
+      "INSERT INTO app_workspace_repair_budget (kind, reference, created_at) VALUES ('dependencies', ?, ?)",
+      run.id,
+      Date.now()
+    )
+    return this.create(run)
+  }
+
+  assertCheckpointCanStart(checkId: string) {
+    const active = this.list().find(
+      (run) =>
+        run.kind === "dependencies" &&
+        (run.status === "queued" || run.status === "running")
+    )
+    if (active && checkId !== `${active.id}-verification`)
+      throw new PreconditionFailed({
+        message:
+          "Dependency installation is pending. Wait for it to start the frozen-install Check.",
+      })
   }
 
   apply(update: WorkspaceCheckUpdate) {
@@ -335,6 +369,16 @@ export class WorkspaceChecks {
       this.#storage.sql
         .exec<CountRow>(
           "SELECT COUNT(*) AS value FROM app_workspace_repair_budget WHERE kind = 'repair' AND sequence > COALESCE((SELECT MAX(sequence) FROM app_workspace_repair_budget WHERE kind = 'reset'), 0)"
+        )
+        .toArray()[0]?.value ?? 0
+    )
+  }
+
+  dependencyInstallationsUsed() {
+    return (
+      this.#storage.sql
+        .exec<CountRow>(
+          "SELECT COUNT(*) AS value FROM app_workspace_repair_budget WHERE kind = 'dependencies' AND sequence > COALESCE((SELECT MAX(sequence) FROM app_workspace_repair_budget WHERE kind = 'reset'), 0)"
         )
         .toArray()[0]?.value ?? 0
     )

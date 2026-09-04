@@ -11,6 +11,7 @@ import {
   automaticRepairIdempotencyKey,
   checkStage,
   maxWorkspaceAutomaticRepairs,
+  maxWorkspaceDependencyInstallations,
   maxWorkspaceCheckAttempts,
   maxWorkspaceRepairAttempts,
   WorkspaceChecks,
@@ -55,6 +56,80 @@ const run = () =>
   })
 
 describe("WorkspaceChecks", () => {
+  test("bounds dependency jobs across changed commits and runtime restarts", () => {
+    const storage = new TestSqlStorage()
+    let checks = new WorkspaceChecks(storage)
+    checks.initialize()
+    for (
+      let attempt = 0;
+      attempt < maxWorkspaceDependencyInstallations;
+      attempt++
+    ) {
+      const dependency = new WorkspaceCheckRun({
+        ...run(),
+        id: `dependency-${attempt}`,
+        commit: GitCommitId.make(String(attempt).repeat(40)),
+        kind: "dependencies",
+        status: "failed",
+      })
+      checks.createDependencyRun(dependency)
+      checks.createDependencyRun(dependency)
+    }
+    checks = new WorkspaceChecks(storage)
+    checks.initialize()
+    expect(checks.dependencyInstallationsUsed()).toBe(
+      maxWorkspaceDependencyInstallations
+    )
+    const next = new WorkspaceCheckRun({
+      ...run(),
+      id: "next-dependency",
+      kind: "dependencies",
+    })
+    expect(() => checks.createDependencyRun(next)).toThrow(
+      "automatic attempt limit"
+    )
+    expect(checks.get(next.id)).toBeNull()
+    checks.resetAutomaticRepairs("prompt:new-user-request")
+    expect(checks.createDependencyRun(next)?.id).toBe(next.id)
+    expect(checks.dependencyInstallationsUsed()).toBe(1)
+  })
+
+  test("blocks premature checks and permits the dependency verification handoff", () => {
+    const checks = new WorkspaceChecks(new TestSqlStorage())
+    checks.initialize()
+    checks.createDependencyRun(
+      new WorkspaceCheckRun({
+        ...run(),
+        id: "dependency",
+        kind: "dependencies",
+      })
+    )
+    expect(() => checks.assertCheckpointCanStart("check-new-commit")).toThrow(
+      "installation is pending"
+    )
+    expect(() =>
+      checks.assertCheckpointCanStart("other-dependency-verification")
+    ).toThrow("installation is pending")
+    expect(() =>
+      checks.assertCheckpointCanStart("dependency-verification")
+    ).not.toThrow()
+  })
+
+  test("allows checks after dependency installation has finished", () => {
+    const checks = new WorkspaceChecks(new TestSqlStorage())
+    checks.initialize()
+    checks.createDependencyRun(
+      new WorkspaceCheckRun({
+        ...run(),
+        kind: "dependencies",
+        status: "passed",
+      })
+    )
+    expect(() =>
+      checks.assertCheckpointCanStart("check-new-commit")
+    ).not.toThrow()
+  })
+
   test("a successful dependency repair cannot authorize Acceptance", () => {
     const checks = new WorkspaceChecks(new TestSqlStorage())
     checks.initialize()

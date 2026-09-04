@@ -2,7 +2,11 @@ import { rolldown } from "rolldown"
 import cloudflare from "@alchemy.run/cloudflare-runtime/rolldown"
 import { esmExternalRequirePlugin } from "rolldown/plugins"
 
-export async function buildWorker(directory) {
+export async function buildWorker(
+  directory,
+  entry = new URL("./worker.js", import.meta.url).pathname,
+  extraPlugins = []
+) {
   const plugins = cloudflare({
     compatibilityDate: "2026-03-17",
     compatibilityFlags: ["nodejs_compat"],
@@ -12,8 +16,8 @@ export async function buildWorker(directory) {
       : plugin
   )
   const build = await rolldown({
-    input: new URL("./worker.js", import.meta.url).pathname,
-    plugins,
+    input: entry,
+    plugins: [...extraPlugins, ...plugins],
     external: ["lightningcss", "fsevents"],
     checks: { unresolvedImport: false, ineffectiveDynamicImport: false },
   })

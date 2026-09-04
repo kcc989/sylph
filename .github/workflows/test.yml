@@ -50,6 +50,7 @@ jobs:
       - run: bun run test
       - run: bun run build
       - run: bun run smoke:runtime
+      - run: bun run smoke:ci
 
   stories:
     runs-on: ubuntu-latest

@@ -1,0 +1,288 @@
+diff --git a/src/pipeline/ci-workflow.ts b/src/pipeline/ci-workflow.ts
+--- a/src/pipeline/ci-workflow.ts
++++ b/src/pipeline/ci-workflow.ts
+@@ -24,7 +24,7 @@
+ } from '../source-control-adapter';
+ import type { Bindings } from '../env';
+ import { runCiStep } from '../ci/capabilities';
+-import { RunnerGroup } from './runner-group';
++import { RunnerGroup, decodeRunnerOutput, encodeRunnerOutput } from './runner-group';
+ 
+ const DEFAULT_STEP_TIMEOUT_MS = 12 * 60 * 1000;
+ const DEFAULT_STEP_CONFIG = {
+@@ -160,8 +160,9 @@
+               cachePaths: options.cache?.inputs,
+               env: options.env,
+               secrets: options.secrets,
+-            })
++            }).then(encodeRunnerOutput)
+           )
++          .then(decodeRunnerOutput)
+           .then((output) =>
+             Object.freeze({
+               ...output,
+diff --git a/src/pipeline/runner-group.ts b/src/pipeline/runner-group.ts
+--- a/src/pipeline/runner-group.ts
++++ b/src/pipeline/runner-group.ts
+@@ -1,5 +1,9 @@
+ // Copyright (c) 2026 Cloudflare, Inc.
+ // SPDX-License-Identifier: Apache-2.0
++
++import { z } from 'zod';
++import type { CiRunStepOutput, CiRunnerLogs } from './types';
++
+ 
+ import { CiRunnerFailure } from './failures';
+ import type { CiRunnerResult, DirectoryBackup, RunnerOptions } from './types';
+@@ -79,3 +83,139 @@
+     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+   };
+ }
++
++export const maxPersistedRunnerBytes = 16 * 1024 * 1024;
++
++const persistedRunnerOutput = z.object({
++  exitCode: z.number(),
++  snapshot: z.object({
++    id: z.string(),
++    dir: z.string(),
++    localBucket: z.boolean().optional(),
++  }),
++  cachePointer: z.object({
++    key: z.string(),
++    createdAt: z.string(),
++    sizeBytes: z.number(),
++  }).optional(),
++  logs: z.object({ stdout: z.string(), stderr: z.string() }),
++});
++
++function* escapedText(text: string) {
++  for (let offset = 0; offset < text.length; offset += 16384) {
++    yield JSON.stringify(text.slice(offset, offset + 16384)).slice(1, -1);
++  }
++}
++
++async function* logText(
++  value: string | ReadableStream<Uint8Array>,
++  readers: Set<ReadableStreamDefaultReader<Uint8Array>>,
++  maxBytes: number
++) {
++  if (typeof value === 'string') {
++    yield* escapedText(value);
++    return;
++  }
++  const reader = value.getReader();
++  readers.add(reader);
++  const decoder = new TextDecoder('utf-8', { fatal: true });
++  try {
++    while (true) {
++      const part = await reader.read();
++      if (part.done) break;
++      if (part.value.byteLength > maxBytes) throw new Error('CI log chunk exceeds persistence limit');
++      yield* escapedText(decoder.decode(part.value, { stream: true }));
++    }
++    yield* escapedText(decoder.decode());
++  } finally {
++    await reader.cancel().catch(() => undefined);
++    reader.releaseLock();
++    readers.delete(reader);
++  }
++}
++
++async function cancelLogs(
++  logs: CiRunnerLogs,
++  readers: Set<ReadableStreamDefaultReader<Uint8Array>>,
++  reason?: unknown
++) {
++  await Promise.all([
++    ...[...readers].map(reader => reader.cancel(reason).catch(() => undefined)),
++    ...[logs.stdout, logs.stderr].map(value =>
++      typeof value !== 'string' && !value.locked
++        ? value.cancel(reason).catch(() => undefined)
++        : Promise.resolve()
++    ),
++  ]);
++}
++
++export function encodeRunnerOutput(
++  output: CiRunStepOutput,
++  maxBytes = maxPersistedRunnerBytes
++): ReadableStream<Uint8Array> {
++  const readers = new Set<ReadableStreamDefaultReader<Uint8Array>>();
++  const encoder = new TextEncoder();
++  const generate = async function* () {
++    const metadata = JSON.stringify({
++      exitCode: output.exitCode,
++      snapshot: output.snapshot,
++      cachePointer: output.cachePointer,
++    });
++    if (metadata.length > 65536) throw new Error('CI result metadata exceeds persistence limit');
++    yield `${metadata.slice(0, -1)},"logs":{"stdout":"`;
++    yield* logText(output.logs.stdout, readers, maxBytes);
++    yield '","stderr":"';
++    yield* logText(output.logs.stderr, readers, maxBytes);
++    yield '"}}';
++  };
++  const iterator = generate();
++  let bytes = 0;
++  return new ReadableStream<Uint8Array>({
++    async pull(controller) {
++      try {
++        const next = await iterator.next();
++        if (next.done) {
++          controller.close();
++          return;
++        }
++        const chunk = encoder.encode(next.value);
++        bytes += chunk.byteLength;
++        if (bytes > maxBytes) throw new Error(`CI result exceeds ${maxBytes} persisted bytes`);
++        controller.enqueue(chunk);
++      } catch (cause) {
++        controller.error(cause);
++        await cancelLogs(output.logs, readers, cause);
++        await iterator.return(undefined).catch(() => undefined);
++      }
++    },
++    async cancel(reason) {
++      await cancelLogs(output.logs, readers, reason);
++      await iterator.return(undefined).catch(() => undefined);
++    },
++  });
++}
++
++export async function decodeRunnerOutput(
++  output: CiRunStepOutput | ReadableStream<Uint8Array>,
++  maxBytes = maxPersistedRunnerBytes
++): Promise<CiRunStepOutput> {
++  if (!(output instanceof ReadableStream)) return output;
++  const reader = output.getReader();
++  const decoder = new TextDecoder('utf-8', { fatal: true });
++  const parts: string[] = [];
++  let bytes = 0;
++  try {
++    while (true) {
++      const next = await reader.read();
++      if (next.done) break;
++      bytes += next.value.byteLength;
++      if (bytes > maxBytes) throw new Error(`CI result exceeds ${maxBytes} persisted bytes`);
++      parts.push(decoder.decode(next.value, { stream: true }));
++    }
++    parts.push(decoder.decode());
++    return persistedRunnerOutput.parse(JSON.parse(parts.join('')));
++  } finally {
++    await reader.cancel().catch(() => undefined);
++    reader.releaseLock();
++  }
++}
+diff --git a/src/ci/runners/sandbox.ts b/src/ci/runners/sandbox.ts
+--- a/src/ci/runners/sandbox.ts
++++ b/src/ci/runners/sandbox.ts
+@@ -9,7 +9,7 @@
+   checkoutSourceScript,
+ } from '../../shared/source-checkout';
+ import { slugify } from '../../shared/slugify';
+-import type { RunStepInput, RunStepResult, Runner } from './runner';
++import { subshellCommand, type RunStepInput, type RunStepResult, type Runner } from './runner';
+ 
+ // Sandbox implementation limits. Pipeline-facing command and Snapshot
+ // retention settings are supplied through RunnerConfig.
+@@ -39,7 +39,9 @@
+     input: RunStepInput & { restore?: DirectoryBackup }
+   ): Promise<RunStepResult<DirectoryBackup>> {
+     // create the sandbox handle
+-    const sandbox = getSandbox(this.env.SANDBOX, createRunnerId(input.label), {
++    const runnerId = createRunnerId(input.label);
++    const mark = (stage: string) => console.info('CI runner stage', { runnerId, stage });
++    const sandbox = getSandbox(this.env.SANDBOX, runnerId, {
+       transport: 'http',
+       enableDefaultSession: false,
+       containerTimeouts: { portReadyTimeoutMS: PORT_READY_TIMEOUT_MS },
+@@ -47,6 +49,7 @@
+ 
+     let cleanupTransferredToStreams = false;
+     try {
++      mark('checkout');
+       if (input.restore) {
+         await sandbox.restoreBackup(input.restore);
+         // Overlay (no rm) so cached node_modules survive while tracked source
+@@ -70,8 +73,9 @@
+         });
+       }
+ 
++      mark('start-process');
+       const proc = await sandbox.startProcess(
+-        `(${input.command}) > ${STDOUT_FILE} 2> ${STDERR_FILE}`,
++        `${subshellCommand(input.command)} > ${STDOUT_FILE} 2> ${STDERR_FILE}`,
+         {
+           cwd: resolveCwd(input.cwd),
+           env: {
+@@ -81,22 +85,27 @@
+           autoCleanup: false,
+         }
+       );
++      mark('wait-for-exit');
+       const { exitCode } = await proc.waitForExit(
+         input.timeoutMs ?? COMMAND_TIMEOUT_MS
+       );
++      mark('read-preview');
+       const preview = await readPreviews(sandbox);
+ 
+       if (exitCode !== 0) {
+         return { exitCode, logs: preview, preview };
+       }
+ 
++      mark('create-backup');
+       const snapshot = await sandbox.createBackup({
+         dir: WORKSPACE_DIR,
+         name: input.label,
+         multipart: true,
+         ttl: input.ttlSeconds,
+       });
++      mark('read-logs');
+       const rawLogs = await readLogs(sandbox);
++      mark('logs-ready');
+       const streams = [rawLogs.stdout, rawLogs.stderr].filter(
+         (value): value is ReadableStream<Uint8Array> =>
+           typeof value !== 'string'
+@@ -109,7 +118,9 @@
+       const releaseStream = async () => {
+         remainingStreams -= 1;
+         if (remainingStreams === 0) {
++          mark('stream-cleanup');
+           await destroySandbox(sandbox);
++          mark('stream-cleaned');
+         }
+       };
+       cleanupTransferredToStreams = true;
+@@ -130,7 +141,9 @@
+       };
+     } finally {
+       if (!cleanupTransferredToStreams) {
++        mark('cleanup');
+         await destroySandbox(sandbox);
++        mark('cleaned');
+       }
+     }
+   }
+diff --git a/src/ci/runners/runner.ts b/src/ci/runners/runner.ts
+--- a/src/ci/runners/runner.ts
++++ b/src/ci/runners/runner.ts
+@@ -31,3 +31,5 @@
+   readonly name: string;
+   run(input: RunStepInput & { restore?: S }): Promise<RunStepResult<S>>;
+ }
++
++export const subshellCommand = (command: string) => `(\n${command}\n)`;
+diff --git a/src/ci/capabilities.ts b/src/ci/capabilities.ts
+--- a/src/ci/capabilities.ts
++++ b/src/ci/capabilities.ts
+@@ -64,7 +64,9 @@
+     repo: input.source.repo,
+   });
+   const sourceControlProvider = sourceControl.create(env);
++  console.info('CI step stage', { stage: 'prepare', instanceId: input.instanceId });
+   const prepared = await prepareStep(env, sourceControlProvider, input);
++  console.info('CI step stage', { stage: 'prepared', instanceId: input.instanceId });
+   const handle = await sourceControlProvider.startStepNotification({
+     source: prepared.source,
+     instanceId: input.instanceId,
