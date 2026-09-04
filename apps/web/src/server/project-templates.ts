@@ -15,7 +15,7 @@ export const builtInProjectTemplates: ReadonlyArray<ProjectTemplate> = [
     description:
       "TanStack Start, shadcn/ui, Effect, and Better Auth on D1, deployed with Alchemy. Passes every Sylph Check out of the box.",
     sourceUrl: "https://github.com/kcc989/sylph-tanstack-template",
-    sourceRef: "v0.1.0",
+    sourceRef: "main",
   }),
 ]
 

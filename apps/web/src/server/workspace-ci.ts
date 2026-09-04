@@ -27,6 +27,18 @@ import {
   productionUrl,
 } from "./deployment-records"
 import { ciRunUpsertBindings, ciRunUpsertSql } from "./ci-run-records"
+import { browserEvidenceSelector } from "./workspace-ci-browser"
+import {
+  dependencyInstallCommand,
+  installCacheInputs,
+} from "./workspace-ci-dependencies"
+import {
+  isVerificationStageName,
+  verificationCommand,
+  verificationDurations,
+  verificationFailureStage,
+  verificationStageNames,
+} from "./workspace-ci-verification"
 import {
   projectDeployEnvironment,
   readProjectSlug,
@@ -54,27 +66,6 @@ const isStageName = Schema.is(WorkspaceCheckStageName)
 const verificationRunnerConfig = {
   retries: { limit: 0, delay: 1_000 },
 }
-
-export const installCacheInputs = [
-  "package.json",
-  "**/package.json",
-  "bun.lock",
-  "bun.lockb",
-  "pnpm-lock.yaml",
-  "pnpm-workspace.yaml",
-  "yarn.lock",
-  ".yarnrc.yml",
-  "package-lock.json",
-  ".npmrc",
-]
-
-const installCommand = [
-  "if [ -f bun.lock ] || [ -f bun.lockb ]; then bun install --frozen-lockfile",
-  "elif [ -f pnpm-lock.yaml ]; then corepack pnpm install --frozen-lockfile",
-  "elif [ -f yarn.lock ]; then corepack yarn install --immutable",
-  "elif [ -f package-lock.json ]; then npm ci",
-  "else npm install --ignore-scripts=false; fi",
-].join("; ")
 
 const packageRun = (script: string) =>
   [
@@ -141,7 +132,7 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
     try {
       const install = await this.#runner(step, ci, run, "install", {
         name: "install",
-        command: installCommand,
+        command: dependencyInstallCommand,
         cache: {
           inputs: installCacheInputs,
         },
@@ -197,35 +188,30 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
             .run()
         })
       } else {
-        let parent: CiRunnerResult = install.result
-        for (const name of ["typecheck", "lint", "test"] as const) {
-          const stage = await this.#runner(step, parent, run, name, {
-            name,
-            command: requiredScriptCommand(name, `${name} verification`),
-            config: verificationRunnerConfig,
-          })
-          run = stage.run
-          parent = stage.result
-        }
-        const build = await this.#runner(step, parent, run, "build", {
-          name: "build",
-          command: requiredScriptCommand("build", "build verification"),
-          config: verificationRunnerConfig,
-        })
-        run = build.run
+        const verification = await this.#verification(step, install.result, run)
+        run = verification.run
 
-        const preview = await this.#runner(step, build.result, run, "preview", {
-          name: "preview",
-          command: requiredScriptCommand("sylph:preview", "Checkpoint preview"),
-          cloudflareCredentials: {
-            accountId: this.env.CLOUDFLARE_ACCOUNT_ID,
-          },
-          env: projectDeployEnvironment({
-            slug: projectSlug,
-            checkpoint: input.sha,
-            deployment: "preview",
-          }),
-        })
+        const preview = await this.#runner(
+          step,
+          verification.result,
+          run,
+          "preview",
+          {
+            name: "preview",
+            command: requiredScriptCommand(
+              "sylph:preview",
+              "Checkpoint preview"
+            ),
+            cloudflareCredentials: {
+              accountId: this.env.CLOUDFLARE_ACCOUNT_ID,
+            },
+            env: projectDeployEnvironment({
+              slug: projectSlug,
+              checkpoint: input.sha,
+              deployment: "preview",
+            }),
+          }
+        )
         run = preview.run
         const url = previewUrl(`${preview.logs.stdout}\n${preview.logs.stderr}`)
         if (!url) {
@@ -265,14 +251,16 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
       }
     } catch (cause) {
       const diagnostics = isCiRunnerFailure(cause)
-        ? cause.diagnostics.failures.map(
-            (failure) =>
-              new WorkspaceCheckDiagnostic({
-                stage: this.#stageName(failure.runner.name),
-                summary: `${failure.runner.name} failed`,
-                output: safeDiagnosticOutput(failure.output),
-              })
-          )
+        ? cause.diagnostics.failures.map((failure) => {
+            const stage =
+              verificationFailureStage(failure.output) ??
+              this.#stageName(failure.runner.name)
+            return new WorkspaceCheckDiagnostic({
+              stage,
+              summary: `${stage} failed`,
+              output: safeDiagnosticOutput(failure.output),
+            })
+          })
         : [
             new WorkspaceCheckDiagnostic({
               stage:
@@ -366,6 +354,57 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
     return { result, run: completed, stage, logs }
   }
 
+  async #verification(
+    step: WorkflowStep,
+    parent: CiRunnerResult,
+    run: WorkspaceCheckRun
+  ) {
+    const startedAt = await step.do("verification-started-at", async () =>
+      Date.now()
+    )
+    const running = await this.#publish(step, "verification-running", run, {
+      stages: run.stages.map((stage) =>
+        isVerificationStageName(stage.name)
+          ? checkStage(stage.name, "running", "Running in one sandbox")
+          : stage
+      ),
+    })
+    const result = await parent.runner({
+      name: "verification",
+      config: verificationRunnerConfig,
+      command: verificationCommand(
+        verificationStageNames.map((name) => ({
+          name,
+          command: requiredScriptCommand(name, `${name} verification`),
+        }))
+      ),
+    })
+    const logs = await logsText(result.logs)
+    const completedAt = await step.do("verification-completed-at", async () =>
+      Date.now()
+    )
+    const durations = verificationDurations(`${logs.stdout}\n${logs.stderr}`)
+    const verificationDetail = `Passed; shared runner ${((completedAt - startedAt) / 1000).toFixed(1)}s including setup and snapshot`
+    const completed = await this.#publish(
+      step,
+      "verification-complete",
+      running,
+      {
+        stages: running.stages.map((stage) =>
+          isVerificationStageName(stage.name)
+            ? checkStage(
+                stage.name,
+                "passed",
+                verificationDetail,
+                durations.get(stage.name) ?? null
+              )
+            : stage
+        ),
+      }
+    )
+    return { result, run: completed, logs }
+  }
+
   async #browserEvidence(
     step: WorkflowStep,
     run: WorkspaceCheckRun,
@@ -381,9 +420,15 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
     const evidence = await step.do("capture-browser-evidence", async () => {
       const response = await this.env.BROWSER.quickAction("snapshot", {
         url,
-        formats: ["content", "screenshot", "accessibilityTree"],
+        formats: ["markdown", "screenshot", "accessibilityTree"],
         viewport: { width: 1440, height: 900 },
         gotoOptions: { waitUntil: "networkidle2", timeout: 60_000 },
+        waitForSelector: {
+          selector: browserEvidenceSelector(run.commit),
+          visible: true,
+          timeout: 120_000,
+        },
+        actionTimeout: 120_000,
         screenshotOptions: { type: "png", fullPage: true },
         cacheTTL: 0,
       })
@@ -394,17 +439,6 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
       const accessibility = JSON.stringify(
         snapshot.result.accessibilityTree ?? null
       )
-      const content = snapshot.result.content ?? ""
-      const expectedCheckpoint = `SYLPH_CHECKPOINT=${run.commit}`
-      const expectedDeployment = "SYLPH_DEPLOYMENT=preview"
-      if (
-        !content.includes(expectedCheckpoint) ||
-        !content.includes(expectedDeployment)
-      ) {
-        throw new Error(
-          `Browser Run did not render ${expectedCheckpoint} and ${expectedDeployment}`
-        )
-      }
       const createdAt = Date.now()
       const screenshotId = `${run.id}-screenshot-${run.attempt}`
       const accessibilityId = `${run.id}-accessibility-${run.attempt}`

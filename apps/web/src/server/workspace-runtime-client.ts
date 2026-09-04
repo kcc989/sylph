@@ -103,7 +103,9 @@ export type WorkspaceSocketActor = {
 }
 
 export interface WorkspaceRuntime {
-  connectKey(input: OpenCodeKeySetupInput): Promise<OpenCodeConnectionResult>
+  connectKey(
+    input: typeof OpenCodeKeySetupInput.Encoded
+  ): Promise<OpenCodeConnectionResult>
   startSubscriptionSignIn(
     input: OpenCodeSubscriptionStartInput
   ): Promise<OpenCodeSubscriptionAttempt>
@@ -154,7 +156,10 @@ const call = async <Value>(operation: () => Promise<Value>) => {
   }
 }
 
-const encodeKeySetupInput = Schema.encodeSync(OpenCodeKeySetupInput)
+const decodeKeySetupInput = Schema.decodeUnknownSync(OpenCodeKeySetupInput)
+const encodeKeySetupInputSync = Schema.encodeSync(OpenCodeKeySetupInput)
+const encodeKeySetupInput = (input: typeof OpenCodeKeySetupInput.Encoded) =>
+  encodeKeySetupInputSync(decodeKeySetupInput(input))
 const decodeConnectionResult = Schema.decodeUnknownSync(
   OpenCodeConnectionResult
 )
