@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { expect, fn, userEvent, within } from "storybook/test"
+import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import type { ComponentProps } from "react"
 
 import { defaultPatch } from "@workspace/ui/components/code-review"
@@ -12,6 +12,7 @@ import {
   WorkspaceRoot,
   WorkspaceToolPane,
   WorkspaceTopbar,
+  TerminalSurface,
 } from "@workspace/ui/components/workspace-shell"
 import {
   workspaceBrowser,
@@ -28,9 +29,6 @@ function DemoPreview() {
           <span>Step 1 of 4</span>
         </div>
         <div className="flex flex-1 flex-col items-center justify-center">
-          <div className="mb-6 grid size-10 place-items-center rounded-full border border-[#e66f57] text-[#e66f57]">
-            ♪
-          </div>
           <h2 className="max-w-xs text-2xl font-semibold tracking-[-0.035em] text-balance">
             Welcome to FolkHero
           </h2>
@@ -70,16 +68,12 @@ function WorkspaceStory(props: WorkspaceStoryProps) {
   const checks = props.checks ?? workspaceChecks
 
   return (
-    <WorkspaceRoot workspaceId={props.workspaceId}>
+    <WorkspaceRoot className="h-dvh" workspaceId={props.workspaceId}>
       <WorkspaceTopbar
         {...props}
-        acceptDisabled={!props.onAccept}
-        acceptPending={false}
         agentControllingBrowser={props.agentControllingBrowser ?? false}
         archivePending={false}
         browser={browser}
-        checkpointDisabled={!props.onCheckpoint}
-        checkpointPending={false}
         checks={checks}
         discardPending={false}
         projectName={props.projectName}
@@ -89,6 +83,12 @@ function WorkspaceStory(props: WorkspaceStoryProps) {
         workspaceName={props.workspaceName}
       />
       <WorkspacePanes
+        terminal={
+          <TerminalSurface
+            entries={props.entries ?? workspaceEntries}
+            checks={checks}
+          />
+        }
         chat={
           <WorkspaceChat
             {...props}
@@ -106,7 +106,14 @@ function WorkspaceStory(props: WorkspaceStoryProps) {
           />
         }
       >
-        <WorkspaceToolPane {...props} browser={browser} checks={checks} />
+        <WorkspaceToolPane
+          {...props}
+          entries={props.entries ?? workspaceEntries}
+          checkpointDisabled={!props.onCheckpoint}
+          acceptDisabled={!props.onAccept}
+          browser={browser}
+          checks={checks}
+        />
       </WorkspacePanes>
     </WorkspaceRoot>
   )
@@ -119,7 +126,7 @@ const meta = {
     viewport: { defaultViewport: "responsive" },
   },
   args: {
-    workspaceId: "storybook-workspace",
+    workspaceId: "storybook-companion-layout",
     projectName: "Sylph",
     repositoryName: "sylph",
     workspaceName: "Browser preview shell",
@@ -180,13 +187,32 @@ export const TabbedWorkspace: Story = {
     await expect(canvas.getByLabelText("Message the agent")).toBeVisible()
     await expect(canvas.getByLabelText("Send message")).toBeVisible()
     await expect(canvas.getByLabelText("Model for next turn")).toBeVisible()
+    const openInspector = canvas.queryByLabelText("Open inspector")
+    if (openInspector) await userEvent.click(openInspector)
+    await userEvent.click(
+      within(
+        canvas.getByRole("region", { name: "Workspace inspector" })
+      ).getByRole("button", { name: /^Changes/ })
+    )
     await expect(
       canvas.getByRole("button", { name: "Checkpoint" })
     ).toBeVisible()
-    const closeTools = canvas.queryByLabelText("Hide tool sidebar")
-    if (closeTools) await userEvent.click(closeTools)
-    await userEvent.click(canvas.getByLabelText("Open tool sidebar"))
-    await expect(canvas.getByLabelText("Open tool tab")).toBeVisible()
+    await userEvent.type(
+      canvas.getByLabelText("Message the agent"),
+      "Keep this draft"
+    )
+    await userEvent.click(canvas.getByLabelText("Expand inspector"))
+    const inspector = canvas.getByRole("region", {
+      name: "Workspace inspector",
+    })
+    await expect(inspector.getBoundingClientRect().width).toBeGreaterThan(1000)
+    await userEvent.click(canvas.getByLabelText("Restore conversation"))
+    await expect(canvas.getByLabelText("Message the agent")).toHaveValue(
+      "Keep this draft"
+    )
+    await userEvent.click(canvas.getByLabelText("Hide inspector"))
+    await userEvent.click(canvas.getByLabelText("Open inspector"))
+    await expect(canvas.getByLabelText("More inspection tools")).toBeVisible()
     await expect(canvas.getByLabelText("More workspace actions")).toBeVisible()
   },
 }
@@ -344,4 +370,148 @@ export const ReviewWorkflow: Story = {
       />
     </div>
   ),
+}
+
+export const CompanionWorkflow: Story = {
+  args: {
+    workspaceId: "storybook-companion-workflow",
+    onSubmitPrompt: fn(async () => true),
+    onReadPatch: fn(async () => defaultPatch),
+    onReadFile: fn(async (path: string) => ({
+      path,
+      size: 24,
+      updatedAt: 0,
+      encoding: "utf8" as const,
+      content: "export const ready = true",
+    })),
+    files: ["src/index.ts"],
+    currentReviewer: reviewer,
+    review: {
+      commit: "bfd041e99a5ce7db0b13822b8e8b742ea3204bf2",
+      decision: "pending",
+      reviewer: null,
+      submittedAt: null,
+      comments: [],
+    },
+    onSubmitReview: fn(async () => undefined),
+    checks: [
+      {
+        name: "Typecheck",
+        detail: "Passed",
+        status: "passed",
+        commit: "bfd041e99a5ce7db0b13822b8e8b742ea3204bf2",
+        target: "checkpoint",
+        output: "Typecheck passed",
+      },
+    ],
+  },
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement)
+    const inspector = within(
+      canvas.getByRole("region", { name: "Workspace inspector" })
+    )
+    await userEvent.click(inspector.getByRole("button", { name: "Preview" }))
+    await expect(args.onReadPatch).not.toHaveBeenCalled()
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Reference preview" })
+    )
+    await userEvent.click(inspector.getByRole("button", { name: "Files" }))
+    await userEvent.click(canvas.getByRole("button", { name: "index.ts" }))
+    await waitFor(() => {
+      const viewer = canvasElement.querySelector("diffs-container")
+      expect(viewer?.shadowRoot?.textContent).toContain(
+        "export const ready = true"
+      )
+    })
+    const tree = canvas.getByRole("complementary", { name: "File tree" })
+    const contents = canvas.getByLabelText("File contents")
+    expect(contents.getBoundingClientRect().left).toBeGreaterThanOrEqual(
+      tree.getBoundingClientRect().right
+    )
+    await userEvent.click(inspector.getByRole("button", { name: "Preview" }))
+    await userEvent.click(inspector.getByRole("button", { name: "Files" }))
+    await expect(
+      canvas.getByText("src/index.ts", { exact: true })
+    ).toBeVisible()
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Hide file tree" })
+    )
+    await expect(tree).not.toBeVisible()
+    await expect(contents).toBeVisible()
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Show file tree" })
+    )
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Reference file" })
+    )
+    await userEvent.type(
+      canvas.getByLabelText("Message the agent"),
+      "Check these"
+    )
+    await userEvent.click(canvas.getByRole("button", { name: "Send message" }))
+    await expect(args.onSubmitPrompt).toHaveBeenCalledWith(
+      expect.stringContaining("Workspace file: src/index.ts"),
+      args.selectedModel,
+      undefined
+    )
+    await expect(
+      canvas.queryByLabelText("Attached context")
+    ).not.toBeInTheDocument()
+    await userEvent.click(inspector.getByRole("button", { name: /^Changes/ }))
+    await expect(args.onReadPatch).toHaveBeenCalledWith("working")
+    await expect(
+      canvas.queryByRole("button", { name: "Accept checkpoint" })
+    ).not.toBeInTheDocument()
+    await userEvent.selectOptions(canvas.getByLabelText("Compare"), "branch")
+    await expect(args.onReadPatch).toHaveBeenCalledWith("branch")
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Review · 0 comments" })
+    )
+    await userEvent.click(canvas.getByRole("button", { name: "Approve" }))
+    await expect(args.onSubmitReview).toHaveBeenCalledWith("approved")
+    await expect(
+      canvas.getByRole("button", { name: "Accept checkpoint" })
+    ).toBeVisible()
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Command output" })
+    )
+    await expect(
+      canvas.getByRole("region", { name: "Command output" })
+    ).toBeVisible()
+    const handle = canvas.getByRole("separator", {
+      name: "Resize command output",
+    })
+    handle.focus()
+    const before = canvas
+      .getByRole("region", { name: "Command output" })
+      .getBoundingClientRect().height
+    await userEvent.keyboard("{ArrowUp}")
+    await expect(
+      canvas
+        .getByRole("region", { name: "Command output" })
+        .getBoundingClientRect().height
+    ).toBeGreaterThan(before)
+  },
+}
+
+export const FailedPromptKeepsContext: Story = {
+  args: {
+    workspaceId: "storybook-companion-failed-prompt",
+    onSubmitPrompt: fn(async () => false),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Reference preview" })
+    )
+    await userEvent.type(
+      canvas.getByLabelText("Message the agent"),
+      "Try this change"
+    )
+    await userEvent.click(canvas.getByRole("button", { name: "Send message" }))
+    await expect(canvas.getByLabelText("Message the agent")).toHaveValue(
+      "Try this change"
+    )
+    await expect(canvas.getByLabelText("Attached context")).toBeVisible()
+  },
 }

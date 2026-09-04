@@ -30,6 +30,18 @@ class TestSqlStorage {
 }
 
 describe("WorkspaceFilesystem", () => {
+  test("lists root aliases and keeps directory prefixes distinct", async () => {
+    const filesystem = new WorkspaceFilesystem(new TestSqlStorage())
+    filesystem.initialize()
+    await filesystem.writeFile("package.json", "{}")
+    await filesystem.writeFile("src/index.ts", "export {}")
+    await filesystem.writeFile("src-other/index.ts", "export {}")
+    const expected = ["package.json", "src-other/index.ts", "src/index.ts"]
+    for (const root of ["", ".", "./", "/", "/workspace", "/workspace/"]) {
+      expect(filesystem.listWorkingFiles(root)).toEqual(expected)
+    }
+    expect(filesystem.listWorkingFiles("./src/")).toEqual(["src/index.ts"])
+  })
   test("imports a generated lockfile and preserves unrelated concurrent edits", async () => {
     const filesystem = new WorkspaceFilesystem(new TestSqlStorage())
     filesystem.initialize()

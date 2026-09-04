@@ -4,9 +4,7 @@ import {
   Archive,
   ChevronRight,
   Files,
-  GitBranch,
   GitCompareArrows,
-  GitMerge,
   LoaderCircle,
   MoreHorizontal,
   PanelLeftOpen,
@@ -27,8 +25,14 @@ import {
 import { cn } from "@workspace/ui/lib/utils"
 import { useOptionalShell } from "../shell"
 import type { BrowserState, CheckItem, WorkspacePresenceUser } from "./types"
-import { useWorkspaceShellStore } from "./workspace-shell-provider"
-import { openWorkspaceTool } from "./workspace-shell-store"
+import {
+  useWorkspaceShell,
+  useWorkspaceShellStore,
+} from "./workspace-shell-provider"
+import {
+  openWorkspaceTool,
+  setWorkspaceToolPaneOpen,
+} from "./workspace-shell-store"
 
 export function WorkspaceTopbar({
   agentControllingBrowser,
@@ -37,13 +41,6 @@ export function WorkspaceTopbar({
   projectName,
   repositoryName,
   workspaceName,
-  onCheckpoint,
-  checkpointDisabled,
-  checkpointPending,
-  onAccept,
-  acceptDisabled,
-  acceptPending,
-  acceptBlockers = [],
   onRestartWorkspace,
   restartPending,
   onArchiveWorkspace,
@@ -60,13 +57,6 @@ export function WorkspaceTopbar({
   projectName: string
   repositoryName: string
   workspaceName: string
-  onCheckpoint?: () => Promise<void>
-  checkpointDisabled: boolean
-  checkpointPending: boolean
-  onAccept?: () => Promise<void>
-  acceptDisabled: boolean
-  acceptPending: boolean
-  acceptBlockers?: ReadonlyArray<string>
   onRestartWorkspace?: () => Promise<void>
   restartPending: boolean
   onArchiveWorkspace?: () => Promise<void>
@@ -79,6 +69,9 @@ export function WorkspaceTopbar({
 }) {
   const shell = useOptionalShell()
   const store = useWorkspaceShellStore()
+  const paneOpen = useWorkspaceShell((state) => state.toolPaneOpen)
+  const mobileView = useWorkspaceShell((state) => state.mobileView)
+  const terminalOpen = useWorkspaceShell((state) => state.terminalOpen)
   const navigationCollapsed = shell?.navigationCollapsed ?? true
   const passedChecks = checks.filter(
     (check) => check.status === "passed"
@@ -153,41 +146,38 @@ export function WorkspaceTopbar({
           )}
         </div>
         <Button
-          aria-label="Terminal"
+          aria-label="Command output"
+          aria-expanded={terminalOpen}
           size="sm"
           variant="ghost"
           onClick={() => openWorkspaceTool(store, "terminal")}
         >
-          <Terminal /> <span className="hidden lg:inline">Terminal</span>
+          <Terminal /> <span className="hidden lg:inline">Output</span>
         </Button>
         <Button
-          aria-label="Checkpoint"
+          className="hidden md:inline-flex"
+          aria-label={paneOpen ? "Hide inspector" : "Open inspector"}
+          aria-expanded={paneOpen}
+          size="sm"
+          variant="ghost"
+          onClick={() => setWorkspaceToolPaneOpen(store, !paneOpen)}
+        >
+          {paneOpen ? "Hide inspector" : "Inspect"}
+        </Button>
+        <Button
+          className="md:hidden"
           size="sm"
           variant="outline"
-          disabled={checkpointDisabled || checkpointPending}
-          onClick={() => void onCheckpoint?.()}
+          onClick={() =>
+            store.setState((state) => ({
+              ...state,
+              mobileView:
+                mobileView === "conversation" ? "inspect" : "conversation",
+              toolPaneOpen: true,
+            }))
+          }
         >
-          {checkpointPending ? (
-            <LoaderCircle className="animate-spin motion-reduce:animate-none" />
-          ) : (
-            <GitBranch />
-          )}
-          <span className="hidden xl:inline">Checkpoint</span>
-        </Button>
-        <Button
-          aria-label="Accept"
-          title={acceptBlockers.join(" ") || undefined}
-          aria-description={acceptBlockers.join(" ") || undefined}
-          size="sm"
-          disabled={acceptDisabled || acceptPending}
-          onClick={() => void onAccept?.()}
-        >
-          {acceptPending ? (
-            <LoaderCircle className="animate-spin motion-reduce:animate-none" />
-          ) : (
-            <GitMerge />
-          )}
-          <span className="hidden xl:inline">Accept</span>
+          {mobileView === "conversation" ? "Inspect" : "Conversation"}
         </Button>
         <DropdownMenu>
           <DropdownMenuTrigger

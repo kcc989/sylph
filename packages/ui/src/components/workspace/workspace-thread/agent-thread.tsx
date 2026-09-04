@@ -1,8 +1,6 @@
 "use client"
 
 import {
-  Activity,
-  Check,
   ChevronRight,
   CircleAlert,
   Files,
@@ -28,6 +26,7 @@ import {
 import { cn } from "@workspace/ui/lib/utils"
 import { ToolCall } from "@workspace/ui/components/tool-call"
 import { groupToolCalls } from "@workspace/ui/lib/tool-call-summary"
+import type { WorkspaceReference } from "../workspace-shell-store"
 import { PromptComposer } from "../prompt-composer"
 import type {
   ComposerModel,
@@ -45,7 +44,15 @@ import { AgentQuestion } from "./agent-question"
 import { PermissionRequest } from "./permission-request"
 import { ResponseMarkdown } from "./response-markdown"
 
-function ThreadEntryRow({ entry }: { entry: ThreadEntry }) {
+function ThreadEntryRow({
+  entry,
+  onInspect,
+  onOpenEvidence,
+}: {
+  entry: ThreadEntry
+  onInspect?: (id: string) => void
+  onOpenEvidence?: (kind: "browser" | "changes" | "checks") => void
+}) {
   return (
     <MessageScrollerItem
       className={cn(
@@ -63,7 +70,18 @@ function ThreadEntryRow({ entry }: { entry: ThreadEntry }) {
         )}
       >
         {entry.kind === "tool" && entry.tool ? (
-          <ToolCall part={entry.tool} />
+          <>
+            <ToolCall part={entry.tool} />
+            {onInspect ? (
+              <Button
+                size="xs"
+                variant="ghost"
+                onClick={() => onInspect(entry.id)}
+              >
+                Inspect activity
+              </Button>
+            ) : null}
+          </>
         ) : (
           <>
             {(entry.title || entry.meta) && (
@@ -95,6 +113,34 @@ function ThreadEntryRow({ entry }: { entry: ThreadEntry }) {
                 {entry.body}
               </p>
             )}
+            {onOpenEvidence ? (
+              <nav
+                aria-label="Inspect result"
+                className="mt-3 flex flex-wrap gap-2"
+              >
+                <Button
+                  size="xs"
+                  variant="outline"
+                  onClick={() => onOpenEvidence("browser")}
+                >
+                  Preview
+                </Button>
+                <Button
+                  size="xs"
+                  variant="outline"
+                  onClick={() => onOpenEvidence("changes")}
+                >
+                  Changes
+                </Button>
+                <Button
+                  size="xs"
+                  variant="outline"
+                  onClick={() => onOpenEvidence("checks")}
+                >
+                  Check evidence
+                </Button>
+              </nav>
+            ) : null}
             {entry.details && (
               <ul className="mt-3 grid gap-1.5">
                 {entry.details.map((detail) => (
@@ -102,7 +148,6 @@ function ThreadEntryRow({ entry }: { entry: ThreadEntry }) {
                     className="flex items-center gap-2 text-[12px] text-muted-foreground"
                     key={detail}
                   >
-                    <Check className="size-3 text-foreground/70" />
                     {detail}
                   </li>
                 ))}
@@ -110,7 +155,6 @@ function ThreadEntryRow({ entry }: { entry: ThreadEntry }) {
             )}
             {entry.artifact && (
               <div className="mt-3 flex items-center gap-2 border border-white/[.09] bg-white/[.025] px-2.5 py-2">
-                <Activity className="size-3.5 text-[#ef9b7e]" />
                 <span className="text-[11px] font-medium">
                   {entry.artifact.label}
                 </span>
@@ -126,7 +170,13 @@ function ThreadEntryRow({ entry }: { entry: ThreadEntry }) {
   )
 }
 
-function ToolCallGroup({ entries }: { entries: ReadonlyArray<ThreadEntry> }) {
+function ToolCallGroup({
+  entries,
+  onInspect,
+}: {
+  entries: ReadonlyArray<ThreadEntry>
+  onInspect?: (id: string) => void
+}) {
   return (
     <MessageScrollerItem
       className="py-2 first:pt-0 last:pb-4"
@@ -146,7 +196,20 @@ function ToolCallGroup({ entries }: { entries: ReadonlyArray<ThreadEntry> }) {
         </CollapsibleTrigger>
         <CollapsibleContent className="grid gap-0.5 ps-[1.375rem] pt-1 pb-2">
           {entries.map((entry) =>
-            entry.tool ? <ToolCall key={entry.id} part={entry.tool} /> : null
+            entry.tool ? (
+              <div key={entry.id}>
+                <ToolCall part={entry.tool} />
+                {onInspect ? (
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    onClick={() => onInspect(entry.id)}
+                  >
+                    Inspect activity
+                  </Button>
+                ) : null}
+              </div>
+            ) : null
           )}
         </CollapsibleContent>
       </Collapsible>
@@ -182,7 +245,17 @@ export function AgentThread({
   selectedModel,
   modelNotice,
   onModelChange,
+  references,
+  onRemoveReference,
+  onOpenFiles,
+  onInspectActivity,
+  onOpenEvidence,
 }: {
+  references?: WorkspaceReference[]
+  onRemoveReference?: (text: string) => void
+  onOpenFiles?: () => void
+  onInspectActivity?: (id: string) => void
+  onOpenEvidence?: (kind: "browser" | "changes" | "checks") => void
   entries: ThreadEntry[]
   permissionRequests: ReadonlyArray<WorkspacePermissionRequest>
   questions: ReadonlyArray<WorkspaceQuestion>
@@ -205,8 +278,9 @@ export function AgentThread({
   initialPrompt?: string
   onSubmitPrompt?: (
     text: string,
-    model: { providerId: string; modelId: string }
-  ) => Promise<void>
+    model: { providerId: string; modelId: string },
+    delivery?: "queue" | "steer"
+  ) => Promise<boolean | void>
   promptDisabled?: boolean
   promptError?: string | null
   promptPending?: boolean
@@ -221,6 +295,9 @@ export function AgentThread({
   onModelChange?: (model: { providerId: string; modelId: string }) => void
 }) {
   const renderEntries = groupToolCalls(entries)
+  const latestResultId = entries
+    .filter((entry) => entry.kind === "result")
+    .at(-1)?.id
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-background">
       <MessageScrollerProvider autoScroll defaultScrollPosition="end">
@@ -229,9 +306,20 @@ export function AgentThread({
             <MessageScrollerContent className="mx-auto w-full max-w-3xl justify-end px-4 py-5 sm:px-7">
               {renderEntries.map((entry) =>
                 "entries" in entry ? (
-                  <ToolCallGroup entries={entry.entries} key={entry.id} />
+                  <ToolCallGroup
+                    onInspect={onInspectActivity}
+                    entries={entry.entries}
+                    key={entry.id}
+                  />
                 ) : (
-                  <ThreadEntryRow entry={entry} key={entry.id} />
+                  <ThreadEntryRow
+                    onOpenEvidence={
+                      entry.id === latestResultId ? onOpenEvidence : undefined
+                    }
+                    onInspect={onInspectActivity}
+                    entry={entry}
+                    key={entry.id}
+                  />
                 )
               )}
               {permissionRequests.map((request) => (
@@ -358,6 +446,9 @@ export function AgentThread({
         </div>
       ) : null}
       <PromptComposer
+        references={references}
+        onRemoveReference={onRemoveReference}
+        onOpenFiles={onOpenFiles}
         disabled={promptDisabled}
         error={promptError}
         initialPrompt={initialPrompt}

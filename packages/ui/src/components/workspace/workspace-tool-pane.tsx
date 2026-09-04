@@ -1,24 +1,7 @@
 "use client"
 
-import {
-  Check,
-  Files,
-  FolderTree,
-  Globe2,
-  ListChecks,
-  MessageSquare,
-  PanelRightClose,
-  Plus,
-  Rocket,
-  Terminal,
-  X,
-} from "lucide-react"
+import { Maximize2, Minimize2, MoreHorizontal } from "lucide-react"
 import type { ReactNode } from "react"
-import {
-  WorkspacePatchSurface,
-  type WorkspacePatchReader,
-} from "./surfaces/workspace-patch-surface"
-
 import { Button } from "@workspace/ui/components/button"
 import {
   DropdownMenu,
@@ -26,31 +9,30 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu"
+import { ToolCall } from "@workspace/ui/components/tool-call"
 import { cn } from "@workspace/ui/lib/utils"
-import type {
-  WorkspaceToolTab as WorkspaceTab,
-  WorkspaceToolTabKind as WorkspaceTabKind,
-} from "@workspace/ui/lib/workspace-tool-state"
 import {
   useWorkspaceShell,
   useWorkspaceShellStore,
 } from "./workspace-shell-provider"
 import {
-  activateWorkspaceTool,
-  closeWorkspaceTool,
   openWorkspaceTool,
-  setWorkspaceToolPaneOpen,
+  referenceWorkspaceContext,
 } from "./workspace-shell-store"
+import {
+  WorkspacePatchSurface,
+  type WorkspacePatchReader,
+} from "./surfaces/workspace-patch-surface"
 import { BrowserPreview } from "./surfaces/browser-preview"
 import { CheckList } from "./surfaces/check-list"
 import { DeploymentsSurface } from "./surfaces/deployments-surface"
 import { FilesSurface } from "./surfaces/files-surface"
 import { ReviewNotesSurface } from "./surfaces/review-notes-surface"
 import { ReviewSurface } from "./surfaces/review-surface"
-import { TerminalSurface } from "./surfaces/terminal-surface"
 import type {
   BrowserState,
   CheckItem,
+  ThreadEntry,
   WorkspaceReview,
   WorkspaceReviewActor,
   WorkspaceReviewCommentDraft,
@@ -60,279 +42,16 @@ import type {
   WorkspaceFileContentView,
 } from "./types"
 
-function ChecksSurface({ checks }: { checks: CheckItem[] }) {
-  return (
-    <section className="size-full overflow-auto bg-background">
-      <div className="mx-auto w-full max-w-4xl py-3">
-        <CheckList checks={checks} />
-      </div>
-    </section>
-  )
-}
-
-const workspaceTabIcon = {
-  browser: Globe2,
-  changes: Files,
-  checks: ListChecks,
-  review: Check,
-  terminal: Terminal,
-  files: FolderTree,
-  deployments: Rocket,
-} satisfies Record<WorkspaceTabKind, typeof MessageSquare>
-
-function WorkspaceTabs({
-  activeTabId,
-  browser,
-  changedFileCount,
-  checkpointHistory,
-  changeSummary,
-  checks,
-  onActivateTab,
-  onCloseTab,
-  onDismiss,
-  onOpenTool,
-  onAddReviewComment,
-  onResolveReviewComment,
-  onSubmitReview,
-  patch,
-  previewContent,
-  review,
-  reviewPatch,
-  currentReviewer,
-  reviewPending,
-  reviewError,
-  tabs,
-  files,
-  fileChanges,
-  onReadFile,
-  onReadPatch,
-  patchRevision,
-  reviewPatchRevision,
-  deployments,
-  canDeploy,
-  acceptedCommit,
-  deployPending,
-  deployError,
-  onDeploy,
-}: {
-  activeTabId: string | null
-  browser: BrowserState
-  changedFileCount?: number
-  checkpointHistory?: ReadonlyArray<WorkspaceCheckpoint>
-  changeSummary?: string
-  checks: CheckItem[]
-  onActivateTab: (tabId: string) => void
-  onCloseTab: (tabId: string) => void
-  onDismiss: () => void
-  onOpenTool: (kind: WorkspaceTabKind) => void
-  onAddReviewComment?: (
-    comment: WorkspaceReviewCommentDraft
-  ) => Promise<boolean>
-  onResolveReviewComment?: (
-    commentId: string,
-    resolved: boolean
-  ) => Promise<void>
-  onSubmitReview?: (decision: "approved" | "changes_requested") => Promise<void>
-  patch?: string
-  previewContent?: ReactNode
-  review?: WorkspaceReview
-  reviewPatch?: string
-  currentReviewer?: WorkspaceReviewActor
-  reviewPending?: boolean
-  reviewError?: string | null
-  tabs: WorkspaceTab[]
-  files: ReadonlyArray<string>
-  fileChanges: ReadonlyArray<WorkspaceFileChangeView>
-  onReadFile?: (path: string) => Promise<WorkspaceFileContentView>
-  onReadPatch?: WorkspacePatchReader
-  patchRevision?: string | number
-  reviewPatchRevision?: string | number
-  deployments: WorkspaceDeployments
-  canDeploy: boolean
-  acceptedCommit?: string | null
-  deployPending?: string | null
-  deployError?: string | null
-  onDeploy?: (commit: string) => Promise<void>
-}) {
-  const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0]
-  const tools = [
-    { kind: "browser", label: "New browser tab", icon: Globe2 },
-    { kind: "changes", label: "Changes", icon: Files },
-    { kind: "checks", label: "Checks", icon: ListChecks },
-    { kind: "review", label: "Review", icon: Check },
-    { kind: "terminal", label: "Terminal", icon: Terminal },
-    { kind: "files", label: "Files", icon: FolderTree },
-    { kind: "deployments", label: "Deployments", icon: Rocket },
-  ] satisfies Array<{
-    kind: WorkspaceTabKind
-    label: string
-    icon: typeof Globe2
-  }>
-
-  return (
-    <div className="flex size-full min-h-0 flex-col bg-background">
-      <div className="flex h-10 shrink-0 items-stretch border-b bg-[#171614]">
-        <div
-          aria-label="Workspace tool windows"
-          className="flex min-w-0 flex-1 items-stretch overflow-x-auto"
-          role="tablist"
-        >
-          {tabs.map((tab) => {
-            const Icon = workspaceTabIcon[tab.kind]
-            const active = tab.id === activeTab.id
-            return (
-              <div
-                className={cn(
-                  "group/tab relative flex shrink-0 items-center border-r border-white/[.07]",
-                  active && "bg-background"
-                )}
-                key={tab.id}
-              >
-                {active ? (
-                  <span className="absolute inset-x-0 top-0 h-px bg-[var(--sylph-coral)]" />
-                ) : null}
-                <button
-                  aria-controls="workspace-tool-panel"
-                  aria-selected={active}
-                  className={cn(
-                    "flex h-full items-center gap-2 px-3 text-xs text-muted-foreground transition-colors hover:bg-white/[.035] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset",
-                    active && "text-foreground"
-                  )}
-                  id={`workspace-tab-${tab.id}`}
-                  onClick={() => onActivateTab(tab.id)}
-                  role="tab"
-                  type="button"
-                >
-                  <Icon className="size-3.5" />
-                  {tab.label}
-                  {tab.kind === "browser" && browser.status === "live" ? (
-                    <span
-                      aria-label="live"
-                      className="size-1.5 rounded-full bg-[var(--sylph-live)]"
-                    />
-                  ) : null}
-                </button>
-                <button
-                  aria-label={`Close ${tab.label} window`}
-                  className="mr-1 grid size-6 place-items-center rounded-[4px] text-muted-foreground/60 opacity-60 transition-opacity hover:bg-white/[.06] hover:text-foreground hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-                  onClick={() => onCloseTab(tab.id)}
-                  type="button"
-                >
-                  <X className="size-3" />
-                </button>
-              </div>
-            )
-          })}
-        </div>
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            aria-label="Open tool tab"
-            className="m-1 grid size-6 shrink-0 place-items-center rounded-[4px] text-muted-foreground hover:bg-white/[.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-          >
-            <Plus className="size-3.5" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-44">
-            {tools.map(({ kind, label, icon: Icon }) => (
-              <DropdownMenuItem key={kind} onClick={() => onOpenTool(kind)}>
-                <Icon /> {label}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <Button
-          aria-label="Close tool sidebar"
-          className="m-1"
-          onClick={onDismiss}
-          size="icon-xs"
-          variant="ghost"
-        >
-          <PanelRightClose />
-        </Button>
-      </div>
-      <div
-        aria-label={activeTab ? undefined : "Tool sidebar"}
-        aria-labelledby={
-          activeTab ? `workspace-tab-${activeTab.id}` : undefined
-        }
-        className="flex min-h-0 flex-1 flex-col"
-        id="workspace-tool-panel"
-        role={activeTab ? "tabpanel" : "region"}
-      >
-        {!activeTab ? (
-          <div className="grid size-full place-items-center px-6 text-center">
-            <p className="text-xs text-muted-foreground">
-              Open a tool from the + menu.
-            </p>
-          </div>
-        ) : null}
-        {activeTab?.kind === "browser" ? (
-          <BrowserPreview browser={browser} content={previewContent} />
-        ) : null}
-        {activeTab?.kind === "changes" ? (
-          <WorkspacePatchSurface
-            scope="working"
-            revision={patchRevision}
-            readPatch={onReadPatch}
-            patch={patch}
-          >
-            {(loadedPatch) => (
-              <ReviewSurface
-                changedFileCount={changedFileCount}
-                changeSummary={changeSummary}
-                checkpointHistory={checkpointHistory}
-                patch={loadedPatch}
-              />
-            )}
-          </WorkspacePatchSurface>
-        ) : null}
-        {activeTab?.kind === "checks" ? (
-          <ChecksSurface checks={checks} />
-        ) : null}
-        {activeTab?.kind === "review" ? (
-          <WorkspacePatchSurface
-            scope="branch"
-            revision={reviewPatchRevision}
-            readPatch={onReadPatch}
-            patch={reviewPatch}
-          >
-            {(loadedPatch) => (
-              <ReviewNotesSurface
-                currentReviewer={currentReviewer}
-                error={reviewError}
-                onAddComment={onAddReviewComment}
-                onResolveComment={onResolveReviewComment}
-                onSubmitReview={onSubmitReview}
-                patch={loadedPatch}
-                pending={reviewPending}
-                review={review}
-              />
-            )}
-          </WorkspacePatchSurface>
-        ) : null}
-        {activeTab?.kind === "terminal" ? <TerminalSurface /> : null}
-        {activeTab?.kind === "files" ? (
-          <FilesSurface
-            fileChanges={fileChanges}
-            files={files}
-            onReadFile={onReadFile}
-          />
-        ) : null}
-        {activeTab?.kind === "deployments" ? (
-          <DeploymentsSurface
-            acceptedCommit={acceptedCommit}
-            canDeploy={canDeploy}
-            deployments={deployments}
-            error={deployError}
-            onDeploy={onDeploy}
-            pendingCommit={deployPending}
-          />
-        ) : null}
-      </div>
-    </div>
-  )
-}
-
 export function WorkspaceToolPane({
+  onCheckpoint,
+  checkpointDisabled = true,
+  checkpointPending = false,
+  onAccept,
+  acceptDisabled = true,
+  acceptPending = false,
+  acceptBlockers = [],
+  changeError,
+  entries = [],
   browser,
   changedFileCount,
   checkpointHistory,
@@ -361,6 +80,15 @@ export function WorkspaceToolPane({
   deployError,
   onDeploy,
 }: {
+  onCheckpoint?: () => Promise<void>
+  checkpointDisabled?: boolean
+  checkpointPending?: boolean
+  onAccept?: () => Promise<void>
+  acceptDisabled?: boolean
+  acceptPending?: boolean
+  acceptBlockers?: ReadonlyArray<string>
+  changeError?: string | null
+  entries?: ThreadEntry[]
   browser: BrowserState
   changedFileCount?: number
   checkpointHistory?: ReadonlyArray<WorkspaceCheckpoint>
@@ -395,44 +123,290 @@ export function WorkspaceToolPane({
   onDeploy?: (commit: string) => Promise<void>
 }) {
   const store = useWorkspaceShellStore()
-  const tabs = useWorkspaceShell((state) => state.tabs)
-  const activeTabId = useWorkspaceShell((state) => state.activeTabId)
+  const active = useWorkspaceShell((state) => state.activeTabId ?? "browser")
+  const expanded = useWorkspaceShell((state) => state.expanded)
+  const scope = useWorkspaceShell((state) => state.changeScope ?? "working")
+  const activityId = useWorkspaceShell((state) => state.activityId)
+  const activity = entries.find((entry) => entry.id === activityId)?.tool
+  const reference = (label: string, text: string) =>
+    referenceWorkspaceContext(store, { label, text })
+  const checkpointChecks = checks.filter(
+    (check) =>
+      check.commit === review?.commit &&
+      check.commit !== undefined &&
+      check.target !== "production"
+  )
 
   return (
-    <WorkspaceTabs
-      activeTabId={activeTabId}
-      browser={browser}
-      changedFileCount={changedFileCount}
-      checkpointHistory={checkpointHistory}
-      changeSummary={changeSummary}
-      checks={checks}
-      currentReviewer={currentReviewer}
-      onActivateTab={(tabId) => activateWorkspaceTool(store, tabId)}
-      onAddReviewComment={onAddReviewComment}
-      onCloseTab={(tabId) => closeWorkspaceTool(store, tabId)}
-      onDismiss={() => setWorkspaceToolPaneOpen(store, false)}
-      onOpenTool={(kind) => openWorkspaceTool(store, kind)}
-      onResolveReviewComment={onResolveReviewComment}
-      onSubmitReview={onSubmitReview}
-      patch={patch}
-      previewContent={previewContent}
-      review={review}
-      reviewError={reviewError}
-      reviewPatch={reviewPatch}
-      reviewPending={reviewPending}
-      tabs={tabs}
-      files={files}
-      fileChanges={fileChanges}
-      onReadFile={onReadFile}
-      onReadPatch={onReadPatch}
-      patchRevision={patchRevision}
-      reviewPatchRevision={reviewPatchRevision}
-      deployments={deployments}
-      canDeploy={canDeploy}
-      acceptedCommit={acceptedCommit}
-      deployPending={deployPending}
-      deployError={deployError}
-      onDeploy={onDeploy}
-    />
+    <section
+      aria-label="Workspace inspector"
+      className="flex size-full min-h-0 flex-col bg-background"
+    >
+      <header className="flex h-11 shrink-0 items-center gap-1 border-b px-2">
+        <nav
+          aria-label="Inspect workspace"
+          className="flex min-w-0 flex-1 items-center gap-1"
+        >
+          {(
+            [
+              ["browser", "Preview"],
+              ["changes", "Changes"],
+              ["files", "Files"],
+            ] as const
+          ).map(([kind, label]) => (
+            <Button
+              key={kind}
+              aria-pressed={active === kind}
+              variant="ghost"
+              size="sm"
+              className={cn(
+                "px-2",
+                active === kind && "bg-accent text-foreground"
+              )}
+              onClick={() => openWorkspaceTool(store, kind)}
+            >
+              {label}
+              {kind === "changes" && changedFileCount ? (
+                <span className="text-muted-foreground tabular-nums">
+                  {changedFileCount}
+                </span>
+              ) : null}
+            </Button>
+          ))}
+        </nav>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            aria-label="More inspection tools"
+            className="grid size-8 shrink-0 place-items-center rounded-md hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <MoreHorizontal className="size-4" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              onClick={() => openWorkspaceTool(store, "checks")}
+            >
+              Checks and evidence
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => openWorkspaceTool(store, "deployments")}
+            >
+              Deployments
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => openWorkspaceTool(store, "terminal")}
+            >
+              Command output
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <Button
+          className="hidden md:inline-flex"
+          aria-label={expanded ? "Restore conversation" : "Expand inspector"}
+          aria-pressed={expanded}
+          size="icon-sm"
+          variant="ghost"
+          onClick={() =>
+            store.setState((state) => ({ ...state, expanded: !state.expanded }))
+          }
+        >
+          {expanded ? <Minimize2 /> : <Maximize2 />}
+        </Button>
+      </header>
+      <div className="flex min-h-0 flex-1 flex-col">
+        {active === "browser" ? (
+          <BrowserPreview
+            browser={browser}
+            content={previewContent}
+            onReference={() =>
+              reference(
+                "Preview",
+                `Preview: ${browser.url}${browser.commit ? `\nCheckpoint: ${browser.commit}` : ""}`
+              )
+            }
+          />
+        ) : null}
+        {active === "changes" ? (
+          <>
+            <div className="flex shrink-0 flex-wrap items-center gap-2 border-b px-3 py-2">
+              <label
+                className="text-xs text-muted-foreground"
+                htmlFor="workspace-change-scope"
+              >
+                Compare
+              </label>
+              <select
+                id="workspace-change-scope"
+                value={scope}
+                className="min-w-0 rounded-md border bg-background px-2 py-1.5 text-xs focus-visible:ring-2 focus-visible:ring-ring"
+                onChange={(event) => {
+                  const changeScope =
+                    event.target.value === "branch" ? "branch" : "working"
+                  store.setState((state) => ({ ...state, changeScope }))
+                }}
+              >
+                <option value="working">Working copy</option>
+                <option value="branch" disabled={!review}>
+                  Checkpoint{review ? ` ${review.commit.slice(0, 7)}` : ""}
+                </option>
+              </select>
+            </div>
+            <div className="flex min-h-0 flex-1 flex-col">
+              <WorkspacePatchSurface
+                scope={scope}
+                revision={
+                  scope === "working" ? patchRevision : reviewPatchRevision
+                }
+                readPatch={onReadPatch}
+                patch={scope === "working" ? patch : reviewPatch}
+              >
+                {(loadedPatch) =>
+                  scope === "working" ? (
+                    <ReviewSurface
+                      patch={loadedPatch}
+                      changedFileCount={changedFileCount}
+                      changeSummary={changeSummary}
+                      checkpointHistory={checkpointHistory}
+                      onReference={(selection) =>
+                        reference(
+                          selection.file,
+                          `Working copy: ${selection.file}\nLines ${selection.start}-${selection.end} (${selection.endSide ?? selection.side ?? "additions"})`
+                        )
+                      }
+                    />
+                  ) : (
+                    <ReviewNotesSurface
+                      currentReviewer={currentReviewer}
+                      error={reviewError}
+                      onAddComment={onAddReviewComment}
+                      onResolveComment={onResolveReviewComment}
+                      onSubmitReview={onSubmitReview}
+                      patch={loadedPatch}
+                      pending={reviewPending}
+                      review={review}
+                      onReference={(selection) =>
+                        reference(
+                          selection.file,
+                          `Checkpoint: ${review?.commit}\nFile: ${selection.file}\nLines ${selection.start}-${selection.end} (${selection.endSide ?? selection.side ?? "additions"})`
+                        )
+                      }
+                    />
+                  )
+                }
+              </WorkspacePatchSurface>
+            </div>
+            {scope === "branch" && checkpointChecks.length ? (
+              <details className="max-h-48 shrink-0 overflow-auto border-t">
+                <summary className="cursor-pointer px-3 py-2 text-xs focus-visible:ring-2 focus-visible:ring-ring">
+                  Checkpoint checks ·{" "}
+                  {
+                    checkpointChecks.filter(
+                      (check) => check.status === "passed"
+                    ).length
+                  }
+                  /{checkpointChecks.length} passed
+                </summary>
+                <CheckList checks={checkpointChecks} />
+              </details>
+            ) : null}
+            <footer className="shrink-0 border-t px-3 py-3">
+              {changeError ? (
+                <p role="alert" className="mb-2 text-xs text-destructive">
+                  {changeError}
+                </p>
+              ) : null}
+              {scope === "branch" && acceptBlockers.length ? (
+                <p className="mb-2 text-xs leading-5 text-muted-foreground">
+                  {acceptBlockers.join(" ")}
+                </p>
+              ) : null}
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs text-muted-foreground">
+                  {scope === "working"
+                    ? "Save changes for review"
+                    : "Accept the reviewed checkpoint"}
+                </span>
+                {scope === "working" ? (
+                  <Button
+                    size="sm"
+                    disabled={
+                      !onCheckpoint || checkpointDisabled || checkpointPending
+                    }
+                    onClick={() => void onCheckpoint?.()}
+                  >
+                    {checkpointPending ? "Saving…" : "Checkpoint"}
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    disabled={!onAccept || acceptDisabled || acceptPending}
+                    onClick={() => void onAccept?.()}
+                  >
+                    {acceptPending ? "Accepting…" : "Accept checkpoint"}
+                  </Button>
+                )}
+              </div>
+            </footer>
+          </>
+        ) : null}
+        <div
+          className={cn("min-h-0 flex-1", active !== "files" && "hidden")}
+          hidden={active !== "files"}
+        >
+          <FilesSurface
+            fileChanges={fileChanges}
+            files={files}
+            onReadFile={onReadFile}
+            onReferenceFile={(path) =>
+              reference(path, `Workspace file: ${path}`)
+            }
+          />
+        </div>
+        {active === "checks" ? (
+          <section className="min-h-0 flex-1 overflow-auto">
+            <header className="flex items-center justify-between border-b px-3 py-2">
+              <h2 className="text-sm font-medium">
+                {activity ? "Activity details" : "Checks and evidence"}
+              </h2>
+              <Button
+                size="xs"
+                variant="ghost"
+                onClick={() => openWorkspaceTool(store, "browser")}
+              >
+                Back to preview
+              </Button>
+            </header>
+            {activity ? (
+              <div className="p-3">
+                <ToolCall part={activity} />
+                <Button
+                  size="xs"
+                  variant="outline"
+                  onClick={() =>
+                    reference(
+                      activity.name,
+                      `Tool call: ${activity.name}\nCall ID: ${activity.id}`
+                    )
+                  }
+                >
+                  Reference in chat
+                </Button>
+              </div>
+            ) : (
+              <CheckList checks={checks} />
+            )}
+          </section>
+        ) : null}
+        {active === "deployments" ? (
+          <DeploymentsSurface
+            acceptedCommit={acceptedCommit}
+            canDeploy={canDeploy}
+            deployments={deployments}
+            error={deployError}
+            onDeploy={onDeploy}
+            pendingCommit={deployPending}
+          />
+        ) : null}
+      </div>
+    </section>
   )
 }

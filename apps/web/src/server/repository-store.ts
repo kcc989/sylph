@@ -1,4 +1,4 @@
-import { Context, Effect, Schema } from "effect"
+import { Context, Effect, Option, Schema } from "effect"
 import git from "isomorphic-git"
 import http from "isomorphic-git/http/web"
 
@@ -117,9 +117,20 @@ export const artifactAuth = (plaintext: string) => () => ({
   password: plaintext.split("?expires=")[0],
 })
 
+const ArtifactFailureSchema = Schema.Struct({
+  code: Schema.optional(RepositoryStoreErrorCode),
+  message: Schema.optional(Schema.String),
+})
+const decodeArtifactFailure = Schema.decodeUnknownOption(ArtifactFailureSchema)
+
 const errorCode = (cause: unknown): RepositoryStoreErrorCode => {
-  if (!(cause instanceof Error) || !("code" in cause)) return "UNKNOWN"
-  return Schema.decodeUnknownSync(RepositoryStoreErrorCode)(cause.code)
+  const failure = Option.getOrUndefined(decodeArtifactFailure(cause))
+  if (failure?.code) return failure.code
+  const message = cause instanceof Error ? cause.message : failure?.message
+  if (message && /^(?:ArtifactsError: )?repo already exists: /.test(message)) {
+    return "ALREADY_EXISTS"
+  }
+  return "UNKNOWN"
 }
 
 const storeError = (operation: string, cause: unknown) => {
@@ -167,13 +178,11 @@ export const makeCloudflareArtifactsRepositoryStore = (
         let lastError: RepositoryStoreError | undefined
         for (let attempt = 0; attempt < 6; attempt += 1) {
           try {
-            return resolveStoredRepository(await binding.get(name))
+            return await resolveStoredRepository(await binding.get(name))
           } catch (cause) {
             lastError = storeError("inspect", cause)
             if (!lastError.retryable) throw lastError
-            await new Promise((resolve) =>
-              setTimeout(resolve, 100 * 2 ** attempt)
-            )
+            await wait(100 * 2 ** attempt)
           }
         }
         throw (

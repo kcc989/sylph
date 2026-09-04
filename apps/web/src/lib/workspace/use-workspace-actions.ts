@@ -72,7 +72,7 @@ type WorkspaceActionProps = {
     text: string,
     model: { providerId: string; modelId: string },
     delivery?: "queue" | "steer"
-  ) => Promise<void>
+  ) => Promise<boolean | void>
   onSubmitReview: (decision: "approved" | "changes_requested") => Promise<void>
 }
 
@@ -351,7 +351,7 @@ export function useWorkspaceActions({
                 : "You",
         },
       ])
-      await commands.run(
+      const sent = await commands.run(
         "prompt",
         async () => {
           const response = await prompt({
@@ -366,6 +366,7 @@ export function useWorkspaceActions({
         { refresh: false }
       )
       setOptimisticEntries([])
+      return sent
     },
     onSubmitReview: (decision) =>
       runReviewMutation(() =>

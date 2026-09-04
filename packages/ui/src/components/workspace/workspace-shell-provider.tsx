@@ -9,7 +9,7 @@ import {
   useMemo,
 } from "react"
 
-import type { WorkspaceToolState } from "@workspace/ui/lib/workspace-tool-state"
+import type { WorkspaceShellState } from "./workspace-shell-store"
 
 import {
   createWorkspaceShellStore,
@@ -17,7 +17,7 @@ import {
   type WorkspaceShellStorage,
 } from "./workspace-shell-store"
 
-const WorkspaceShellContext = createContext<Store<WorkspaceToolState> | null>(
+const WorkspaceShellContext = createContext<Store<WorkspaceShellState> | null>(
   null
 )
 
@@ -62,5 +62,5 @@ export const useWorkspaceShellStore = () => {
 }
 
 export const useWorkspaceShell = <T,>(
-  selector: (state: WorkspaceToolState) => T
+  selector: (state: WorkspaceShellState) => T
 ) => useStore(useWorkspaceShellStore(), selector)

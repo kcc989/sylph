@@ -100,7 +100,7 @@ export function ShellRoot({
   })
 
   const collapseNavigation = () => {
-    if (mobileNavigationOpen) {
+    if (!window.matchMedia("(min-width: 768px)").matches) {
       setMobileNavigationOpen(store, false)
       return
     }
@@ -110,6 +110,7 @@ export function ShellRoot({
 
   const openNavigation = () => {
     if (window.matchMedia("(min-width: 768px)").matches) {
+      setMobileNavigationOpen(store, false)
       navigationRef.current?.expand()
       setNavigationCollapsed(store, false, browserStorage())
       return
@@ -127,13 +128,17 @@ export function ShellRoot({
     >
       <div
         className={cn(
-          "dark flex h-svh min-h-[620px] overflow-hidden bg-background text-foreground",
+          "dark flex h-svh min-h-0 overflow-hidden bg-background text-foreground",
           className
         )}
       >
         {productRail}
         <ResizablePanelGroup
-          className="min-w-0 flex-1 max-md:[&>#project-navigation]:hidden max-md:[&>#project-navigation-handle]:hidden"
+          className={cn(
+            "min-w-0 flex-1 max-md:[&>#project-navigation]:hidden max-md:[&>#project-navigation-handle]:hidden",
+            navigationCollapsed &&
+              "md:[&>#project-navigation]:hidden! md:[&>#workspace-area]:flex-1!"
+          )}
           defaultLayout={layout.defaultLayout}
           id="app-shell-navigation"
           onLayoutChanged={layout.onLayoutChanged}
@@ -147,9 +152,10 @@ export function ShellRoot({
             id="project-navigation"
             maxSize="420px"
             minSize="180px"
-            onResize={({ inPixels }) =>
-              setNavigationCollapsed(store, inPixels <= 1, browserStorage())
-            }
+            onResize={({ inPixels }) => {
+              if (!navigationCollapsed)
+                setNavigationCollapsed(store, inPixels <= 1, browserStorage())
+            }}
             panelRef={navigationRef}
           >
             {navigation}

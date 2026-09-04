@@ -130,12 +130,15 @@ export type WorkspacePresenceUser = {
 }
 
 export type BrowserState = {
+  commit?: string
   url: string
   title: string
   status: "live" | "loading" | "error"
 }
 
 export type CheckItem = {
+  commit?: string
+  target?: "checkpoint" | "production"
   name: string
   detail: string
   status: "queued" | "passed" | "running" | "failed"

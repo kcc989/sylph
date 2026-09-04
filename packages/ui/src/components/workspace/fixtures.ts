@@ -4,14 +4,14 @@ export const workspaceEntries: ThreadEntry[] = [
   {
     id: "request",
     kind: "user",
-    body: "Keep the workspace focused on chat and open a browser only when preview work begins.",
+    body: "Improve the onboarding flow and check how it works on mobile.",
     meta: "You · 10:24",
   },
   {
     id: "inspect",
     kind: "tool",
     title: "Plan",
-    body: "Move chat, browser, changes, checks, and terminal into one peer tab model.",
+    body: "I will simplify the first step, check the mobile layout, and prepare the changes for review.",
     meta: "4 steps",
     details: [
       "Audit the workspace shell and preview route",
@@ -23,8 +23,8 @@ export const workspaceEntries: ThreadEntry[] = [
   {
     id: "result",
     kind: "result",
-    title: "Workspace tabs implemented",
-    body: "Chat opens first. Browser and review tools stay one click away without shrinking the active work surface.",
+    title: "Onboarding updated",
+    body: "The first step now focuses on account creation. The updated screen is ready in Preview, and you can review the implementation in Changes.",
     meta: "2m 18s",
     artifact: {
       label: "Preview updated",

@@ -1,19 +1,14 @@
 "use client"
 
-import { PanelRightClose, PanelRightOpen } from "lucide-react"
-
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@workspace/ui/components/tooltip"
-import { cn } from "@workspace/ui/lib/utils"
 import { AgentThread } from "./workspace-thread/agent-thread"
 import {
   useWorkspaceShell,
   useWorkspaceShellStore,
 } from "./workspace-shell-provider"
-import { setWorkspaceToolPaneOpen } from "./workspace-shell-store"
+import {
+  openWorkspaceTool,
+  inspectWorkspaceActivity,
+} from "./workspace-shell-store"
 import type {
   ComposerModel,
   ComposerSkill,
@@ -24,36 +19,6 @@ import type {
   WorkspaceQueuedMessage,
   WorkspaceRuntimeLimits,
 } from "./types"
-
-function WorkspaceToolToggle({
-  open,
-  onToggle,
-}: {
-  open: boolean
-  onToggle: () => void
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        aria-controls="workspace-tools"
-        aria-expanded={open}
-        aria-label={open ? "Hide tool sidebar" : "Open tool sidebar"}
-        className={cn(
-          "ml-auto grid size-8 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-          open && "bg-accent text-accent-foreground"
-        )}
-        onClick={onToggle}
-      >
-        {open ? (
-          <PanelRightClose className="size-4" />
-        ) : (
-          <PanelRightOpen className="size-4" />
-        )}
-      </TooltipTrigger>
-      <TooltipContent>{open ? "Hide tools" : "Open tools"}</TooltipContent>
-    </Tooltip>
-  )
-}
 
 export function WorkspaceChat({
   entries,
@@ -108,7 +73,7 @@ export function WorkspaceChat({
     text: string,
     model: { providerId: string; modelId: string },
     delivery?: "queue" | "steer"
-  ) => Promise<void>
+  ) => Promise<boolean | void>
   onRestartWorkspace?: () => Promise<void>
   promptDisabled?: boolean
   promptError?: string | null
@@ -123,20 +88,24 @@ export function WorkspaceChat({
   onModelChange?: (model: { providerId: string; modelId: string }) => void
 }) {
   const store = useWorkspaceShellStore()
-  const toolPaneOpen = useWorkspaceShell((state) => state.toolPaneOpen)
+  const references = useWorkspaceShell((state) => state.references)
 
   return (
     <section
       aria-label="Workspace conversation"
       className="flex size-full min-w-0 flex-col bg-background"
     >
-      <header className="flex h-10 shrink-0 items-center border-b px-3">
-        <WorkspaceToolToggle
-          open={toolPaneOpen}
-          onToggle={() => setWorkspaceToolPaneOpen(store, !toolPaneOpen)}
-        />
-      </header>
       <AgentThread
+        onOpenEvidence={(kind) => openWorkspaceTool(store, kind)}
+        references={references}
+        onRemoveReference={(text) =>
+          store.setState((state) => ({
+            ...state,
+            references: state.references.filter((item) => item.text !== text),
+          }))
+        }
+        onOpenFiles={() => openWorkspaceTool(store, "files")}
+        onInspectActivity={(id) => inspectWorkspaceActivity(store, id)}
         entries={entries}
         permissionRequests={permissionRequests}
         questions={questions}
@@ -151,7 +120,20 @@ export function WorkspaceChat({
         onAnswerQuestion={onAnswerQuestion}
         onCancelTurn={onCancelTurn}
         initialPrompt={initialPrompt}
-        onSubmitPrompt={onSubmitPrompt}
+        onSubmitPrompt={
+          onSubmitPrompt
+            ? async (text, model, delivery) => {
+                const sent = await onSubmitPrompt(text, model, delivery)
+                if (sent === false) return false
+                store.setState((state) => ({
+                  ...state,
+                  references: state.references.filter(
+                    (item) => !references.includes(item)
+                  ),
+                }))
+              }
+            : undefined
+        }
         promptDisabled={promptDisabled}
         promptError={promptError}
         promptPending={promptPending}

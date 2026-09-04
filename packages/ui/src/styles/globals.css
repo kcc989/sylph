@@ -92,6 +92,7 @@
 }
 
 .dark {
+  color-scheme: dark;
   --background: oklch(0.145 0.008 52);
   --foreground: oklch(0.93 0.014 77);
   --card: oklch(0.18 0.009 50);
@@ -133,6 +134,8 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    scrollbar-width: thin;
+    scrollbar-color: var(--muted-foreground) transparent;
   }
   body {
     @apply min-h-svh bg-background text-foreground antialiased;

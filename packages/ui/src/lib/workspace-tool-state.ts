@@ -23,6 +23,9 @@ const WorkspaceToolStateSchema = z.object({
   activeTabId: z.string().nullable(),
   toolPaneOpen: z.boolean(),
   toolPaneSize: z.number().finite().min(10).max(90),
+  terminalOpen: z.boolean().optional(),
+  terminalSize: z.number().finite().min(15).max(60).optional(),
+  changeScope: z.enum(["working", "branch"]).optional(),
 })
 
 const WorkspaceToolStateEntrySchema = WorkspaceToolStateSchema.extend({
@@ -85,12 +88,16 @@ export const readWorkspaceToolState = (
   )
   if (!entry) return null
 
-  return {
+  const state: WorkspaceToolState = {
     tabs: entry.tabs,
     activeTabId: entry.activeTabId,
     toolPaneOpen: entry.toolPaneOpen,
     toolPaneSize: entry.toolPaneSize,
   }
+  if (entry.terminalOpen !== undefined) state.terminalOpen = entry.terminalOpen
+  if (entry.terminalSize !== undefined) state.terminalSize = entry.terminalSize
+  if (entry.changeScope !== undefined) state.changeScope = entry.changeScope
+  return state
 }
 
 export const writeWorkspaceToolState = (
