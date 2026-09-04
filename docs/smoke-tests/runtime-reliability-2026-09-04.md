@@ -49,3 +49,11 @@ Authenticated browser verification used the original Todo workspace `8aba0fca-4f
 A new dependency-repair prompt through GLM 5.2 (free) reached the new runtime but logged `Session.StepFailedError: Provider returned error`. After an explicit runtime restart, a retry through North Mini Code (free) logged `Provider reported an error (finish_reason: error)`. Neither attempt started a new CI instance. The sampled RPC records for the first attempt consumed between 0 and 478 ms of CPU, with some longer wall times. This limited sample does not establish a production latency guarantee or prove all memory failures resolved.
 
 The current implementation still needs general command execution. The Todo dependency repair, Preview lifecycle, Acceptance, and Todo production deployment have not passed. GitHub's production secret configuration also remains unresolved; local deployment did not populate GitHub secrets.
+
+## Continued smoke test
+
+A local production redeploy found all ten resources unchanged. PR #49 adds a failure entry when OpenCode reports a failed turn without an assistant error message. Eight focused tests and all GitHub checks passed. This notice is not deployed yet.
+
+A follow-up model attempt produced no tool call and was interrupted at the configured fifteen-minute deadline. Cloudflare recorded successful alarm events and the browser displayed the interrupted-turn notice. This verifies the deadline for this stalled request, not every multi-step or queued-turn case.
+
+A fresh isolated Workspace under the same Project successfully read `package.json` and reported its package name using a model that previously failed in the original conversation. This comparison shows that the provider and tool path can work in a short session; it does not isolate the cause of the earlier failures. The original Workspace and its files are preserved. A new Todo build is running in the fresh Workspace; no Preview or production Todo deployment has passed yet.
