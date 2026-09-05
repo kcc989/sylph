@@ -1,4 +1,9 @@
+import {
+  assertWorkspaceModelRequestSize,
+  boundedWorkspaceModelLimits,
+} from "./workspace-model-limits"
 import { openRouterErrorResponse } from "./openrouter-response"
+import { workspaceModelCacheBody } from "./workspace-model-cache"
 import {
   SkillResourceJsonSchema,
   type WorkspaceBrowserResult,
@@ -8,11 +13,12 @@ import {
   WorkspaceCheckpointToolJsonSchema,
   WorkspaceCheckStatusToolJsonSchema,
   type WorkspaceCheckRun,
-  WorkspaceDeleteFileJsonSchema,
   type WorkspaceDiffResult,
   type WorkspaceDiffScope,
   WorkspaceDiffToolJsonSchema,
   WorkspaceFilePathJsonSchema,
+  WorkspaceDeleteFileJsonSchema,
+  WorkspaceDeleteFileInput,
   WorkspaceListFilesJsonSchema,
   type WorkspaceMergeRequest,
   WorkspaceMergeToolJsonSchema,
@@ -23,14 +29,10 @@ import {
   WorkspaceRunChecksToolJsonSchema,
   WorkspaceSyncToolJsonSchema,
   type WorkspaceSyncResult,
-  WorkspaceWriteFileJsonSchema,
-  WorkspaceEditFileJsonSchema,
-  WorkspaceEditFileInput,
   SkillResourceInput,
   WorkspaceBrowserToolInput,
   WorkspaceCheckStatusToolInput,
   WorkspaceCheckpointToolInput,
-  WorkspaceDeleteFileInput,
   WorkspaceDiffToolInput,
   WorkspaceFilePathInput,
   WorkspaceListFilesInput,
@@ -39,7 +41,6 @@ import {
   WorkspaceProductionToolInput,
   WorkspaceRunChecksToolInput,
   WorkspaceSyncToolInput,
-  WorkspaceWriteFileInput,
 } from "@workspace/domain"
 import { Plugin } from "@opencode-ai/plugin"
 import { Skill } from "@opencode-ai/schema/skill"
@@ -73,9 +74,7 @@ const decodeWorkspaceCheckStatusToolInput = Schema.decodeUnknownPromise(
 const decodeWorkspaceCheckpointToolInput = Schema.decodeUnknownPromise(
   WorkspaceCheckpointToolInput
 )
-const decodeWorkspaceDeleteFile = Schema.decodeUnknownPromise(
-  WorkspaceDeleteFileInput
-)
+
 const decodeWorkspaceDiffToolInput = Schema.decodeUnknownPromise(
   WorkspaceDiffToolInput
 )
@@ -100,11 +99,9 @@ const decodeWorkspaceRunChecksToolInput = Schema.decodeUnknownPromise(
 const decodeWorkspaceSyncToolInput = Schema.decodeUnknownPromise(
   WorkspaceSyncToolInput
 )
-const decodeWorkspaceWriteFile = Schema.decodeUnknownPromise(
-  WorkspaceWriteFileInput
-)
-const decodeWorkspaceEditFile = Schema.decodeUnknownPromise(
-  WorkspaceEditFileInput
+
+const decodeWorkspaceDeleteFile = Schema.decodeUnknownPromise(
+  WorkspaceDeleteFileInput
 )
 
 export const selectWorkspaceVcs = (draft: {
@@ -188,7 +185,6 @@ export type WorkspacePluginActions = {
     message: string
     repairOnFailure: boolean
   }): Promise<WorkspaceCheckRun>
-  checkStatus(): Promise<ReadonlyArray<WorkspaceCheckRun>>
   syncProject(): Promise<WorkspaceSyncResult>
   checkpoint(input: { message: string }): Promise<WorkspaceCheckpointResult>
   diff(scope: WorkspaceDiffScope): Promise<WorkspaceDiffResult>
@@ -204,15 +200,15 @@ export type WorkspacePluginActions = {
 
 export const workspaceSystemPrompt = [
   "You are coding inside a Cloudflare Durable Object.",
-  "Use workspace_list_files, workspace_read_file, workspace_edit_file, workspace_write_file, and workspace_delete_file for source work. The durable workspace filesystem is authoritative. Use workspace_edit_file for exact, unique text replacements; workspace_write_file replaces the entire file.",
+  "Use the native read, write, edit, patch, glob, and grep tools for source work in /workspace. These tools access the authoritative durable Workspace files. Use read on directories to inspect their entries, or workspace_list_files for a recursive file listing. Use patch when offered by the model, or workspace_delete_file to delete files.",
   "After changing Bun package.json dependencies or when bun.lock is missing, stale, truncated, or invalid, call workspace_install_dependencies with {}. Cloudflare CI runs Bun, saves the generated lockfile back to the durable Workspace, and starts normal frozen-install Checks automatically. Never generate lockfile entries or integrity hashes yourself, edit the lockfile by hand, or remove frozen validation. Do not run another Check while dependency installation is pending; Sylph delivers the result to this Conversation.",
   "Use workspace_restore_file to discard the changes to one file and restore it from the latest Checkpoint. This can recover a damaged file without rewriting its contents through model output.",
   "Use workspace_checkpoint to commit the Working copy to the Workspace fork without running CI, and workspace_diff to review uncommitted or Checkpoint changes against the Project Repository base.",
-  "Use workspace_run_checks after a coherent change; Sylph delivers the Check result to this Conversation when Cloudflare CI finishes, so do not poll workspace_check_status in a loop. Use workspace_check_status for diagnostics, Preview state, and browser evidence.",
+  "Use workspace_run_checks once after a coherent change, then end your response while the job runs. Check progress and results appear in the Checks panel automatically. Do not poll or call other tools to wait for it. The result is available as system context for the next user request; do not claim it passed before a terminal result exists.",
   "Use workspace_preview to find or build the Preview of the current Checkpoint, then workspace_browser to open the Preview in a Cloudflare browser, read its rendered content and accessibility tree, and capture screenshot evidence. The browser is limited to the Preview origin.",
   "Use workspace_request_merge to report whether the Workspace fork is ready for Acceptance; a User performs the merge from the Review tab. Use workspace_production to read production Deployment history; an Admin must confirm production deploys from the Deployments tab or Project settings, and you cannot deploy.",
   "Use workspace_sync_project when the Project Repository advances.",
-  "Shell, PTY, and local filesystem tools are unavailable in Workerd; Cloudflare CI performs install, typecheck, lint, test, build, preview, browser verification, and deployment.",
+  "Shell and PTY are unavailable in Workerd; Cloudflare CI performs install, typecheck, lint, test, build, preview, browser verification, and deployment.",
 ].join(" ")
 
 export const workspaceMutationPermissions = [
@@ -265,6 +261,31 @@ export const createWorkspacePlugin = (
     id: "sylph-workspace",
     vcs: { id: "sylph", markers: [".git"] },
     async setup(context) {
+      const modelLimitRegistration = await context.catalog.transform(
+        (draft) => {
+          for (const provider of draft.provider.list()) {
+            for (const model of provider.models.values()) {
+              draft.model.update(
+                model.providerID.toString(),
+                model.modelID.toString(),
+                (current) => {
+                  current.limit = boundedWorkspaceModelLimits(current.limit)
+                  current.body = workspaceModelCacheBody(
+                    current.providerID.toString(),
+                    current.modelID.toString(),
+                    current.body
+                  )
+                }
+              )
+            }
+          }
+        }
+      )
+      const requestLimitRegistration = await context.session.hook(
+        "http.request",
+        async (event) =>
+          assertWorkspaceModelRequestSize(event.request, event.agent)
+      )
       const skillRegistration = await context.skill.transform((draft) => {
         for (const skill of skills.list()) {
           const policy = runtimeSkillPolicy(skill)
@@ -312,7 +333,7 @@ export const createWorkspacePlugin = (
         draft.add({
           name: "workspace_install_dependencies",
           description:
-            "Generate or repair bun.lock from package.json using Bun in Cloudflare CI, verify a frozen install, save the generated lockfile to this Workspace, and automatically run normal Checks. Call with {} after dependency changes or lockfile errors; no manual lockfile edits are needed. Currently supports Bun projects with a text bun.lock or packageManager bun@version.",
+            "Generate or repair bun.lock from package.json using Bun in Cloudflare CI, validate the frozen lockfile without installing packages, save it to this Workspace, and automatically run normal Checks with a frozen install. Call with {} after dependency changes or lockfile errors; no manual lockfile edits are needed. Currently supports Bun projects with a text bun.lock or packageManager bun@version.",
           input: WorkspaceCheckStatusToolJsonSchema,
           options: workspaceWriteToolOptions,
           async execute(input, context) {
@@ -335,7 +356,7 @@ export const createWorkspacePlugin = (
         draft.add({
           name: "workspace_run_checks",
           description:
-            "Create a durable Checkpoint and run install, typecheck, lint, test, build, preview, and browser verification in Cloudflare CI.",
+            "Run install, typecheck, lint, test, build, preview, and browser verification in Cloudflare CI. Save changed files in a durable Checkpoint first, or reuse the current Checkpoint when the working copy is clean.",
           input: WorkspaceRunChecksToolJsonSchema,
           options: workspaceToolOptions,
           async execute(input) {
@@ -350,17 +371,6 @@ export const createWorkspacePlugin = (
                 })
               ),
             }
-          },
-        })
-        draft.add({
-          name: "workspace_check_status",
-          description:
-            "Read structured Cloudflare CI diagnostics, Preview state, and captured browser evidence for this Workspace.",
-          input: WorkspaceCheckStatusToolJsonSchema,
-          options: workspaceToolOptions,
-          async execute(input) {
-            await decodeWorkspaceCheckStatusToolInput(input)
-            return { content: JSON.stringify(await actions.checkStatus()) }
           },
         })
         draft.add({
@@ -472,70 +482,7 @@ export const createWorkspacePlugin = (
             }
           },
         })
-        draft.add({
-          name: "workspace_read_file",
-          description:
-            "Read a UTF-8 text file from the durable Sylph workspace.",
-          input: WorkspaceFilePathJsonSchema,
-          options: workspaceToolOptions,
-          async execute(input) {
-            const decoded = await decodeWorkspaceFilePath(input)
-            const path = normalizeWorkspacePath(decoded.path)
-            const content = await filesystem.readFile(path, "utf8")
-            return {
-              content:
-                content instanceof Uint8Array
-                  ? new TextDecoder().decode(content)
-                  : content,
-            }
-          },
-        })
-        draft.add({
-          name: "workspace_write_file",
-          description:
-            "Create or replace a UTF-8 text file in the durable Sylph workspace.",
-          input: WorkspaceWriteFileJsonSchema,
-          options: workspaceWriteToolOptions,
-          async execute(input, context) {
-            const decoded = await decodeWorkspaceWriteFile(input)
-            const path = normalizeWorkspacePath(decoded.path)
-            actions.assertWritable()
-            await permissionBridge.request({
-              sessionID: context.sessionID,
-              agent: context.agent,
-              messageID: context.messageID,
-              toolCallID: context.id,
-              action: "workspace_write_file",
-              path,
-            })
-            await filesystem.writeFile(path, decoded.content)
 
-            return { content: `Wrote ${path}` }
-          },
-        })
-        draft.add({
-          name: "workspace_edit_file",
-          description:
-            "Replace one exact, unique text match in a durable Workspace file. Include enough oldText context to match exactly once. Other content is preserved; missing or ambiguous matches fail without changing the file.",
-          input: WorkspaceEditFileJsonSchema,
-          options: workspaceWriteToolOptions,
-          async execute(input, context) {
-            const decoded = await decodeWorkspaceEditFile(input)
-            const path = normalizeWorkspacePath(decoded.path)
-            actions.assertWritable()
-            await permissionBridge.request({
-              sessionID: context.sessionID,
-              agent: context.agent,
-              messageID: context.messageID,
-              toolCallID: context.id,
-              action: "workspace_write_file",
-              path,
-            })
-            actions.assertWritable()
-            await filesystem.editFile(path, decoded.oldText, decoded.newText)
-            return { content: `Edited ${path}` }
-          },
-        })
         draft.add({
           name: "workspace_restore_file",
           description:
@@ -584,7 +531,11 @@ export const createWorkspacePlugin = (
       })
       const agentRegistration = await context.agent.transform((draft) => {
         draft.update("build", (agent) => {
-          agent.permissions.push(...workspaceMutationPermissions)
+          agent.permissions.push(...workspaceMutationPermissions, {
+            action: "edit",
+            resource: "*",
+            effect: "ask",
+          })
         })
       })
       const vcsRegistration = await context.vcs.transform((draft) => {
@@ -643,6 +594,8 @@ export const createWorkspacePlugin = (
       )
       return async () => {
         await Promise.all([
+          modelLimitRegistration.dispose(),
+          requestLimitRegistration.dispose(),
           toolRegistration.dispose(),
           skillRegistration.dispose(),
           agentRegistration.dispose(),

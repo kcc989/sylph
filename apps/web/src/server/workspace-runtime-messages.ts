@@ -4,6 +4,8 @@ import type {
 } from "@workspace/domain"
 import { Option, Schema } from "effect"
 
+import { workspaceConversationText } from "./workspace-conversation-notice"
+
 export const workspaceToolOutputLimit = 16 * 1024
 
 type RuntimeToolContent =
@@ -39,6 +41,7 @@ export type WorkspaceRuntimeMessageSource = {
   type: string
   time: { created: number; completed?: number }
   text?: string
+  metadata?: typeof Schema.JsonObject.Type
   content?: ReadonlyArray<RuntimeContentPart>
   error?: { message: string }
 }
@@ -123,14 +126,32 @@ export const workspaceRuntimeMessages = (
   messages: ReadonlyArray<WorkspaceRuntimeMessageSource>
 ): WorkspaceRuntimeMessage[] =>
   messages.reduce<WorkspaceRuntimeMessage[]>((result, message) => {
-    if (message.type === "user" && message.text !== undefined) {
+    if (message.type === "compaction" && message.error) {
       result.push({
+        id: message.id,
+        role: "assistant",
+        createdAt: message.time.created,
+        parts: [],
+        error: `Could not shorten conversation context: ${message.error.message}`,
+      })
+      return result
+    }
+    if (
+      (message.type === "user" || message.type === "synthetic") &&
+      message.text !== undefined
+    ) {
+      const display = workspaceConversationText(message.text, message.metadata)
+      if (message.type === "synthetic" && !display.notice) return result
+      const displayed: WorkspaceRuntimeMessage = {
         id: message.id,
         role: "user",
         createdAt: message.time.created,
-        parts: [{ type: "text", text: message.text }],
+        parts: [{ type: "text", text: display.text }],
         error: null,
-      })
+      }
+      result.push(
+        display.notice ? { ...displayed, notice: display.notice } : displayed
+      )
       return result
     }
 

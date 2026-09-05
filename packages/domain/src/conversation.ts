@@ -350,11 +350,23 @@ export const WorkspaceMessagePart = Schema.Union([
 ])
 export type WorkspaceMessagePart = typeof WorkspaceMessagePart.Type
 
+export const WorkspaceConversationNotice = Schema.Struct({
+  summary: Schema.NonEmptyString,
+})
+export type WorkspaceConversationNotice =
+  typeof WorkspaceConversationNotice.Type
+
+export const WorkspacePromptMetadata = Schema.Struct({
+  sylphOrigin: Schema.Literals(["user", "check"]),
+  sylphNotice: Schema.optionalKey(WorkspaceConversationNotice),
+})
+
 export class WorkspaceRuntimeMessage extends Schema.Class<WorkspaceRuntimeMessage>(
   "@sylph/domain/WorkspaceRuntimeMessage"
 )({
   id: Schema.NonEmptyString,
   role: WorkspaceMessageRole,
+  notice: Schema.optionalKey(WorkspaceConversationNotice),
   createdAt: Schema.Number,
   parts: Schema.Array(WorkspaceMessagePart),
   error: Schema.NullOr(Schema.String),
@@ -381,6 +393,7 @@ export class WorkspaceQueuedMessage extends Schema.Class<WorkspaceQueuedMessage>
   text: Schema.String,
   createdAt: Schema.Number,
   delivery: Schema.Literals(["queue", "steer"]),
+  notice: Schema.optionalKey(WorkspaceConversationNotice),
 }) {}
 
 export class WorkspaceRuntimeLimits extends Schema.Class<WorkspaceRuntimeLimits>(

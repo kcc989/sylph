@@ -1,4 +1,6 @@
 import { schema } from "@workspace/db"
+import { instanceModelEnabled } from "@workspace/domain"
+import { readInstanceModelPolicy } from "./instance-model-policy"
 import type { ConnectionScope } from "@workspace/domain"
 import { env } from "cloudflare:workers"
 import { and, eq } from "drizzle-orm"
@@ -93,6 +95,7 @@ export const effectiveConnection = async (
       .where(eq(schema.openCodeConnection.organizationId, organizationId)),
   ])
 
+  const policy = await readInstanceModelPolicy(database)
   const personalRuntimeProviders = new Set(
     personalConnections
       .filter((connection) => connection.authMethod !== "chatgpt-subscription")
@@ -127,16 +130,18 @@ export const effectiveConnection = async (
         providerName: providerName(model.providerId),
         scope: "organization" as const,
       })),
-  ].sort((left, right) =>
-    `${left.providerName} ${left.name}`.localeCompare(
-      `${right.providerName} ${right.name}`
+  ]
+    .filter((model) => instanceModelEnabled(policy, model))
+    .sort((left, right) =>
+      `${left.providerName} ${left.name}`.localeCompare(
+        `${right.providerName} ${right.name}`
+      )
     )
-  )
   const resolution = resolveModelSelection({
     models,
     conversation,
     personal: personalPreference,
-    organization: organizationPreference,
+    organization: policy.defaultModel ?? organizationPreference,
   })
 
   if (!resolution.model) return null

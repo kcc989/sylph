@@ -1,4 +1,4 @@
-import { Check, LoaderCircle, ShieldCheck, X } from "lucide-react"
+import { Check, LoaderCircle, Minus, ShieldCheck, X } from "lucide-react"
 
 import { Button } from "@workspace/ui/components/button"
 import type { CheckItem } from "../types"
@@ -30,6 +30,9 @@ export function CheckList({ checks }: { checks: CheckItem[] }) {
             )}
             {check.status === "failed" && (
               <X className="size-3.5 text-destructive" />
+            )}
+            {check.status === "skipped" && (
+              <Minus className="size-3.5 text-muted-foreground" />
             )}
             <span className="text-xs font-medium">{check.name}</span>
             <span className="sr-only">{check.status}</span>

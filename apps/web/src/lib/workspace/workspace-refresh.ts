@@ -9,6 +9,7 @@ export const mergeWorkspaceRefreshScope = (
 export const workspaceRefreshScope = (type: string): WorkspaceRefreshScope => {
   if (type === "workspace.check.updated") return "checks"
   if (
+    type === "session.execution.started" ||
     type.startsWith("session.inbox.") ||
     type.startsWith("form.") ||
     type === "session.tool.called"

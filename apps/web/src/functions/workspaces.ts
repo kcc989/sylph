@@ -1,3 +1,4 @@
+import { assertInstanceModelEnabled } from "@/server/instance-model-policy"
 import { provisioningRuntimeHealth } from "@/server/workspace-provisioning-state"
 import { createServerFn } from "@tanstack/react-start"
 import { schema } from "@workspace/db"
@@ -210,7 +211,7 @@ export const createWorkspace = createServerFn({ method: "POST" })
     if (!connection) {
       throw new ProviderConnectionRequired({
         message:
-          "Add a personal or Organization AI connection before creating a Workspace",
+          "Connect an AI provider and ask an instance admin to enable a model before creating a Workspace",
       })
     }
 
@@ -479,6 +480,8 @@ export const restartWorkspace = createServerFn({ method: "POST" })
     const { database, workspace } = context
     const project = await requireWorkspaceProject(database, workspace.projectId)
 
+    if (data.model) await assertInstanceModelEnabled(database, data.model)
+
     const connection = await effectiveConnection(
       database,
       workspace.organizationId,
@@ -489,7 +492,7 @@ export const restartWorkspace = createServerFn({ method: "POST" })
     if (!connection) {
       throw new ProviderConnectionRequired({
         message:
-          "The Workspace owner needs a personal or Organization AI connection before this Workspace can restart",
+          "The Workspace owner needs a connected provider with an instance-enabled model before this Workspace can restart",
       })
     }
 
@@ -566,6 +569,8 @@ export const promptWorkspace = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { database, user, workspace } = context
 
+    if (data.model) await assertInstanceModelEnabled(database, data.model)
+
     const connection = await effectiveConnection(
       database,
       workspace.organizationId,
@@ -575,7 +580,8 @@ export const promptWorkspace = createServerFn({ method: "POST" })
 
     if (!connection) {
       throw new ProviderConnectionRequired({
-        message: "Connect an AI provider before sending a message",
+        message:
+          "No enabled model is available. Connect a provider and ask an instance admin to enable a model in Administration.",
       })
     }
 
@@ -875,6 +881,7 @@ export const acceptWorkspace = createServerFn({ method: "POST" })
       ).remote,
       defaultRef: project.defaultBranch,
       baseCommit: versionControl.baseCommit,
+      workspaceRef: workspace.branchName ?? project.defaultBranch,
       forkHead: versionControl.forkHead,
       projectId: workspace.projectId,
       actorUserId: user.id,

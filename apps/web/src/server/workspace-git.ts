@@ -20,11 +20,21 @@ import { artifactAuth } from "./repository-store"
 
 export interface WorkspaceRepositoryHandle {
   readonly defaultBranch: string
+  readonly info?: () => Promise<{ readonly defaultBranch: string }>
   createToken(
     scope: "read" | "write",
     ttlSeconds: number
   ): Promise<{ readonly plaintext: string }>
 }
+
+export const workspaceRepositoryDefaultBranch = async (
+  repository: WorkspaceRepositoryHandle
+) =>
+  Schema.decodeUnknownPromise(Schema.NonEmptyString)(
+    repository.info
+      ? (await repository.info()).defaultBranch
+      : repository.defaultBranch
+  )
 
 export interface WorkspaceRepositoryNamespace {
   get(name: string): Promise<WorkspaceRepositoryHandle>
@@ -185,7 +195,7 @@ export class WorkspaceGit {
         false
       ))
         ? input.defaultRef
-        : repository.defaultBranch)
+        : await workspaceRepositoryDefaultBranch(repository))
     await git.clone({
       fs: this.#filesystem,
       http,
@@ -286,7 +296,7 @@ export class WorkspaceGit {
       state.projectRepositoryName
     )
     const projectToken = await projectRepository.createToken("read", 300)
-    const projectRef = projectRepository.defaultBranch
+    const projectRef = await workspaceRepositoryDefaultBranch(projectRepository)
     await git.addRemote({
       fs: this.#filesystem,
       dir: directory,
@@ -518,7 +528,7 @@ export class WorkspaceGit {
       state.projectRepositoryName
     )
     const projectToken = await projectRepository.createToken("read", 300)
-    const projectRef = projectRepository.defaultBranch
+    const projectRef = await workspaceRepositoryDefaultBranch(projectRepository)
     await git.addRemote({
       fs: this.#filesystem,
       dir: directory,
@@ -682,7 +692,7 @@ export class WorkspaceGit {
     const token = await repository.createToken("read", 300)
     return this.#remoteHead(
       state.projectRepositoryRemote,
-      repository.defaultBranch,
+      await workspaceRepositoryDefaultBranch(repository),
       token.plaintext,
       false
     )

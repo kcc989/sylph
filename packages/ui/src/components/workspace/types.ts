@@ -56,7 +56,7 @@ export type ToolCallEntry = {
 
 export type ThreadEntry = {
   id: string
-  kind: "user" | "agent" | "tool" | "result"
+  kind: "user" | "agent" | "tool" | "result" | "notice"
   title?: string
   body: string
   skill?: { name: string; scope: "installation" | "project"; prompt: string }
@@ -113,6 +113,7 @@ export type WorkspaceQueuedMessage = {
   text: string
   createdAt: number
   delivery: "queue" | "steer"
+  notice?: { summary: string }
 }
 
 export type WorkspaceRuntimeLimits = {
@@ -141,7 +142,7 @@ export type CheckItem = {
   target?: "checkpoint" | "production"
   name: string
   detail: string
-  status: "queued" | "passed" | "running" | "failed"
+  status: "queued" | "passed" | "running" | "failed" | "skipped"
   output?: string
   evidence?: ReadonlyArray<{
     id: string

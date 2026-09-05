@@ -26,6 +26,28 @@ const completedTool = (overrides: CompletedToolOverrides = {}) => ({
 })
 
 describe("workspaceRuntimeMessages", () => {
+  test("shows failed native compaction without exposing its internal context", () => {
+    expect(
+      workspaceRuntimeMessages([
+        {
+          id: "compact-1",
+          type: "compaction",
+          time: { created: 1 },
+          error: { message: "Provider rejected the request" },
+        },
+        { id: "compact-2", type: "compaction", time: { created: 2 } },
+      ])
+    ).toEqual([
+      {
+        id: "compact-1",
+        role: "assistant",
+        createdAt: 1,
+        parts: [],
+        error:
+          "Could not shorten conversation context: Provider rejected the request",
+      },
+    ])
+  })
   test("preserves text and tool ordering", () => {
     const messages = workspaceRuntimeMessages([
       {

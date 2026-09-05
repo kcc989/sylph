@@ -1,6 +1,11 @@
-import type { WorkspaceCheckStageName } from "@workspace/domain"
+import type {
+  WorkspaceCheckStage,
+  WorkspaceCheckStageName,
+} from "@workspace/domain"
+import { checkStage } from "./workspace-checks"
 
 export const verificationStageNames = [
+  "install",
   "typecheck",
   "lint",
   "test",
@@ -75,7 +80,7 @@ export const verificationCommand = (
 }
 
 const markerPattern =
-  /^SYLPH_STAGE_(STARTED|PASSED|FAILED)=(typecheck|lint|test|build):(\d+)$/gm
+  /^SYLPH_STAGE_(STARTED|PASSED|FAILED)=(install|typecheck|lint|test|build):(\d+)$/gm
 
 const isVerificationState = (
   value: string | undefined
@@ -134,3 +139,31 @@ export const verificationFailureStages = (output: string) => [
       .map((marker) => marker.name)
   ),
 ]
+
+export const failedCheckStages = (
+  stages: ReadonlyArray<WorkspaceCheckStage>,
+  output: string,
+  failedNames: ReadonlySet<WorkspaceCheckStageName>
+) => {
+  const durations = verificationDurations(output)
+  return stages.map((stage) => {
+    if (failedNames.has(stage.name))
+      return checkStage(stage.name, "failed", "Failed", stage.durationMs)
+    const duration = isVerificationStageName(stage.name)
+      ? durations.get(stage.name)
+      : undefined
+    if (duration !== undefined)
+      return checkStage(
+        stage.name,
+        "passed",
+        "Passed before Check failed",
+        duration
+      )
+    if (stage.status === "passed" || stage.status === "failed") return stage
+    return checkStage(
+      stage.name,
+      "skipped",
+      "Not completed because Check failed"
+    )
+  })
+}

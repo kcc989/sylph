@@ -48,3 +48,25 @@ index ed699e7a6935ed559c94c554286cdca7e9617d4a..1f2da0ffd8508be7045d97365511b3b5
    return {
      ...client,
      sessions: client.session,
+diff --git a/dist/workerd.d.ts b/dist/workerd.d.ts
+--- a/dist/workerd.d.ts
++++ b/dist/workerd.d.ts
+@@ -1,3 +1,4 @@
+ export * as OpenCodeWorkerd from "./workerd";
++import type { EmbeddedHost } from "./internal/host";
+ import { WorkerdProfile } from "./internal/workerd";
+ import type { LogOptions } from "./logging";
+@@ -24,2 +25,2 @@
+-export declare const create: ({ log, plugins, ...options }: CreateOptions) => Promise<PromiseSdk.Interface>;
++export declare const create: ({ log, plugins, ...options }: CreateOptions, embed?: EmbeddedHost.EmbedOptions) => Promise<PromiseSdk.Interface>;
+ export type Interface = PromiseSdk.Interface;
+diff --git a/dist/workerd.js b/dist/workerd.js
+--- a/dist/workerd.js
++++ b/dist/workerd.js
+@@ -4,4 +4,4 @@
+-export const create = ({ log, plugins, ...options }) => {
++export const create = ({ log, plugins, ...options }, embed = {}) => {
+   const profile = WorkerdProfile.make(options);
+-  return PromiseSdk.create({ ...profile.options, log, plugins }, { overrides: profile.replacements });
++  return PromiseSdk.create({ ...profile.options, log, plugins }, { ...embed, overrides: [...profile.replacements, ...embed.overrides ?? []] });
+ };

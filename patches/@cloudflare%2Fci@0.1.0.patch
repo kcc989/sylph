@@ -1,0 +1,55 @@
+diff --git a/src/ci/runners/sandbox.ts b/src/ci/runners/sandbox.ts
+index a7f6c05f95d9436e24047cc6821bfc8691fc7bd8..359c1460abfb5ffdc8e1bad9f054aa9883d6df54 100644
+--- a/src/ci/runners/sandbox.ts
++++ b/src/ci/runners/sandbox.ts
+@@ -9,6 +9,7 @@ import {
+   checkoutSourceScript,
+ } from '../../shared/source-checkout';
+ import { slugify } from '../../shared/slugify';
++import { redirectCommand } from '../../shared/shell';
+ import type { RunStepInput, RunStepResult, Runner } from './runner';
+ 
+ // Sandbox implementation limits. Pipeline-facing command and Snapshot
+@@ -70,21 +71,23 @@ export class SandboxRunner implements Runner<DirectoryBackup> {
+         });
+       }
+ 
+-      const proc = await sandbox.startProcess(
+-        `(${input.command}) > ${STDOUT_FILE} 2> ${STDERR_FILE}`,
++      const execution = await sandbox.exec(
++        redirectCommand(input.command, STDOUT_FILE, STDERR_FILE),
+         {
+           cwd: resolveCwd(input.cwd),
+           env: {
+             CI: 'true',
+             ...input.extraEnv,
+           },
+-          autoCleanup: false,
++          timeout: input.timeoutMs ?? COMMAND_TIMEOUT_MS,
+         }
+       );
+-      const { exitCode } = await proc.waitForExit(
+-        input.timeoutMs ?? COMMAND_TIMEOUT_MS
+-      );
+-      const preview = await readPreviews(sandbox);
++      const { exitCode } = execution;
++      const tails = await readPreviews(sandbox);
++      const preview = {
++        stdout: tails.stdout || execution.stdout,
++        stderr: tails.stderr || execution.stderr,
++      };
+ 
+       if (exitCode !== 0) {
+         return { exitCode, logs: preview, preview };
+diff --git a/src/shared/shell.ts b/src/shared/shell.ts
+index fd5fdd095df29ab1c32aea0f94f4c469027c216f..a7f47ab3e12cc8f0d18bc036263c9fe100c0f277 100644
+--- a/src/shared/shell.ts
++++ b/src/shared/shell.ts
+@@ -4,3 +4,7 @@
+ export function shellQuote(value: string) {
+   return `'${value.replaceAll("'", "'\\''")}'`;
+ }
++
++export function redirectCommand(command: string, stdout: string, stderr: string) {
++  return `(\n${command}\n) > ${shellQuote(stdout)} 2> ${shellQuote(stderr)}`;
++}

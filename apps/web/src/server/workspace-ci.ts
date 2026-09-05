@@ -1,4 +1,5 @@
 import { readWorkspaceCiLogs } from "./workspace-ci-logs"
+import { projectAuthSecret } from "./project-auth-secret"
 import {
   CIWorkflow,
   isCiRunnerFailure,
@@ -34,17 +35,14 @@ import {
 } from "./deployment-records"
 import { ciRunUpsertBindings, ciRunUpsertSql } from "./ci-run-records"
 import { browserEvidenceSelector } from "./workspace-ci-browser"
+import { dependencyInstallCommand } from "./workspace-ci-dependencies"
 import {
-  dependencyInstallCommand,
-  installCacheInputs,
-} from "./workspace-ci-dependencies"
-import {
-  isVerificationStageName,
   verificationCommand,
   verificationDurations,
   verificationFailureStages,
   verificationConcurrency,
   verificationStageNames,
+  failedCheckStages,
 } from "./workspace-ci-verification"
 import {
   projectDeployEnvironment,
@@ -56,6 +54,7 @@ const decodeWorkspaceCiInput = Schema.decodeUnknownSync(WorkspaceCiInput)
 const encodeWorkspaceCheckUpdateSync = Schema.encodeSync(WorkspaceCheckUpdate)
 
 type WorkspaceCiBindings = CiBindings & {
+  CREDENTIAL_ENCRYPTION_KEY: string
   CI_VERIFICATION_CONCURRENCY: string
   BROWSER: BrowserRun
   CHECK_EVIDENCE: R2Bucket
@@ -149,24 +148,20 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
         })
         return
       }
-      const install = await this.#runner(step, ci, run, "install", {
-        name: "install",
-        command: dependencyInstallCommand,
-        cache: {
-          inputs: installCacheInputs,
-        },
-      })
-      run = install.run
       const projectSlug = await step.do("read-project-slug", () =>
         readProjectSlug(this.env.DB, input.projectId)
       )
 
       if (input.kind === "production") {
-        const build = await this.#runner(step, install.result, run, "build", {
-          name: "build",
-          command: requiredScriptCommand("build", "production build"),
-          config: verificationRunnerConfig,
-        })
+        const authSecret = await projectAuthSecret(
+          this.env.DB,
+          input.projectId,
+          this.env.CREDENTIAL_ENCRYPTION_KEY
+        )
+        const build = await this.#verification(step, ci, run, [
+          "install",
+          "build",
+        ])
         run = build.run
         const deployment = await this.#runner(
           step,
@@ -175,6 +170,7 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
           "production",
           {
             name: "production",
+            config: verificationRunnerConfig,
             command: requiredScriptCommand(
               "sylph:deploy",
               "production deployment"
@@ -182,11 +178,14 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
             cloudflareCredentials: {
               accountId: this.env.CLOUDFLARE_ACCOUNT_ID,
             },
-            env: projectDeployEnvironment({
-              slug: projectSlug,
-              checkpoint: input.sha,
-              deployment: "production",
-            }),
+            env: {
+              ...projectDeployEnvironment({
+                slug: projectSlug,
+                checkpoint: input.sha,
+                deployment: "production",
+              }),
+              BETTER_AUTH_SECRET: authSecret,
+            },
           }
         )
         run = deployment.run
@@ -207,7 +206,7 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
             .run()
         })
       } else {
-        const verification = await this.#verification(step, install.result, run)
+        const verification = await this.#verification(step, ci, run)
         run = verification.run
 
         const preview = await this.#runner(
@@ -217,6 +216,7 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
           "preview",
           {
             name: "preview",
+            config: verificationRunnerConfig,
             command: requiredScriptCommand(
               "sylph:preview",
               "Checkpoint preview"
@@ -310,10 +310,14 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
         status: "failed",
         repairStatus: input.repairOnFailure ? "requested" : "available",
         diagnostics,
-        stages: run.stages.map((stage) =>
-          failedNames.has(stage.name)
-            ? checkStage(stage.name, "failed", "Failed", stage.durationMs)
-            : stage
+        stages: failedCheckStages(
+          run.stages,
+          isCiRunnerFailure(cause)
+            ? cause.diagnostics.failures
+                .map((failure) => failure.output)
+                .join("\n")
+            : "",
+          failedNames
         ),
         updatedAt: run.updatedAt,
       })
@@ -381,16 +385,23 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
 
   async #verification(
     step: WorkflowStep,
-    parent: CiRunnerResult,
-    run: WorkspaceCheckRun
+    parent: CiContext | CiRunnerResult,
+    run: WorkspaceCheckRun,
+    names: ReadonlyArray<
+      (typeof verificationStageNames)[number]
+    > = verificationStageNames
   ) {
     const startedAt = await step.do("verification-started-at", async () =>
       Date.now()
     )
     const running = await this.#publish(step, "verification-running", run, {
       stages: run.stages.map((stage) =>
-        isVerificationStageName(stage.name)
-          ? checkStage(stage.name, "running", "Running in one sandbox")
+        names.some((name) => name === stage.name)
+          ? checkStage(
+              stage.name,
+              "running",
+              "Install and verification share one sandbox"
+            )
           : stage
       ),
     })
@@ -398,9 +409,12 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
       name: "verification",
       config: verificationRunnerConfig,
       command: verificationCommand(
-        verificationStageNames.map((name) => ({
+        names.map((name) => ({
           name,
-          command: requiredScriptCommand(name, `${name} verification`),
+          command:
+            name === "install"
+              ? dependencyInstallCommand
+              : requiredScriptCommand(name, `${name} verification`),
         })),
         verificationConcurrency(this.env.CI_VERIFICATION_CONCURRENCY)
       ),
@@ -416,16 +430,17 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
       "verification-complete",
       running,
       {
-        stages: running.stages.map((stage) =>
-          isVerificationStageName(stage.name)
+        stages: running.stages.map((stage) => {
+          const name = names.find((name) => name === stage.name)
+          return name
             ? checkStage(
-                stage.name,
+                name,
                 "passed",
                 verificationDetail,
-                durations.get(stage.name) ?? null
+                durations.get(name) ?? null
               )
             : stage
-        ),
+        }),
       }
     )
     return { result, run: completed, logs }
