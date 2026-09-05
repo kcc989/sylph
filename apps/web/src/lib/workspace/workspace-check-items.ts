@@ -23,11 +23,11 @@ type WorkspaceCheckRunView = Omit<
   workspaceId: string
 }
 
-const stageStatus = (
+export const workspaceCheckStageStatus = (
   status: WorkspaceCheckRunView["stages"][number]["status"]
 ): CheckItem["status"] =>
   status === "passed" || status === "skipped"
-    ? "passed"
+    ? status
     : status === "failed"
       ? "failed"
       : status === "running"
@@ -57,7 +57,7 @@ export const workspaceCheckItems = (
             stage.durationMs === null
               ? `${stage.detail} · attempt ${attempts}`
               : `${stage.detail} · ${(stage.durationMs / 1000).toFixed(1)}s · attempt ${attempts}`,
-          status: stageStatus(stage.status),
+          status: workspaceCheckStageStatus(stage.status),
           output: diagnostic?.output,
           evidence:
             stage.name === "browser" ? checkpointCheck.evidence : undefined,
@@ -119,7 +119,7 @@ export const workspaceCheckItems = (
         target: "production" as const,
         name: `Production ${stage.name}`,
         detail: stage.detail,
-        status: stageStatus(stage.status),
+        status: workspaceCheckStageStatus(stage.status),
         output: productionCheck.diagnostics.find(
           (diagnostic) => diagnostic.stage === stage.name
         )?.output,

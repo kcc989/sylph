@@ -15,15 +15,17 @@
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
     "typecheck": "turbo typecheck && tsc --noEmit",
-    "test": "bun test tools/oxlint/anti-slop/tests tools/wizard/tests && turbo test && bun run test:opencode",
-    "smoke:release": "playwright test --config playwright.release-smoke.config.ts",
+    "test": "bun test tools/oxlint/anti-slop/tests tools/wizard/tests tools/release-smoke && turbo test && bun run test:opencode",
+    "smoke:release": "node scripts/release-smoke.mjs test",
     "smoke:release:install": "playwright install chromium",
     "deploy": "alchemy deploy",
     "destroy": "alchemy destroy",
     "postinstall": "bash scripts/prepare-workerd.sh",
     "prepare": "lefthook install",
     "test:opencode": "bun test tools/runtime-smoke",
-    "smoke:runtime": "node tools/runtime-smoke/run.mjs"
+    "smoke:runtime": "node tools/runtime-smoke/run.mjs",
+    "smoke:release:doctor": "node scripts/release-smoke.mjs doctor",
+    "smoke:release:deploy": "node scripts/release-smoke.mjs deploy"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20260901.1",
@@ -61,12 +63,13 @@
   ],
   "dependencies": {
     "@cloudflare/ci": "^0.1.0",
-    "@cloudflare/sandbox": "^0.12.9",
+    "@cloudflare/sandbox": "0.12.1",
     "effect": "4.0.0-rc.112"
   },
   "patchedDependencies": {
     "@opencode-ai/sdk@0.0.0-dev-18308": "patches/@opencode-ai%2Fsdk@0.0.0-dev-18308.patch",
     "@opencode-ai/core@0.0.0-dev-18308": "patches/@opencode-ai%2Fcore@0.0.0-dev-18308.patch",
-    "cursor-opencode-provider@0.6.6": "patches/cursor-opencode-provider@0.6.6.patch"
+    "cursor-opencode-provider@0.6.6": "patches/cursor-opencode-provider@0.6.6.patch",
+    "@cloudflare/ci@0.1.0": "patches/@cloudflare%2Fci@0.1.0.patch"
   }
 }

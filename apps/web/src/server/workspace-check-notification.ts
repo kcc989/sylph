@@ -1,6 +1,6 @@
 import type { WorkspaceCheckRun } from "@workspace/domain"
 
-const maxDiagnosticOutput = 12_000
+const maxDiagnosticOutput = 4_000
 
 export const isTerminalCheckStatus = (status: WorkspaceCheckRun["status"]) =>
   status === "passed" || status === "failed"
@@ -36,7 +36,7 @@ export const checkPassedNotification = (run: WorkspaceCheckRun) =>
       ? `Preview: ${run.previewUrl}. Use workspace_browser to inspect it.`
       : "No Preview URL was published.",
     evidenceSummary(run),
-    "Summarize the verified change for the user. Do not run Workspace checks again unless files change.",
+    "This is a completed Check result. Do not run Workspace checks again unless files change.",
   ].join("\n")
 
 export const checkRepairPrompt = (run: WorkspaceCheckRun) =>

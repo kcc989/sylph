@@ -20,7 +20,8 @@ import {
 import { type ComponentProps, type FormEvent, useEffect, useState } from "react"
 
 import { authClient } from "@/lib/auth-client"
-import { AppShell, SylphMark } from "@/components/app-shell"
+import { AppShell } from "@/components/app-shell"
+import { SylphLogo } from "@/components/sylph-logo"
 import { OnboardingGuide } from "@/components/onboarding-guide"
 import { getOnboardingState, validateOnboardingSearch } from "@/lib/onboarding"
 import { getDashboard, getLatestMagicLink } from "@/functions/installation"
@@ -100,12 +101,7 @@ function HomeScreen() {
     return (
       <main className="grid min-h-svh bg-background lg:grid-cols-[minmax(0,1fr)_minmax(420px,0.72fr)]">
         <section className="relative hidden min-h-svh overflow-hidden border-r p-12 lg:flex lg:flex-col">
-          <div className="relative flex items-center gap-3">
-            <div className="grid size-9 place-items-center rounded-[8px] bg-[#f0a087] text-[#241613]">
-              <SylphMark className="size-5" />
-            </div>
-            <span className="text-base font-semibold">Sylph</span>
-          </div>
+          <SylphLogo className="relative h-9 w-auto self-start" />
           <div className="relative my-auto max-w-xl">
             <h1 className="max-w-[11ch] text-5xl leading-[1.02] font-semibold tracking-[-0.035em] text-balance">
               Durable coding workspaces for agent-built software.
@@ -118,12 +114,7 @@ function HomeScreen() {
         </section>
         <section className="flex min-h-svh items-center justify-center px-6 py-12">
           <div className="w-full max-w-sm">
-            <div className="mb-10 flex items-center gap-3 lg:hidden">
-              <div className="grid size-8 place-items-center rounded-[7px] bg-[#f0a087] text-[#241613]">
-                <SylphMark className="size-4" />
-              </div>
-              <span className="font-semibold">Sylph</span>
-            </div>
+            <SylphLogo className="mb-10 h-8 w-auto lg:hidden" />
             <h2 className="text-2xl font-semibold tracking-[-0.025em]">
               Sign in to your workspaces
             </h2>
@@ -191,12 +182,7 @@ function HomeScreen() {
   if (!firstOrganization) {
     return (
       <main className="relative grid min-h-svh place-items-center bg-background px-6 py-20">
-        <div className="absolute top-6 left-6 flex items-center gap-2.5">
-          <div className="grid size-8 place-items-center rounded-[7px] bg-[#f0a087] text-[#241613]">
-            <SylphMark className="size-4" />
-          </div>
-          <span className="text-sm font-semibold">Sylph</span>
-        </div>
+        <SylphLogo className="absolute top-6 left-6 h-8 w-auto" />
         <section className="w-full max-w-lg border-y py-8">
           <h1 className="text-2xl font-semibold tracking-[-0.03em]">
             {dashboard.installation.claimed
@@ -255,10 +241,7 @@ function HomeScreen() {
     return (
       <main className="flex min-h-svh flex-col bg-background text-foreground">
         <header className="flex h-12 shrink-0 items-center gap-2.5 border-b px-4 sm:px-6">
-          <div className="grid size-7 place-items-center rounded-[6px] border border-white/10 bg-primary text-primary-foreground">
-            <SylphMark className="size-4" />
-          </div>
-          <span className="text-sm font-semibold">Sylph</span>
+          <SylphLogo className="h-8 w-auto shrink-0" />
           <span className="text-muted-foreground">/</span>
           <span className="text-xs text-muted-foreground">Getting started</span>
         </header>

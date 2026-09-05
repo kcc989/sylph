@@ -20,7 +20,11 @@ describe("Workspace plugin", () => {
     expect(workspaceSystemPrompt).toContain("workspace_request_merge")
     expect(workspaceSystemPrompt).toContain("workspace_preview")
     expect(workspaceSystemPrompt).toContain("workspace_production")
-    expect(workspaceSystemPrompt).toContain("delivers the Check result")
+    expect(workspaceSystemPrompt).toContain("Do not poll")
+    expect(workspaceSystemPrompt).toContain(
+      "system context for the next user request"
+    )
+    expect(workspaceSystemPrompt).not.toContain("workspace_check_status")
     expect(workspaceSystemPrompt).not.toContain(
       "browser control is unavailable"
     )

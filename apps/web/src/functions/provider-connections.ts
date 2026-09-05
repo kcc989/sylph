@@ -1,3 +1,8 @@
+import {
+  assertInstanceModelEnabled,
+  readInstanceModelPolicy,
+} from "@/server/instance-model-policy"
+import { instanceModelEnabled } from "@workspace/domain"
 import { env } from "cloudflare:workers"
 import { saveProviderConnection } from "@/server/provider-connection-store"
 import { createServerFn } from "@tanstack/react-start"
@@ -74,6 +79,7 @@ export const getOpenCodeSetup = createServerFn({ method: "GET" })
       .where(eq(schema.userOpenCodeConnection.userId, user.id))
       .orderBy(schema.userOpenCodeConnection.providerId)
 
+    const policy = await readInstanceModelPolicy(database)
     const effective = await effectiveConnection(
       database,
       data.organizationId,
@@ -151,13 +157,15 @@ export const getOpenCodeSetup = createServerFn({ method: "GET" })
       modelName: effective?.modelName ?? null,
       models: effective?.models ?? [],
       modelNotice: effective?.notice ?? null,
-      organizationDefault: organizationDefault ?? null,
+      organizationDefault: policy.defaultModel ?? organizationDefault ?? null,
       personalDefault: personalDefault ?? null,
-      organizationModels: organizationModelCounts.map((model) => ({
-        ...model,
-        providerName: providerName(model.providerId),
-        scope: "organization" as const,
-      })),
+      organizationModels: organizationModelCounts
+        .filter((model) => instanceModelEnabled(policy, model))
+        .map((model) => ({
+          ...model,
+          providerName: providerName(model.providerId),
+          scope: "organization" as const,
+        })),
       authMethod: effective?.authMethod ?? null,
       role: membership.role,
       canManageOrganization: isOrganizationAdmin(membership.role),
@@ -183,36 +191,23 @@ export const setDefaultModel = createServerFn({ method: "POST" })
   .validator((input) => decodeSetDefaultModelInputPromise(input))
   .handler(async ({ data, context }) => {
     const { database, user } = context
-    const model =
-      data.scope === "organization"
-        ? await database
-            .select({ modelId: schema.organizationProviderModel.modelId })
-            .from(schema.organizationProviderModel)
-            .where(
-              and(
-                eq(
-                  schema.organizationProviderModel.organizationId,
-                  data.organizationId
-                ),
-                eq(
-                  schema.organizationProviderModel.providerId,
-                  data.providerId
-                ),
-                eq(schema.organizationProviderModel.modelId, data.modelId)
-              )
-            )
-            .get()
-        : await database
-            .select({ modelId: schema.userProviderModel.modelId })
-            .from(schema.userProviderModel)
-            .where(
-              and(
-                eq(schema.userProviderModel.userId, user.id),
-                eq(schema.userProviderModel.providerId, data.providerId),
-                eq(schema.userProviderModel.modelId, data.modelId)
-              )
-            )
-            .get()
+    if (data.scope === "organization") {
+      throw new InvalidRequest({
+        message: "Configure the instance default in Administration > Models",
+      })
+    }
+    await assertInstanceModelEnabled(database, data)
+    const model = await database
+      .select({ modelId: schema.userProviderModel.modelId })
+      .from(schema.userProviderModel)
+      .where(
+        and(
+          eq(schema.userProviderModel.userId, user.id),
+          eq(schema.userProviderModel.providerId, data.providerId),
+          eq(schema.userProviderModel.modelId, data.modelId)
+        )
+      )
+      .get()
 
     const organizationModel =
       data.scope === "user" && !model
@@ -239,41 +234,21 @@ export const setDefaultModel = createServerFn({ method: "POST" })
       throw new InvalidRequest({ message: "This model is not available" })
     }
 
-    if (data.scope === "organization") {
-      await database
-        .insert(schema.organizationModelPreference)
-        .values({
-          organizationId: data.organizationId,
+    await database
+      .insert(schema.userModelPreference)
+      .values({
+        userId: user.id,
+        providerId: data.providerId,
+        modelId: data.modelId,
+      })
+      .onConflictDoUpdate({
+        target: schema.userModelPreference.userId,
+        set: {
           providerId: data.providerId,
           modelId: data.modelId,
-          configuredByUserId: user.id,
-        })
-        .onConflictDoUpdate({
-          target: schema.organizationModelPreference.organizationId,
-          set: {
-            providerId: data.providerId,
-            modelId: data.modelId,
-            configuredByUserId: user.id,
-            updatedAt: new Date(),
-          },
-        })
-    } else {
-      await database
-        .insert(schema.userModelPreference)
-        .values({
-          userId: user.id,
-          providerId: data.providerId,
-          modelId: data.modelId,
-        })
-        .onConflictDoUpdate({
-          target: schema.userModelPreference.userId,
-          set: {
-            providerId: data.providerId,
-            modelId: data.modelId,
-            updatedAt: new Date(),
-          },
-        })
-    }
+          updatedAt: new Date(),
+        },
+      })
 
     return { providerId: data.providerId, modelId: data.modelId }
   })

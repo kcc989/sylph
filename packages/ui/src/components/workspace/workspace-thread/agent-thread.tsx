@@ -55,6 +55,24 @@ function ThreadEntryRow({
   onInspect?: (id: string) => void
   onOpenEvidence?: (kind: "browser" | "changes" | "checks") => void
 }) {
+  if (entry.kind === "notice") {
+    return (
+      <MessageScrollerItem className="py-2" messageId={entry.id}>
+        <div className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+          <span>{entry.body}</span>
+          {onOpenEvidence ? (
+            <Button
+              size="xs"
+              variant="ghost"
+              onClick={() => onOpenEvidence("checks")}
+            >
+              View checks
+            </Button>
+          ) : null}
+        </div>
+      </MessageScrollerItem>
+    )
+  }
   return (
     <MessageScrollerItem
       className={cn(
@@ -327,7 +345,9 @@ export function AgentThread({
                 ) : (
                   <ThreadEntryRow
                     onOpenEvidence={
-                      entry.id === latestResultId ? onOpenEvidence : undefined
+                      entry.id === latestResultId || entry.kind === "notice"
+                        ? onOpenEvidence
+                        : undefined
                     }
                     onInspect={onInspectActivity}
                     entry={entry}
@@ -361,27 +381,39 @@ export function AgentThread({
                   />
                 </MessageScrollerItem>
               ))}
-              {queuedMessages.map((message, index) => (
-                <MessageScrollerItem
-                  className="py-1 last:pb-4"
-                  key={message.id}
-                  messageId={message.id}
-                >
-                  <article className="flex min-w-0 items-start gap-2 border border-white/[.08] bg-white/[.025] px-3 py-2">
-                    <MessagesSquare className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[11px] leading-4 break-words text-foreground/75">
-                        {message.text}
-                      </p>
-                      <p className="mt-1 text-[9px] text-muted-foreground">
-                        {message.delivery === "steer"
-                          ? "Steering active Turn"
-                          : `Queued ${index + 1} of ${runtimeLimits?.maxQueuedMessages ?? queuedMessages.length}`}
-                      </p>
-                    </div>
-                  </article>
-                </MessageScrollerItem>
-              ))}
+              {queuedMessages.map((message, index) =>
+                message.notice ? (
+                  <ThreadEntryRow
+                    key={message.id}
+                    entry={{
+                      id: message.id,
+                      kind: "notice",
+                      body: message.notice.summary,
+                    }}
+                    onOpenEvidence={onOpenEvidence}
+                  />
+                ) : (
+                  <MessageScrollerItem
+                    className="py-1 last:pb-4"
+                    key={message.id}
+                    messageId={message.id}
+                  >
+                    <article className="flex min-w-0 items-start gap-2 border border-white/[.08] bg-white/[.025] px-3 py-2">
+                      <MessagesSquare className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[11px] leading-4 break-words text-foreground/75">
+                          {message.text}
+                        </p>
+                        <p className="mt-1 text-[9px] text-muted-foreground">
+                          {message.delivery === "steer"
+                            ? "Steering active Turn"
+                            : `Queued ${index + 1} of ${runtimeLimits?.maxQueuedMessages ?? queuedMessages.length}`}
+                        </p>
+                      </div>
+                    </article>
+                  </MessageScrollerItem>
+                )
+              )}
             </MessageScrollerContent>
           </MessageScrollerViewport>
           <MessageScrollerButton />

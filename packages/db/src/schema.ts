@@ -1,3 +1,4 @@
+import type { InstanceModelPolicy } from "@workspace/domain"
 import { sql } from "drizzle-orm"
 import {
   check,
@@ -167,6 +168,10 @@ export const invitation = sqliteTable(
 )
 
 export const installation = sqliteTable("installation", {
+  modelPolicy: text("model_policy", { mode: "json" })
+    .$type<InstanceModelPolicy>()
+    .notNull()
+    .default({ models: [], defaultModel: null }),
   id: text("id").primaryKey(),
   organizationId: text("organization_id").references(() => organization.id, {
     onDelete: "restrict",
@@ -473,6 +478,14 @@ export const workspaceReviewComment = sqliteTable(
     index("workspace_review_comment_review_id_idx").on(table.reviewId),
   ]
 )
+
+export const projectAuthSecret = sqliteTable("project_auth_secret", {
+  projectId: text("project_id")
+    .primaryKey()
+    .references(() => project.id, { onDelete: "cascade" }),
+  encrypted: text("encrypted").notNull(),
+  iv: text("iv").notNull(),
+})
 
 export const deployment = sqliteTable(
   "deployment",

@@ -23,6 +23,9 @@ const attachment = (
 
 describe("Workspace socket server", () => {
   test("forwards only events consumed by the Workspace UI", () => {
+    expect(
+      shouldForwardWorkspaceEvent({ type: "session.execution.started" })
+    ).toBe(true)
     expect(shouldForwardWorkspaceEvent({ type: "session.text.delta" })).toBe(
       true
     )

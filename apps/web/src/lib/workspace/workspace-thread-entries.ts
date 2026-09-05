@@ -44,6 +44,15 @@ export const workspaceThreadEntries = (
           ]
         : snapshot.messages.length
           ? snapshot.messages.flatMap((message) => {
+              if (message.notice) {
+                return [
+                  {
+                    id: message.id,
+                    kind: "notice" as const,
+                    body: message.notice.summary,
+                  },
+                ]
+              }
               if (!message.parts.length && message.error) {
                 return [
                   {

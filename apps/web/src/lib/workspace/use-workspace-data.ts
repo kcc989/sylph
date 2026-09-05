@@ -92,7 +92,11 @@ export const useWorkspaceData = (initial: WorkspaceResult) => {
   )
 
   useEffect(() => {
-    if (result.workspace.status !== "provisioning") return
+    if (
+      result.workspace.status !== "provisioning" &&
+      result.workspace.status !== "merging"
+    )
+      return
     let stopped = false
     let timer: ReturnType<typeof setTimeout>
     const poll = async () => {

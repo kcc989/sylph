@@ -26,6 +26,7 @@ const forwardedWorkspaceEventTypes = new Set([
   "form.replied",
   "permission.asked",
   "permission.replied",
+  "session.execution.started",
   "session.execution.failed",
   "session.execution.interrupted",
   "session.execution.succeeded",

@@ -1,3 +1,5 @@
+import { InstanceModelSettings } from "@/components/instance-model-settings"
+import { getInstanceModels } from "@/functions/instance-models"
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router"
 import { useServerFn } from "@tanstack/react-start"
 import type { ConnectionScope, OpenCodeKeyProviderId } from "@workspace/domain"
@@ -5,7 +7,6 @@ import { failureMessage } from "@workspace/domain"
 import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
-import { ModelCombobox } from "@workspace/ui/components/model-combobox"
 import {
   ArrowRight,
   Copy,
@@ -32,7 +33,6 @@ import {
   getOpenCodeSetup,
   getOpenCodeSubscriptionStatus,
   saveOpenCodeSetup,
-  setDefaultModel,
   startOpenCodeSubscription,
 } from "@/functions/provider-connections"
 
@@ -49,6 +49,9 @@ export const Route = createFileRoute("/admin")({
       dashboard,
       organization,
       setup,
+      instanceModels: dashboard.installation.canAdminister
+        ? await getInstanceModels()
+        : null,
     }
   },
   component: OrganizationSettingsScreen,
@@ -71,12 +74,12 @@ const connectionName = (providerId: string, authMethod: string) =>
 type SetupFlow = "list" | "choose" | "openai" | "subscription" | "key"
 
 function OrganizationSettingsScreen() {
-  const { dashboard, organization, setup } = Route.useLoaderData()
+  const { dashboard, organization, setup, instanceModels } =
+    Route.useLoaderData()
   const { onboarding } = Route.useSearch()
   const organizationId = organization?.id ?? ""
   const router = useRouter()
   const saveSetup = useServerFn(saveOpenCodeSetup)
-  const saveDefaultModel = useServerFn(setDefaultModel)
   const startSubscription = useServerFn(startOpenCodeSubscription)
   const subscriptionStatus = useServerFn(getOpenCodeSubscriptionStatus)
   const cancelSubscription = useServerFn(cancelOpenCodeSubscription)
@@ -94,7 +97,6 @@ function OrganizationSettingsScreen() {
   const [apiKey, setApiKey] = useState("")
   const [accountId, setAccountId] = useState("")
   const [pending, setPending] = useState(false)
-  const [defaultPending, setDefaultPending] = useState(false)
   const [disconnectCandidate, setDisconnectCandidate] = useState<string | null>(
     null
   )
@@ -130,9 +132,6 @@ function OrganizationSettingsScreen() {
           setFlow("list")
           setAttempt(null)
           await router.invalidate()
-          if (onboarding && organization) {
-            window.location.assign("/projects/new?onboarding=1")
-          }
           return
         }
 
@@ -223,9 +222,6 @@ function OrganizationSettingsScreen() {
       })
       returnToList()
       await router.invalidate()
-      if (onboarding) {
-        window.location.assign("/projects/new?onboarding=1")
-      }
     } catch (cause) {
       setError(failureMessage(cause, `${provider.name} could not connect`))
     } finally {
@@ -371,7 +367,8 @@ function OrganizationSettingsScreen() {
           </Button>
         ) : (
           <p className="mb-6 text-xs leading-5 text-muted-foreground">
-            Connect a provider to unlock Projects and Workspaces.
+            Connect a provider and enable a model to unlock Projects and
+            Workspaces.
           </p>
         )}
         <section className="flex items-start justify-between gap-6 border-b pb-6">
@@ -383,8 +380,7 @@ function OrganizationSettingsScreen() {
               {scope === "organization"
                 ? `Shared connections are available to everyone in ${organization.name}.`
                 : "Personal connections are used for Workspaces you create."}{" "}
-              Your personal default takes precedence over the Organization
-              default.
+              Your personal default takes precedence over the instance default.
             </p>
           </div>
           {flow === "list" ? (
@@ -526,47 +522,6 @@ function OrganizationSettingsScreen() {
               <p role="alert" className="mt-4 text-sm text-destructive">
                 {error}
               </p>
-            ) : null}
-            {scope === "organization" && setup?.organizationModels.length ? (
-              <div className="mt-6 grid max-w-lg gap-2">
-                <Label htmlFor="organization-default-model">
-                  Organization default model
-                </Label>
-                <p className="text-xs leading-5 text-muted-foreground">
-                  Used when a member has not chosen a personal default.
-                </p>
-                <ModelCombobox
-                  id="organization-default-model"
-                  ariaLabel="Organization default model"
-                  disabled={defaultPending}
-                  models={setup.organizationModels}
-                  value={setup.organizationDefault}
-                  onValueChange={async (model) => {
-                    setDefaultPending(true)
-                    setError(null)
-                    try {
-                      await saveDefaultModel({
-                        data: {
-                          organizationId,
-                          scope: "organization",
-                          providerId: model.providerId,
-                          modelId: model.modelId,
-                        },
-                      })
-                      await router.invalidate()
-                    } catch (cause) {
-                      setError(
-                        failureMessage(
-                          cause,
-                          "Could not save the Organization default model"
-                        )
-                      )
-                    } finally {
-                      setDefaultPending(false)
-                    }
-                  }}
-                />
-              </div>
             ) : null}
           </section>
         ) : flow === "choose" ? (
@@ -753,6 +708,13 @@ function OrganizationSettingsScreen() {
             </Button>
           </section>
         )}
+
+        {flow === "list" && instanceModels ? (
+          <InstanceModelSettings
+            policy={instanceModels.policy}
+            catalog={instanceModels.catalog}
+          />
+        ) : null}
 
         {flow === "list" ? (
           <section className="mt-10 border-t pt-6" aria-labelledby="members">

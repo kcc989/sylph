@@ -19,14 +19,16 @@ Operators pin to tags when they report issues, so never move a published tag.
 
 ## Release smoke tests
 
-`scripts/setup-release-smoke.sh` provisions a disposable Installation used by the Playwright suite in `tests/release-smoke`. It needs its own Cloudflare account or a clearly separated stage, an OpenRouter key, and the OAuth proxy described below. Run the suite with:
+Use the [release smoke runbook](../tests/release-smoke/README.md). The runner loads `~/.config/sylph/release-smoke.env`, checks credentials, creates a unique stage, and records the exact deployed URL and configuration for the browser suite:
 
 ```sh
-bun run smoke:release:install
-bun run smoke:release
+bun run smoke:release:doctor -- --auth magic
+bun run smoke:release:deploy -- --auth magic
 ```
 
-The smoke environment is loaded from `~/.config/sylph/release-smoke.env` with Alchemy's `--env-file` flag. Alchemy prefers the repository's `.env` over exported variables, so pass the file explicitly rather than exporting values.
+Run the test command printed by the deploy runner. Deployment is independent of Playwright and provider credits. Open the printed URL for manual verification, or run the optional browser suite. Use the default GitHub mode and add `--headed` to the test command when testing OAuth. Reuse an existing App configuration with `SYLPH_SMOKE_GITHUB_ENV_FILE` when its values live outside the shared smoke file. Magic-link mode tests the runtime and does not establish GitHub OAuth correctness. `gh auth` does not authenticate Playwright.
+
+`scripts/setup-release-smoke.sh` is the one-time manual credential wizard. Existing credentials are reused across worktrees. Never rely on exported variables to override a checkout's `.env`; the runner passes a private snapshot through Alchemy's `--env-file` flag.
 
 ## OAuth across preview stages
 

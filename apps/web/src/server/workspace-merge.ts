@@ -30,6 +30,7 @@ export interface WorkspaceMergeInput {
   workspaceRepositoryName: string
   workspaceRepositoryRemote: string
   defaultRef: string
+  workspaceRef?: string
   baseCommit: string
   forkHead: string
   projectId: string
@@ -164,6 +165,7 @@ export class WorkspaceMerge extends WorkflowEntrypoint<
   }
 
   async #merge(input: WorkspaceMergeInput) {
+    const workspaceRef = input.workspaceRef ?? input.defaultRef
     const projectRepository = await this.env.REPOS.get(
       input.projectRepositoryName
     )
@@ -200,7 +202,7 @@ export class WorkspaceMerge extends WorkflowEntrypoint<
       dir: directory,
       url: input.workspaceRepositoryRemote,
       remote: "workspace",
-      ref: input.defaultRef,
+      ref: workspaceRef,
       singleBranch: true,
       tags: false,
       onAuth: authentication(workspaceToken.plaintext),
@@ -208,7 +210,7 @@ export class WorkspaceMerge extends WorkflowEntrypoint<
     const fetchedForkHead = await git.resolveRef({
       fs: filesystem,
       dir: directory,
-      ref: `refs/remotes/workspace/${input.defaultRef}`,
+      ref: `refs/remotes/workspace/${workspaceRef}`,
     })
     if (fetchedForkHead !== input.forkHead) {
       throw new Error("Workspace fork changed after review")

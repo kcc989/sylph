@@ -7,6 +7,7 @@ import {
 
 test("requests only check or conversation data for narrow events", () => {
   expect(workspaceRefreshScope("workspace.check.updated")).toBe("checks")
+  expect(workspaceRefreshScope("session.execution.started")).toBe("runtime")
   expect(workspaceRefreshScope("form.created")).toBe("runtime")
   expect(workspaceRefreshScope("session.inbox.enqueued")).toBe("runtime")
   expect(workspaceRefreshScope("session.tool.success")).toBe("workspace")

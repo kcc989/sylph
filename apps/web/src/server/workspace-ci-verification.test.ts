@@ -4,7 +4,40 @@ import {
   verificationCommand,
   verificationDurations,
   verificationFailureStage,
+  failedCheckStages,
 } from "./workspace-ci-verification"
+import { checkStage } from "./workspace-checks"
+
+test("a failed shared runner preserves completed stages and skips later work", () => {
+  const result = Bun.spawnSync({
+    cmd: [
+      "sh",
+      "-c",
+      verificationCommand([
+        { name: "install", command: "true" },
+        { name: "typecheck", command: "exit 2" },
+        { name: "lint", command: "true" },
+        { name: "test", command: "true" },
+      ]),
+    ],
+  })
+  expect(result.exitCode).toBe(2)
+  const stages = failedCheckStages(
+    (["install", "typecheck", "lint", "test", "preview"] as const).map((name) =>
+      checkStage(name, "queued", "Waiting")
+    ),
+    result.stdout.toString(),
+    new Set(["typecheck"])
+  )
+  expect(stages.map((stage) => [stage.name, stage.status])).toEqual([
+    ["install", "passed"],
+    ["typecheck", "failed"],
+    ["lint", "passed"],
+    ["test", "skipped"],
+    ["preview", "skipped"],
+  ])
+  expect(stages[0]?.durationMs).toBeGreaterThanOrEqual(0)
+})
 
 describe("Workspace CI verification", () => {
   test("runs verification stages in one shell command", () => {
@@ -111,4 +144,40 @@ test("supports serial verification for scripts with shared outputs", () => {
   })
   expect(result.exitCode).toBe(2)
   expect(result.stdout.toString()).not.toContain("SYLPH_STAGE_STARTED=lint")
+})
+
+test("install finishes before verification and its failure stops every check", () => {
+  const success = Bun.spawnSync({
+    cmd: [
+      "sh",
+      "-c",
+      verificationCommand([
+        {
+          name: "install",
+          command: 'export SYLPH_INSTALLED=1; touch "$sylph_logs/installed"',
+        },
+        { name: "typecheck", command: 'test -f "$sylph_logs/installed"' },
+        { name: "lint", command: 'test -f "$sylph_logs/installed"' },
+      ]),
+    ],
+  })
+  expect(success.exitCode).toBe(0)
+  expect(
+    verificationDurations(success.stdout.toString()).has("install")
+  ).toBeTrue()
+  const failure = Bun.spawnSync({
+    cmd: [
+      "sh",
+      "-c",
+      verificationCommand([
+        { name: "install", command: "exit 9" },
+        { name: "typecheck", command: "true" },
+      ]),
+    ],
+  })
+  expect(failure.exitCode).toBe(9)
+  expect(verificationFailureStage(failure.stdout.toString())).toBe("install")
+  expect(failure.stdout.toString()).not.toContain(
+    "SYLPH_STAGE_STARTED=typecheck"
+  )
 })
