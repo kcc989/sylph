@@ -23,6 +23,7 @@ import {
 } from "lucide-react"
 import type { ReactNode } from "react"
 import { CommandPalette } from "@/components/command-palette"
+import { SylphMark } from "@/components/sylph-logo"
 import { authClient } from "@/lib/auth-client"
 
 type Organization = {
@@ -60,34 +61,6 @@ type AppShellProps = {
   dashboard: AppShellDashboard
   showHeader?: boolean
   topbar?: ReactNode
-}
-
-export function SylphMark({ className }: { className?: string }) {
-  return (
-    <svg
-      aria-hidden="true"
-      className={className}
-      fill="none"
-      viewBox="0 0 20 20"
-    >
-      <path d="M10 1.5 14.25 6 10 10.5 5.75 6 10 1.5Z" fill="currentColor" />
-      <path
-        d="m5.2 8.1 3.4 3.6-3.4 3.6-3.4-3.6 3.4-3.6Z"
-        fill="currentColor"
-        opacity=".72"
-      />
-      <path
-        d="m14.8 8.1 3.4 3.6-3.4 3.6-3.4-3.6 3.4-3.6Z"
-        fill="currentColor"
-        opacity=".72"
-      />
-      <path
-        d="m10 13 3 3.1-3 2.4-3-2.4 3-3.1Z"
-        fill="currentColor"
-        opacity=".45"
-      />
-    </svg>
-  )
 }
 
 export function AppShell({
