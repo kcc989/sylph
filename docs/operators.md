@@ -70,6 +70,20 @@ Alchemy plan and approve that removal before applying it. See
 [Cursor verification and limits](smoke-tests/cursor-provider.md) before enabling
 it for users.
 
+Codex subscription connections add a private `CodexContainer` binding to the
+Workspace runtime. It runs Node 24 on a `basic` Container, with up to ten
+instances and a two-minute idle timeout. HTML 403 responses from the Codex
+Responses endpoint are retried through this Container because the endpoint
+rejects the `CF-Worker` header added to Workerd requests. Credentials pass
+through the private binding and are not persisted in the Container.
+
+Upgrading provisions this additional Container application through Alchemy.
+Existing Container deployment permissions and `CREDENTIAL_ENCRYPTION_KEY` are
+reused; no new secret or D1 migration is required. Connect through **Codex
+subscription** in the provider setup screen. See the
+[Codex smoke evidence](../tools/codex-smoke/README.md) for verified behavior and
+limitations.
+
 All resources are created in your account under the Alchemy stage `prod`.
 
 | Resource                  | Notes                                                                                                   |
@@ -87,7 +101,7 @@ All resources are created in your account under the Alchemy stage `prod`.
 
 The Workers Paid plan is the floor. Beyond it, spend scales with:
 
-- Container minutes. Each check run starts a `standard-4` sandbox. Idle Installations cost nothing here.
+- Container minutes. Each check run starts a `standard-4` sandbox. Codex subscription fallback requests use a `basic` Container that sleeps after two idle minutes.
 - Durable Object storage and requests. One object per workspace, plus SQLite storage for its state.
 - R2 storage. Check backups are pruned by the retention Workflow, but evidence accumulates until workspaces are archived.
 - Browser Rendering minutes when browser checks run.

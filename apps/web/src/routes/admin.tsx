@@ -528,6 +528,24 @@ function OrganizationSettingsScreen() {
           <section className="py-6">
             <h2 className="text-sm font-medium">Choose a provider</h2>
             <div className="mt-4 border-y">
+              <button
+                type="button"
+                className="flex w-full items-center justify-between gap-4 border-b px-1 py-4 text-left hover:bg-sidebar/45 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
+                onClick={() => {
+                  setError(null)
+                  setFlow("openai")
+                }}
+              >
+                <span>
+                  <span className="block text-sm font-medium">
+                    Codex subscription
+                  </span>
+                  <span className="mt-1 block text-xs text-muted-foreground">
+                    Connect with your ChatGPT subscription.
+                  </span>
+                </span>
+                <ArrowRight className="size-4 shrink-0 text-muted-foreground" />
+              </button>
               {providerOptions.map((provider) => (
                 <button
                   key={provider.id}

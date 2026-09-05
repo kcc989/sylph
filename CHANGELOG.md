@@ -10,6 +10,8 @@ All notable changes to Sylph are recorded here. The format follows [Keep a Chang
 
 ### Fixed
 
+- Expose Codex subscription setup, include subscription models in Workspace selection, and retry blocked Codex requests through a private Node Container. Upgrades provision an additional Container application without new secrets or migrations.
+
 - Reuse one sandbox for checkpoint typecheck, lint, test, and build, with separate command and shared-runner timings.
 - Decode provider setup inputs after server serialization before forwarding them to the Workspace runtime.
 - Wait for an exact visible checkpoint/deployment DOM marker before collecting browser evidence.
