@@ -1,3 +1,7 @@
+import {
+  findWorkspaceModel,
+  workspaceThinkingOptions,
+} from "./workspace-model-options"
 import type { CursorConnectionObject } from "./cursor-connection-object"
 import { createCursorProvider } from "./cursor-plugin"
 import {
@@ -1099,28 +1103,13 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
             data.credential.type === "key"
           )
             await this.#cursor.refresh(data.credential.key)
-          if (data.model.variant) {
-            const catalog = await opencode.model.list()
-            const selected = catalog.data.find(
-              (model) =>
-                model.providerID === data.model.providerId &&
-                model.modelID === data.model.modelId
-            )
-            if (
-              !selected?.variants.some(
-                (variant) => variant.id === data.model.variant
-              )
-            ) {
-              throw new Error(
-                "The selected reasoning level is not supported by this model"
-              )
-            }
-          }
+          const catalog = await opencode.model.list()
+          const selected = findWorkspaceModel(catalog.data, data.model)
           await opencode.sessions.switchModel({
             sessionID: sessionId,
             model: {
               providerID: data.model.providerId,
-              id: data.model.modelId,
+              id: selected?.id ?? data.model.modelId,
               variant: data.model.variant,
             },
           })
@@ -1953,7 +1942,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       )
       .map((model) => ({
         providerId: model.providerID,
-        modelId: model.modelID,
+        modelId: model.id,
         name: model.name,
       }))
       .sort((left, right) => left.name.localeCompare(right.name))
@@ -2070,9 +2059,10 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         .filter((model) => model.enabled && model.status !== "deprecated")
         .map((model) => ({
           providerId: model.providerID,
-          modelId: model.modelID,
+          modelId: model.id,
           name: model.name,
           variants: model.variants.map((variant) => variant.id),
+          thinkingOptions: workspaceThinkingOptions(model),
         })),
       model:
         state.providerId && state.modelId

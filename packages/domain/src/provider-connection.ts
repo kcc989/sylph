@@ -58,6 +58,26 @@ export class ModelSelection extends Schema.Class<ModelSelection>(
   variant: Schema.optional(Schema.NonEmptyString),
 }) {}
 
+export const ModelReasoningSettings = Schema.Struct({
+  reasoningEffort: Schema.optional(Schema.String),
+  effort: Schema.optional(Schema.String),
+  thinking: Schema.optional(
+    Schema.Struct({ type: Schema.optional(Schema.String) })
+  ),
+  thinkingConfig: Schema.optional(
+    Schema.Struct({ thinkingLevel: Schema.optional(Schema.String) })
+  ),
+  outputConfig: Schema.optional(
+    Schema.Struct({ effort: Schema.optional(Schema.String) })
+  ),
+})
+
+export const ModelThinkingOption = Schema.Struct({
+  value: Schema.NonEmptyString,
+  label: Schema.NonEmptyString,
+  kind: Schema.Literals(["effort", "toggle"]),
+})
+
 export class ProviderModel extends Schema.Class<ProviderModel>(
   "@sylph/domain/ProviderModel"
 )({
@@ -65,6 +85,7 @@ export class ProviderModel extends Schema.Class<ProviderModel>(
   modelId: Schema.NonEmptyString,
   name: Schema.NonEmptyString,
   variants: Schema.optionalKey(Schema.Array(Schema.NonEmptyString)),
+  thinkingOptions: Schema.optionalKey(Schema.Array(ModelThinkingOption)),
 }) {}
 
 export class OpenCodeConnectionResult extends Schema.Class<OpenCodeConnectionResult>(

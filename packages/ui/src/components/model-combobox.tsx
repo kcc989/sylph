@@ -2,7 +2,7 @@
 
 import { Combobox } from "@base-ui/react/combobox"
 import { Check, ChevronDown, Search } from "lucide-react"
-import { useState } from "react"
+import { useState, type ReactNode } from "react"
 
 import {
   Tooltip,
@@ -30,6 +30,8 @@ type ModelComboboxProps = {
   side?: "top" | "bottom"
   align?: "start" | "center" | "end"
   triggerClassName?: string
+  triggerSuffix?: ReactNode
+  footer?: ReactNode
 }
 
 export function ModelCombobox({
@@ -43,6 +45,8 @@ export function ModelCombobox({
   side = "bottom",
   align = "start",
   triggerClassName,
+  triggerSuffix,
+  footer,
 }: ModelComboboxProps) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
@@ -109,6 +113,7 @@ export function ModelCombobox({
             </TooltipContent>
           ) : null}
         </Tooltip>
+        {triggerSuffix}
         <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
       </Combobox.Trigger>
       <Combobox.Portal>
@@ -118,7 +123,12 @@ export function ModelCombobox({
           side={side}
           sideOffset={4}
         >
-          <Combobox.Popup className="dark w-[min(24rem,calc(100vw-1.5rem))] overflow-hidden rounded-[6px] bg-[#1c1a18] text-[#f4efe8] shadow-md ring-1 ring-white/10 outline-none">
+          <Combobox.Popup
+            className={cn(
+              "dark w-[min(24rem,calc(100vw-1.5rem))] overflow-hidden rounded-[6px] bg-[#1c1a18] text-[#f4efe8] shadow-md ring-1 ring-white/10 outline-none",
+              footer && "rounded-xl"
+            )}
+          >
             <div className="relative border-b border-white/[.08] p-2">
               <Search className="pointer-events-none absolute top-1/2 left-4 size-3.5 -translate-y-1/2 text-muted-foreground" />
               <Combobox.Input
@@ -134,7 +144,10 @@ export function ModelCombobox({
               {(option: ModelComboboxOption, index: number) => (
                 <Combobox.Item
                   aria-label={`${option.name}, ${option.providerName}`}
-                  className="grid min-w-0 cursor-default grid-cols-[minmax(0,1fr)_5rem_1rem] items-center gap-2 rounded-[4px] px-2 py-1.5 text-xs outline-none data-highlighted:bg-white/[.08]"
+                  className={cn(
+                    "grid min-w-0 cursor-default grid-cols-[minmax(0,1fr)_5rem_1rem] items-center gap-2 rounded-[4px] px-2 py-1.5 text-xs outline-none data-highlighted:bg-white/[.08]",
+                    footer && "min-h-10 rounded-md text-sm"
+                  )}
                   index={index}
                   key={`${option.providerId}/${option.modelId}/${option.scope ?? ""}`}
                   value={option}
@@ -159,6 +172,7 @@ export function ModelCombobox({
                 </Combobox.Item>
               )}
             </Combobox.List>
+            {footer}
           </Combobox.Popup>
         </Combobox.Positioner>
       </Combobox.Portal>

@@ -112,6 +112,12 @@ export const useWorkspaceData = (initial: WorkspaceResult) => {
   )
   const models = current.models.map((model) => ({
     ...model,
+    thinkingOptions:
+      current.runtime.availableModels?.find(
+        (available) =>
+          available.providerId === model.providerId &&
+          available.modelId === model.modelId
+      )?.thinkingOptions ?? [],
     variants:
       current.runtime.availableModels?.find(
         (available) =>

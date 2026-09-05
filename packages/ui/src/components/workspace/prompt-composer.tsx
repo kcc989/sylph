@@ -2,7 +2,6 @@
 
 import {
   ArrowUp,
-  Signal,
   X,
   Blocks,
   LoaderCircle,
@@ -12,47 +11,11 @@ import {
 import { useEffect, useRef, useState } from "react"
 
 import { Button } from "@workspace/ui/components/button"
-import { ModelCombobox as SharedModelCombobox } from "@workspace/ui/components/model-combobox"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@workspace/ui/components/select"
+import { ThinkingModelPicker } from "./thinking-model-picker"
 import { Textarea } from "@workspace/ui/components/textarea"
 import { cn } from "@workspace/ui/lib/utils"
 import type { WorkspaceReference } from "./workspace-shell-store"
 import type { ComposerModel, ComposerSkill } from "./types"
-
-function ModelCombobox({
-  disabled,
-  models,
-  selectedOption,
-  onModelChange,
-}: {
-  disabled: boolean
-  models: ReadonlyArray<ComposerModel>
-  selectedOption: ComposerModel | null
-  onModelChange?: (model: {
-    providerId: string
-    modelId: string
-    variant?: string
-  }) => void
-}) {
-  return (
-    <SharedModelCombobox
-      align="start"
-      ariaLabel="Model for next turn"
-      disabled={disabled}
-      models={models}
-      onValueChange={onModelChange}
-      side="top"
-      triggerClassName="h-8 w-auto max-w-56 rounded-md border-transparent bg-transparent px-2 text-xs hover:bg-white/[.07] focus-visible:border-ring focus-visible:ring-ring/50"
-      value={selectedOption}
-    />
-  )
-}
 
 export function PromptComposer({
   disabled = false,
@@ -101,7 +64,6 @@ export function PromptComposer({
 }) {
   const [text, setText] = useState(initialPrompt)
   const [activeSkillIndex, setActiveSkillIndex] = useState(0)
-  const reasoningChoices = useRef(new Map<string, string | undefined>())
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const commandQuery = /^\/([^\s]*)$/.exec(text)?.[1]?.toLocaleLowerCase()
   const matchingSkills =
@@ -117,14 +79,6 @@ export function PromptComposer({
     setText(`/${skill.name} `)
     textareaRef.current?.focus()
   }
-  const selectedOption = selectedModel
-    ? models.find(
-        (model) =>
-          model.providerId === selectedModel.providerId &&
-          model.modelId === selectedModel.modelId
-      )
-    : null
-
   const submit = async (delivery?: "queue" | "steer") => {
     const prompt = text.trim()
 
@@ -261,91 +215,24 @@ export function PromptComposer({
             {modelNotice}
           </p>
         ) : null}
-        <div className="flex min-h-10 min-w-0 flex-wrap items-center gap-1 px-2 py-1">
-          <div className="mr-auto flex min-w-0 flex-wrap items-center gap-1">
-            <ModelCombobox
-              disabled={
-                disabled || pending || turnActive || models.length === 0
-              }
-              models={models}
-              selectedOption={selectedOption ?? null}
-              onModelChange={(model) => {
-                if (selectedModel)
-                  reasoningChoices.current.set(
-                    `${selectedModel.providerId}/${selectedModel.modelId}`,
-                    selectedModel.variant
-                  )
-                const variant = reasoningChoices.current.get(
-                  `${model.providerId}/${model.modelId}`
-                )
-                const option = models.find(
-                  (item) =>
-                    item.providerId === model.providerId &&
-                    item.modelId === model.modelId
-                )
-                onModelChange?.({
-                  ...model,
-                  variant:
-                    variant && option?.variants?.includes(variant)
-                      ? variant
-                      : undefined,
-                })
-              }}
-            />
-            <Select
-              value={selectedModel?.variant ?? ""}
-              disabled={
-                disabled ||
-                pending ||
-                turnActive ||
-                !selectedOption?.variants?.length
-              }
-              onValueChange={(variant) => {
-                if (selectedModel)
-                  onModelChange?.({
-                    ...selectedModel,
-                    variant: variant || undefined,
-                  })
-              }}
-            >
-              <SelectTrigger
-                aria-label="Reasoning level"
-                size="sm"
-                className="border-transparent text-xs text-muted-foreground hover:bg-white/[.07]"
-              >
-                <Signal aria-hidden="true" />
-                <SelectValue>
-                  {selectedModel?.variant
-                    ? selectedModel.variant.replace(/^./, (letter) =>
-                        letter.toUpperCase()
-                      )
-                    : selectedOption?.variants?.length
-                      ? "Default"
-                      : "Reasoning unavailable"}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent
-                side="top"
-                align="start"
-                alignItemWithTrigger={false}
-              >
-                <SelectItem value="">Default</SelectItem>
-                {selectedOption?.variants?.map((variant) => (
-                  <SelectItem key={variant} value={variant}>
-                    {variant.replace(/^./, (letter) => letter.toUpperCase())}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+        <div className="flex min-h-12 min-w-0 items-center gap-1 px-2 py-2">
+          <ThinkingModelPicker
+            disabled={disabled || pending || turnActive || models.length === 0}
+            models={models}
+            selectedModel={selectedModel ?? null}
+            onModelChange={onModelChange}
+          />
           {onOpenFiles ? (
             <Button
               type="button"
               size="xs"
               variant="ghost"
+              aria-label="Attach files"
+              className="shrink-0"
               onClick={onOpenFiles}
             >
-              Files
+              <span className="hidden @md:inline">Files</span>
+              <Blocks className="@md:hidden" />
             </Button>
           ) : null}
           <Button
@@ -388,7 +275,7 @@ export function PromptComposer({
                 <ArrowUp /> Steer
               </Button>
               <Button
-                className="bg-[#ef9b7e] text-[#241613] hover:bg-[#f4af98]"
+                className="shrink-0 bg-[#ef9b7e] text-[#241613] hover:bg-[#f4af98]"
                 disabled={
                   disabled ||
                   pending ||
@@ -410,7 +297,7 @@ export function PromptComposer({
           ) : (
             <Button
               aria-label="Send message"
-              className="bg-[#ef9b7e] text-[#241613] hover:bg-[#f4af98]"
+              className="shrink-0 bg-[#ef9b7e] text-[#241613] hover:bg-[#f4af98]"
               disabled={disabled || pending || !text.trim() || !selectedModel}
               size="icon-sm"
               type="submit"

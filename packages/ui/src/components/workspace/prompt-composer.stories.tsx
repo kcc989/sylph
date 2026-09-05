@@ -16,6 +16,11 @@ const meta = {
         providerName: "OpenAI",
         scope: "personal",
         variants: ["low", "medium", "high"],
+        thinkingOptions: ["low", "medium", "high"].map((value) => ({
+          value,
+          label: value.replace(/^./, (letter) => letter.toUpperCase()),
+          kind: "effort" as const,
+        })),
       },
       {
         providerId: "openai",
@@ -50,9 +55,12 @@ export const Reasoning: Story = {
     const canvas = within(canvasElement)
     const page = within(canvasElement.ownerDocument.body)
     await userEvent.click(
-      canvas.getByRole("combobox", { name: "Reasoning level" })
+      canvas.getByRole("combobox", { name: "Model and thinking settings" })
     )
-    await userEvent.click(await page.findByRole("option", { name: "High" }))
+    await userEvent.click(await page.findByText("Effort", { exact: true }))
+    await userEvent.click(page.getByRole("radio", { name: "High" }))
+    await expect(page.getByRole("radio", { name: "High" })).toBeChecked()
+    await userEvent.keyboard("{Escape}")
     await userEvent.type(
       canvas.getByRole("textbox", { name: "Message the agent" }),
       "Build a todo list"
@@ -64,22 +72,22 @@ export const Reasoning: Story = {
       undefined
     )
     await userEvent.click(
-      canvas.getByRole("combobox", { name: "Model for next turn" })
+      canvas.getByRole("combobox", { name: "Model and thinking settings" })
     )
     await userEvent.click(
       await page.findByRole("option", { name: /Basic model/ })
     )
     await expect(
-      canvas.getByRole("combobox", { name: "Reasoning level" })
-    ).toBeDisabled()
+      canvas.getByRole("combobox", { name: "Model and thinking settings" })
+    ).not.toHaveTextContent("High")
     await userEvent.click(
-      canvas.getByRole("combobox", { name: "Model for next turn" })
+      canvas.getByRole("combobox", { name: "Model and thinking settings" })
     )
     await userEvent.click(
       await page.findByRole("option", { name: /Reasoning model/ })
     )
     await expect(
-      canvas.getByRole("combobox", { name: "Reasoning level" })
+      canvas.getByRole("combobox", { name: "Model and thinking settings" })
     ).toHaveTextContent("High")
   },
 }
@@ -94,15 +102,66 @@ export const ActiveTurn: Story = {
     },
   },
   play: async ({ canvasElement }) => {
+    const picker = within(canvasElement).getByRole("combobox", {
+      name: "Model and thinking settings",
+    })
+    await expect(picker).toBeDisabled()
+    await expect(picker).toHaveTextContent("Medium")
+  },
+}
+
+export const ThinkingToggle: Story = {
+  args: {
+    models: [
+      {
+        providerId: "openrouter",
+        modelId: "nemotron",
+        name: "Nemotron 3.5 Lightning (free)",
+        providerName: "OpenRouter",
+        scope: "personal",
+        thinkingOptions: [
+          { value: "none", label: "Off", kind: "toggle" },
+          { value: "thinking", label: "On", kind: "toggle" },
+        ],
+      },
+    ],
+    selectedModel: { providerId: "openrouter", modelId: "nemotron" },
+  },
+  play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expect(
-      canvas.getByRole("combobox", { name: "Model for next turn" })
-    ).toBeDisabled()
-    await expect(
-      canvas.getByRole("combobox", { name: "Reasoning level" })
-    ).toBeDisabled()
-    await expect(
-      canvas.getByRole("combobox", { name: "Reasoning level" })
-    ).toHaveTextContent("Medium")
+    const page = within(canvasElement.ownerDocument.body)
+    await userEvent.click(
+      canvas.getByRole("combobox", { name: "Model and thinking settings" })
+    )
+    await userEvent.click(await page.findByText("Thinking", { exact: true }))
+    await userEvent.click(page.getByRole("radio", { name: "On" }))
+    await expect(page.getByRole("radio", { name: "On" })).toBeChecked()
+    await expect(page.queryByRole("radio", { name: "High" })).toBeNull()
+    await userEvent.keyboard("{Escape}")
+  },
+}
+
+export const NarrowComposer: Story = {
+  ...ThinkingToggle,
+  decorators: [
+    (Story) => (
+      <div style={{ width: 320 }}>
+        <Story />
+      </div>
+    ),
+  ],
+  args: { ...ThinkingToggle.args, onOpenFiles: fn() },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const send = canvas
+      .getByRole("button", { name: "Send message" })
+      .getBoundingClientRect()
+    const picker = canvas
+      .getByRole("combobox", { name: "Model and thinking settings" })
+      .getBoundingClientRect()
+    await expect(Math.abs(send.y - picker.y)).toBeLessThan(8)
+    await expect(send.right).toBeLessThanOrEqual(
+      canvasElement.getBoundingClientRect().right
+    )
   },
 }

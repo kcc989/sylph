@@ -429,6 +429,12 @@ export const getWorkspace = createServerFn({ method: "GET" })
       },
       models: (connection?.models ?? []).map((model) => ({
         ...model,
+        thinkingOptions:
+          runtimeSnapshot.availableModels?.find(
+            (available) =>
+              available.providerId === model.providerId &&
+              available.modelId === model.modelId
+          )?.thinkingOptions ?? [],
         variants:
           runtimeSnapshot.availableModels?.find(
             (available) =>

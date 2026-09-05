@@ -189,6 +189,11 @@ export type WorkspaceReviewCommentDraft = {
 
 export type ComposerModel = {
   variants?: ReadonlyArray<string>
+  thinkingOptions?: ReadonlyArray<{
+    value: string
+    label: string
+    kind: "effort" | "toggle"
+  }>
   providerId: string
   modelId: string
   name: string
