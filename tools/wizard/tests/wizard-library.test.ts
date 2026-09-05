@@ -70,7 +70,7 @@ test("the release smoke wizard reuses OpenRouter credentials", async () => {
     "OPENROUTER_API_KEY=$(_existing OPENROUTER_API_KEY || true)"
   )
   expect(source).toContain(
-    'step "Run the first smoke test headed: bun run smoke:release -- --headed"'
+    'step "Deploy a fresh stage: bun run smoke:release:deploy"'
   )
   expect(source).not.toContain("grep -q 'OPENROUTER_API_KEY'")
 })
