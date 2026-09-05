@@ -2,6 +2,7 @@
 
 import {
   ArrowUp,
+  Signal,
   X,
   Blocks,
   LoaderCircle,
@@ -12,6 +13,13 @@ import { useEffect, useRef, useState } from "react"
 
 import { Button } from "@workspace/ui/components/button"
 import { ModelCombobox as SharedModelCombobox } from "@workspace/ui/components/model-combobox"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@workspace/ui/components/select"
 import { Textarea } from "@workspace/ui/components/textarea"
 import { cn } from "@workspace/ui/lib/utils"
 import type { WorkspaceReference } from "./workspace-shell-store"
@@ -26,17 +34,21 @@ function ModelCombobox({
   disabled: boolean
   models: ReadonlyArray<ComposerModel>
   selectedOption: ComposerModel | null
-  onModelChange?: (model: { providerId: string; modelId: string }) => void
+  onModelChange?: (model: {
+    providerId: string
+    modelId: string
+    variant?: string
+  }) => void
 }) {
   return (
     <SharedModelCombobox
-      align="end"
+      align="start"
       ariaLabel="Model for next turn"
       disabled={disabled}
       models={models}
       onValueChange={onModelChange}
       side="top"
-      triggerClassName="ml-auto h-7 flex-1 rounded-[5px] border-white/[.12] bg-white/[.045] px-2 text-[11px] hover:bg-white/[.07] focus-visible:border-ring focus-visible:ring-ring/50"
+      triggerClassName="h-8 w-auto max-w-56 rounded-md border-transparent bg-transparent px-2 text-xs hover:bg-white/[.07] focus-visible:border-ring focus-visible:ring-ring/50"
       value={selectedOption}
     />
   )
@@ -64,15 +76,23 @@ export function PromptComposer({
   initialPrompt?: string
   onSubmit?: (
     text: string,
-    model: { providerId: string; modelId: string },
+    model: { providerId: string; modelId: string; variant?: string },
     delivery?: "queue" | "steer"
   ) => Promise<boolean | void>
   pending?: boolean
   models: ReadonlyArray<ComposerModel>
   skills: ReadonlyArray<ComposerSkill>
-  selectedModel?: { providerId: string; modelId: string } | null
+  selectedModel?: {
+    providerId: string
+    modelId: string
+    variant?: string
+  } | null
   modelNotice?: string | null
-  onModelChange?: (model: { providerId: string; modelId: string }) => void
+  onModelChange?: (model: {
+    providerId: string
+    modelId: string
+    variant?: string
+  }) => void
   turnActive?: boolean
   queueFull?: boolean
   references?: WorkspaceReference[]
@@ -81,6 +101,7 @@ export function PromptComposer({
 }) {
   const [text, setText] = useState(initialPrompt)
   const [activeSkillIndex, setActiveSkillIndex] = useState(0)
+  const reasoningChoices = useRef(new Map<string, string | undefined>())
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const commandQuery = /^\/([^\s]*)$/.exec(text)?.[1]?.toLocaleLowerCase()
   const matchingSkills =
@@ -240,7 +261,83 @@ export function PromptComposer({
             {modelNotice}
           </p>
         ) : null}
-        <div className="flex min-h-10 min-w-0 items-center gap-1 overflow-hidden border-t border-white/[.07] px-2 py-1">
+        <div className="flex min-h-10 min-w-0 flex-wrap items-center gap-1 px-2 py-1">
+          <div className="mr-auto flex min-w-0 flex-wrap items-center gap-1">
+            <ModelCombobox
+              disabled={
+                disabled || pending || turnActive || models.length === 0
+              }
+              models={models}
+              selectedOption={selectedOption ?? null}
+              onModelChange={(model) => {
+                if (selectedModel)
+                  reasoningChoices.current.set(
+                    `${selectedModel.providerId}/${selectedModel.modelId}`,
+                    selectedModel.variant
+                  )
+                const variant = reasoningChoices.current.get(
+                  `${model.providerId}/${model.modelId}`
+                )
+                const option = models.find(
+                  (item) =>
+                    item.providerId === model.providerId &&
+                    item.modelId === model.modelId
+                )
+                onModelChange?.({
+                  ...model,
+                  variant:
+                    variant && option?.variants?.includes(variant)
+                      ? variant
+                      : undefined,
+                })
+              }}
+            />
+            <Select
+              value={selectedModel?.variant ?? ""}
+              disabled={
+                disabled ||
+                pending ||
+                turnActive ||
+                !selectedOption?.variants?.length
+              }
+              onValueChange={(variant) => {
+                if (selectedModel)
+                  onModelChange?.({
+                    ...selectedModel,
+                    variant: variant || undefined,
+                  })
+              }}
+            >
+              <SelectTrigger
+                aria-label="Reasoning level"
+                size="sm"
+                className="border-transparent text-xs text-muted-foreground hover:bg-white/[.07]"
+              >
+                <Signal aria-hidden="true" />
+                <SelectValue>
+                  {selectedModel?.variant
+                    ? selectedModel.variant.replace(/^./, (letter) =>
+                        letter.toUpperCase()
+                      )
+                    : selectedOption?.variants?.length
+                      ? "Default"
+                      : "Reasoning unavailable"}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent
+                side="top"
+                align="start"
+                alignItemWithTrigger={false}
+              >
+                <SelectItem value="">Default</SelectItem>
+                {selectedOption?.variants?.map((variant) => (
+                  <SelectItem key={variant} value={variant}>
+                    {variant.replace(/^./, (letter) => letter.toUpperCase())}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           {onOpenFiles ? (
             <Button
               type="button"
@@ -276,12 +373,6 @@ export function PromptComposer({
           >
             <Blocks /> Skills
           </Button>
-          <ModelCombobox
-            disabled={pending || turnActive || models.length === 0}
-            models={models}
-            selectedOption={selectedOption ?? null}
-            onModelChange={onModelChange}
-          />
           <span className="hidden text-[10px] whitespace-nowrap text-muted-foreground @2xl:inline">
             ⌘ ↵
           </span>

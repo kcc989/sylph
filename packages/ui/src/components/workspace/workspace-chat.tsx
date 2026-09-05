@@ -75,7 +75,7 @@ export function WorkspaceChat({
   initialPrompt?: string
   onSubmitPrompt?: (
     text: string,
-    model: { providerId: string; modelId: string },
+    model: { providerId: string; modelId: string; variant?: string },
     delivery?: "queue" | "steer"
   ) => Promise<boolean | void>
   onRestartWorkspace?: () => Promise<void>
@@ -87,9 +87,17 @@ export function WorkspaceChat({
   workspaceError?: string | null
   models: ReadonlyArray<ComposerModel>
   skills: ReadonlyArray<ComposerSkill>
-  selectedModel?: { providerId: string; modelId: string } | null
+  selectedModel?: {
+    providerId: string
+    modelId: string
+    variant?: string
+  } | null
   modelNotice?: string | null
-  onModelChange?: (model: { providerId: string; modelId: string }) => void
+  onModelChange?: (model: {
+    providerId: string
+    modelId: string
+    variant?: string
+  }) => void
 }) {
   const store = useWorkspaceShellStore()
   const references = useWorkspaceShell((state) => state.references)

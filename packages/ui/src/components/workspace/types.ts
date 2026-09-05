@@ -188,6 +188,7 @@ export type WorkspaceReviewCommentDraft = {
 }
 
 export type ComposerModel = {
+  variants?: ReadonlyArray<string>
   providerId: string
   modelId: string
   name: string

@@ -427,9 +427,25 @@ export const getWorkspace = createServerFn({ method: "GET" })
         name: user.name,
         image: user.image ?? null,
       },
-      models: connection?.models ?? [],
+      models: (connection?.models ?? []).map((model) => ({
+        ...model,
+        variants:
+          runtimeSnapshot.availableModels?.find(
+            (available) =>
+              available.providerId === model.providerId &&
+              available.modelId === model.modelId
+          )?.variants ?? [],
+      })),
       selectedModel: connection
-        ? { providerId: connection.providerId, modelId: connection.modelId }
+        ? {
+            providerId: connection.providerId,
+            modelId: connection.modelId,
+            variant:
+              runtimeSnapshot.model ===
+              `${connection.providerId}/${connection.modelId}`
+                ? runtimeSnapshot.modelVariant
+                : undefined,
+          }
         : null,
       modelNotice: connection?.notice ?? null,
       skills: skills.map(serializeInstalledSkill),
@@ -565,6 +581,11 @@ export const promptWorkspace = createServerFn({ method: "POST" })
         model: {
           providerId: connection.providerId,
           modelId: connection.modelId,
+          variant:
+            data.model?.providerId === connection.providerId &&
+            data.model.modelId === connection.modelId
+              ? data.model.variant
+              : undefined,
         },
         credential,
         delivery: data.delivery,
@@ -582,6 +603,7 @@ export const promptWorkspace = createServerFn({ method: "POST" })
       selectedModel: {
         providerId: connection.providerId,
         modelId: connection.modelId,
+        variant: health.modelVariant,
       },
       modelNotice: connection.notice,
     }

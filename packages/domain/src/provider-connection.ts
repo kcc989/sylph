@@ -55,6 +55,7 @@ export class ModelSelection extends Schema.Class<ModelSelection>(
 )({
   providerId: Schema.NonEmptyString,
   modelId: Schema.NonEmptyString,
+  variant: Schema.optional(Schema.NonEmptyString),
 }) {}
 
 export class ProviderModel extends Schema.Class<ProviderModel>(
@@ -63,6 +64,7 @@ export class ProviderModel extends Schema.Class<ProviderModel>(
   providerId: Schema.NonEmptyString,
   modelId: Schema.NonEmptyString,
   name: Schema.NonEmptyString,
+  variants: Schema.optionalKey(Schema.Array(Schema.NonEmptyString)),
 }) {}
 
 export class OpenCodeConnectionResult extends Schema.Class<OpenCodeConnectionResult>(

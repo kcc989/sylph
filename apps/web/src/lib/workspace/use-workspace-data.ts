@@ -106,8 +106,32 @@ export const useWorkspaceData = (initial: WorkspaceResult) => {
     }
   }, [refresh, result.workspace.status])
 
+  const current = result.workspace.id === workspaceId ? result : initial
+  const currentModel = current.models.find(
+    (model) => `${model.providerId}/${model.modelId}` === current.runtime.model
+  )
+  const models = current.models.map((model) => ({
+    ...model,
+    variants:
+      current.runtime.availableModels?.find(
+        (available) =>
+          available.providerId === model.providerId &&
+          available.modelId === model.modelId
+      )?.variants ?? model.variants,
+  }))
+
   return {
-    result: result.workspace.id === workspaceId ? result : initial,
+    result: {
+      ...current,
+      models,
+      selectedModel: currentModel
+        ? {
+            providerId: currentModel.providerId,
+            modelId: currentModel.modelId,
+            variant: current.runtime.modelVariant,
+          }
+        : current.selectedModel,
+    },
     refresh,
     refreshError,
   }
