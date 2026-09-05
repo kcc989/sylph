@@ -30,6 +30,7 @@
       "version": "0.0.1",
       "dependencies": {
         "@ai-sdk/provider": "3.0.8",
+        "@cloudflare/containers": "0.3.7",
         "@opencode-ai/plugin": "^0.0.0-dev-18308",
         "@opencode-ai/schema": "0.0.0-dev-18308",
         "@opencode-ai/sdk": "^0.0.0-dev-18308",

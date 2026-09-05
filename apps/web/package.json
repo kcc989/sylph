@@ -13,15 +13,18 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@ai-sdk/provider": "3.0.8",
+    "@cloudflare/containers": "0.3.7",
     "@opencode-ai/plugin": "^0.0.0-dev-18308",
-    "@opencode-ai/sdk": "^0.0.0-dev-18308",
     "@opencode-ai/schema": "0.0.0-dev-18308",
+    "@opencode-ai/sdk": "^0.0.0-dev-18308",
     "@tailwindcss/vite": "^4",
     "@tanstack/react-devtools": "^0.10.12",
     "@tanstack/react-router": "^1.170.32",
     "@tanstack/react-router-devtools": "^1.167.1",
     "@tanstack/react-start": "^1.168.49",
     "@tanstack/router-plugin": "^1.168.35",
+    "@workspace/cursor-provider": "workspace:*",
     "@workspace/db": "workspace:*",
     "@workspace/domain": "workspace:*",
     "@workspace/ui": "workspace:*",
@@ -32,9 +35,7 @@
     "lucide-react": "^1.39.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
-    "tailwindcss": "^4",
-    "@ai-sdk/provider": "3.0.8",
-    "@workspace/cursor-provider": "workspace:*"
+    "tailwindcss": "^4"
   },
   "devDependencies": {
     "@tanstack/devtools-vite": "^0.8.5",

@@ -1,3 +1,4 @@
+import type { CodexContainer } from "./codex-container"
 import {
   findWorkspaceModel,
   workspaceThinkingOptions,
@@ -300,6 +301,7 @@ const subscriptionProviderId = "openai"
 const subscriptionMethodId = "chatgpt-headless"
 
 interface WorkspaceBindings extends Cloudflare.Env {
+  CODEX: DurableObjectNamespace<CodexContainer>
   CURSOR: DurableObjectNamespace<CursorConnectionObject>
   BROWSER: BrowserRun
   CHECK_EVIDENCE: R2Bucket
@@ -390,6 +392,10 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
                 this.#permissionBridge,
                 this.#skills,
                 {
+                  codexRequest: (request) =>
+                    this.env.CODEX.get(
+                      this.env.CODEX.idFromName(this.ctx.id.toString())
+                    ).fetch(request),
                   assertWritable: () => this.#assertWritable(),
                   installDependencies: async () => this.#installDependencies(),
                   runChecks: async (input) => {

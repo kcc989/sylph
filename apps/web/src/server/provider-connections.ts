@@ -94,14 +94,10 @@ export const effectiveConnection = async (
   ])
 
   const personalRuntimeProviders = new Set(
-    personalConnections
-      .filter((connection) => connection.authMethod !== "chatgpt-subscription")
-      .map((connection) => connection.providerId)
+    personalConnections.map((connection) => connection.providerId)
   )
   const organizationRuntimeProviders = new Set(
-    organizationConnections
-      .filter((connection) => connection.authMethod !== "chatgpt-subscription")
-      .map((connection) => connection.providerId)
+    organizationConnections.map((connection) => connection.providerId)
   )
   const personalKeys = new Set(
     personalModels

@@ -1,3 +1,4 @@
+import type { CodexContainer } from "./apps/web/src/server/codex-container"
 import type { ProjectSynchronization } from "./apps/web/src/server/project-synchronization"
 import type { CursorConnectionObject } from "./apps/web/src/server/cursor-connection-object"
 import * as Alchemy from "alchemy"
@@ -45,6 +46,12 @@ const WorkspaceRuntime = Cloudflare.Worker(
         CREDENTIAL_ENCRYPTION_KEY: Config.redacted("CREDENTIAL_ENCRYPTION_KEY"),
         CURSOR: Cloudflare.DurableObject<CursorConnectionObject>("Cursor", {
           className: "CursorContainer",
+        }),
+        CODEX: Cloudflare.Container<CodexContainer>("CodexContainer", {
+          image: "docker.io/library/node:24-alpine",
+          className: "CodexContainer",
+          instanceType: "basic",
+          maxInstances: 10,
         }),
         CF_TOKEN: Config.redacted("CF_TOKEN"),
         PREVIEW_RETENTION_SECONDS: Config.string(

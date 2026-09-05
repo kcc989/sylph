@@ -1,3 +1,4 @@
+import { codexContainerResponse } from "./codex-container-response"
 import { openRouterErrorResponse } from "./openrouter-response"
 import {
   SkillResourceJsonSchema,
@@ -182,6 +183,7 @@ export type WorkspacePermissionBridge = ReturnType<
 >
 
 export type WorkspacePluginActions = {
+  codexRequest: (request: Request) => Promise<Response>
   assertWritable(): void
   installDependencies(): Promise<WorkspaceCheckRun>
   runChecks(input: {
@@ -641,6 +643,17 @@ export const createWorkspacePlugin = (
         },
         { providerID: "openrouter" }
       )
+      const openAIResponseRegistration = await context.session.hook(
+        "http.response",
+        async (event) => {
+          event.response = await codexContainerResponse(
+            event.request,
+            event.response,
+            actions.codexRequest
+          )
+        },
+        { providerID: "openai" }
+      )
       return async () => {
         await Promise.all([
           toolRegistration.dispose(),
@@ -651,6 +664,7 @@ export const createWorkspacePlugin = (
           sessionRegistration.dispose(),
           openAIRequestRegistration.dispose(),
           openRouterResponseRegistration.dispose(),
+          openAIResponseRegistration.dispose(),
         ])
       }
     },
