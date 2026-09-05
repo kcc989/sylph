@@ -186,7 +186,9 @@ export const TabbedWorkspace: Story = {
     const canvas = within(canvasElement)
     await expect(canvas.getByLabelText("Message the agent")).toBeVisible()
     await expect(canvas.getByLabelText("Send message")).toBeVisible()
-    await expect(canvas.getByLabelText("Model for next turn")).toBeVisible()
+    await expect(
+      canvas.getByRole("combobox", { name: "Model and thinking settings" })
+    ).toBeVisible()
     const openInspector = canvas.queryByLabelText("Open inspector")
     if (openInspector) await userEvent.click(openInspector)
     await userEvent.click(

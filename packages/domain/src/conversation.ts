@@ -1,7 +1,11 @@
 import { Schema } from "effect"
 
 import { AgentSessionId, OrganizationId, ProjectId, WorkspaceId } from "./ids"
-import { OpenCodeCredential, ModelSelection } from "./provider-connection"
+import {
+  OpenCodeCredential,
+  ModelSelection,
+  ProviderModel,
+} from "./provider-connection"
 
 export class InitializeWorkspaceRuntime extends Schema.Class<InitializeWorkspaceRuntime>(
   "@sylph/domain/InitializeWorkspaceRuntime"
@@ -397,6 +401,8 @@ export class WorkspaceRuntimeHealth extends Schema.Class<WorkspaceRuntimeHealth>
   eventCursor: Schema.NullOr(Schema.Int),
   status: WorkspaceRuntimeStatus,
   model: Schema.NullOr(Schema.NonEmptyString),
+  modelVariant: Schema.optional(Schema.NonEmptyString),
+  availableModels: Schema.optionalKey(Schema.Array(ProviderModel)),
   files: Schema.Array(Schema.NonEmptyString),
   messages: Schema.Array(WorkspaceRuntimeMessage),
   messagesCursor: Schema.optional(Schema.NullOr(Schema.NonEmptyString)),

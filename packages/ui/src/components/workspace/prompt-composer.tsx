@@ -11,36 +11,11 @@ import {
 import { useEffect, useRef, useState } from "react"
 
 import { Button } from "@workspace/ui/components/button"
-import { ModelCombobox as SharedModelCombobox } from "@workspace/ui/components/model-combobox"
+import { ThinkingModelPicker } from "./thinking-model-picker"
 import { Textarea } from "@workspace/ui/components/textarea"
 import { cn } from "@workspace/ui/lib/utils"
 import type { WorkspaceReference } from "./workspace-shell-store"
 import type { ComposerModel, ComposerSkill } from "./types"
-
-function ModelCombobox({
-  disabled,
-  models,
-  selectedOption,
-  onModelChange,
-}: {
-  disabled: boolean
-  models: ReadonlyArray<ComposerModel>
-  selectedOption: ComposerModel | null
-  onModelChange?: (model: { providerId: string; modelId: string }) => void
-}) {
-  return (
-    <SharedModelCombobox
-      align="end"
-      ariaLabel="Model for next turn"
-      disabled={disabled}
-      models={models}
-      onValueChange={onModelChange}
-      side="top"
-      triggerClassName="ml-auto h-7 flex-1 rounded-[5px] border-white/[.12] bg-white/[.045] px-2 text-[11px] hover:bg-white/[.07] focus-visible:border-ring focus-visible:ring-ring/50"
-      value={selectedOption}
-    />
-  )
-}
 
 export function PromptComposer({
   disabled = false,
@@ -64,15 +39,23 @@ export function PromptComposer({
   initialPrompt?: string
   onSubmit?: (
     text: string,
-    model: { providerId: string; modelId: string },
+    model: { providerId: string; modelId: string; variant?: string },
     delivery?: "queue" | "steer"
   ) => Promise<boolean | void>
   pending?: boolean
   models: ReadonlyArray<ComposerModel>
   skills: ReadonlyArray<ComposerSkill>
-  selectedModel?: { providerId: string; modelId: string } | null
+  selectedModel?: {
+    providerId: string
+    modelId: string
+    variant?: string
+  } | null
   modelNotice?: string | null
-  onModelChange?: (model: { providerId: string; modelId: string }) => void
+  onModelChange?: (model: {
+    providerId: string
+    modelId: string
+    variant?: string
+  }) => void
   turnActive?: boolean
   queueFull?: boolean
   references?: WorkspaceReference[]
@@ -96,14 +79,6 @@ export function PromptComposer({
     setText(`/${skill.name} `)
     textareaRef.current?.focus()
   }
-  const selectedOption = selectedModel
-    ? models.find(
-        (model) =>
-          model.providerId === selectedModel.providerId &&
-          model.modelId === selectedModel.modelId
-      )
-    : null
-
   const submit = async (delivery?: "queue" | "steer") => {
     const prompt = text.trim()
 
@@ -240,15 +215,24 @@ export function PromptComposer({
             {modelNotice}
           </p>
         ) : null}
-        <div className="flex min-h-10 min-w-0 items-center gap-1 overflow-hidden border-t border-white/[.07] px-2 py-1">
+        <div className="flex min-h-12 min-w-0 items-center gap-1 px-2 py-2">
+          <ThinkingModelPicker
+            disabled={disabled || pending || turnActive || models.length === 0}
+            models={models}
+            selectedModel={selectedModel ?? null}
+            onModelChange={onModelChange}
+          />
           {onOpenFiles ? (
             <Button
               type="button"
               size="xs"
               variant="ghost"
+              aria-label="Attach files"
+              className="shrink-0"
               onClick={onOpenFiles}
             >
-              Files
+              <span className="hidden @md:inline">Files</span>
+              <Blocks className="@md:hidden" />
             </Button>
           ) : null}
           <Button
@@ -276,12 +260,6 @@ export function PromptComposer({
           >
             <Blocks /> Skills
           </Button>
-          <ModelCombobox
-            disabled={pending || turnActive || models.length === 0}
-            models={models}
-            selectedOption={selectedOption ?? null}
-            onModelChange={onModelChange}
-          />
           <span className="hidden text-[10px] whitespace-nowrap text-muted-foreground @2xl:inline">
             ⌘ ↵
           </span>
@@ -297,7 +275,7 @@ export function PromptComposer({
                 <ArrowUp /> Steer
               </Button>
               <Button
-                className="bg-[#ef9b7e] text-[#241613] hover:bg-[#f4af98]"
+                className="shrink-0 bg-[#ef9b7e] text-[#241613] hover:bg-[#f4af98]"
                 disabled={
                   disabled ||
                   pending ||
@@ -319,7 +297,7 @@ export function PromptComposer({
           ) : (
             <Button
               aria-label="Send message"
-              className="bg-[#ef9b7e] text-[#241613] hover:bg-[#f4af98]"
+              className="shrink-0 bg-[#ef9b7e] text-[#241613] hover:bg-[#f4af98]"
               disabled={disabled || pending || !text.trim() || !selectedModel}
               size="icon-sm"
               type="submit"

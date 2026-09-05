@@ -57,7 +57,11 @@ type WorkspaceActionProps = {
   onCheckpoint?: () => Promise<void>
   onDiscardWorkspace: () => Promise<void>
   onDeploy: (commit: string) => Promise<void>
-  onModelChange: (model: { providerId: string; modelId: string }) => void
+  onModelChange: (model: {
+    providerId: string
+    modelId: string
+    variant?: string
+  }) => void
   onPermissionReply: (
     requestId: string,
     reply: "once" | "always" | "reject"
@@ -70,7 +74,7 @@ type WorkspaceActionProps = {
   onRestartWorkspace: () => Promise<void>
   onSubmitPrompt: (
     text: string,
-    model: { providerId: string; modelId: string },
+    model: { providerId: string; modelId: string; variant?: string },
     delivery?: "queue" | "steer"
   ) => Promise<boolean | void>
   onSubmitReview: (decision: "approved" | "changes_requested") => Promise<void>
@@ -129,6 +133,7 @@ export function useWorkspaceActions({
     result.modelNotice,
     result.selectedModel?.modelId,
     result.selectedModel?.providerId,
+    result.selectedModel?.variant,
     workspaceId,
   ])
 
@@ -283,7 +288,7 @@ export function useWorkspaceActions({
     },
     onModelChange: (model) => {
       modelSelectionChanged.current = true
-      setSelectedModel(model)
+      setSelectedModel({ ...model, variant: model.variant })
       setModelNotice(null)
     },
     onPermissionReply: async (requestId, reply) => {

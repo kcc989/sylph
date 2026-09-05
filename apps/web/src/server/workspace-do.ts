@@ -1,3 +1,7 @@
+import {
+  findWorkspaceModel,
+  workspaceThinkingOptions,
+} from "./workspace-model-options"
 import type { CursorConnectionObject } from "./cursor-connection-object"
 import { createCursorProvider } from "./cursor-plugin"
 import {
@@ -1048,6 +1052,9 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       )
       const activeSessions = await opencode.sessions.active()
       const turnActive = Boolean(activeSessions[sessionId])
+      const currentSession = await opencode.sessions.get({
+        sessionID: sessionId,
+      })
       if (turnActive && !data.delivery) {
         throw new PreconditionFailed({
           message: "Choose queue or steer while an agent Turn is active",
@@ -1061,10 +1068,12 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       if (
         turnActive &&
         (state.providerId !== data.model.providerId ||
-          state.modelId !== data.model.modelId)
+          state.modelId !== data.model.modelId ||
+          currentSession.model?.variant !== data.model.variant)
       ) {
         throw new PreconditionFailed({
-          message: "Wait for the active Turn to finish before changing models",
+          message:
+            "Wait for the active Turn to finish before changing models or reasoning levels",
         })
       }
       if (data.delivery === "queue") {
@@ -1094,11 +1103,14 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
             data.credential.type === "key"
           )
             await this.#cursor.refresh(data.credential.key)
+          const catalog = await opencode.model.list()
+          const selected = findWorkspaceModel(catalog.data, data.model)
           await opencode.sessions.switchModel({
             sessionID: sessionId,
             model: {
               providerID: data.model.providerId,
-              id: data.model.modelId,
+              id: selected?.id ?? data.model.modelId,
+              variant: data.model.variant,
             },
           })
         }
@@ -1930,7 +1942,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       )
       .map((model) => ({
         providerId: model.providerID,
-        modelId: model.modelID,
+        modelId: model.id,
         name: model.name,
       }))
       .sort((left, right) => left.name.localeCompare(right.name))
@@ -2002,7 +2014,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     }
     const sessionId = state.sessionId
 
-    const [active, session, messagePage, inbox, forms, permissions] =
+    const [active, session, messagePage, inbox, forms, permissions, catalog] =
       await Promise.all([
         opencode.sessions.active(),
         opencode.sessions.get({ sessionID: sessionId }),
@@ -2012,6 +2024,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         opencode.permission.request.list({
           location: { directory: "/workspace" },
         }),
+        opencode.model.list(),
       ])
     const formStates = await Promise.all(
       forms.map(async (form) => ({
@@ -2041,6 +2054,16 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       sessionId: AgentSessionId.make(sessionId),
       eventCursor: state.eventCursor,
       status: workspaceRuntimeStatus(turnActive, messages, session.outcome),
+      modelVariant: session.model?.variant,
+      availableModels: catalog.data
+        .filter((model) => model.enabled && model.status !== "deprecated")
+        .map((model) => ({
+          providerId: model.providerID,
+          modelId: model.id,
+          name: model.name,
+          variants: model.variants.map((variant) => variant.id),
+          thinkingOptions: workspaceThinkingOptions(model),
+        })),
       model:
         state.providerId && state.modelId
           ? `${state.providerId}/${state.modelId}`
