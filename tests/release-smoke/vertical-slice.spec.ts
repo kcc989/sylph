@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test"
-import { mkdir } from "node:fs/promises"
+import { expect, test, type Page } from "@playwright/test"
+import { mkdir, writeFile, chmod } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 
 const requiredEnvironment = (name: string) => {
@@ -31,19 +31,17 @@ const proofFile = "RELEASE_SMOKE_PROOF.txt"
 const resumeProofMarker = process.env.SYLPH_SMOKE_PROOF_MARKER?.trim()
 const proofMarker = resumeProofMarker || `sylph-release-smoke-${Date.now()}`
 
-const waitForHydration = async (page: Parameters<typeof test>[0]["page"]) => {
+const waitForHydration = async (page: Page) => {
   await page.waitForFunction(() => !("$_TSR" in window))
 }
 
-const openToolMenu = async (page: Parameters<typeof test>[0]["page"]) => {
+const openToolMenu = async (page: Page) => {
   const openInspector = page.getByRole("button", { name: "Open inspector" })
   if (await openInspector.isVisible()) await openInspector.click()
   await page.getByRole("button", { name: "More inspection tools" }).click()
 }
 
-const finishWorkspaceTurn = async (
-  page: Parameters<typeof test>[0]["page"]
-) => {
+const finishWorkspaceTurn = async (page: Page) => {
   await expect
     .poll(
       async () => {
@@ -66,11 +64,16 @@ const finishWorkspaceTurn = async (
       { timeout: 5 * 60 * 1000 }
     )
     .toBe(true)
+  const assistantError = page.getByRole("article").filter({
+    has: page.getByRole("heading", { name: "Assistant error", exact: true }),
+  })
+  await expect(
+    assistantError,
+    "The agent must complete without a provider or runtime error"
+  ).toHaveCount(0)
 }
 
-const expectExpandableToolCalls = async (
-  page: Parameters<typeof test>[0]["page"]
-) => {
+const expectExpandableToolCalls = async (page: Page) => {
   const groupToggle = page.getByRole("button", {
     name: /^Toggle \d+ tool calls$/,
   })
@@ -97,9 +100,7 @@ const expectExpandableToolCalls = async (
   await expect(diffCall.locator("..").locator("section").first()).toBeVisible()
 }
 
-const expectCheckAndBrowserToolCalls = async (
-  page: Parameters<typeof test>[0]["page"]
-) => {
+const expectCheckAndBrowserToolCalls = async (page: Page) => {
   const checkCall = page
     .getByRole("button", {
       name: "Read check status, completed",
@@ -142,7 +143,9 @@ test("setup through eviction recovery", async ({ page }, testInfo) => {
       name: "Send test magic link",
     })
 
-    if (await magicLink.isVisible()) {
+    const magicAuthentication = process.env.SYLPH_SMOKE_AUTH_MODE === "magic"
+    await expect(magicLink).toBeVisible({ visible: magicAuthentication })
+    if (magicAuthentication) {
       await page.getByLabel("Email").fill(adminEmail)
       await magicLink.click()
       const localMagicLink = page.getByRole("link", {
@@ -153,8 +156,6 @@ test("setup through eviction recovery", async ({ page }, testInfo) => {
       await page.waitForURL(
         (url) => url.origin === new URL(baseURL).origin && url.pathname === "/"
       )
-      await mkdir(dirname(authenticationState), { recursive: true })
-      await page.context().storageState({ path: authenticationState })
       await page.goto("/setup")
     } else {
       await page.goto("/setup")
@@ -166,13 +167,28 @@ test("setup through eviction recovery", async ({ page }, testInfo) => {
             "Complete GitHub authentication in the opened browser window.\n"
           )
         }
-        await page.waitForURL(`${baseURL}/setup`, { timeout: 10 * 60 * 1000 })
+        await page.waitForURL(`${baseURL}/setup`, {
+          timeout:
+            testInfo.project.use.headless === false
+              ? 10 * 60 * 1000
+              : 60 * 1000,
+        })
       }
     }
 
     await waitForHydration(page)
-    await mkdir(dirname(authenticationState), { recursive: true })
-    await page.context().storageState({ path: authenticationState })
+    if (!magicAuthentication) {
+      await mkdir(dirname(authenticationState), {
+        recursive: true,
+        mode: 0o700,
+      })
+      await writeFile(
+        authenticationState,
+        JSON.stringify(await page.context().storageState()),
+        { mode: 0o600 }
+      )
+      await chmod(authenticationState, 0o600)
+    }
     const claimHeading = page.getByRole("heading", {
       name: "Claim this Installation",
     })
@@ -245,7 +261,9 @@ test("setup through eviction recovery", async ({ page }, testInfo) => {
       page.getByRole("textbox", { name: "Message the agent" })
     ).toBeEnabled()
     await expect.poll(() => workspaceSocketUrls.length).toBeGreaterThan(0)
-    await page.getByRole("combobox", { name: "Model for next turn" }).click()
+    await page
+      .getByRole("combobox", { name: "Model and thinking settings" })
+      .click()
     await page
       .getByRole("option", { name: `${modelName}, OpenRouter`, exact: true })
       .click()

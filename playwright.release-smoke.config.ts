@@ -15,16 +15,29 @@ export default defineConfig({
   workers: 1,
   timeout: 15 * 60 * 1000,
   expect: { timeout: 60 * 1000 },
-  outputDir: "test-results/release-smoke",
+  outputDir: process.env.SYLPH_SMOKE_OUTPUT_DIR || "test-results/release-smoke",
   reporter: [
     ["list"],
-    ["html", { outputFolder: "playwright-report/release-smoke" }],
+    ["./tools/release-smoke/reporter.mjs"],
+    [
+      "html",
+      {
+        outputFolder:
+          process.env.SYLPH_SMOKE_REPORT_DIR ||
+          "playwright-report/release-smoke",
+        open: "never",
+      },
+    ],
   ],
   use: {
     baseURL: process.env.SYLPH_SMOKE_BASE_URL,
-    storageState: existsSync(authenticationState)
-      ? authenticationState
-      : undefined,
+    actionTimeout: 30_000,
+    navigationTimeout: 60_000,
+    storageState:
+      process.env.SYLPH_SMOKE_AUTH_MODE !== "magic" &&
+      existsSync(authenticationState)
+        ? authenticationState
+        : undefined,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "retain-on-failure",

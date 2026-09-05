@@ -30,3 +30,10 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - Deploy Cloudflare resources through Alchemy v2 in `alchemy.run.ts`. Do not add Wrangler-owned infrastructure or `@cloudflare/vite-plugin`.
 - Keep Durable Object work Workerd-safe. Process-heavy installs, builds, tests, and arbitrary commands belong in Cloudflare CI, not Durable Object storage.
 - Never run destructive Alchemy operations or production deploys without explicit user approval.
+
+## Deployed smoke tests
+
+- Follow `tests/release-smoke/README.md`. Run `bun run smoke:release:doctor -- --auth magic`, then `bun run smoke:release:deploy -- --auth magic`, open the printed URL for manual verification. The printed `smoke:release -- --run ...` command runs the optional Playwright regression suite. Deployment does not require a browser session or provider credits.
+- For GitHub OAuth proof, omit `--auth magic` and use `--headed` when a human login is needed. `gh auth` and other browser sessions do not sign Playwright in.
+- The runner loads `~/.config/sylph/release-smoke.env` (or `SYLPH_SMOKE_ENV_FILE`). Do not source it, print secrets, copy credentials into the checkout, or silently switch auth modes. Reuse the existing GitHub App and proxy with `SYLPH_SMOKE_GITHUB_ENV_FILE` or `--github-env` when their settings live in another file. Report missing values by key name; do not create another App.
+- Use a new stage for each fresh claim test. Keep the run record and report deployment, auth mode, and lifecycle results separately. Stage destruction still requires explicit approval.

@@ -188,6 +188,7 @@ finish() {
 # ──────────────────────────────────────────────────────────────────────────
 
 TOTAL_STAGES=5
+umask 077
 ENV_FILE="${SYLPH_SMOKE_ENV_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/sylph/release-smoke.env}"
 mkdir -p "$(dirname "$ENV_FILE")"
 ALCHEMY_PROFILE="${ALCHEMY_PROFILE:-$(_existing ALCHEMY_PROFILE || true)}"
@@ -199,10 +200,7 @@ banner "Sylph release-smoke setup"
 
 stage "Test identity"
 say "Use the production deployment as the permanent OAuth proxy and a fresh stage for branch tests."
-ask SYLPH_SMOKE_STAGE "Initial branch test stage [release-smoke]:"
-SYLPH_SMOKE_STAGE="${SYLPH_SMOKE_STAGE:-release-smoke}"
 ask SYLPH_SMOKE_ADMIN_EMAIL "Verified email for the dedicated GitHub test account:"
-write_env SYLPH_SMOKE_STAGE "$SYLPH_SMOKE_STAGE"
 write_env SYLPH_SMOKE_ADMIN_EMAIL "$SYLPH_SMOKE_ADMIN_EMAIL"
 SYLPH_SMOKE_AUTH_STATE="${SYLPH_SMOKE_AUTH_STATE:-$(dirname "$ENV_FILE")/release-smoke-auth.json}"
 write_env SYLPH_SMOKE_AUTH_STATE "$SYLPH_SMOKE_AUTH_STATE"
@@ -330,16 +328,10 @@ ask_secret OAUTH_PROXY_SECRET "Paste the production OAuth proxy secret:"
 write_env GITHUB_CLIENT_ID "$GITHUB_CLIENT_ID"
 write_env GITHUB_CLIENT_SECRET "$GITHUB_CLIENT_SECRET"
 write_env OAUTH_PROXY_SECRET "$OAUTH_PROXY_SECRET"
-pause "The production OAuth bridge is ready. Press Enter to deploy the smoke stage."
+pause "The production OAuth bridge is ready. Press Enter to finish the test configuration."
 
 stage "Initial authentication"
 say "The first headed smoke run stores GitHub browser state for later headless runs."
-bun alchemy deploy --env-file "$ENV_FILE" --stage "$SYLPH_SMOKE_STAGE"
-ask SYLPH_SMOKE_BASE_URL "Paste the branch test website URL without a trailing slash:"
-SYLPH_SMOKE_BASE_URL="${SYLPH_SMOKE_BASE_URL%/}"
-write_env SYLPH_SMOKE_BASE_URL "$SYLPH_SMOKE_BASE_URL"
-note "Do not claim the Installation in a normal browser. The smoke test must claim the fresh Installation."
-step "In another terminal, run: set -a; source $ENV_FILE; set +a"
 OPENROUTER_API_KEY=$(_existing OPENROUTER_API_KEY || true)
 if [[ -n "$OPENROUTER_API_KEY" ]]; then
   note "Reusing the OpenRouter API key stored in $ENV_FILE."
@@ -347,9 +339,12 @@ else
   ask_secret OPENROUTER_API_KEY "Paste the OpenRouter API key:"
   write_env OPENROUTER_API_KEY "$OPENROUTER_API_KEY"
 fi
-step "Run the first smoke test headed: bun run smoke:release -- --headed"
+step "Check the configuration: bun run smoke:release:doctor"
+step "Deploy a fresh stage: bun run smoke:release:deploy"
+step "Open the printed URL for manual verification, or add --headed to the printed test command."
 step "Complete GitHub authentication when Playwright opens GitHub."
 step "Later fresh-Installation runs reuse $SYLPH_SMOKE_AUTH_STATE."
-pause "Press Enter after the first headed run has saved its browser state."
+note "gh auth is separate from the Playwright GitHub login."
+chmod 600 "$ENV_FILE"
 
 finish
