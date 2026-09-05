@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import {
+  access,
+  mkdtemp,
+  mkdir,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
@@ -36,10 +43,6 @@ const fixture = async () => {
       scripts: { postinstall: "touch lifecycle-ran" },
     })
   )
-  const initialized = Bun.spawnSync(["git", "init", "--quiet"], {
-    cwd: directory,
-  })
-  expect(initialized.exitCode).toBe(0)
   return directory
 }
 
@@ -72,7 +75,7 @@ describe("CI dependency repair", () => {
       '{"lockfileVersion":1,"workspaces":{},"packages":{"a":["a@1"],"a":["a@1"]}}',
     ],
   ] as const) {
-    test(`regenerates a ${name} lockfile with a real frozen install`, async () => {
+    test(`repairs a ${name} lockfile from source without Git metadata or installed packages`, async () => {
       const directory = await fixture()
       if (damaged !== null)
         await writeFile(join(directory, "bun.lock"), damaged)
@@ -81,6 +84,7 @@ describe("CI dependency repair", () => {
         await readFile(join(directory, "bun.lock"), "utf8")
       )
       expect(output.lockfile).toContain("local-dependency")
+      expect(await Bun.file(join(directory, ".git/HEAD")).exists()).toBeFalse()
       expect(
         output.inputs.some((input) => input.path === "dependency/package.json")
       ).toBeTrue()
@@ -90,6 +94,9 @@ describe("CI dependency repair", () => {
       expect(
         await Bun.file(join(directory, "lifecycle-ran")).exists()
       ).toBeFalse()
+      await expect(
+        access(join(directory, "node_modules"))
+      ).rejects.toMatchObject({ code: "ENOENT" })
     })
   }
 

@@ -4,6 +4,7 @@ import {
   artifactGitProtocolVersion,
   isRepositoryMetadata,
   workspaceHydrationRefs,
+  workspaceRepositoryDefaultBranch,
   workspaceProjectRemote,
   workspaceRebaseConflictState,
 } from "./workspace-git"
@@ -50,4 +51,19 @@ describe("WorkspaceGit", () => {
       sourceRef: "main",
     })
   })
+})
+
+test("resolves the default branch through the Artifacts RPC metadata method", async () => {
+  const repository = {
+    defaultBranch: "rpc-property",
+    info: async () => ({ defaultBranch: "main" }),
+    createToken: async () => ({ plaintext: "fixture" }),
+  }
+  expect(await workspaceRepositoryDefaultBranch(repository)).toBe("main")
+  expect(
+    await workspaceRepositoryDefaultBranch({
+      defaultBranch: "trunk",
+      createToken: repository.createToken,
+    })
+  ).toBe("trunk")
 })

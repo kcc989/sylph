@@ -32,7 +32,7 @@ import {
   workspaceCommandErrorExcept,
   workspaceCommandErrorMessage,
 } from "@workspace/ui/lib/workspace-commands"
-import { useCallback } from "react"
+import { useCallback, useEffect, useState } from "react"
 
 import { validateOnboardingSearch } from "@/lib/onboarding"
 import { getDashboard } from "@/functions/installation"
@@ -152,9 +152,37 @@ function WorkspaceScreen() {
   const { onboarding } = Route.useSearch()
   const {
     dashboard,
-    deployments,
+    deployments: initialDeployments,
     result: initialResult,
   } = Route.useLoaderData()
+  const [deployments, setDeployments] = useState(initialDeployments)
+  const readDeployments = useServerFn(getProjectDeployments)
+  useEffect(() => setDeployments(initialDeployments), [initialDeployments])
+  const pendingDeployment = deployments.deployments.some(
+    (deployment) =>
+      deployment.status === "queued" || deployment.status === "running"
+  )
+  useEffect(() => {
+    if (!pendingDeployment) return
+    let stopped = false
+    let timer: ReturnType<typeof setTimeout>
+    const poll = async () => {
+      try {
+        const next = await readDeployments({
+          data: { projectId: initialResult.workspace.projectId },
+        })
+        if (!stopped) setDeployments(next)
+      } finally {
+        if (!stopped)
+          timer = setTimeout(() => void poll().catch(() => undefined), 3000)
+      }
+    }
+    timer = setTimeout(() => void poll().catch(() => undefined), 3000)
+    return () => {
+      stopped = true
+      clearTimeout(timer)
+    }
+  }, [pendingDeployment, readDeployments, initialResult.workspace.projectId])
   const {
     result,
     refresh: refreshLive,

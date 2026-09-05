@@ -17,3 +17,4 @@ export * from "./skills"
 
 export * from "./acceptance"
 export * from "./dependency-repair"
+export * from "./instance-model-policy"

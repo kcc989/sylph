@@ -11,6 +11,7 @@ import { useCallback, useState } from "react"
 export type WorkspaceCommandOptions = {
   readonly target?: string | null
   readonly refresh?: boolean
+  readonly refreshOnFailure?: boolean
 }
 
 export const useWorkspaceCommands = (refresh: () => Promise<void>) => {
@@ -31,6 +32,7 @@ export const useWorkspaceCommands = (refresh: () => Promise<void>) => {
         setState((current) => workspaceCommandFinished(current, started))
         return true
       } catch (cause) {
+        if (options.refreshOnFailure) await refresh().catch(() => undefined)
         setState((current) =>
           workspaceCommandFailed(
             current,

@@ -58,3 +58,28 @@ test("does not claim a provisioning Workspace is ready", () => {
   expect(entries[0]?.id).toBe("workspace-provisioning")
   expect(entries[0]?.title).toBe("Starting your Workspace")
 })
+
+test("renders system check notices separately from user messages", () => {
+  const entries = workspaceThreadEntries(
+    {
+      files: [],
+      status: "ready",
+      messages: [
+        {
+          id: "notice",
+          role: "user",
+          createdAt: 1,
+          notice: { summary: "Checks passed" },
+          parts: [{ type: "text", text: "Checks passed" }],
+          error: null,
+        },
+      ],
+    },
+    emptyWorkspaceLiveState(),
+    [],
+    () => undefined
+  )
+  expect(entries).toEqual([
+    { id: "notice", kind: "notice", body: "Checks passed" },
+  ])
+})

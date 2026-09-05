@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test"
 
-import { workspaceCheckItems } from "./workspace-check-items"
+import {
+  workspaceCheckItems,
+  workspaceCheckStageStatus,
+} from "./workspace-check-items"
 
 const actions = {
   automaticRepairsUsed: 0,
@@ -20,6 +23,10 @@ const actions = {
 }
 
 describe("Workspace check items", () => {
+  test("does not present skipped verification as passed", () => {
+    expect(workspaceCheckStageStatus("skipped")).toBe("skipped")
+    expect(workspaceCheckStageStatus("passed")).toBe("passed")
+  })
   test("shows an actionable Project update before Check stages", () => {
     const items = workspaceCheckItems(undefined, undefined, actions)
 

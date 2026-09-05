@@ -368,7 +368,7 @@ export function useWorkspaceActions({
           await refresh()
         },
         "The assistant could not start the turn",
-        { refresh: false }
+        { refresh: false, refreshOnFailure: true }
       )
       setOptimisticEntries([])
       return sent

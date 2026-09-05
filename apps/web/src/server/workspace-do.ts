@@ -2,6 +2,10 @@ import {
   findWorkspaceModel,
   workspaceThinkingOptions,
 } from "./workspace-model-options"
+import {
+  workspaceConversationText,
+  workspaceConversationNotice,
+} from "./workspace-conversation-notice"
 import type { CursorConnectionObject } from "./cursor-connection-object"
 import { createCursorProvider } from "./cursor-plugin"
 import {
@@ -221,6 +225,7 @@ const encodeWorkspaceVersionControlSnapshotSync = Schema.encodeSync(
 const encodeWorkspaceFileContentSync = Schema.encodeSync(WorkspaceFileContent)
 const workerdModelConfiguration = {
   default_agent: "build",
+  compaction: { auto: true, keep: { tokens: 8_000 }, buffer: 8_192 },
   permissions: workspaceMutationPermissions,
 }
 
@@ -366,63 +371,96 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     this.#checks = new WorkspaceChecks(context.storage)
     this.#opencode = context.blockConcurrencyWhile(async () => {
       const { OpenCodeWorkerd } = await import("@opencode-ai/sdk/workerd")
+      const { Environment } =
+        await import("@opencode-ai/core/environment/index")
+      const { Ripgrep } = await import("@opencode-ai/core/ripgrep")
+      const { workspaceSearchLayer } = await import("./workspace-search")
+      const { workspaceEnvironmentLayer } =
+        await import("./workspace-environment")
       const opencode = await createOpenCodeWithStorageBootstrap(
         context.storage,
         () =>
-          OpenCodeWorkerd.create({
-            storage: context.storage,
-            models: {
-              url: "https://models.opencode.ai",
-              snapshot: false,
+          OpenCodeWorkerd.create(
+            {
+              storage: context.storage,
+              models: {
+                url: "https://models.opencode.ai",
+                snapshot: false,
+              },
+              log: {
+                level: "error",
+                emit: ({ message, cause }) =>
+                  console.error("OpenCode runtime error", message, cause),
+              },
+              config: workerdModelConfiguration,
+              plugins: [
+                this.#cursor.plugin,
+                createWorkspacePlugin(
+                  this.#filesystem,
+                  this.#workspaceGit,
+                  this.#openAIOAuth,
+                  this.#permissionBridge,
+                  this.#skills,
+                  {
+                    assertWritable: () => this.#assertWritable(),
+                    installDependencies: async () =>
+                      this.#installDependencies(),
+                    runChecks: async (input) => {
+                      try {
+                        const state = this.#requiredState()
+                        const version =
+                          await this.#workspaceGit.versionControl()
+                        const checkpoint = version.working.length
+                          ? (await this.#agentCheckpoint(input.message))
+                              .checkpoint
+                          : this.#workspaceGit
+                              .checkpoints()
+                              .find(
+                                (candidate) =>
+                                  candidate.commit === version.forkHead
+                              )
+                        if (!checkpoint)
+                          throw new Error(
+                            "Create a Checkpoint before running Checks"
+                          )
+                        return await this.#startCheckpointCheck(
+                          state.workspaceId,
+                          checkpoint.id,
+                          checkpoint.commit,
+                          input.repairOnFailure
+                        )
+                      } catch (error) {
+                        console.error(
+                          "Workspace runChecks failed",
+                          error instanceof Error ? error.stack : error
+                        )
+                        throw error
+                      }
+                    },
+                    syncProject: async () => this.#syncProjectAndCheck(),
+                    checkpoint: async (input) =>
+                      this.#agentCheckpoint(input.message),
+                    diff: async (scope) => this.#diff(scope),
+                    requestMerge: async () => this.#requestMerge(),
+                    preview: async () => this.#preview(),
+                    production: async () => this.#production(),
+                    browser: async (input) => this.#browser(input),
+                  }
+                ),
+              ],
             },
-            log: {
-              level: "error",
-              emit: ({ message, cause }) =>
-                console.error("OpenCode runtime error", message, cause),
-            },
-            config: workerdModelConfiguration,
-            plugins: [
-              this.#cursor.plugin,
-              createWorkspacePlugin(
-                this.#filesystem,
-                this.#workspaceGit,
-                this.#openAIOAuth,
-                this.#permissionBridge,
-                this.#skills,
-                {
-                  assertWritable: () => this.#assertWritable(),
-                  installDependencies: async () => this.#installDependencies(),
-                  runChecks: async (input) => {
-                    try {
-                      const state = this.#requiredState()
-                      const result = await this.#agentCheckpoint(input.message)
-                      return await this.#startCheckpointCheck(
-                        state.workspaceId,
-                        result.checkpoint.id,
-                        result.checkpoint.commit,
-                        input.repairOnFailure
-                      )
-                    } catch (error) {
-                      console.error(
-                        "Workspace runChecks failed",
-                        error instanceof Error ? error.stack : error
-                      )
-                      throw error
-                    }
-                  },
-                  checkStatus: async () => this.#checks.list(),
-                  syncProject: async () => this.#syncProjectAndCheck(),
-                  checkpoint: async (input) =>
-                    this.#agentCheckpoint(input.message),
-                  diff: async (scope) => this.#diff(scope),
-                  requestMerge: async () => this.#requestMerge(),
-                  preview: async () => this.#preview(),
-                  production: async () => this.#production(),
-                  browser: async (input) => this.#browser(input),
-                }
-              ),
-            ],
-          })
+            {
+              overrides: [
+                [Ripgrep.node, workspaceSearchLayer(this.#filesystem)],
+                [
+                  Environment.node,
+                  workspaceEnvironmentLayer(this.#filesystem, () =>
+                    this.#assertWritable()
+                  ),
+                ],
+              ],
+            }
+          )
       )
 
       this.#permissionBridge.connect(async (request) =>
@@ -1055,11 +1093,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       const currentSession = await opencode.sessions.get({
         sessionID: sessionId,
       })
-      if (turnActive && !data.delivery) {
-        throw new PreconditionFailed({
-          message: "Choose queue or steer while an agent Turn is active",
-        })
-      }
+      const delivery = data.delivery ?? (turnActive ? "queue" : undefined)
       if (!turnActive && data.delivery === "steer") {
         throw new PreconditionFailed({
           message: "There is no active Turn to steer",
@@ -1069,14 +1103,15 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         turnActive &&
         (state.providerId !== data.model.providerId ||
           state.modelId !== data.model.modelId ||
-          currentSession.model?.variant !== data.model.variant)
+          (currentSession.model?.variant ?? "default") !==
+            (data.model.variant ?? "default"))
       ) {
         throw new PreconditionFailed({
           message:
             "Wait for the active Turn to finish before changing models or reasoning levels",
         })
       }
-      if (data.delivery === "queue") {
+      if (delivery === "queue") {
         const inbox = await opencode.sessions.inbox.list({
           sessionID: sessionId,
         })
@@ -1139,9 +1174,10 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           ? invocation.text || "Follow the attached Skill instructions."
           : data.text,
         skills: invocation ? [{ id: invocation.skillId }] : undefined,
-        delivery: data.delivery,
+        delivery,
+        metadata: { sylphOrigin: "user" },
       })
-      if (data.delivery !== "queue") await this.#scheduleTurnLimit()
+      if (delivery !== "queue") await this.#scheduleTurnLimit()
       return encodeWorkspaceRuntimeHealthSync(await this.#snapshot(opencode))
     })
   }
@@ -1371,7 +1407,11 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     return versionControl
   }
 
-  async #promptSession(opencode: OpenCodeWorkerd.Interface, text: string) {
+  async #promptSession(
+    opencode: OpenCodeWorkerd.Interface,
+    text: string,
+    resume = false
+  ) {
     const state = this.#requiredState()
     if (!state.sessionId) {
       throw notInitialized("OpenCode session is not initialized")
@@ -1380,12 +1420,19 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     const sessionId = state.sessionId
     const active = await opencode.sessions.active()
     const turnActive = Boolean(active[sessionId])
-    await opencode.sessions.prompt({
+    await opencode.sessions.synthetic({
       sessionID: sessionId,
       text,
-      delivery: turnActive ? "queue" : null,
+      resume,
+      metadata: {
+        sylphOrigin: "check",
+        sylphNotice: workspaceConversationNotice(text) ?? {
+          summary: "Checks updated",
+        },
+      },
+      delivery: turnActive ? "queue" : undefined,
     })
-    if (!turnActive) await this.#scheduleTurnLimit()
+    if (resume && !turnActive) await this.#scheduleTurnLimit()
     return true
   }
 
@@ -1398,7 +1445,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         opencode,
         run.status === "passed"
           ? "Dependency installation succeeded. The generated bun.lock is saved in the durable Workspace and a normal frozen-install Check has started. Wait for its result; do not edit bun.lock or start duplicate Checks."
-          : `Dependency installation failed. No successful repair is claimed. Inspect these diagnostics, correct the package.json dependency declarations if needed, then call workspace_install_dependencies with {}.\n${run.diagnostics.map((item) => item.output || item.summary).join("\n")}`
+          : `Dependency installation failed. No successful repair is claimed. Inspect these diagnostics. Retry only after correcting an actionable cause; do not repeat unchanged attempts after network or platform failures. Report the failure if it needs platform recovery.\n${run.diagnostics.map((item) => item.output || item.summary).join("\n")}`
       )
       return
     }
@@ -1450,7 +1497,11 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         reason: "A repair turn already started for this Check.",
       }
     }
-    const prompted = await this.#promptSession(opencode, checkRepairPrompt(run))
+    const prompted = await this.#promptSession(
+      opencode,
+      checkRepairPrompt(run),
+      true
+    )
     return prompted
       ? { started: true, reason: "" }
       : { started: false, reason: readOnlyMessage }
@@ -2053,7 +2104,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       workspaceId: WorkspaceId.make(state.workspaceId),
       sessionId: AgentSessionId.make(sessionId),
       eventCursor: state.eventCursor,
-      status: workspaceRuntimeStatus(turnActive, messages, session.outcome),
+      status: workspaceRuntimeStatus(turnActive, session.outcome),
       modelVariant: session.model?.variant,
       availableModels: catalog.data
         .filter((model) => model.enabled && model.status !== "deprecated")
@@ -2072,11 +2123,16 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       messages: workspaceRuntimeMessages(messages),
       messagesCursor: messagePage.cursor,
       queuedMessages: inbox.flatMap((item) =>
-        item.type === "user"
+        item.type === "user" ||
+        (item.type === "synthetic" &&
+          workspaceConversationNotice(item.payload.text, item.payload.metadata))
           ? [
               new WorkspaceQueuedMessage({
                 id: item.id,
-                text: item.payload.text,
+                ...workspaceConversationText(
+                  item.payload.text,
+                  item.payload.metadata
+                ),
                 createdAt: item.timeCreated,
                 delivery: item.delivery,
               }),
