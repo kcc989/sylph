@@ -453,7 +453,7 @@ export const CompanionWorkflow: Story = {
       inspector.getByRole("button", { name: "More inspection tools" })
     )
     await userEvent.click(
-      within(canvasElement.ownerDocument.body).getByRole("menuitem", {
+      await within(canvasElement.ownerDocument.body).findByRole("menuitem", {
         name: "Files",
       })
     )
@@ -474,7 +474,7 @@ export const CompanionWorkflow: Story = {
       inspector.getByRole("button", { name: "More inspection tools" })
     )
     await userEvent.click(
-      within(canvasElement.ownerDocument.body).getByRole("menuitem", {
+      await within(canvasElement.ownerDocument.body).findByRole("menuitem", {
         name: "Files",
       })
     )
