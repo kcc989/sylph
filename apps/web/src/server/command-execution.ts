@@ -53,15 +53,15 @@ const runCommand = request => new Promise(resolve => {
   const stderr = [];
   let size = 0;
   let spawnFailed = false;
+  const stop = () => { if (child.pid) { try { process.kill(-child.pid, 'SIGKILL'); } catch {} } };
+  process.on('SIGTERM', stop);
+  process.on('SIGINT', stop);
   const child = cp.spawn(request.command, request.args, {
     cwd: request.cwd,
     env: { PATH: process.env.PATH, HOME: process.env.HOME || '/root', LANG: 'C.UTF-8', ...request.env },
     detached: true,
     stdio: ['pipe', 'pipe', 'pipe'],
   });
-  const stop = () => { if (child.pid) { try { process.kill(-child.pid, 'SIGKILL'); } catch {} } };
-  process.on('SIGTERM', stop);
-  process.on('SIGINT', stop);
   const timer = setTimeout(stop, Math.min(request.timeoutMs || ${commandTimeoutMs}, ${commandTimeoutMs}));
   const collect = chunks => chunk => {
     size += chunk.length;
