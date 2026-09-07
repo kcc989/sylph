@@ -159,6 +159,14 @@ test("production saves recovery before publish and journeys before resuming writ
   const result = await pipeline("success")
   expect(result.deployment.status).toBe("succeeded")
   expect(result.check.status).toBe("passed")
+  expect(result.observations).toEqual([
+    { action: "public-page", status: 503, owner: "deployment-1" },
+    { action: "private-probe", status: 200, owner: "deployment-1" },
+    { action: "resume", owner: null },
+    { action: "public-page", status: 200, owner: null },
+    { action: "private-probe", status: 200, owner: null },
+  ])
+  expect(result.gateOwner).toBeNull()
   expect(
     result.commands.map((command: { name: string }) => command.name)
   ).toEqual([
@@ -350,5 +358,52 @@ test.each(["missing-inventory", "extra-inventory"])(
       )
     ).toBe(false)
     expect(result.deployment.failure_details).toContain("exactly the owned")
+  }
+)
+
+test.each(["private-probe-failure", "wrong-commit", "resume-failure"])(
+  "keeps the real writer gate paused when pre-resume safety fails: %s",
+  async (mode) => {
+    const result = await pipeline(mode)
+    expect(result.deployment.status).toBe("failed")
+    expect(result.deployment.production_url).toBe(
+      "https://sylph-fixture-app.account.workers.dev"
+    )
+    expect(result.gateOwner).toBe("deployment-1")
+    expect(
+      result.observations.filter(
+        (observation: { action: string }) =>
+          observation.action === "public-page"
+      )
+    ).toEqual([{ action: "public-page", status: 503, owner: "deployment-1" }])
+    expect(
+      result.commands.some(
+        (command: { name: string }) =>
+          command.name === "production-journey-live"
+      )
+    ).toBe(false)
+  }
+)
+
+test.each(["browser-failure", "live-journey-failure"])(
+  "keeps a published resumed release failed when public verification fails: %s",
+  async (mode) => {
+    const result = await pipeline(mode)
+    expect(result.deployment.status).toBe("failed")
+    expect(result.deployment.production_url).toBe(
+      "https://sylph-fixture-app.account.workers.dev"
+    )
+    expect(result.gateOwner).toBeNull()
+    expect(result.observations).toContainEqual({
+      action: "public-page",
+      status: 200,
+      owner: null,
+    })
+    expect(
+      result.commands.some(
+        (command: { name: string }) =>
+          command.name === "production-journey-live"
+      )
+    ).toBe(mode === "live-journey-failure")
   }
 )

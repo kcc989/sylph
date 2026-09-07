@@ -37,6 +37,7 @@ export const WorkspaceCheckStageName = Schema.Literals([
   "data-restore",
   "production-journey",
   "release-resume",
+  "production-journey-live",
 ])
 export type WorkspaceCheckStageName = typeof WorkspaceCheckStageName.Type
 

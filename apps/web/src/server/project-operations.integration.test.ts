@@ -50,7 +50,7 @@ test("D1 operations retain incidents across requests and reject non-members", as
     }
     await db
       .prepare(
-        "INSERT INTO deployment(id, project_id, \"commit\", status, actor_user_id, completed_at, identity_json) VALUES ('deployment', 'project', ?, 'succeeded', 'member', 100, ?)"
+        "INSERT INTO deployment(id, project_id, \"commit\", status, actor_user_id, completed_at, identity_json, production_url) VALUES ('deployment', 'project', ?, 'failed', 'member', 100, ?, 'https://production.example.com')"
       )
       .bind(commit, JSON.stringify([identity]))
       .run()
@@ -119,7 +119,12 @@ test("D1 operations retain incidents across requests and reject non-members", as
     expect(scheduled).toEqual({ collected: 1, failed: 0 })
     const first = await readOperations(db, "project")
     expect(first.observation?.status).toBe("degraded")
-    expect(first.incidents).toHaveLength(2)
+    expect(first.incidents).toHaveLength(3)
+    expect(
+      first.incidents.some((incident) => incident.kind === "release")
+    ).toBe(true)
+    expect(first.observation?.deploymentId).toBe("deployment")
+    expect(first.observation?.detail).toContain("failed after publication")
     await refreshOperations(db, credentials, "project", 2000001, request)
     expect(calls).toBe(3)
     expect(

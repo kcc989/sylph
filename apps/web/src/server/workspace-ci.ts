@@ -465,7 +465,6 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
             .bind(url, deploymentId)
             .run()
         })
-        run = await this.#browserEvidence(step, run, url)
         const verified = await this.#runner(
           step,
           deployment.result,
@@ -515,11 +514,12 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
           }
         )
         run = resumed.run
+        run = await this.#browserEvidence(step, run, url)
         const live = await this.#runner(
           step,
           resumed.result,
           run,
-          "production-journey",
+          "production-journey-live",
           {
             name: "production-journey-live",
             config: verificationRunnerConfig,

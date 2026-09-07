@@ -1,6 +1,7 @@
 import { Schema } from "effect"
 import { ProjectId } from "./ids"
 import { GitCommitId } from "./version-control"
+import { DeploymentStatus } from "./deployments"
 
 export class OperationsFailure extends Schema.TaggedError<OperationsFailure>()(
   "OperationsFailure",
@@ -86,12 +87,15 @@ export const ProductionTarget = Schema.Struct({
   id: Schema.String,
   commit: GitCommitId,
   identity_json: Schema.NullOr(Schema.String),
+  status: DeploymentStatus,
 })
+export const IncidentKind = Schema.Literals(["errors", "latency", "release"])
+export type IncidentKind = typeof IncidentKind.Type
 export const Incident = Schema.Struct({
   id: Schema.String,
   deployment_id: Schema.String,
   commit: GitCommitId,
-  kind: Schema.Literals(["errors", "latency"]),
+  kind: IncidentKind,
   status: Schema.Literals(["open", "acknowledged"]),
   first_seen: Schema.Number,
   last_seen: Schema.Number,

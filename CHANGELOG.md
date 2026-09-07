@@ -6,6 +6,12 @@ All notable changes to Sylph are recorded here. The format follows [Keep a Chang
 
 ### Added
 
+- Production health collection on the existing schedule, release and telemetry incidents, and repair Workspaces created from the published commit.
+- D1 Time Travel recovery, a drained writer gate, encrypted secret versions, and a reviewed starter candidate with all five release hooks. Candidate publication, pinning, and a real restore drill remain required before rollout.
+- Multiple-Worker resource plans, hosted Durable Object and Workflow identities, service/AI bindings, and reviewed adoption, retirement, and removal.
+- Browser journey requirements tied to the current Check attempt, ordered assertions, desktop/mobile viewports, allowed authentication origins, and human control.
+- Concrete combined lifecycle verification actions and encrypted Installation D1 preservation with local import verification. Earlier Durable Objects remain in the retained original Installation.
+
 - Browser deployment through GitHub Actions with optional custom domains, account preflight checks, stable Alchemy-managed credentials, and setup links.
 - Protected browser setup for GitHub App creation or reuse, encrypted credential storage, and Installation claim without a second deployment.
 - Project resource inventory, deployment ownership checks, encrypted application secrets, custom-domain configuration, and resource inspection controls.
@@ -24,6 +30,8 @@ All notable changes to Sylph are recorded here. The format follows [Keep a Chang
 - Wait for an exact visible checkpoint/deployment DOM marker before collecting browser evidence.
 
 ### Changed
+
+- Apply ordered operations and resource-lifecycle migrations after the current initial schema. Provision a separate resource-maintenance token and add Workers Observability Write to the managed runtime token; configured token overrides need matching permissions. See `docs/operators.md` before upgrading.
 
 - Combine Website and WorkspaceRuntime into one Worker and replace pre-release database upgrades with one initial schema. Deploy to fresh resources; existing D1 and Durable Object state is not migrated.
 - Resume the normal coding agent after eligible failed Checkpoints, with durable delivery and a three-Turn limit. Consolidate Workspace restart into the provisioning Workflow and browser state into one synchronization module.

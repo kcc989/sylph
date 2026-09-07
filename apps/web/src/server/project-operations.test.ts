@@ -13,6 +13,7 @@ import {
   incidentUpsertSql,
   repairBrief,
   scheduledHealthProjectsSql,
+  publishedHealthTargetSql,
 } from "./project-operations"
 import type { HealthObservation } from "@workspace/domain/project-operations"
 
@@ -66,7 +67,7 @@ test("scheduled collection bounds each batch and selects the oldest eligible dep
     ).run(id, id, id, id, id)
     if (id !== "unreleased")
       db.query(
-        "INSERT INTO deployment(id, project_id, [commit], status, actor_user_id) VALUES (?, ?, ?, 'succeeded', 'owner')"
+        "INSERT INTO deployment(id, project_id, [commit], status, actor_user_id, production_url) VALUES (?, ?, ?, 'succeeded', 'owner', 'https://production.example.com')"
       ).run(id, id, "a".repeat(40))
   }
   db.exec(
@@ -84,6 +85,53 @@ test("scheduled collection bounds each batch and selects the oldest eligible dep
     { id: "a" },
   ])
 })
+test("health tracks the latest publication even when its release failed", () => {
+  const db = fixture()
+  const insert = db.query(
+    "INSERT INTO deployment(id, project_id, [commit], status, actor_user_id, production_url, identity_json, created_at, completed_at) VALUES (?, 'project', ?, ?, 'owner', ?, ?, ?, ?)"
+  )
+  insert.run(
+    "old",
+    "a".repeat(40),
+    "succeeded",
+    "https://old.example.com",
+    "old-identity",
+    1,
+    9
+  )
+  insert.run(
+    "published-failure",
+    "b".repeat(40),
+    "failed",
+    "https://current.example.com",
+    "new-identity",
+    2,
+    3
+  )
+  insert.run("unpublished-failure", "c".repeat(40), "failed", null, null, 3, 10)
+  expect(db.query(publishedHealthTargetSql).get("project")).toEqual({
+    id: "published-failure",
+    commit: "b".repeat(40),
+    identity_json: "new-identity",
+    status: "failed",
+  })
+  insert.run(
+    "unknown-identity",
+    "d".repeat(40),
+    "failed",
+    "https://current.example.com",
+    null,
+    4,
+    11
+  )
+  expect(db.query(publishedHealthTargetSql).get("project")).toEqual({
+    id: "unknown-identity",
+    commit: "d".repeat(40),
+    identity_json: null,
+    status: "failed",
+  })
+})
+
 test("deduplicates overlapping collection windows without reopening acknowledged incidents", () => {
   const db = fixture()
   const insert = db.query(incidentUpsertSql)
@@ -147,9 +195,12 @@ test("deduplicates overlapping collection windows without reopening acknowledged
     db.query("SELECT count(*) AS count FROM project_incident").get()
   ).toEqual({ count: 2 })
 })
-test("unknown collection does not create incidents", () => {
+test("unknown collection keeps release failure separate from unverified telemetry", () => {
   expect(incidentKinds(observation)).toEqual(["errors", "latency"])
   expect(incidentKinds({ ...observation, status: "unknown" })).toEqual([])
+  expect(incidentKinds({ ...observation, status: "unknown" }, true)).toEqual([
+    "release",
+  ])
 })
 test("repair brief contains immutable deployment and bounded diagnostic evidence", () => {
   const brief = repairBrief({

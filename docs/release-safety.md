@@ -2,7 +2,7 @@
 
 Production requires an Organization Admin to confirm an Accepted commit. One production operation can run per Project. The database reservation pins the latest deployment attempt; concurrent or stale requests fail before CI starts. The live baseline commit and URL come from the same latest published deployment, including a failed operation whose code was published. A failed attempt before publication does not replace that live identity.
 
-A deployment URL is publication evidence. Success also requires a saved migration review, a saved data recovery point, a rendered marker for the exact production commit, an application journey, resuming writes, and another application journey after writes resume. Failures after publication retain the production URL. The history shows failed releases even when their code is live.
+A deployment URL is publication evidence. Success also requires a saved migration review, a saved data recovery point, private application verification while writers are paused, resuming writes, a public rendered marker for the exact production commit, and another application verification after writes resume. Failures after publication retain the production URL. The history shows failed releases even when their code is live.
 
 ## Application integration
 
@@ -28,7 +28,7 @@ Receipt schemas live in `packages/domain/src/deployments.ts`. Print exactly one 
 - `SYLPH_DATA_RESTORED`: `{ deploymentId, recoveryDeploymentId, commit, restored: true, resources }`. Resources must list every `kind:id` from the selected recovery point exactly once, with no extras. Missing or partial restore evidence blocks code publication.
 - `SYLPH_PRODUCTION_JOURNEY`: `{ deploymentId, commit, url, passed: true, journeys }`. The nonempty journey list describes what was exercised. A URL or a homepage health check alone is not an application journey.
 
-The application must render a visible element with `data-sylph-checkpoint` equal to the full commit and `data-sylph-deployment="production"`. Cloudflare Browser Run waits for this marker and stores screenshot and accessibility evidence before the first journey.
+The application must render a visible element with `data-sylph-checkpoint` equal to the full commit and `data-sylph-deployment="production"`. Cloudflare Browser Run waits for this marker and stores screenshot and accessibility evidence after writers resume and before the final live verification. A paused application may block the public homepage; its private verification path must remain available to the dedicated verification actor.
 
 ## Recovering code and data
 
@@ -46,4 +46,4 @@ The version 2 repository manifest supplies temporary Git access and repository h
 
 The initial schema in `packages/db/migrations/0001_initial.sql` includes release receipts and an index that permits one queued/running deployment per Project. This baseline requires fresh resources; it does not upgrade earlier experimental databases.
 
-Local pipeline tests simulate CI, Browser Run, and provider receipts against SQLite. They cover ordering, incompatible migrations, missing/expired/unsaved backups, incomplete restores, mismatched journey commits, writer resume failures, and verification failures after publication. They do not prove a real provider backup or live restoration. Before production rollout, test the application's hooks in an isolated stage with real data, concurrent writers, a deliberate migration failure, complete restore, and a verified production journey. Production deployment and destructive restores require separate explicit approval.
+Local pipeline tests simulate CI, Browser Run, and provider receipts against SQLite, and compose the real recovery gate with the release pipeline to verify paused and resumed HTTP responses. They cover ordering, incompatible migrations, missing/expired/unsaved backups, incomplete restores, mismatched journey commits, writer resume failures, and verification failures after publication. They do not prove a real provider backup or live restoration. Before production rollout, test the application's hooks in an isolated stage with real data, concurrent writers, a deliberate migration failure, complete restore, and a verified production journey. Production deployment and destructive restores require separate explicit approval.

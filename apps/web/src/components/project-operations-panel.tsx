@@ -67,9 +67,10 @@ export function ProjectOperationsPanel({
         Workspace.
       </p>
       <p className="mt-2 text-xs leading-5 text-muted-foreground">
-        Collection runs on request, at most once a minute. It samples 15 minutes
-        of invocation logs ending one minute ago. Alerts use observed errors or
-        a sampled p95 of at least 2,000 ms.
+        Collection runs in the background, at least five minutes apart, and on
+        request, at most once a minute. It samples 15 minutes of invocation logs
+        ending one minute ago. Incidents report failed releases, observed
+        errors, or a sampled p95 of at least 2,000 ms.
       </p>
       {error && (
         <p role="alert" className="mt-3 text-sm text-destructive">
@@ -146,8 +147,8 @@ export function ProjectOperationsPanel({
         </div>
       ) : (
         <p className="mt-4 text-sm text-muted-foreground">
-          No health observations yet. Collect after a verified production
-          release.
+          No health observations yet. Collect after a production release is
+          published.
         </p>
       )}
       <ul className="mt-5 divide-y">
@@ -157,7 +158,9 @@ export function ProjectOperationsPanel({
               <h3 className="text-sm font-medium">
                 {incident.kind === "errors"
                   ? "Production errors"
-                  : "Slow production responses"}{" "}
+                  : incident.kind === "release"
+                    ? "Release failed after publication"
+                    : "Slow production responses"}{" "}
                 ·{" "}
                 {incident.status === "open"
                   ? "Needs attention"

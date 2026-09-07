@@ -11,7 +11,7 @@ CREATE TABLE project_incident (
  project_id TEXT NOT NULL REFERENCES project(id) ON DELETE CASCADE,
  deployment_id TEXT NOT NULL REFERENCES deployment(id) ON DELETE CASCADE,
  "commit" TEXT NOT NULL,
- kind TEXT NOT NULL CHECK(kind IN ('errors', 'latency')),
+ kind TEXT NOT NULL CHECK(kind IN ('errors', 'latency', 'release')),
  status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open', 'acknowledged')),
  first_seen INTEGER NOT NULL,
  last_seen INTEGER NOT NULL,

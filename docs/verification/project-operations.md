@@ -6,6 +6,8 @@ Project settings now has a Production health section. A Project member can colle
 
 ## Data and API contracts
 
+Collection targets the latest published release, including a release that failed after publication; a newer unpublished failure does not replace it. A failed publication creates a separate release incident even when telemetry is unavailable or provider identity has drifted. That incident records the failed operation, not an inference about current traffic. Unknown identity never falls back to an older release.
+
 The release workflow captures Cloudflare deployment and version IDs for up to four owned production Workers, after resource inspection. Capture failure does not interrupt release verification; such releases show unknown health. Older releases without captured identity cannot be retroactively attributed by the collector.
 
 The collector reads the first active deployment from the official [Workers Deployments API](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/deployments/methods/list/) and requires one version with 100% traffic. It queries the official [Workers Observability telemetry API](https://developers.cloudflare.com/api/resources/workers/subresources/observability/subresources/telemetry/methods/query/), using top-level `view: "events"`, `dry: true`, and Worker-name, version-ID and invocation-event filters. Deployment identity is checked before and after collection. Returned events are checked again for Worker, version, event type and window. Missing, malformed, incomplete or changed identity is unknown, not a healthy result.
@@ -31,9 +33,9 @@ The shared dependency tree was used read-only through local links. The already-d
 
 ## Integration and live proof still required
 
-1. Integrate `0002_project_operations.sql`; reconcile its number with other workers' migrations. Keep both new deployment/workspace columns and the health/incident tables. Common-file seams are Project settings, the CI release workflow, Workspace initialization/provisioning/Git, domain conversation schema, DB schema, environment types and runtime-token policy.
+1. Apply `0002_project_operations.sql` followed by `0003_resource_lifecycle.sql` through Alchemy. Integration preserves the new deployment/workspace columns and both sets of tables.
 2. Apply the migration and runtime-token policy through the existing Alchemy deployment. The telemetry query API requires **Workers Observability Write**, even for temporary queries. Alchemy-created runtime tokens now request it. An explicitly supplied `CF_TOKEN` must already have it, plus Workers Scripts read capability. No token was read or used by this task.
-3. Enable Workers Logs with invocation logging in the application template's Alchemy Worker settings. The template worker owns that change. Old releases without deployment identity remain unknown until a new verified release captures identity.
+3. Enable Workers Logs with invocation logging in the application template's Alchemy Worker settings. The prepared starter includes that change. Old releases without deployment identity remain unknown until a new verified release captures identity.
 4. The combined lifecycle owner must use a disposable stage and the authorized release-smoke flow, then release a disposable application through its verified delivery path. Generate successful, failing and slow requests; collect the real API data; assert Cloudflare deployment/version IDs, commit, incidents and private membership boundaries. Repeat collection and repair clicks, then advance Project main and verify that the repair Workspace contains the deployed files and receives the diagnostic prompt.
 5. Test disabled logs, no traffic, missing permissions, a changed Cloudflare deployment and split traffic against the real API. Verify that these remain unknown and do not invent health evidence. Live event filters and the provider-backed repair conversation were not exercised in this task.
 
