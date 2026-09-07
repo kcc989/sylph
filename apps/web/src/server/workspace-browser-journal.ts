@@ -15,6 +15,7 @@ type BrowserJournalValue =
 
 export type BrowserJournalStorage = {
   get(key: string): Promise<BrowserJournalValue | undefined>
+  delete(key: string): Promise<boolean>
   put(key: string, value: BrowserJournalValue): Promise<void>
   list(options: { prefix: string }): Promise<Map<string, BrowserJournalValue>>
 }
@@ -59,8 +60,20 @@ export const browserJournal = (storage: BrowserJournalStorage) => {
     },
     receipt: (id: string) =>
       read(`browser-receipt:${id}`, BrowserActionReceipt),
-    saveReceipt: (id: string, receipt: BrowserActionReceipt) =>
-      storage.put(`browser-receipt:${id}`, receipt),
+    async pendingReceipts() {
+      const values = await storage.list({ prefix: "browser-pending-receipt:" })
+      return [...values].map(([key, value]) => ({
+        id: key.slice("browser-pending-receipt:".length),
+        receipt: Schema.decodeUnknownSync(BrowserActionReceipt)(value),
+      }))
+    },
+    async saveReceipt(id: string, receipt: BrowserActionReceipt) {
+      if (!receipt.result && !receipt.interrupted)
+        await storage.put(`browser-pending-receipt:${id}`, receipt)
+      await storage.put(`browser-receipt:${id}`, receipt)
+      if (receipt.result || receipt.interrupted)
+        await storage.delete(`browser-pending-receipt:${id}`)
+    },
   }
 }
 export type BrowserJournal = ReturnType<typeof browserJournal>

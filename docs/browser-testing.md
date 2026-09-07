@@ -25,7 +25,7 @@ A policy exception records the User, reason, exact binding, and event order. Lat
 
 # Human control and authentication
 
-Start the shared browser or select **Take control**. The agent can observe while human control is active, but it cannot mutate, restart, or close the session. The Browser tab sends clicks, field input, keyboard actions, viewport changes, and assertions through the same service. **Release to agent** returns control without transferring or recreating cookies. User credentials typed here go to the actual remote page; they are not included in action receipts or the agent transcript. Screenshots and page text remain normal Workspace Evidence.
+Start the shared browser or select **Take control**. The agent can observe while human control is active, but it cannot mutate, restart, or close the session. The Browser tab sends clicks, field input, keyboard actions, viewport changes, and assertions through the same service. **Release to agent** returns control without transferring or recreating cookies. Text typed here goes to the actual remote page. Receipts keep input fingerprints rather than field input. Page-visible content, accessibility, and screenshots remain normal Workspace Evidence.
 
 Navigation defaults to the Preview origin. Only a User can add exact public HTTPS origins to the browser policy. These can be used for external test-account sign-in, redirects, and popups. Wildcards, credentials in URLs, ports, local names, and IP literals are rejected. New popup documents are paused and guarded before navigation. Observe the returned `pages`, then use `switch_page` with an observed page ID. `popup` opens an explicitly allowed URL in the same browser context. No arbitrary JavaScript is exposed.
 

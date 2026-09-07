@@ -54,31 +54,50 @@ export const browserNavigationGuard = async (
       })
     pending.add(ready)
   }
-  root.on("Target.attachedToTarget", (event) => {
-    const session = connection.session(event.sessionId)
-    if (!session) {
-      unavailable = true
-      return
-    }
-    attach(session)
-    void Promise.all(pending)
-      .then(async () => {
-        if (unavailable) await browser.close()
-        else {
-          await session.send("Page.setWebLifecycleState", { state: "active" })
-          await session.send("Runtime.runIfWaitingForDebugger")
-        }
-      })
-      .catch(() => {
+  const watch = async (parent: CDPSession) => {
+    parent.on("Target.attachedToTarget", (event) => {
+      const session = connection.session(event.sessionId)
+      if (!session) {
         unavailable = true
-      })
-  })
-  await root.send("Target.setAutoAttach", {
-    autoAttach: true,
-    waitForDebuggerOnStart: true,
-    flatten: true,
-    filter: [{ type: "page", exclude: false }, { exclude: true }],
-  })
+        return
+      }
+      if (event.targetInfo.type === "page") attach(session)
+      void watch(session)
+        .then(async () => {
+          await Promise.all(pending)
+          if (unavailable) await browser.close()
+          else {
+            if (event.targetInfo.type === "page")
+              await session.send(
+                "Page.setWebLifecycleState",
+                { state: "active" },
+                { timeout: 15_000 }
+              )
+            await session.send("Runtime.runIfWaitingForDebugger", undefined, {
+              timeout: 15_000,
+            })
+          }
+        })
+        .catch(() => {
+          unavailable = true
+        })
+    })
+    await parent.send(
+      "Target.setAutoAttach",
+      {
+        autoAttach: true,
+        waitForDebuggerOnStart: true,
+        flatten: true,
+        filter: [
+          { type: "tab", exclude: false },
+          { type: "page", exclude: false },
+          { exclude: true },
+        ],
+      },
+      { timeout: 15_000 }
+    )
+  }
+  await watch(root)
   const pages = new Map<Page, CDPSession>()
   const prepare = async (page: Page) => {
     const existing = pages.get(page)

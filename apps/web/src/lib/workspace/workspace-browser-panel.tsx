@@ -7,14 +7,11 @@ import {
   type WorkspaceBrowserAction,
   type WorkspaceBrowserResult,
   type WorkspaceBrowserToolInput,
+  type WorkspaceHumanBrowserInput,
+  type WorkspaceBrowserPolicyInput,
+  type WorkspaceBrowserExceptionInput,
 } from "@workspace/domain"
 import { Button } from "@workspace/ui/components/button"
-
-import type {
-  configureWorkspaceBrowser,
-  controlWorkspaceBrowser,
-  exceptWorkspaceBrowser,
-} from "@/functions/workspaces"
 
 const fieldClass =
   "min-w-0 rounded-md border bg-background px-2 py-1.5 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -36,15 +33,15 @@ export function WorkspaceBrowserPanelView({
   previewUrl: string
   refresh: () => Promise<void>
   readOnly: boolean
-  control: (
-    ...args: Parameters<typeof controlWorkspaceBrowser>
-  ) => ReturnType<typeof controlWorkspaceBrowser>
-  configure: (
-    ...args: Parameters<typeof configureWorkspaceBrowser>
-  ) => ReturnType<typeof configureWorkspaceBrowser>
-  except: (
-    ...args: Parameters<typeof exceptWorkspaceBrowser>
-  ) => ReturnType<typeof exceptWorkspaceBrowser>
+  control: (request: {
+    data: typeof WorkspaceHumanBrowserInput.Encoded
+  }) => Promise<typeof WorkspaceBrowserResult.Encoded>
+  configure: (request: {
+    data: typeof WorkspaceBrowserPolicyInput.Encoded
+  }) => Promise<void>
+  except: (request: {
+    data: typeof WorkspaceBrowserExceptionInput.Encoded
+  }) => Promise<void>
 }) {
   const [result, setResult] = useState<
     typeof WorkspaceBrowserResult.Encoded | null
@@ -264,7 +261,7 @@ export function WorkspaceBrowserPanelView({
             {proof?.policy ? (
               <details>
                 <summary className="cursor-pointer text-xs text-muted-foreground">
-                  Policy history and exception
+                  Policy and exception
                 </summary>
                 <p className="mt-2 text-xs break-words">
                   Revision {proof.policy.revision} by {proof.policy.actorUserId}
@@ -603,6 +600,16 @@ export function WorkspaceBrowserPanelView({
               </>
             ) : null}
           </div>
+          {session ? (
+            <label className="flex flex-col gap-1 border-b p-3 text-xs">
+              Shared browser URL
+              <input
+                className={fieldClass}
+                readOnly
+                value={session.currentUrl ?? session.previewUrl}
+              />
+            </label>
+          ) : null}
           {session && controlling ? (
             <div className="space-y-3 border-b p-3">
               <form

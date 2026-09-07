@@ -377,6 +377,7 @@ export class BrowserActionReceipt extends Schema.Class<BrowserActionReceipt>(
   "@sylph/domain/BrowserActionReceipt"
 )({
   fingerprint: Schema.String,
+  interrupted: Schema.optional(Schema.Boolean),
   journeyId: Schema.NullOr(Schema.String),
   actor: Schema.String,
   action: Schema.String,

@@ -2,6 +2,7 @@ import {
   WorkspaceHumanBrowserInput,
   WorkspaceBrowserPolicyInput,
   WorkspaceBrowserExceptionInput,
+  WorkspaceBrowserResult,
 } from "@workspace/domain"
 import {
   savePendingWorkspacePrompt,
@@ -829,6 +830,7 @@ export const acceptWorkspace = createServerFn({ method: "POST" })
       workspaceId: data.workspaceId,
       binding: browserBinding,
     })
+    let submitted = false
     try {
       const operationId = `${data.workspaceId}-${data.idempotencyKey}`
       const existing = await database
@@ -864,20 +866,22 @@ export const acceptWorkspace = createServerFn({ method: "POST" })
         projectId: workspace.projectId,
         actorUserId: user.id,
       }
+      submitted = true
       const instance = existing
         ? await env.MERGES.get(operationId)
         : await env.MERGES.create({ id: operationId, params })
       return { operationId: instance.id, status: "merging" as const }
     } catch (cause) {
-      await database
-        .update(schema.workspace)
-        .set({ status: "ready", mergeStatus: "ready", updatedAt: new Date() })
-        .where(
-          and(
-            eq(schema.workspace.id, data.workspaceId),
-            eq(schema.workspace.status, "merging")
+      if (!submitted)
+        await database
+          .update(schema.workspace)
+          .set({ status: "ready", mergeStatus: "ready", updatedAt: new Date() })
+          .where(
+            and(
+              eq(schema.workspace.id, data.workspaceId),
+              eq(schema.workspace.status, "merging")
+            )
           )
-        )
       throw cause
     }
   })
@@ -977,8 +981,13 @@ export const controlWorkspaceBrowser = createServerFn({ method: "POST" })
   .validator((input) =>
     Schema.decodeUnknownSync(WorkspaceHumanBrowserInput)(input)
   )
-  .handler(({ data, context }) =>
-    workspaceRuntime(data.workspaceId).browserAction(data, context.user.id)
+  .handler(async ({ data, context }) =>
+    Schema.encodeSync(WorkspaceBrowserResult)(
+      await workspaceRuntime(data.workspaceId).browserAction(
+        data,
+        context.user.id
+      )
+    )
   )
 
 export const configureWorkspaceBrowser = createServerFn({ method: "POST" })

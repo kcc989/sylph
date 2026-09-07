@@ -76,7 +76,8 @@ export const validateBrowserOrigins = (origins: ReadonlyArray<string>) => {
       !url.hostname.includes(".") ||
       /(^|\.)(localhost|local|internal|test|invalid)$/.test(url.hostname) ||
       /^[\d.]+$/.test(url.hostname) ||
-      url.hostname.includes(":")
+      url.hostname.includes(":") ||
+      url.hostname.includes("*")
     ) {
       throw new Error(
         "Allowed origins must be exact public HTTPS origins without paths, ports, wildcards, or credentials."

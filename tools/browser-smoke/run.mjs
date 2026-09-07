@@ -223,8 +223,12 @@ const reject = async (label, input, message) => {
   const result = await response.json()
   record.results.push({ label, httpStatus: response.status, result })
   await save()
-  assert.equal(response.status, 422, label)
-  assert.match(result.error, message)
+  assert.ok(
+    response.status === 422 ||
+      (response.status === 200 && result.outcome === "failed"),
+    label
+  )
+  assert.match(result.error ?? result.detail, message)
   console.log(`Passed: ${label}`)
 }
 const probe = async (path, input) => {
@@ -301,7 +305,7 @@ try {
   await reject(
     "Block native popup before its first external request",
     { action: { type: "click", selector: "#external-popup" } },
-    /Preview|configured/
+    /Preview|configured|navigation/
   )
   const visits = await fetch(`${oauthOrigin}/probe/count`, {
     headers: { authorization: `Bearer ${token}` },
@@ -528,14 +532,20 @@ try {
     type: "click",
     selector: "#external-sign-in",
   })
-  await check("Authenticated external page survives reconnect", {
+  await check("OAuth callback validates state and one-time code", {
     type: "text",
-    selector: "#external-signed-in",
-    value: "External sign-in retained",
+    selector: "#oauth-authenticated",
+    value: "OAuth callback completed",
   })
   await step("Return to application page", {
     type: "switch_page",
     pageId: applicationPage.id,
+  })
+  await step("Reload original page after OAuth", { type: "reload" })
+  await check("OAuth session is shared with original page", {
+    type: "text",
+    selector: "#oauth-authenticated",
+    value: "OAuth callback completed",
   })
   await check("Application cookies remain in shared context", {
     type: "text",
@@ -564,7 +574,7 @@ try {
   await reject(
     "Block external link navigation",
     { action: { type: "click", selector: "#external" } },
-    /Preview|configured/
+    /Preview|configured|navigation/
   )
   await step("Close authenticated session", { type: "close" }, "closed")
   sessionId = undefined

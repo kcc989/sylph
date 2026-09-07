@@ -54,6 +54,9 @@ const setup = () => {
     async get(key) {
       return journalValues.get(key)
     },
+    async delete(key) {
+      return journalValues.delete(key)
+    },
     async put(key, value) {
       journalValues.set(key, structuredClone(value))
     },
@@ -364,7 +367,8 @@ const blockers = async (
 }
 const passJourney = async (
   runtime: ReturnType<ReturnType<typeof setup>["runtime"]>,
-  sessionId: string
+  sessionId: string,
+  requestId: string = crypto.randomUUID()
 ) => {
   await execute(runtime, {
     sessionId,
@@ -380,7 +384,11 @@ const passJourney = async (
       action: { type: "assert", assertion: requiredAssertion },
     })
   }
-  return execute(runtime, { sessionId, action: { type: "journey_finish" } })
+  return execute(runtime, {
+    sessionId,
+    requestId,
+    action: { type: "journey_finish" },
+  })
 }
 const startSession = async (
   runtime: ReturnType<ReturnType<typeof setup>["runtime"]>
@@ -636,4 +644,28 @@ test("stale human observations cannot mutate a newer page", async () => {
   ).rejects.toThrow("page changed")
   expect(fixture.events).not.toContain("act:click")
   await runtime.dispose()
+})
+
+test("a crash after saving a pass but before its receipt blocks acceptance", async () => {
+  const fixture = setup()
+  const first = fixture.runtime()
+  await configure(first)
+  const sessionId = await startSession(first)
+  await passJourney(first, sessionId, "finish-before-crash")
+  const receipt = await fixture.journal.receipt("finish-before-crash")
+  if (!receipt) throw new Error("Missing receipt")
+  await fixture.journal.saveReceipt(
+    "finish-before-crash",
+    new BrowserActionReceipt({ ...receipt, result: null })
+  )
+  await first.dispose()
+  const recovered = fixture.runtime()
+  expect(await blockers(recovered)).not.toEqual([])
+  const interrupted = (await proof(recovered)).results.find(
+    (item) => item.id === receipt.journeyId
+  )
+  expect(interrupted?.status).toBe("interrupted")
+  await passJourney(recovered, sessionId)
+  expect(await blockers(recovered)).toEqual([])
+  await recovered.dispose()
 })

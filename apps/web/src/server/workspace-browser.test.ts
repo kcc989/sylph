@@ -7,6 +7,7 @@ import {
   browserTargetUrl,
   evidenceUrl,
   previewForBrowser,
+  validateBrowserOrigins,
 } from "./workspace-browser"
 
 const commitA = GitCommitId.make("a".repeat(40))
@@ -102,4 +103,38 @@ describe("Agent browser", () => {
     })
     expect(() => previewForBrowser([pending], commitA)).toThrow("still running")
   })
+})
+
+test("configured OAuth origins are exact and do not widen other navigation", () => {
+  const previewUrl = "https://preview.example.com"
+  const allowedOrigins = ["https://accounts.example.com"]
+  validateBrowserOrigins(allowedOrigins)
+  expect(
+    browserTargetUrl({
+      previewUrl,
+      allowedOrigins,
+      url: "https://accounts.example.com/login",
+    })
+  ).toBe("https://accounts.example.com/login")
+  for (const url of [
+    "https://accounts.example.com.evil.com/login",
+    "http://accounts.example.com",
+    "https://user:password@accounts.example.com",
+    "https://accounts.example.com:8080",
+  ]) {
+    expect(() =>
+      browserTargetUrl({ previewUrl, allowedOrigins, url })
+    ).toThrow()
+  }
+  for (const origin of [
+    "https://*.example.com",
+    "https://127.0.0.1",
+    "https://localhost",
+    "https://test.internal",
+    "https://accounts.example.com/path",
+    "https://user:password@accounts.example.com",
+    "http://accounts.example.com",
+  ]) {
+    expect(() => validateBrowserOrigins([origin])).toThrow()
+  }
 })

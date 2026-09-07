@@ -50,7 +50,10 @@ export const workspaceCheckItems = (
         return {
           commit: checkpointCheck.commit,
           target: "checkpoint",
-          name: stage.name[0].toUpperCase() + stage.name.slice(1),
+          name:
+            stage.name === "browser"
+              ? "Homepage identity"
+              : stage.name[0].toUpperCase() + stage.name.slice(1),
           detail:
             stage.durationMs === null
               ? `${stage.detail} · attempt ${attempts}`

@@ -182,6 +182,52 @@ export default {
       }
       return new Response("Missing", { status: 404 })
     }
+    if (url.pathname === "/oauth/start") {
+      const state = crypto.randomUUID()
+      await env.DB.prepare(
+        "CREATE TABLE IF NOT EXISTS oauth_flows (state TEXT PRIMARY KEY, callback TEXT NOT NULL, code TEXT, consumed INTEGER NOT NULL DEFAULT 0)"
+      ).run()
+      await env.DB.prepare(
+        "INSERT INTO oauth_flows (state, callback) VALUES (?, ?)"
+      )
+        .bind(state, `${url.origin}/oauth/callback`)
+        .run()
+      return new Response(null, {
+        status: 303,
+        headers: {
+          location: `${env.SMOKE_OAUTH_ORIGIN}/?state=${state}`,
+          "set-cookie": `oauth-state=${state}; HttpOnly; Secure; SameSite=Lax; Path=/`,
+        },
+      })
+    }
+    if (url.pathname === "/oauth/callback") {
+      const state = url.searchParams.get("state") ?? ""
+      const code = url.searchParams.get("code") ?? ""
+      if (
+        !request.headers
+          .get("cookie")
+          ?.split("; ")
+          .includes(`oauth-state=${state}`)
+      )
+        return new Response("OAuth state mismatch", { status: 403 })
+      const consumed = await env.DB.prepare(
+        "UPDATE oauth_flows SET consumed = 1 WHERE state = ? AND code = ? AND consumed = 0"
+      )
+        .bind(state, code)
+        .run()
+      if (consumed.meta.changes !== 1)
+        return new Response("OAuth code invalid or already consumed", {
+          status: 403,
+        })
+      return new Response(null, {
+        status: 303,
+        headers: {
+          location: "/",
+          "set-cookie":
+            "oauth-complete=true; HttpOnly; Secure; SameSite=Lax; Path=/",
+        },
+      })
+    }
     if (url.pathname === "/login" && request.method === "POST") {
       const form = await request.formData()
       if (form.get("password") !== env.SMOKE_TOKEN)
@@ -190,7 +236,7 @@ export default {
         status: 303,
         headers: {
           location: `${url.origin}/`,
-          "set-cookie": `browser-smoke=${env.SMOKE_TOKEN}; HttpOnly; Secure; SameSite=Strict; Path=/`,
+          "set-cookie": `browser-smoke=${env.SMOKE_TOKEN}; HttpOnly; Secure; SameSite=Lax; Path=/`,
         },
       })
     }
@@ -236,7 +282,7 @@ export default {
     return document(
       env.SMOKE_COMMIT,
       env.SMOKE_SOURCE,
-      `<p id="signed-in">Signed in</p><label>View <select id="view" onchange="localStorage.setItem('view',this.value)"><option value="all">All</option><option value="active">Active</option></select></label><script>document.querySelector('#view').value=localStorage.getItem('view')||'all'</script><form method="post" action="/create"><label>Todo <input id="title" name="title" required></label><button id="create">Create</button></form><ul>${rows.results.map((row) => `<li class="todo"><span class="title">${escapeHtml(row.title)}</span><input class="completed" type="checkbox" ${row.completed ? "checked" : ""} disabled><form method="post" action="/edit"><input type="hidden" name="id" value="${row.id}"><input id="edit-title" name="title" value="${escapeHtml(row.title)}"><button id="edit">Save</button></form><form method="post" action="/complete"><input type="hidden" name="id" value="${row.id}"><button id="complete">Complete</button></form><form method="post" action="/delete"><input type="hidden" name="id" value="${row.id}"><button id="delete">Delete</button></form></li>`).join("")}</ul><a id="external" href="https://example.com">External navigation</a><a id="oauth-popup" target="_blank" href="${env.SMOKE_OAUTH_ORIGIN}/">External authentication</a>`
+      `<p id="signed-in">Signed in</p>${request.headers.get("cookie")?.includes("oauth-complete=true") ? '<p id="oauth-authenticated">OAuth callback completed</p>' : ""}<label>View <select id="view" onchange="localStorage.setItem('view',this.value)"><option value="all">All</option><option value="active">Active</option></select></label><script>document.querySelector('#view').value=localStorage.getItem('view')||'all'</script><form method="post" action="/create"><label>Todo <input id="title" name="title" required></label><button id="create">Create</button></form><ul>${rows.results.map((row) => `<li class="todo"><span class="title">${escapeHtml(row.title)}</span><input class="completed" type="checkbox" ${row.completed ? "checked" : ""} disabled><form method="post" action="/edit"><input type="hidden" name="id" value="${row.id}"><input id="edit-title" name="title" value="${escapeHtml(row.title)}"><button id="edit">Save</button></form><form method="post" action="/complete"><input type="hidden" name="id" value="${row.id}"><button id="complete">Complete</button></form><form method="post" action="/delete"><input type="hidden" name="id" value="${row.id}"><button id="delete">Delete</button></form></li>`).join("")}</ul><a id="external" href="https://example.com">External navigation</a><a id="oauth-popup" target="_blank" href="/oauth/start">External authentication</a>`
     )
   },
 } satisfies ExportedHandler<Bindings>

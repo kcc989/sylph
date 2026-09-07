@@ -180,6 +180,31 @@ export const workspaceBrowserLayer = (options: BrowserSessionOptions) =>
         await options.storage.clear()
       }
       const snapshot = async () => {
+        for (const pending of await journal.pendingReceipts()) {
+          const receipt = (await journal.receipt(pending.id)) ?? pending.receipt
+          if (!receipt.result && receipt.journeyId) {
+            const journey = await journal.result(receipt.journeyId)
+            if (journey?.status === "running" || journey?.status === "passed") {
+              await journal.saveResult(
+                new BrowserJourneyResult({
+                  ...journey,
+                  status: "interrupted",
+                  detail:
+                    "An action did not durably finish. Begin a new journey attempt.",
+                  updatedAt: Date.now(),
+                  ordinal: await journal.nextOrdinal(),
+                })
+              )
+            }
+          }
+          await journal.saveReceipt(
+            pending.id,
+            new BrowserActionReceipt({
+              ...receipt,
+              interrupted: !receipt.result,
+            })
+          )
+        }
         const policy = await journal.policy()
         const session = await load()
         if (session && session.expiresAt <= Date.now())
@@ -391,7 +416,7 @@ export const workspaceBrowserLayer = (options: BrowserSessionOptions) =>
         }
         if (action.type === "close" && session) {
           await closeSession()
-          return finishReceipt(
+          return await finishReceipt(
             new WorkspaceBrowserResult({
               url: previewUrl,
               checkId: run.id,
@@ -406,6 +431,30 @@ export const workspaceBrowserLayer = (options: BrowserSessionOptions) =>
           )
         }
         let browser: BrowserConnection | undefined
+        const disconnect = async () => {
+          try {
+            await browser?.disconnect()
+          } catch (cause) {
+            if (journey)
+              await journal.saveResult(
+                new BrowserJourneyResult({
+                  ...journey,
+                  status: "interrupted",
+                  detail: failure(cause).message,
+                  updatedAt: Date.now(),
+                  ordinal: await journal.nextOrdinal(),
+                })
+              )
+            await journal.saveReceipt(
+              requestId,
+              new BrowserActionReceipt({
+                ...pendingReceipt,
+                interrupted: true,
+              })
+            )
+            throw cause
+          }
+        }
         try {
           const target = browserTargetUrl({
             previewUrl,
@@ -606,7 +655,7 @@ export const workspaceBrowserLayer = (options: BrowserSessionOptions) =>
               })
           }
           await options.storage.write(session)
-          return finishReceipt(
+          return await finishReceipt(
             new WorkspaceBrowserResult({
               url: observation.url,
               markdown: observation.markdown,
@@ -634,7 +683,7 @@ export const workspaceBrowserLayer = (options: BrowserSessionOptions) =>
             )
           throw error
         } finally {
-          await browser?.disconnect()
+          await disconnect()
         }
       }
       return WorkspaceBrowser.of({
