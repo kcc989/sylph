@@ -1,3 +1,5 @@
+import { getProjectOperations } from "@/functions/project-operations"
+import { ProjectOperationsPanel } from "@/components/project-operations-panel"
 import { getProjectConfiguration } from "@/functions/project-resources"
 import { ProjectConfigurationPanel } from "@/components/project-configuration-panel"
 import { getProjectResources } from "@/functions/project-resources"
@@ -48,7 +50,11 @@ export const Route = createFileRoute("/projects/$projectSlug/settings")({
     const configuration = project
       ? await getProjectConfiguration({ data: { projectId: project.id } })
       : null
+    const operations = project
+      ? await getProjectOperations({ data: { projectId: project.id } })
+      : null
     return {
+      operations,
       context,
       dashboard,
       deploymentContext,
@@ -62,6 +68,7 @@ export const Route = createFileRoute("/projects/$projectSlug/settings")({
 function ProjectSettingsScreen() {
   const { projectSlug } = Route.useParams()
   const {
+    operations,
     context,
     dashboard,
     deploymentContext,
@@ -108,6 +115,15 @@ function ProjectSettingsScreen() {
 
   return (
     <AppShell active="home" dashboard={dashboard} topbar={context.project.name}>
+      {operations && (
+        <div className="mx-auto w-full max-w-4xl px-5">
+          <ProjectOperationsPanel
+            projectId={context.project.id}
+            projectSlug={projectSlug}
+            initial={operations}
+          />
+        </div>
+      )}
       <div className="mx-auto max-w-3xl px-5 py-10 sm:px-8 sm:py-14">
         <Button
           className="ml-auto"

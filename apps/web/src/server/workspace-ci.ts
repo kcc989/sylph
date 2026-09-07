@@ -1,3 +1,4 @@
+import { captureDeploymentIdentity } from "./cloudflare-health"
 import {
   projectSecretEnvironment,
   readProjectDomain,
@@ -428,6 +429,17 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
         verifyResourceUrl(url, resourcePlan)
         await step.do("inspect-production-resources", () =>
           captureProjectResources(this.env.DB, credentials, owner, true)
+        )
+        await step.do("capture-production-identity", () =>
+          captureDeploymentIdentity(
+            this.env.DB,
+            credentials,
+            input.projectId,
+            deploymentId
+          ).then(
+            () => ({ captured: true }),
+            () => ({ captured: false })
+          )
         )
         await step.do("save-published-production-url", async () => {
           await this.env.DB.prepare(

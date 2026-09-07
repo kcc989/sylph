@@ -307,6 +307,7 @@ export const workspace = sqliteTable(
     repositoryMode: text("repository_mode").notNull().default("base"),
     baseArtifactRepo: text("base_artifact_repo").notNull(),
     workspaceArtifactRepo: text("workspace_artifact_repo").notNull(),
+    repairCommit: text("repair_commit"),
     baseCommit: text("base_commit"),
     forkHead: text("fork_head"),
     acceptedCommit: text("accepted_commit"),
@@ -510,6 +511,7 @@ export const deployment = sqliteTable(
     commit: text("commit").notNull(),
     status: text("status").notNull().default("queued"),
     productionUrl: text("production_url"),
+    identityJson: text("identity_json"),
     baseDeploymentId: text("base_deployment_id"),
     recoveryDeploymentId: text("recovery_deployment_id"),
     reviewJson: text("review_json"),
@@ -810,4 +812,46 @@ export const installationSetupSession = sqliteTable(
     githubState: text("github_state"),
     githubOrigin: text("github_origin"),
   }
+)
+
+export const projectHealth = sqliteTable("project_health", {
+  projectId: text("project_id")
+    .primaryKey()
+    .references(() => project.id, { onDelete: "cascade" }),
+  observationJson: text("observation_json"),
+  collectedAt: integer("collected_at").notNull().default(0),
+  leaseUntil: integer("lease_until").notNull().default(0),
+})
+
+export const projectIncident = sqliteTable(
+  "project_incident",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => project.id, { onDelete: "cascade" }),
+    deploymentId: text("deployment_id")
+      .notNull()
+      .references(() => deployment.id, { onDelete: "cascade" }),
+    commit: text("commit").notNull(),
+    kind: text("kind").notNull(),
+    status: text("status").notNull().default("open"),
+    firstSeen: integer("first_seen").notNull(),
+    lastSeen: integer("last_seen").notNull(),
+    observationJson: text("observation_json").notNull(),
+    workspaceId: text("workspace_id").references(() => workspace.id, {
+      onDelete: "set null",
+    }),
+    issueId: text("issue_id").references(() => issue.id, {
+      onDelete: "set null",
+    }),
+  },
+  (table) => [
+    uniqueIndex("project_incident_deployment_kind").on(
+      table.projectId,
+      table.deploymentId,
+      table.kind
+    ),
+    index("project_incident_recent").on(table.projectId, table.lastSeen),
+  ]
 )

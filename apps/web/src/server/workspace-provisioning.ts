@@ -6,6 +6,7 @@ import {
 import { schema } from "@workspace/db"
 import {
   InitializeWorkspaceRuntime,
+  GitCommitId,
   ProviderConnectionRequired,
   PreconditionFailed,
   OrganizationId,
@@ -125,6 +126,9 @@ export class WorkspaceProvisioning extends WorkflowEntrypoint<
                 defaultRef: workspace.branchName ?? project.defaultBranch,
                 sourceRef: repository.defaultBranch,
                 baseCommit: workspace.baseCommit,
+                repairCommit: workspace.repairCommit
+                  ? GitCommitId.make(workspace.repairCommit)
+                  : undefined,
                 providerId: connection.providerId,
                 modelId: connection.modelId,
                 credential,

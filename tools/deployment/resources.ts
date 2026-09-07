@@ -39,6 +39,7 @@ export const deploymentCredentials = Effect.fn("deploymentCredentials")(
             permissionGroups: [
               "Account Settings Read",
               "Workers Scripts Write",
+              "Workers Observability Write",
               "D1 Write",
               "Workers R2 Storage Write",
               "Workers KV Storage Write",

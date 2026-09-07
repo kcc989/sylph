@@ -1,4 +1,5 @@
 import { Schema } from "effect"
+import { GitCommitId } from "./version-control"
 
 import { AgentSessionId, OrganizationId, ProjectId, WorkspaceId } from "./ids"
 import {
@@ -19,6 +20,7 @@ export class InitializeWorkspaceRuntime extends Schema.Class<InitializeWorkspace
   projectRepositoryName: Schema.NonEmptyString,
   projectRepositoryRemote: Schema.NonEmptyString,
   defaultRef: Schema.NonEmptyString,
+  repairCommit: Schema.optional(GitCommitId),
   sourceRef: Schema.optional(Schema.NonEmptyString),
   baseCommit: Schema.NonEmptyString,
   providerId: Schema.NonEmptyString,

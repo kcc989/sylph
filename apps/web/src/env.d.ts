@@ -29,6 +29,8 @@ declare global {
       REPOS: Artifacts
       CHECK_EVIDENCE: R2Bucket
       CI_WORKFLOW: Workflow<WorkspaceCiInput>
+      CLOUDFLARE_ACCOUNT_ID: string
+      CF_TOKEN: string
       RESOURCE_MAINTENANCE: Workflow<ProjectResourceMaintenance>
       REPOSITORY_NAMESPACE: string
       PROJECT_SYNCS: DurableObjectNamespace<ProjectSynchronization>
