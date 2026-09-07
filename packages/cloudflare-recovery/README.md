@@ -42,7 +42,7 @@ Before running it, obtain approval for the disposable resource deployment, crede
 bunx alchemy deploy tools/recovery-smoke/alchemy.run.ts --stage recovery-drill-UNIQUE
 ```
 
-Use a lowercase unique suffix. `SYLPH_RECOVERY_DRILL_MIGRATIONS` can point to the same application migrations when testing an existing schema. Leave it unset for the first empty-schema release. The drill schema must match the application schema being captured. The harness writes proof into the target stage's control D1. It pauses that gate, so use only the approved disposable stage, never a live application's control database.
+Use a lowercase unique suffix. Set `SYLPH_RECOVERY_DRILL_MIGRATIONS` to the same application migrations used by the release, including the first starter release: bootstrap applies those migrations before capture. Leave it unset only when the actual application database has an empty schema. The drill schema must match the application schema being captured. The harness writes proof into the target stage's control D1. It pauses that gate, so use only the approved disposable stage, never a live application's control database.
 
 Set these values through the approved environment loader without printing credentials:
 
