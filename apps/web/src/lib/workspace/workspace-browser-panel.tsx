@@ -360,13 +360,13 @@ export function WorkspaceBrowserPanelView({
                     Screenshots and DOM assertions
                   </option>
                   <option value="accessibility">
-                    DOM assertions only (no screenshots)
+                    DOM testing (no screenshots or pointer checks)
                   </option>
                 </select>
                 <span className="text-muted-foreground">
-                  DOM-only proof checks the real page and viewport, but does not
-                  verify its visual appearance. Explain this choice in the
-                  policy reason.
+                  DOM testing activates controls in the real document. It does
+                  not verify visual appearance or pointer hit targets. Explain
+                  this choice in the policy reason.
                 </span>
               </label>
               {requirements.map((requirement) => (

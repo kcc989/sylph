@@ -104,9 +104,17 @@ const uniqueElement = async (page: Page, selector: string) => {
   return elements[0]
 }
 
-const actOnPage = async (page: Page, action: WorkspaceBrowserAction) => {
+const actOnPage = async (
+  page: Page,
+  action: WorkspaceBrowserAction,
+  domOnly: boolean
+) => {
   switch (action.type) {
     case "click_point": {
+      if (domOnly)
+        throw new Error(
+          "Pointer clicks require screenshot evidence. Use a selector under the DOM-only policy."
+        )
       const viewport = page.viewport()
       if (
         !viewport ||
@@ -133,7 +141,22 @@ const actOnPage = async (page: Page, action: WorkspaceBrowserAction) => {
     case "select": {
       const element = await uniqueElement(page, action.selector)
       try {
-        if (action.type === "click") await element.click()
+        if (action.type === "click") {
+          if (domOnly)
+            await element.evaluate((node) => {
+              if (
+                !(node instanceof HTMLElement) ||
+                node.matches(":disabled") ||
+                node.getClientRects().length === 0
+              )
+                throw new Error(
+                  "The selected control is not available for activation"
+                )
+              node.focus()
+              node.click()
+            })
+          else await element.click()
+        }
         if (action.type === "select") await element.select(...action.values)
         if (action.type === "fill") {
           await element.evaluate((node) => {
@@ -169,9 +192,34 @@ const actOnPage = async (page: Page, action: WorkspaceBrowserAction) => {
       await page.keyboard.press(action.key)
       return
     case "scroll":
-      await page.mouse.wheel({ deltaX: action.x, deltaY: action.y })
+      if (domOnly)
+        await page.evaluate(({ x, y }) => window.scrollBy(x, y), {
+          x: action.x,
+          y: action.y,
+        })
+      else await page.mouse.wheel({ deltaX: action.x, deltaY: action.y })
       return
     case "wait": {
+      if (domOnly) {
+        const result = await page.waitForFunction(
+          ({ selector, state }) => {
+            const node = document.querySelector(selector)
+            const visible =
+              node !== null &&
+              node.getClientRects().length > 0 &&
+              getComputedStyle(node).visibility !== "hidden"
+            return state === "hidden"
+              ? !visible
+              : state === "visible"
+                ? visible
+                : node !== null
+          },
+          { timeout: actionTimeout, polling: 100 },
+          { selector: action.selector, state: action.state }
+        )
+        await result.dispose()
+        return
+      }
       const element = await page.waitForSelector(action.selector, {
         visible: action.state === "visible",
         hidden: action.state === "hidden",
@@ -352,7 +400,12 @@ export const browserRunLayer = (
                       )
                     page = selected.page
                     await prepare(page)
-                  } else await actOnPage(page, action)
+                  } else
+                    await actOnPage(
+                      page,
+                      action,
+                      options?.captureMode === "accessibility"
+                    )
                   await ensureAllowed()
                 },
                 async observe(fullPage) {
