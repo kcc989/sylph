@@ -160,12 +160,22 @@ export const browserNavigationGuard = async (
           `The browser navigation guard lost its connection: ${failureDetail}`
         )
       if (blocked) {
-        const message = blocked
-        blocked = undefined
-        throw new Error(message)
+        throw new Error(blocked)
       }
     },
     async disconnect() {
+      if (blocked || unavailable) {
+        const message =
+          blocked ??
+          `The browser navigation guard lost its connection: ${failureDetail}`
+        try {
+          if (browser.connected) await browser.close()
+        } finally {
+          await browser.disconnect()
+        }
+        throw new Error(message)
+      }
+      if (!browser.connected) return
       try {
         for (const page of await browser.pages()) {
           const session = await prepare(page)
