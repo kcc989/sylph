@@ -8,11 +8,15 @@ import {
   readMigrationReview,
   readDataRestore,
   readRecoveryPoint,
+  validateRecoveryInventory,
   readProductionJourney,
   recoveryTargetCommit,
   releasePreflightCommand,
 } from "./release-safety"
-import { releaseMutationStartedSql } from "./release-reservation"
+import {
+  releaseContextSql,
+  releaseMutationStartedSql,
+} from "./release-reservation"
 import { ciCommand } from "./command-execution"
 import { readWorkspaceCiLogs } from "./workspace-ci-logs"
 import { projectAuthSecret } from "./project-auth-secret"
@@ -178,9 +182,7 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
           throw new Error("Production CI requires a Deployment record")
         const deploymentId = input.deploymentId
         const context = await step.do("read-release-reservation", async () => {
-          const row = await this.env.DB.prepare(
-            "SELECT d.[commit], d.recovery_deployment_id, (SELECT prior.[commit] FROM deployment prior WHERE prior.project_id = d.project_id AND prior.id != d.id AND (prior.mutation_started = 1 OR prior.status = 'succeeded') ORDER BY prior.created_at DESC, prior.rowid DESC LIMIT 1) AS base_commit, (SELECT prior.production_url FROM deployment prior WHERE prior.project_id = d.project_id AND prior.id != d.id AND prior.production_url IS NOT NULL ORDER BY prior.created_at DESC, prior.rowid DESC LIMIT 1) AS base_url, r.recovery_json FROM deployment d LEFT JOIN deployment r ON r.id = d.recovery_deployment_id AND r.project_id = d.project_id WHERE d.id = ? AND d.project_id = ? AND d.status = 'running'"
-          )
+          const row = await this.env.DB.prepare(releaseContextSql)
             .bind(deploymentId, input.projectId)
             .first<{
               commit: string
@@ -337,6 +339,13 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
               identity,
               Date.now()
             )
+            const inventory = await captureProjectResources(
+              this.env.DB,
+              credentials,
+              owner,
+              false
+            )
+            validateRecoveryInventory(point, inventory)
             const result = await this.env.DB.prepare(
               "UPDATE deployment SET recovery_json = ? WHERE id = ? AND status = 'running'"
             )

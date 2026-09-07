@@ -320,3 +320,35 @@ test("invalid receipts do not expose input values in diagnostics", () => {
     )
   ).toThrow("Invalid release receipt. Check the release safety schema.")
 })
+
+test("failed prepublication mutation does not replace the published recovery baseline", async () => {
+  const result = await pipeline("restore-prepublication-failure")
+  expect(result.deployment.status).toBe("succeeded")
+  const prepare = result.commands.find(
+    (command: { name: string }) => command.name === "release-prepare"
+  )
+  expect(prepare.env.SYLPH_BASE_COMMIT).toBe("a".repeat(40))
+  expect(prepare.env.SYLPH_BASE_URL).toBe(
+    "https://sylph-fixture-app.account.workers.dev"
+  )
+  expect(
+    result.commands.some(
+      (command: { name: string }) => command.name === "data-restore"
+    )
+  ).toBe(true)
+})
+
+test.each(["missing-inventory", "extra-inventory"])(
+  "rejects false recovery coverage before publishing: %s",
+  async (mode) => {
+    const result = await pipeline(mode)
+    expect(result.deployment.status).toBe("failed")
+    expect(result.deployment.recovery_json).toBeNull()
+    expect(
+      result.commands.some(
+        (command: { name: string }) => command.name === "production"
+      )
+    ).toBe(false)
+    expect(result.deployment.failure_details).toContain("exactly the owned")
+  }
+)
