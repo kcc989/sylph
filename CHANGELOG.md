@@ -18,6 +18,7 @@ All notable changes to Sylph are recorded here. The format follows [Keep a Chang
 
 ### Changed
 
+- Open Workspace chat while repository and runtime setup run in a Workflow. Save early messages in D1 and deliver them in order after setup. Upgrades add migration 0022, a message delivery Workflow, and a minute recovery cron without new secrets.
 - Retire new dependency-repair jobs in favor of native shell installation, retaining completion support for in-flight jobs.
 - Share command environment selection, deadlines, output limits, and cancellation across agent commands and immutable Check execution.
 - Use one event policy and refresh queue for Workspace synchronization; failed socket updates retain their replay cursor.

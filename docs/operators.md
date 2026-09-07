@@ -50,6 +50,17 @@ If you would rather not grant Account API Tokens Write, create the runtime token
 
 ## What the first deployment creates
 
+Workspace creation saves the record before repository and runtime setup. The
+`WorkspaceProvisioning` Workflow handles that setup. Early chat messages are
+stored in D1 and delivered by `WorkspaceMessageDelivery` after the runtime is
+ready. Closing the browser does not cancel these jobs.
+
+Upgrades apply migration `0022_workspace_pending_prompt.sql` and provision the
+message delivery Workflow and a minute cron through Alchemy. The cron recovers
+records saved before a Workflow could be scheduled. No new secrets are needed.
+Setup failures retain pending messages; restart the Workspace to resume setup.
+Delivery failures or timeouts show a Retry action beside the saved message.
+
 Cursor connections add a private per-user Durable Object. The provider runs in
 Workerd and opens TLS sockets directly to Cursor, using a bundled HTTP/2
 transport. Cursor connections do not require a Node service, Docker image, or
@@ -100,14 +111,14 @@ All resources are created in your account under the Alchemy stage `prod`.
 
 | Resource                  | Notes                                                                                                   |
 | ------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `Website` Worker          | The TanStack Start app. Runs an hourly cron that refreshes the provider model catalog.                  |
+| `Website` Worker          | The TanStack Start app. Runs hourly provider catalog refresh and minute workspace job recovery crons.   |
 | `WorkspaceRuntime` Worker | Hosts the `WorkspaceDO` Durable Object namespace, the `CI` Workflow, and the sandbox container binding. |
 | D1 database               | Drizzle migrations in `packages/db/migrations` run on every deploy.                                     |
 | Artifacts namespace       | One fork per workspace.                                                                                 |
 | Two R2 buckets            | Check backups and check evidence.                                                                       |
 | Container application     | `cloudflare/sandbox`, instance type `standard-4`, up to ten instances.                                  |
 | Browser Rendering binding | Used by workspace browser checks.                                                                       |
-| Three Workflows           | `CI`, `WorkspaceMerge`, and `WorkspaceRetention`.                                                       |
+| Workflows                 | `CI`, `WorkspaceProvisioning`, `WorkspaceMessageDelivery`, `WorkspaceMerge`, and `WorkspaceRetention`.  |
 
 ## Cost drivers
 
