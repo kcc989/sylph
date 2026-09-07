@@ -71,10 +71,16 @@ export const importedTemplateRepository = async (
           template.sourceRef === builtInTemplateRelease.commit
             ? builtInTemplateRelease.ref
             : template.sourceRef,
+        expectedCommit:
+          template.sourceRef === builtInTemplateRelease.commit
+            ? builtInTemplateRelease.commit
+            : undefined,
       })
       .pipe(
         Effect.catchIf(
-          (error) => error.code === "ALREADY_EXISTS",
+          (error) =>
+            error.code === "ALREADY_EXISTS" &&
+            template.sourceRef !== builtInTemplateRelease.commit,
           () => repositories.inspect(name)
         )
       )

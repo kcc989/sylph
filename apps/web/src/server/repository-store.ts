@@ -1,6 +1,7 @@
 import { Context, Effect, Option, Schema } from "effect"
 import git from "isomorphic-git"
 import http from "isomorphic-git/http/web"
+import { ensureTemplateDefaultBranch } from "./template-default-branch"
 
 const RepositoryStoreErrorCode = Schema.Literals([
   "ALREADY_EXISTS",
@@ -96,6 +97,7 @@ export class RepositoryStore extends Context.Service<
       description: string
       sourceUrl: string
       sourceRef: string
+      expectedCommit?: string
     }) => Effect.Effect<StoredRepository, RepositoryStoreError>
     readonly inspect: (
       name: string
@@ -229,19 +231,34 @@ export const makeCloudflareArtifactsRepositoryStore = (
     import: Effect.fn("RepositoryStore.import")(function* (input) {
       return yield* Effect.tryPromise({
         try: async () => {
-          await binding.import({
-            source: { url: input.sourceUrl, branch: input.sourceRef },
-            target: {
-              name: input.name,
-              opts: { description: input.description },
-            },
-          })
+          try {
+            await binding.import({
+              source: { url: input.sourceUrl, branch: input.sourceRef },
+              target: {
+                name: input.name,
+                opts: { description: input.description },
+              },
+            })
+          } catch (cause) {
+            if (!input.expectedCommit || errorCode(cause) !== "ALREADY_EXISTS")
+              throw cause
+          }
           let lastError: RepositoryStoreError | undefined
           for (let attempt = 0; attempt < importPollAttempts; attempt += 1) {
             try {
-              return await resolveStoredRepository(
-                await binding.get(input.name)
-              )
+              const handle = await binding.get(input.name)
+              const repository = await resolveStoredRepository(handle)
+              if (input.expectedCommit) {
+                const token = await handle.createToken("write", 300)
+                await ensureTemplateDefaultBranch({
+                  remote: repository.remote,
+                  defaultBranch: repository.defaultBranch,
+                  sourceRef: input.sourceRef,
+                  expectedCommit: input.expectedCommit,
+                  onAuth: artifactAuth(token.plaintext),
+                })
+              }
+              return repository
             } catch (cause) {
               lastError = storeError("import", cause)
               if (lastError.code !== "IMPORT_IN_PROGRESS") throw lastError
