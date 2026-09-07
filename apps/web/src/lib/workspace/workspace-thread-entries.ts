@@ -92,14 +92,7 @@ export const workspaceThreadEntries = (
                 }
               })
             })
-          : [
-              {
-                id: "workspace-ready",
-                kind: "result",
-                title: "Your durable coding Workspace is ready",
-                body: "Ask the assistant to build the first feature. Your files and conversation stay with this Workspace between turns.",
-              },
-            ]
+          : []
 
   const snapshotMessageIds = new Set(
     snapshot.messages.map((message) => message.id)

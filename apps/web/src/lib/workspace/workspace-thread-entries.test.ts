@@ -4,7 +4,7 @@ import { emptyWorkspaceLiveState } from "@/lib/workspace-runtime-events"
 import { workspaceThreadEntries } from "./workspace-thread-entries"
 
 describe("Workspace thread entries", () => {
-  test("shows a ready entry for a new Workspace", () => {
+  test("leaves a new ready Workspace conversation empty", () => {
     const entries = workspaceThreadEntries(
       { files: ["README.md"], messages: [], status: "ready" },
       emptyWorkspaceLiveState(),
@@ -12,9 +12,7 @@ describe("Workspace thread entries", () => {
       () => undefined
     )
 
-    expect(entries[0]?.id).toBe("workspace-ready")
-    expect(entries[0]?.details).toBeUndefined()
-    expect(entries[0]?.meta).toBeUndefined()
+    expect(entries).toEqual([])
   })
 
   test("appends optimistic and unsnapshotted streaming entries", () => {
