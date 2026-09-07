@@ -276,6 +276,7 @@ export const browserRunLayer = (
                 target.setDefaultTimeout(actionTimeout)
                 target.setDefaultNavigationTimeout(actionTimeout)
                 await target.setViewport(browserViewportSize(viewport))
+                await target.bringToFront()
               }
               await trace("viewport")
               await prepare(page)
@@ -385,13 +386,39 @@ export const browserRunLayer = (
                       }))
                     return `# ${document.title}\n\n${document.body.innerText.slice(0, 24_000)}\n\nControls (CSS selectors):\n${JSON.stringify(fields)}`
                   })
+                  await trace("observe-accessibility")
+                  const evidenceSession = await guard.prepare(page)
                   const accessibility = JSON.stringify(
-                    await page.accessibility.snapshot()
+                    await evidenceSession.send(
+                      "Accessibility.getFullAXTree",
+                      undefined,
+                      { timeout: actionTimeout }
+                    )
                   )
-                  const screenshot = await page.screenshot({
-                    type: "png",
-                    fullPage,
-                  })
+                  await trace("observe-screenshot")
+                  const bounds = fullPage
+                    ? (
+                        await evidenceSession.send(
+                          "Page.getLayoutMetrics",
+                          undefined,
+                          { timeout: actionTimeout }
+                        )
+                      ).cssContentSize
+                    : { x: 0, y: 0, ...expected }
+                  const capture = await evidenceSession.send(
+                    "Page.captureScreenshot",
+                    {
+                      format: "png",
+                      captureBeyondViewport: fullPage,
+                      clip: { ...bounds, scale: 1 },
+                    },
+                    { timeout: actionTimeout }
+                  )
+                  const screenshot = Uint8Array.from(
+                    atob(capture.data),
+                    (character) => character.charCodeAt(0)
+                  )
+                  await trace("observe-complete")
                   await ensureAllowed()
                   return {
                     url: page.url(),
