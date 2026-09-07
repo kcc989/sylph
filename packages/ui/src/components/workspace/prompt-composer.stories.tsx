@@ -165,3 +165,67 @@ export const NarrowComposer: Story = {
     )
   },
 }
+
+export const SendDuringWork: Story = {
+  args: { turnActive: true },
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement)
+    await userEvent.type(
+      canvas.getByRole("textbox", { name: "Message the agent" }),
+      "Use a smaller heading"
+    )
+    await userEvent.click(canvas.getByRole("button", { name: "Send message" }))
+    await expect(args.onSubmit).toHaveBeenCalledWith(
+      "Use a smaller heading",
+      args.selectedModel,
+      "steer"
+    )
+    await expect(canvas.getByRole("status")).toHaveTextContent(
+      "Message received"
+    )
+    await expect(
+      canvas.getByRole("textbox", { name: "Message the agent" })
+    ).toHaveValue("")
+    await userEvent.type(
+      canvas.getByRole("textbox", { name: "Message the agent" }),
+      "Then improve spacing"
+    )
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Message options" })
+    )
+    await userEvent.click(
+      within(canvasElement.ownerDocument.body).getByRole("menuitem", {
+        name: "Run after this",
+      })
+    )
+    await expect(args.onSubmit).toHaveBeenLastCalledWith(
+      "Then improve spacing",
+      args.selectedModel,
+      "queue"
+    )
+    await expect(canvas.getByRole("status")).toHaveTextContent(
+      "will run after the current work"
+    )
+  },
+}
+
+export const RejectedMessage: Story = {
+  args: { onSubmit: fn(async () => false) },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.type(
+      canvas.getByRole("textbox", { name: "Message the agent" }),
+      "Keep this draft"
+    )
+    await userEvent.click(canvas.getByRole("button", { name: "Send message" }))
+    await expect(
+      canvas.getByRole("textbox", { name: "Message the agent" })
+    ).toHaveValue("Keep this draft")
+    await expect(canvas.getByRole("status")).not.toHaveTextContent("received")
+  },
+}
+
+export const NarrowActiveComposer: Story = {
+  ...NarrowComposer,
+  args: { ...NarrowComposer.args, turnActive: true },
+}

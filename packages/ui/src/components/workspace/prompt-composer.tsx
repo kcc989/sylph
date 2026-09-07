@@ -1,14 +1,14 @@
 "use client"
 
-import {
-  ArrowUp,
-  X,
-  Blocks,
-  LoaderCircle,
-  MessagesSquare,
-  Terminal,
-} from "lucide-react"
+import { ArrowUp, X, Blocks, LoaderCircle, ChevronDown } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
+
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@workspace/ui/components/dropdown-menu"
 
 import { Button } from "@workspace/ui/components/button"
 import { ThinkingModelPicker } from "./thinking-model-picker"
@@ -62,6 +62,8 @@ export function PromptComposer({
   onRemoveReference?: (text: string) => void
   onOpenFiles?: () => void
 }) {
+  const [receipt, setReceipt] = useState<string | null>(null)
+  const [sending, setSending] = useState(false)
   const [text, setText] = useState(initialPrompt)
   const [activeSkillIndex, setActiveSkillIndex] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -82,14 +84,35 @@ export function PromptComposer({
   const submit = async (delivery?: "queue" | "steer") => {
     const prompt = text.trim()
 
-    if (!prompt || disabled || pending || !onSubmit || !selectedModel) return
-    if (delivery === "queue" && queueFull) return
-    const sent = await onSubmit(
-      [prompt, ...references.map((item) => item.text)].join("\n\n"),
-      selectedModel,
-      delivery
+    if (
+      !prompt ||
+      disabled ||
+      pending ||
+      sending ||
+      !onSubmit ||
+      !selectedModel
     )
-    if (sent !== false) setText("")
+      return
+    if (delivery === "queue" && queueFull) return
+    setSending(true)
+    setReceipt(null)
+    try {
+      const sent = await onSubmit(
+        [prompt, ...references.map((item) => item.text)].join("\n\n"),
+        selectedModel,
+        delivery
+      )
+      if (sent !== false) {
+        setText("")
+        setReceipt(
+          delivery === "queue"
+            ? "Received · will run after the current work"
+            : "Message received"
+        )
+      }
+    } finally {
+      setSending(false)
+    }
   }
 
   return (
@@ -98,7 +121,7 @@ export function PromptComposer({
         className="@container relative mx-auto max-w-3xl rounded-xl border border-white/[.12] bg-[#1c1a18] focus-within:border-[#ef9b7e]/45"
         onSubmit={async (event) => {
           event.preventDefault()
-          await submit(turnActive ? "queue" : undefined)
+          await submit(turnActive ? "steer" : undefined)
         }}
       >
         {references.length ? (
@@ -164,10 +187,13 @@ export function PromptComposer({
         <Textarea
           aria-label="Message the agent"
           className="min-h-20 resize-none border-0 bg-transparent px-3 py-2.5 text-[13px] shadow-none focus-visible:ring-0"
-          disabled={disabled || pending}
+          disabled={disabled || pending || sending}
           ref={textareaRef}
           value={text}
-          onChange={(event) => setText(event.target.value)}
+          onChange={(event) => {
+            setText(event.target.value)
+            setReceipt(null)
+          }}
           onKeyDown={async (event) => {
             if (matchingSkills.length && event.key === "ArrowDown") {
               event.preventDefault()
@@ -194,15 +220,15 @@ export function PromptComposer({
             }
             if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
               event.preventDefault()
-              await submit(turnActive ? "queue" : undefined)
+              await submit(turnActive ? "steer" : undefined)
             }
           }}
           placeholder={
             disabled
               ? "This Workspace is not accepting messages"
               : turnActive
-                ? "Queue the next message or steer the active Turn"
-                : "Ask OpenCode to create or change the Project"
+                ? "Send a follow-up or change direction"
+                : "Describe what you want to build or change"
           }
         />
         {error ? (
@@ -235,82 +261,69 @@ export function PromptComposer({
               <Blocks className="@md:hidden" />
             </Button>
           ) : null}
-          <Button
-            aria-label="Open command"
-            className="hidden @lg:inline-flex"
-            size="icon-xs"
-            variant="ghost"
-            type="button"
-            onClick={() => {
-              setText("/")
-              textareaRef.current?.focus()
-            }}
-          >
-            <Terminal />
-          </Button>
-          <Button
-            className="hidden @xl:inline-flex"
-            size="xs"
-            type="button"
-            variant="ghost"
-            onClick={() => {
-              setText("/")
-              textareaRef.current?.focus()
-            }}
-          >
-            <Blocks /> Skills
-          </Button>
-          <span className="hidden text-[10px] whitespace-nowrap text-muted-foreground @2xl:inline">
-            ⌘ ↵
-          </span>
-          {turnActive ? (
-            <>
-              <Button
-                disabled={disabled || pending || !text.trim() || !selectedModel}
-                onClick={() => void submit("steer")}
-                size="xs"
-                type="button"
-                variant="outline"
-              >
-                <ArrowUp /> Steer
-              </Button>
-              <Button
-                className="shrink-0 bg-[#ef9b7e] text-[#241613] hover:bg-[#f4af98]"
-                disabled={
-                  disabled ||
-                  pending ||
-                  queueFull ||
-                  !text.trim() ||
-                  !selectedModel
-                }
-                size="xs"
-                type="submit"
-              >
-                {pending ? (
-                  <LoaderCircle className="animate-spin" />
-                ) : (
-                  <MessagesSquare />
-                )}
-                Queue
-              </Button>
-            </>
-          ) : (
-            <Button
-              aria-label="Send message"
-              className="shrink-0 bg-[#ef9b7e] text-[#241613] hover:bg-[#f4af98]"
-              disabled={disabled || pending || !text.trim() || !selectedModel}
-              size="icon-sm"
-              type="submit"
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  type="button"
+                  size="icon-xs"
+                  variant="ghost"
+                  aria-label="Message options"
+                />
+              }
             >
-              {pending ? (
-                <LoaderCircle className="animate-spin" />
-              ) : (
-                <ArrowUp />
-              )}
-            </Button>
-          )}
+              <ChevronDown />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                onClick={() => {
+                  setText("/")
+                  textareaRef.current?.focus()
+                }}
+              >
+                <Blocks /> Choose a skill
+              </DropdownMenuItem>
+              {turnActive ? (
+                <DropdownMenuItem
+                  disabled={
+                    disabled ||
+                    pending ||
+                    sending ||
+                    queueFull ||
+                    !text.trim() ||
+                    !selectedModel
+                  }
+                  onClick={() => void submit("queue")}
+                >
+                  Run after this{queueFull ? " (queue full)" : ""}
+                </DropdownMenuItem>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button
+            aria-label="Send message"
+            className="ml-auto shrink-0 bg-[#ef9b7e] text-[#241613] hover:bg-[#f4af98]"
+            disabled={
+              disabled || pending || sending || !text.trim() || !selectedModel
+            }
+            size="sm"
+            type="submit"
+          >
+            {pending || sending ? (
+              <LoaderCircle className="animate-spin motion-reduce:animate-none" />
+            ) : (
+              <ArrowUp />
+            )}
+            Send
+          </Button>
         </div>
       </form>
+      <p
+        role="status"
+        className="mx-auto min-h-5 max-w-3xl px-1 pt-1 text-xs text-muted-foreground"
+      >
+        {pending || sending ? "Sending…" : receipt}
+      </p>
     </div>
   )
 }

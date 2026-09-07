@@ -9,6 +9,7 @@ import {
   ShieldCheck,
 } from "lucide-react"
 
+import { Button } from "@workspace/ui/components/button"
 import { CodeReview } from "@workspace/ui/components/code-review"
 import {
   Collapsible,
@@ -231,9 +232,11 @@ function ToolDetail({ part }: { part: ToolCallEntry }) {
 function ToolCall({
   part,
   defaultOpen,
+  onInspect,
 }: {
   part: ToolCallEntry
   defaultOpen?: boolean
+  onInspect?: () => void
 }) {
   const open = defaultOpen ?? part.status === "error"
   return (
@@ -257,6 +260,16 @@ function ToolCall({
       </CollapsibleTrigger>
       <CollapsibleContent className="min-w-0 ps-[1.375rem] pt-1 pb-2">
         <ToolDetail part={part} />
+        {onInspect ? (
+          <Button
+            className="mt-2"
+            size="xs"
+            variant="ghost"
+            onClick={onInspect}
+          >
+            Inspect activity
+          </Button>
+        ) : null}
       </CollapsibleContent>
     </Collapsible>
   )

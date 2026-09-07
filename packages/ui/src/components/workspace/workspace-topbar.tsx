@@ -13,7 +13,6 @@ import {
   Trash2,
 } from "lucide-react"
 
-import { Badge } from "@workspace/ui/components/badge"
 import { Avatar, AvatarFallback } from "@workspace/ui/components/avatar"
 import { Button } from "@workspace/ui/components/button"
 import {
@@ -39,7 +38,6 @@ export function WorkspaceTopbar({
   browser,
   checks,
   projectName,
-  repositoryName,
   workspaceName,
   onRestartWorkspace,
   restartPending,
@@ -71,7 +69,7 @@ export function WorkspaceTopbar({
   const store = useWorkspaceShellStore()
   const paneOpen = useWorkspaceShell((state) => state.toolPaneOpen)
   const mobileView = useWorkspaceShell((state) => state.mobileView)
-  const terminalOpen = useWorkspaceShell((state) => state.terminalOpen)
+
   const navigationCollapsed = shell?.navigationCollapsed ?? true
   const passedChecks = checks.filter(
     (check) => check.status === "passed"
@@ -90,24 +88,20 @@ export function WorkspaceTopbar({
       >
         {navigationCollapsed ? <PanelLeftOpen /> : <Files />}
       </Button>
-      <span className="hidden max-w-36 min-w-0 shrink truncate text-xs whitespace-nowrap text-muted-foreground sm:inline">
-        {projectName}
-      </span>
-      <ChevronRight className="hidden size-3 text-muted-foreground/50 sm:block" />
-      <span className="max-w-32 min-w-0 shrink truncate text-xs font-medium whitespace-nowrap">
+      {navigationCollapsed && projectName !== workspaceName ? (
+        <>
+          <span className="hidden max-w-36 min-w-0 truncate text-xs text-muted-foreground sm:inline">
+            {projectName}
+          </span>
+          <ChevronRight className="hidden size-3 shrink-0 text-muted-foreground sm:block" />
+        </>
+      ) : null}
+      <span
+        title={workspaceName}
+        className="min-w-0 flex-1 truncate text-sm font-medium"
+      >
         {workspaceName}
       </span>
-      <span className="hidden max-w-40 min-w-0 shrink truncate font-mono text-[9px] whitespace-nowrap text-muted-foreground 2xl:inline">
-        {repositoryName}
-      </span>
-      {browser.status === "live" && (
-        <Badge
-          className="hidden rounded-[5px] border-white/10 bg-white/[.045] px-1.5 text-[10px] font-normal text-muted-foreground sm:inline-flex"
-          variant="outline"
-        >
-          <span className="size-1.5 rounded-full bg-[var(--sylph-live)]" /> Live
-        </Badge>
-      )}
       <div className="ml-auto flex items-center gap-1.5">
         {presence.length ? (
           <div aria-label="Workspace presence" className="mr-1 flex -space-x-1">
@@ -130,30 +124,6 @@ export function WorkspaceTopbar({
             ))}
           </div>
         ) : null}
-        <div className="mr-1 hidden items-center gap-2 2xl:flex">
-          <span className="text-[10px] text-muted-foreground">
-            {checks.length > 0
-              ? `Browser checks ${passedChecks}/${checks.length}`
-              : "No browser checks"}
-          </span>
-          {browser.status === "live" && (
-            <span className="size-1.5 rounded-full bg-[var(--sylph-live)]" />
-          )}
-          {agentControllingBrowser && (
-            <span className="text-[10px] text-muted-foreground">
-              Agent controlling browser
-            </span>
-          )}
-        </div>
-        <Button
-          aria-label="Command output"
-          aria-expanded={terminalOpen}
-          size="sm"
-          variant="ghost"
-          onClick={() => openWorkspaceTool(store, "terminal")}
-        >
-          <Terminal /> <span className="hidden lg:inline">Output</span>
-        </Button>
         <Button
           className="hidden md:inline-flex"
           aria-label={paneOpen ? "Hide inspector" : "Open inspector"}
@@ -186,7 +156,24 @@ export function WorkspaceTopbar({
           >
             <MoreHorizontal className="size-4" />
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-44">
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuItem
+              onClick={() => openWorkspaceTool(store, "terminal")}
+            >
+              <Terminal /> Command output
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => openWorkspaceTool(store, "checks")}
+            >
+              Checks · {passedChecks}/{checks.length} passed
+            </DropdownMenuItem>
+            <DropdownMenuItem disabled>
+              {agentControllingBrowser
+                ? "Agent using preview"
+                : browser.status === "live"
+                  ? "Preview available"
+                  : "Preview unavailable"}
+            </DropdownMenuItem>
             <DropdownMenuItem
               disabled={!onRebase || rebasePending}
               onClick={() => void onRebase?.()}
