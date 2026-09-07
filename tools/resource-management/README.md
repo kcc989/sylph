@@ -4,11 +4,17 @@ The Project settings page lists the resource inventory for each production deplo
 
 ## Rollout
 
-1. Apply `template.patch` to `kcc989/sylph-tanstack-template` at `bed6b52785eab6e79680041ee1367f2831f59296`. It adds `sylph:plan`, uses the reserved names in Alchemy, consumes application secrets as secret bindings, and configures the production domain. The patch was checked with the template's frozen dependencies, typecheck, lint, tests, and build.
+1. Apply `template.patch` to `kcc989/sylph-tanstack-template` at `bed6b52785eab6e79680041ee1367f2831f59296`. It adds `sylph:plan`, all five release hooks, reserved Alchemy resources, a separate recovery-control D1 database, encrypted immutable secret versions, live secret fingerprint checks, and real provider recovery integration. The unpublished candidate is recorded in `template-candidate.json`. Frozen dependency installation, typecheck, lint, format, 20 tests, build, migration-review execution, and the platform contract verifier passed locally. No provider restore drill or deployed lifecycle claim was made.
 2. Publish the reviewed template revision and update `packages/domain/src/template-release.ts` to that immutable revision. The current pin is deliberately unchanged until publication. Repositories created from an older template need the same script and Alchemy changes; Sylph does not rewrite reviewed Checkpoints.
 3. Deploy the Website Worker through `alchemy.run.ts` using fresh resources. The initial database schema includes the resource inventory, and Website hosts the `ResourceMaintenance` Workflow and its binding. This baseline does not migrate previous D1 or Durable Object state. Do not run production deployment or resource destruction without approval.
 4. Before rollout to existing Projects, review their resource inventory. Existing successful production deployments without claims are blocked; no automatic adoption or database replacement occurs. Legacy Previews without a recorded reservation are not eligible for automatic cleanup. A separate reviewed adoption is required for those resources.
 5. Run the disposable deployed checks in `tests/release-smoke/README.md`. Include two simultaneous Preview attempts, one partial deployment failure, a browser-check failure, a cleanup retry, and a production ownership conflict. Confirm actual Worker/D1 IDs and disappearance through authenticated Cloudflare APIs. Local tests are not deployed proof.
+
+## Candidate publication dependency
+
+The complete prepared starter is local commit `05b2a1d46af88084bae080518d0624760680fc33` on `codex/complete-release-contract` in `kcc989/sylph-tanstack-template`. The full patch reproduces it from the recorded base. Publishing this branch requires explicit approval. After publication, verify the remote immutable commit and change `packages/domain/src/template-release.ts` to the candidate ref, commit, and version `0.2.0`. Until then the shipped pin remains unchanged and the strengthened template CI correctly rejects it as incompatible.
+
+Production capture also requires an approved real-provider restore drill for the application schema. The starter includes `scripts/sylph-recovery-drill.ts` and its precise setup in `RECOVERY.md`. The control database must exist first and is never restored with application data. First prepare checks for restore evidence before acquiring the writer pause. No publication, production deployment, restore, or resource destruction was performed while preparing this patch.
 
 ## Deployment contract
 
@@ -17,7 +23,7 @@ The Project settings page lists the resource inventory for each production deplo
 After build and before credentials are provided, `sylph:plan` prints exactly one line:
 
 ```text
-SYLPH_RESOURCE_PLAN=[{"kind":"worker","name":"<prefix>-web"},{"kind":"d1","name":"<prefix>-db"}]
+SYLPH_RESOURCE_PLAN=[{"kind":"worker","name":"<prefix>-web"},{"kind":"d1","name":"<prefix>-db"},{"kind":"d1","name":"<prefix>-recovery"}]
 ```
 
 The prefix is supplied by CI. All names must use that prefix followed by `-`, contain only lowercase letters, digits, and hyphens, and have at most 63 characters. A plan contains one Worker and at most 20 resources. Supported resource kinds are Worker, D1, KV, R2 in the default jurisdiction, Queue, and a configured production custom domain. Custom domains use the configured hostname instead of the prefix. Previews cannot attach custom domains.
