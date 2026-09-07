@@ -275,6 +275,10 @@ export const browserRunLayer = (
                 await guard.prepare(target)
                 target.setDefaultTimeout(actionTimeout)
                 target.setDefaultNavigationTimeout(actionTimeout)
+                if (sessionId) {
+                  const size = browserViewportSize(viewport)
+                  await target.setViewport({ ...size, width: size.width + 1 })
+                }
                 await target.setViewport(browserViewportSize(viewport))
                 await target.bringToFront()
               }
