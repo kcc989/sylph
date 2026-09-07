@@ -25,8 +25,6 @@ const run = (input: {
     kind: "checkpoint",
     status: input.previewUrl ? "passed" : "running",
     attempt: 1,
-    repairOnFailure: false,
-    repairStatus: "disabled",
     previewUrl: input.previewUrl,
     stages: [],
     diagnostics: [],

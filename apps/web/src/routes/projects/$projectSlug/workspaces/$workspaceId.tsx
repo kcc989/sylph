@@ -1,5 +1,4 @@
-import { useWorkspaceHistory } from "@/lib/workspace/use-workspace-history"
-import { useWorkspaceData } from "@/lib/workspace/use-workspace-data"
+import { useWorkspaceSynchronization } from "@/lib/workspace/use-workspace-synchronization"
 import {
   createFileRoute,
   type ErrorComponentProps,
@@ -25,7 +24,6 @@ import {
   WorkspaceTopbar,
   TerminalSurface,
 } from "@workspace/ui/components/workspace-shell"
-import type { WorkspacePermissionRequest } from "@workspace/ui/components/workspace/types"
 import {
   isWorkspaceCommandPending,
   pendingWorkspaceCommandTarget,
@@ -43,8 +41,6 @@ import {
   readWorkspacePatch,
 } from "@/functions/workspaces"
 import { useWorkspaceActions } from "@/lib/workspace/use-workspace-actions"
-import { useWorkspaceLiveState } from "@/lib/workspace/use-workspace-live-state"
-import { workspaceThreadEntries } from "@/lib/workspace/workspace-thread-entries"
 import { workspaceCheckItems } from "@/lib/workspace/workspace-check-items"
 import { AppShell } from "@/components/app-shell"
 
@@ -187,7 +183,13 @@ function WorkspaceScreen() {
     result,
     refresh: refreshLive,
     refreshError,
-  } = useWorkspaceData(initialResult)
+    entries,
+    permissionRequests,
+    history,
+    presence,
+    dismissPermissionRequest,
+    trackPrompt,
+  } = useWorkspaceSynchronization(initialResult)
   const router = useRouter()
   const readFile = useServerFn(readWorkspaceFile)
   const readPatch = useServerFn(readWorkspacePatch)
@@ -213,23 +215,9 @@ function WorkspaceScreen() {
   )
   const refresh = useCallback(() => router.invalidate(), [router])
   const { runtime, workspace } = result
-  const history = useWorkspaceHistory(
-    workspaceId,
-    runtime.sessionId,
-    runtime.messagesCursor
-  )
-  const {
-    dismissPermissionRequest,
-    presence,
-    state: liveState,
-  } = useWorkspaceLiveState(
-    workspaceId,
-    runtime.sessionId,
-    runtime.eventCursor,
-    refreshLive
-  )
   const actions = useWorkspaceActions({
     dismissPermissionRequest,
+    trackPrompt,
     refresh,
     result,
     workspaceId,
@@ -264,38 +252,10 @@ function WorkspaceScreen() {
     (total, change) => total + change.deletions,
     0
   )
-  const entries = workspaceThreadEntries(
-    {
-      errorSummary: workspace.errorSummary,
-      files: runtime.files,
-      messages: history.page?.messages ?? runtime.messages,
-      status: runtime.status,
-    },
-    history.page ? { ...liveState, partialMessages: {} } : liveState,
-    history.page ? [] : actions.optimisticEntries,
-    actions.matchedSkill
-  )
-  const permissionRequests: WorkspacePermissionRequest[] = Object.values({
-    ...Object.fromEntries(
-      runtime.permissions.map((request) => [
-        request.id,
-        {
-          id: request.id,
-          action: request.action,
-          resources: [...request.resources],
-          message: request.message,
-          canSave: Boolean(request.save?.length),
-        },
-      ])
-    ),
-    ...liveState.permissionRequests,
-  })
   const checkpointCheck = result.checks.find((run) => run.kind === "checkpoint")
   const productionCheck = result.checks.find((run) => run.kind === "production")
   const checkItems = workspaceCheckItems(checkpointCheck, productionCheck, {
-    automaticRepairsUsed: runtime.automaticRepairsUsed,
     limits: runtime.limits,
-    onRepair: (run) => actions.runRepair(run.id),
     onRetry: (run) => actions.runRetry(run.id),
     onUpdateProject: actions.runUpdateProject,
     pending: actions.checkActionPending,
@@ -369,7 +329,7 @@ function WorkspaceScreen() {
               cancelTurnPending={isPending("cancelTurn")}
               entries={entries}
               historyControls={
-                history.page || history.hasOlder || history.error ? (
+                history.viewingOlder || history.hasOlder || history.error ? (
                   <div className="mb-4 flex flex-wrap items-center gap-2">
                     {history.hasOlder ? (
                       <Button
@@ -383,7 +343,7 @@ function WorkspaceScreen() {
                           : "Earlier messages"}
                       </Button>
                     ) : null}
-                    {history.page ? (
+                    {history.viewingOlder ? (
                       <Button
                         variant="ghost"
                         size="sm"

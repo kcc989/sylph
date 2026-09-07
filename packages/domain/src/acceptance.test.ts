@@ -39,8 +39,6 @@ const input = () => ({
       kind: "checkpoint",
       status: "passed",
       attempt: 1,
-      repairOnFailure: false,
-      repairStatus: "disabled",
       previewUrl: null,
       stages: [],
       diagnostics: [],

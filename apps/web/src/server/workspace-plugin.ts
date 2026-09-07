@@ -73,10 +73,7 @@ export type WorkspacePluginActions = {
   codexRequest: (request: Request) => Promise<Response>
   authorizeModelRequest?(request: Request): Promise<void>
   assertWritable(): void
-  runChecks(input: {
-    message: string
-    repairOnFailure: boolean
-  }): Promise<WorkspaceCheckRun>
+  runChecks(input: { message: string }): Promise<WorkspaceCheckRun>
   syncProject(): Promise<WorkspaceSyncResult>
   checkpoint(input: { message: string }): Promise<WorkspaceCheckpointResult>
   preview(): Promise<WorkspacePreviewResult>
@@ -92,7 +89,7 @@ export const workspaceSystemPrompt = [
   "Shell commands run in a Linux sandbox with Git, Node, and Bun. Source changes are saved to the durable Workspace when the command finishes. Dependencies and build output stay in the sandbox. File tools access the same durable source. Do not run file mutations concurrently with shell commands.",
   "Use bun install after dependency changes to generate bun.lock. Never invent lockfile entries. Run commands to inspect diffs, restore files, and test your work.",
   "Use workspace_checkpoint to save a durable commit. Shell Git commits are sandbox-local; Sylph owns the durable Workspace fork and its Checkpoints.",
-  "Use workspace_run_checks after a coherent change to create a Checkpoint and run recorded Checks, including a Preview build. Then end your response. Do not poll. Results appear automatically and are system context for the next user request. Claim success only after a terminal result exists.",
+  "Use workspace_run_checks after a coherent change to create a Checkpoint and run recorded Checks, including a Preview build. Then end your response. Do not poll. Failed Checks automatically resume you to fix the cause, up to the Workspace continuation limit. Passing results are recorded without starting another Turn. Claim success only after a terminal result exists.",
   "Use workspace_preview to find or build the current Checkpoint Preview and workspace_browser to inspect it and save screenshot evidence.",
   "Use workspace_sync_project to update from the Project Repository. Users accept changes from Review and confirm production deployments through the product.",
 ].join(" ")
@@ -195,7 +192,6 @@ export const createWorkspacePlugin = (
                 await actions.runChecks({
                   message:
                     decoded.message ?? "Checkpoint verified Workspace changes",
-                  repairOnFailure: decoded.repairOnFailure ?? false,
                 })
               ),
             }

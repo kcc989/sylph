@@ -276,7 +276,6 @@ export const TurnControls: Story = {
       maxQueuedMessages: 5,
       maxTurnDurationMs: 15 * 60 * 1000,
       maxCheckAttempts: 3,
-      maxRepairAttempts: 2,
     },
     queuedMessages: [
       {
@@ -317,7 +316,6 @@ export const InterruptedTurn: Story = {
       maxQueuedMessages: 5,
       maxTurnDurationMs: 15 * 60 * 1000,
       maxCheckAttempts: 3,
-      maxRepairAttempts: 2,
     },
   },
 }

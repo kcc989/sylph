@@ -1,6 +1,7 @@
 import type {
   InstanceModelPolicy,
   WorkspacePromptInput,
+  WorkspaceRestartRequest,
 } from "@workspace/domain"
 import { sql } from "drizzle-orm"
 import {
@@ -297,6 +298,9 @@ export const workspace = sqliteTable(
       .references(() => user.id, { onDelete: "restrict" }),
     creationKey: text("creation_key"),
     provisioningScheduledAt: integer("provisioning_scheduled_at"),
+    restartRequest: text("restart_request", { mode: "json" }).$type<
+      typeof WorkspaceRestartRequest.Encoded
+    >(),
     branchName: text("branch_name"),
     title: text("title").notNull(),
     status: text("status").notNull().default("provisioning"),

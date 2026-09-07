@@ -275,7 +275,6 @@ export const deployProjectCommit = createServerFn({ method: "POST" })
       checkpointId: null,
       kind: "production",
       attempt: 1,
-      repairOnFailure: false,
       deploymentId,
       createdAt,
     }

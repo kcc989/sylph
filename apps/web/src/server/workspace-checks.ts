@@ -5,6 +5,7 @@ import {
   type WorkspaceCheckEvidence,
   type WorkspaceCheckKind,
   WorkspaceCheckRun,
+  WorkspaceCheckCompletion,
   WorkspaceCheckStage,
   type WorkspaceCheckStageName,
   type WorkspaceCheckUpdate,
@@ -13,21 +14,22 @@ import {
 
 import type { WorkspaceStorage } from "./workspace-filesystem"
 import { Schema } from "effect"
+import { checkCompletion } from "./workspace-check-notification"
 
 const decodeWorkspaceCheckRun = Schema.decodeUnknownSync(WorkspaceCheckRun)
+
+type CompletionRow = {
+  [key: string]: SqlStorageValue
+  payload: string
+  prepared: number
+}
 
 type CheckRow = { [key: string]: SqlStorageValue; payload: string }
 type IdRow = { [key: string]: SqlStorageValue; id: string }
 type CountRow = { [key: string]: SqlStorageValue; value: number }
 
 export const maxWorkspaceCheckAttempts = 3
-export const maxWorkspaceRepairAttempts = 2
-export const maxWorkspaceAutomaticRepairs = 3
-
-export type WorkspaceRepairSource = "manual" | "automatic"
-
-export const automaticRepairIdempotencyKey = (runId: string) =>
-  `${runId}:automatic-repair`
+export const maxWorkspaceCheckContinuations = 3
 
 const checkpointStages: ReadonlyArray<WorkspaceCheckStageName> = [
   "install",
@@ -65,7 +67,6 @@ export const newCheckRun = (input: {
   commit: string
   kind: WorkspaceCheckKind
   attempt: number
-  repairOnFailure: boolean
   createdAt: number
 }) =>
   new WorkspaceCheckRun({
@@ -77,10 +78,6 @@ export const newCheckRun = (input: {
     status: "queued",
     attempt: input.attempt,
     maxAttempts: maxWorkspaceCheckAttempts,
-    repairOnFailure: input.repairOnFailure,
-    repairStatus: input.repairOnFailure ? "available" : "disabled",
-    repairAttempt: 0,
-    maxRepairAttempts: maxWorkspaceRepairAttempts,
     previewUrl: null,
     stages: checkStages(input.kind).map((name) =>
       checkStage(name, "queued", "Waiting")
@@ -90,20 +87,6 @@ export const newCheckRun = (input: {
     createdAt: input.createdAt,
     updatedAt: input.createdAt,
   })
-
-export class WorkspaceRepairLimitReached extends Error {
-  readonly used: number
-  readonly limit: number
-
-  constructor(used: number, limit: number) {
-    super(
-      `Automatic repair reached its ${limit}-turn limit for this Workspace. Send a message or start a repair manually to continue.`
-    )
-    this.name = "WorkspaceRepairLimitReached"
-    this.used = used
-    this.limit = limit
-  }
-}
 
 const resetStages = (run: WorkspaceCheckRun) =>
   run.stages.map(
@@ -118,6 +101,7 @@ const resetStages = (run: WorkspaceCheckRun) =>
 
 export class WorkspaceChecks {
   readonly #storage: WorkspaceStorage
+  #delivery: Promise<void> | null = null
 
   constructor(storage: WorkspaceStorage) {
     this.#storage = storage
@@ -133,6 +117,22 @@ export class WorkspaceChecks {
     this.#storage.sql.exec(
       "CREATE TABLE IF NOT EXISTS app_workspace_check_action (id TEXT PRIMARY KEY NOT NULL, run_id TEXT NOT NULL, kind TEXT NOT NULL, created_at INTEGER NOT NULL)"
     )
+    this.#storage.sql.exec(
+      "CREATE TABLE IF NOT EXISTS app_workspace_check_completion (id TEXT PRIMARY KEY NOT NULL, payload TEXT NOT NULL, delivered INTEGER NOT NULL DEFAULT 0, prepared INTEGER NOT NULL DEFAULT 0)"
+    )
+    const columns = this.#storage.sql
+      .exec<{ name: string }>(
+        "PRAGMA table_info(app_workspace_check_completion)"
+      )
+      .toArray()
+    if (!columns.some((column) => column.name === "prepared")) {
+      this.#storage.sql.exec(
+        "ALTER TABLE app_workspace_check_completion ADD COLUMN prepared INTEGER NOT NULL DEFAULT 0"
+      )
+      this.#storage.sql.exec(
+        "UPDATE app_workspace_check_completion SET prepared = 1"
+      )
+    }
     this.#storage.sql.exec(
       "CREATE TABLE IF NOT EXISTS app_workspace_repair_budget (sequence INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, reference TEXT NOT NULL, created_at INTEGER NOT NULL)"
     )
@@ -152,33 +152,121 @@ export class WorkspaceChecks {
   }
 
   apply(update: WorkspaceCheckUpdate) {
-    const duplicate = this.#storage.sql
-      .exec<IdRow>(
-        "SELECT id FROM app_workspace_check_callback WHERE id = ?",
-        update.callbackId
+    const apply = () => {
+      const duplicate = this.#storage.sql
+        .exec<IdRow>(
+          "SELECT id FROM app_workspace_check_callback WHERE id = ?",
+          update.callbackId
+        )
+        .toArray()[0]
+      if (duplicate) return false
+      const previous = this.get(update.run.id)
+      const run = update.run
+      if (
+        previous &&
+        (previous.attempt > run.attempt ||
+          (previous.attempt === run.attempt &&
+            (previous.status === "passed" || previous.status === "failed")))
       )
-      .toArray()[0]
-    if (duplicate) return false
-
-    const previous = this.get(update.run.id)
-    const run =
-      previous?.repairNotice && update.run.repairNotice === undefined
-        ? new WorkspaceCheckRun({
-            ...update.run,
-            repairNotice: previous.repairNotice,
-          })
-        : update.run
-    this.#save(run)
-    this.#storage.sql.exec(
-      "INSERT INTO app_workspace_check_callback (id, run_id, created_at) VALUES (?, ?, ?)",
-      update.callbackId,
-      run.id,
-      Date.now()
-    )
-    if (run.kind === "checkpoint" && run.status === "passed") {
-      this.resetAutomaticRepairs(`passed:${run.id}:${run.attempt}`)
+        return false
+      this.#save(run)
+      const completion = checkCompletion(run, 0, maxWorkspaceCheckContinuations)
+      if (completion) {
+        this.#storage.sql.exec(
+          "INSERT OR IGNORE INTO app_workspace_check_completion (id, payload) VALUES (?, ?)",
+          completion.id,
+          JSON.stringify(completion)
+        )
+      }
+      this.#storage.sql.exec(
+        "INSERT INTO app_workspace_check_callback (id, run_id, created_at) VALUES (?, ?, ?)",
+        update.callbackId,
+        run.id,
+        Date.now()
+      )
+      if (run.kind === "checkpoint" && run.status === "passed")
+        this.resetCheckContinuations(`passed:${run.id}:${run.attempt}`)
+      return true
     }
-    return true
+    return this.#storage.transactionSync
+      ? this.#storage.transactionSync(apply)
+      : apply()
+  }
+
+  hasPendingCompletions() {
+    return (
+      this.#storage.sql
+        .exec<IdRow>(
+          "SELECT id FROM app_workspace_check_completion WHERE delivered = 0 LIMIT 1"
+        )
+        .toArray().length > 0
+    )
+  }
+
+  deliverCompletions(
+    send: (completion: WorkspaceCheckCompletion) => Promise<void>,
+    eligible: (
+      completion: WorkspaceCheckCompletion
+    ) => Promise<boolean> = async () => true
+  ) {
+    if (this.#delivery) return this.#delivery
+    this.#delivery = this.#deliverCompletions(send, eligible).finally(() => {
+      this.#delivery = null
+    })
+    return this.#delivery
+  }
+
+  async #deliverCompletions(
+    send: (completion: WorkspaceCheckCompletion) => Promise<void>,
+    eligible: (completion: WorkspaceCheckCompletion) => Promise<boolean>
+  ) {
+    const rows = this.#storage.sql
+      .exec<CompletionRow>(
+        "SELECT payload, prepared FROM app_workspace_check_completion WHERE delivered = 0 ORDER BY rowid"
+      )
+      .toArray()
+    for (const row of rows) {
+      const completion = Schema.decodeUnknownSync(WorkspaceCheckCompletion)(
+        JSON.parse(row.payload)
+      )
+      if (await eligible(completion)) {
+        const prepared = row.prepared
+          ? completion
+          : this.#prepareCompletion(completion)
+        await send(prepared)
+      }
+      this.#storage.sql.exec(
+        "UPDATE app_workspace_check_completion SET delivered = 1 WHERE id = ?",
+        completion.id
+      )
+    }
+  }
+
+  #prepareCompletion(completion: WorkspaceCheckCompletion) {
+    const prepare = () => {
+      const run = this.#required(completion.runId)
+      const prepared =
+        checkCompletion(
+          run,
+          this.checkContinuationsUsed(),
+          maxWorkspaceCheckContinuations
+        ) ?? completion
+      if (prepared.resume)
+        this.#storage.sql.exec(
+          "INSERT INTO app_workspace_repair_budget (kind, reference, created_at) VALUES ('repair', ?, ?)",
+          prepared.id,
+          Date.now()
+        )
+      this.#storage.sql.exec(
+        "UPDATE app_workspace_check_completion SET payload = ?, prepared = 1 WHERE id = ?",
+        JSON.stringify(prepared),
+        prepared.id
+      )
+      return prepared
+    }
+    return this.#storage.transactionSync
+      ? this.#storage.transactionSync(prepare)
+      : prepare()
   }
 
   get(runId: string) {
@@ -229,8 +317,6 @@ export class WorkspaceChecks {
       status: "queued",
       attempt: run.attempt + 1,
       maxAttempts: maxWorkspaceCheckAttempts,
-      repairStatus: run.repairOnFailure ? "available" : "disabled",
-      repairNotice: undefined,
       previewUrl: null,
       stages: resetStages(run),
       diagnostics: [],
@@ -240,95 +326,6 @@ export class WorkspaceChecks {
     this.#save(retried)
     this.#recordAction(actionId, runId, "retry", now)
     return retried
-  }
-
-  requestRepair(
-    runId: string,
-    idempotencyKey: string,
-    source: WorkspaceRepairSource = "manual"
-  ) {
-    const actionId = `repair:${idempotencyKey}`
-    const existing = this.#storage.sql
-      .exec<IdRow>(
-        "SELECT id FROM app_workspace_check_action WHERE id = ?",
-        actionId
-      )
-      .toArray()[0]
-    const run = this.#required(runId)
-    if (run.kind === "dependencies") {
-      throw new PreconditionFailed({
-        message:
-          "Dependency jobs are retired. Use bun install with the native shell tool.",
-      })
-    }
-    if (existing) return run
-    if (run.status !== "failed") {
-      throw new PreconditionFailed({
-        message: "Only a failed Check can start a repair turn",
-      })
-    }
-    const repairAttempt = this.#actionCount(runId, "repair") + 1
-    if (repairAttempt > maxWorkspaceRepairAttempts) {
-      throw new PreconditionFailed({
-        message: `This Check reached its ${maxWorkspaceRepairAttempts}-repair limit`,
-      })
-    }
-    if (source === "automatic") {
-      const used = this.automaticRepairsUsed()
-      if (used >= maxWorkspaceAutomaticRepairs) {
-        throw new WorkspaceRepairLimitReached(
-          used,
-          maxWorkspaceAutomaticRepairs
-        )
-      }
-    }
-
-    const requested = new WorkspaceCheckRun({
-      ...run,
-      repairStatus: "requested",
-      repairAttempt,
-      maxRepairAttempts: maxWorkspaceRepairAttempts,
-      updatedAt: Date.now(),
-    })
-    this.#save(requested)
-    this.#recordAction(actionId, runId, "repair", requested.updatedAt)
-    if (source === "automatic") {
-      this.#storage.sql.exec(
-        "INSERT INTO app_workspace_repair_budget (kind, reference, created_at) VALUES ('repair', ?, ?)",
-        actionId,
-        requested.updatedAt
-      )
-    }
-    return requested
-  }
-
-  takeRepair(runId: string) {
-    const run = this.#required(runId)
-    const eligible =
-      run.status === "failed" &&
-      (run.repairOnFailure || run.repairStatus === "requested") &&
-      run.repairStatus !== "started"
-    if (!eligible) return null
-
-    const started = new WorkspaceCheckRun({
-      ...run,
-      repairStatus: "started",
-      updatedAt: Date.now(),
-    })
-    this.#save(started)
-    return started
-  }
-
-  recordRepairNotice(runId: string, notice: string) {
-    const run = this.#required(runId)
-    const noted = new WorkspaceCheckRun({
-      ...run,
-      repairStatus: run.repairStatus === "started" ? "started" : "available",
-      repairNotice: notice,
-      updatedAt: Date.now(),
-    })
-    this.#save(noted)
-    return noted
   }
 
   addEvidence(runId: string, evidence: ReadonlyArray<WorkspaceCheckEvidence>) {
@@ -342,7 +339,7 @@ export class WorkspaceChecks {
     return updated
   }
 
-  automaticRepairsUsed() {
+  checkContinuationsUsed() {
     return (
       this.#storage.sql
         .exec<CountRow>(
@@ -352,11 +349,12 @@ export class WorkspaceChecks {
     )
   }
 
-  resetAutomaticRepairs(reference: string) {
+  resetCheckContinuations(reference: string) {
     this.#storage.sql.exec(
-      "INSERT INTO app_workspace_repair_budget (kind, reference, created_at) VALUES ('reset', ?, ?)",
+      "INSERT INTO app_workspace_repair_budget (kind, reference, created_at) SELECT 'reset', ?, ? WHERE NOT EXISTS (SELECT 1 FROM app_workspace_repair_budget WHERE kind = 'reset' AND reference = ?)",
       reference,
-      Date.now()
+      Date.now(),
+      reference
     )
   }
 
@@ -396,18 +394,6 @@ export class WorkspaceChecks {
       runId,
       kind,
       createdAt
-    )
-  }
-
-  #actionCount(runId: string, kind: string) {
-    return (
-      this.#storage.sql
-        .exec<CountRow>(
-          "SELECT COUNT(*) AS value FROM app_workspace_check_action WHERE run_id = ? AND kind = ?",
-          runId,
-          kind
-        )
-        .toArray()[0]?.value ?? 0
     )
   }
 }

@@ -35,7 +35,6 @@ const stub = (
   applyCheckUpdate: unreachable,
   archive: unreachable,
   retryCheck: unreachable,
-  repairCheck: unreachable,
   updateProject: unreachable,
   rebase: unreachable,
   versionControl: unreachable,

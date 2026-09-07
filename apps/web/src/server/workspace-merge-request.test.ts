@@ -45,8 +45,6 @@ const passing = new WorkspaceCheckRun({
   kind: "checkpoint",
   status: "passed",
   attempt: 1,
-  repairOnFailure: false,
-  repairStatus: "disabled",
   previewUrl: "https://preview.example.workers.dev",
   stages: [],
   diagnostics: [],

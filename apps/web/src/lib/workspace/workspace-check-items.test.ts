@@ -6,13 +6,12 @@ import {
 } from "./workspace-check-items"
 
 const actions = {
-  automaticRepairsUsed: 0,
+  checkContinuationsUsed: 0,
   limits: {
     maxQueuedMessages: 5,
     maxTurnDurationMs: 900_000,
     maxCheckAttempts: 3,
-    maxRepairAttempts: 2,
-    maxAutomaticRepairs: 1,
+    maxCheckContinuations: 1,
   },
   onRepair: () => undefined,
   onRetry: () => undefined,

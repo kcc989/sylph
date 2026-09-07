@@ -121,8 +121,7 @@ export type WorkspaceRuntimeLimits = {
   maxQueuedMessages: number
   maxTurnDurationMs: number
   maxCheckAttempts: number
-  maxRepairAttempts: number
-  maxAutomaticRepairs?: number
+  maxCheckContinuations?: number
 }
 
 export type WorkspacePresenceUser = {

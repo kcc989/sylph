@@ -4,9 +4,8 @@ import {
   type WorkspaceQueuedMessage,
 } from "@workspace/domain"
 import {
-  maxWorkspaceAutomaticRepairs,
+  maxWorkspaceCheckContinuations,
   maxWorkspaceCheckAttempts,
-  maxWorkspaceRepairAttempts,
 } from "./workspace-checks"
 
 export const maxQueuedMessages = 5
@@ -33,10 +32,9 @@ export const provisioningRuntimeHealth = (
       maxQueuedMessages,
       maxTurnDurationMs,
       maxCheckAttempts: maxWorkspaceCheckAttempts,
-      maxRepairAttempts: maxWorkspaceRepairAttempts,
-      maxAutomaticRepairs: maxWorkspaceAutomaticRepairs,
+      maxCheckContinuations: maxWorkspaceCheckContinuations,
     },
-    automaticRepairsUsed: 0,
+    checkContinuationsUsed: 0,
     archivedAt: null,
     opencode: { healthy: false },
   })

@@ -1,17 +1,15 @@
 import { useRouter } from "@tanstack/react-router"
 import { useServerFn } from "@tanstack/react-start"
 import {
-  resolveSkillInvocation,
   workspaceAcceptance,
   type WorkspacePermissionReply,
 } from "@workspace/domain"
 import type {
-  ThreadEntry,
   WorkspaceQuestionValue,
   WorkspaceReviewCommentDraft,
 } from "@workspace/ui/components/workspace/types"
 import { isWorkspaceCommandPending } from "@workspace/ui/lib/workspace-commands"
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import {
   addWorkspaceReviewComment,
@@ -30,7 +28,6 @@ import {
   promptWorkspace,
   retryWorkspaceQueuedMessage,
   rebaseWorkspace,
-  repairWorkspaceCheck,
   restartWorkspace,
   retryWorkspaceCheck,
   syncWorkspaceProject,
@@ -44,6 +41,11 @@ type WorkspaceActionsInput = {
   result: WorkspaceResult
   refresh: () => Promise<void>
   dismissPermissionRequest: (requestId: string) => void
+  trackPrompt: (
+    id: string,
+    text: string,
+    delivery?: "queue" | "steer"
+  ) => (accepted: boolean) => void
 }
 
 type WorkspaceActionProps = {
@@ -84,6 +86,7 @@ type WorkspaceActionProps = {
 
 export function useWorkspaceActions({
   dismissPermissionRequest,
+  trackPrompt,
   refresh,
   result,
   workspaceId,
@@ -102,9 +105,9 @@ export function useWorkspaceActions({
   const accept = useServerFn(acceptWorkspace)
   const addReviewComment = useServerFn(addWorkspaceReviewComment)
   const restart = useServerFn(restartWorkspace)
+  const restartRequest = useRef(crypto.randomUUID())
   const rebase = useServerFn(rebaseWorkspace)
   const retryCheck = useServerFn(retryWorkspaceCheck)
-  const repairCheck = useServerFn(repairWorkspaceCheck)
   const resolveReviewComment = useServerFn(resolveWorkspaceReviewComment)
   const syncProject = useServerFn(syncWorkspaceProject)
   const submitReview = useServerFn(submitWorkspaceReview)
@@ -113,17 +116,13 @@ export function useWorkspaceActions({
   const [checkpointKey, setCheckpointKey] = useState(() => crypto.randomUUID())
   const [acceptKey, setAcceptKey] = useState(() => crypto.randomUUID())
   const [retryKey, setRetryKey] = useState(() => crypto.randomUUID())
-  const [repairKey, setRepairKey] = useState(() => crypto.randomUUID())
   const [deployKey, setDeployKey] = useState(() => crypto.randomUUID())
-  const [optimisticEntries, setOptimisticEntries] = useState<ThreadEntry[]>([])
   const [selectedModel, setSelectedModel] = useState(
     result.selectedModel ?? null
   )
   const [modelNotice, setModelNotice] = useState(result.modelNotice ?? null)
   const modelSelectionChanged = useRef(false)
   const modelSelectionWorkspaceId = useRef(workspaceId)
-
-  useEffect(() => setOptimisticEntries([]), [workspaceId])
 
   useEffect(() => {
     const workspaceChanged = modelSelectionWorkspaceId.current !== workspaceId
@@ -142,24 +141,6 @@ export function useWorkspaceActions({
     result.selectedModel?.variant,
     workspaceId,
   ])
-
-  const matchedSkill = useCallback(
-    (text: string) => {
-      const invocation = resolveSkillInvocation(text, result.skills)
-      if (!invocation) return undefined
-      const skill = result.skills.find(
-        (candidate) => candidate.metadata.name === invocation.skillId
-      )
-      return skill
-        ? {
-            name: invocation.skillId,
-            scope: skill.scope,
-            prompt: invocation.text,
-          }
-        : undefined
-    },
-    [result.skills]
-  )
 
   const runReviewMutation = (mutation: () => Promise<object>) =>
     commands.run(
@@ -350,7 +331,14 @@ export function useWorkspaceActions({
       await commands.run(
         "restart",
         async () => {
-          await restart({ data: { workspaceId, model: selectedModel } })
+          await restart({
+            data: {
+              workspaceId,
+              model: selectedModel,
+              idempotencyKey: restartRequest.current,
+            },
+          })
+          restartRequest.current = crypto.randomUUID()
         },
         "Workspace restart failed"
       )
@@ -367,20 +355,7 @@ export function useWorkspaceActions({
       if (promptSubmission.current?.signature !== signature)
         promptSubmission.current = { id: crypto.randomUUID(), signature }
       const messageId = promptSubmission.current.id
-      setOptimisticEntries([
-        {
-          id: `optimistic-${crypto.randomUUID()}`,
-          kind: "user",
-          body: text,
-          skill: matchedSkill(text),
-          meta:
-            delivery === "steer"
-              ? "You · steering"
-              : delivery === "queue"
-                ? "You · queued"
-                : "You",
-        },
-      ])
+      const finishPrompt = trackPrompt(messageId, text, delivery)
       const sent = await commands.run(
         "prompt",
         async () => {
@@ -401,7 +376,7 @@ export function useWorkspaceActions({
         "The assistant could not start the turn",
         { refresh: false, refreshOnFailure: true }
       )
-      setOptimisticEntries([])
+      finishPrompt(sent)
       if (sent) promptSubmission.current = null
       return sent
     },
@@ -423,22 +398,8 @@ export function useWorkspaceActions({
     actionProps,
     checkActionPending: isWorkspaceCommandPending(commands.pending, "check"),
     commandError: commands.error,
-    matchedSkill,
     modelNotice,
-    optimisticEntries,
     pending: commands.pending,
-    runRepair: (runId: string) => {
-      void commands.run(
-        "check",
-        async () => {
-          await repairCheck({
-            data: { workspaceId, runId, idempotencyKey: repairKey },
-          })
-          setRepairKey(crypto.randomUUID())
-        },
-        "Repair turn failed"
-      )
-    },
     runRetry: (runId: string) => {
       void commands.run(
         "check",

@@ -145,7 +145,6 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
         })
         await this.#publish(step, "run-passed", run, {
           status: "passed",
-          repairStatus: "disabled",
         })
         return
       }
@@ -247,7 +246,6 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
 
       run = await this.#publish(step, "run-passed", run, {
         status: "passed",
-        repairStatus: "disabled",
       })
       const retainedPreviewUrl = run.previewUrl
       if (input.kind !== "production" && retainedPreviewUrl) {
@@ -309,7 +307,6 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
       const failedRun = new WorkspaceCheckRun({
         ...run,
         status: "failed",
-        repairStatus: input.repairOnFailure ? "requested" : "available",
         diagnostics,
         stages: failedCheckStages(
           run.stages,
@@ -349,7 +346,6 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
       commit: input.sha,
       kind: input.kind,
       attempt: input.attempt,
-      repairOnFailure: input.repairOnFailure,
       createdAt: input.createdAt,
     })
   }

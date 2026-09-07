@@ -294,6 +294,25 @@ try {
   )
   assert.ok(cacheUsage.tokens.cache.read >= 12)
   assert.ok(cacheUsage.tokens.cache.write >= 4)
+  const beforeContinuation = cacheRequests.length
+  assert.deepEqual(await read("check-continuation"), {
+    pending: true,
+    continuations: 1,
+    active: false,
+  })
+  assert.ok(cacheRequests.length > beforeContinuation)
+  const afterContinuation = cacheRequests.length
+  assert.equal(
+    (await miniflare.dispatchFetch("http://probe.test/abort")).status,
+    500
+  )
+  await read("health")
+  assert.deepEqual(await read("check-redelivery"), {
+    pending: false,
+    continuations: 1,
+    active: false,
+  })
+  assert.equal(cacheRequests.length, afterContinuation)
   const beforeBudgetProbe = cacheRequests.length
   await read("budget-start")
   const budgetResult = await read("complete")
@@ -327,6 +346,8 @@ try {
         nativeCacheConfiguration: true,
         nativeCacheUsage: true,
         checkNoticeDoesNotResume: true,
+        failedCheckResumesAgent: true,
+        checkRedeliveryAfterRestartDoesNotResumeTwice: true,
         oversizedRequestBlockedBeforeProvider: true,
         boundedNativeCompactionRecovery: true,
         completedMessages: result.messages.data.length,

@@ -61,6 +61,17 @@ records saved before a Workflow could be scheduled. No new secrets are needed.
 Setup failures retain pending messages; restart the Workspace to resume setup.
 Delivery failures or timeouts show a Retry action beside the saved message.
 
+Workspace restarts also use `WorkspaceProvisioning`. Upgrades apply migration
+`0023_workspace_restart_request.sql` automatically during deploy to retain restart
+requests across retries. No new secrets, token permissions, or wizard steps are
+required. Restart validates the selected provider credentials before evicting the
+runtime.
+
+Failed Checkpoints now resume the normal coding agent automatically, up to three
+continuations. A passing Check or a new user message resets the limit. Production
+Checks do not start automatic repairs. Completion delivery survives runtime
+restarts and does not start a second Turn for the same delivered result.
+
 Cursor connections add a private per-user Durable Object. The provider runs in
 Workerd and opens TLS sockets directly to Cursor, using a bundled HTTP/2
 transport. Cursor connections do not require a Node service, Docker image, or

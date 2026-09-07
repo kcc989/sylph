@@ -10,8 +10,6 @@ import { schema } from "@workspace/db"
 import {
   AccessDenied,
   workspaceAcceptance,
-  failureMessage,
-  InitializeWorkspaceRuntime,
   OrganizationId,
   PreconditionFailed,
   ProjectId,
@@ -38,7 +36,6 @@ import {
   WorkspaceQuestionReplyInput,
   WorkspaceRebaseResult,
   randomWorkspaceName,
-  WorkspaceRepairCheckInput,
   WorkspaceRequestInput,
   WorkspaceRetryCheckInput,
   WorkspaceReview,
@@ -83,7 +80,7 @@ import {
   scheduleWorkspaceMessageDelivery,
   workspaceRuntime,
 } from "@/server/workspace-runtime"
-import { restartDurableWorkspace } from "@/server/workspace-runtime-lifecycle"
+import { requestWorkspaceRestart } from "@/server/workspace-provisioning-request"
 
 const decodeWorkspacePatchReadInput = Schema.decodeUnknownPromise(
   WorkspacePatchReadInput
@@ -105,9 +102,6 @@ const decodeWorkspacePromptInputPromise =
   Schema.decodeUnknownPromise(WorkspacePromptInput)
 const decodeWorkspaceQuestionReplyInputPromise = Schema.decodeUnknownPromise(
   WorkspaceQuestionReplyInput
-)
-const decodeWorkspaceRepairCheckInputPromise = Schema.decodeUnknownPromise(
-  WorkspaceRepairCheckInput
 )
 const decodeWorkspaceRequestInputPromise = Schema.decodeUnknownPromise(
   WorkspaceRequestInput
@@ -483,103 +477,22 @@ export const restartWorkspace = createServerFn({ method: "POST" })
   .validator((input) => decodeRestartWorkspaceInputPromise(input))
   .handler(async ({ data, context }) => {
     const { database, workspace } = context
-    const project = await requireWorkspaceProject(database, workspace.projectId)
-
     if (data.model) await assertInstanceModelEnabled(database, data.model)
-
     const connection = await effectiveConnection(
       database,
       workspace.organizationId,
       workspace.ownerUserId,
       data.model
     )
-
-    if (!connection) {
+    if (!connection)
       throw new ProviderConnectionRequired({
-        message:
-          "The Workspace owner needs a connected provider with an instance-enabled model before this Workspace can restart",
+        message: "Connect an AI provider before restarting this Workspace",
       })
-    }
-
-    if (workspace.syncStatus === "hydrating" || !workspace.baseCommit) {
-      await database
-        .update(schema.workspace)
-        .set({
-          status: "provisioning",
-          errorSummary: null,
-          updatedAt: new Date(),
-        })
-        .where(eq(schema.workspace.id, workspace.id))
-      const instance = await env.PROVISIONING.get(`provision-${workspace.id}`)
-      await instance.restart()
-      return { id: workspace.id, status: "provisioning" } as const
-    }
-
-    const credential = await connectionCredential(connection)
-    const repository = await Effect.runPromise(
-      repositoryStore().inspect(workspace.repositoryName)
-    )
-
-    if (!workspace.baseCommit) {
-      throw new PreconditionFailed({
-        message: "This Workspace predates Artifact-backed version control",
-      })
-    }
-
-    const runtimeInput = new InitializeWorkspaceRuntime({
-      organizationId: OrganizationId.make(workspace.organizationId),
-      projectId: ProjectId.make(workspace.projectId),
-      workspaceId: WorkspaceId.make(workspace.id),
-      projectName: project.name,
-      repositoryName: workspace.repositoryName,
-      repositoryRemote: repository.remote,
-      projectRepositoryName: project.repositoryName,
-      projectRepositoryRemote: project.repositoryRemote,
-      defaultRef: workspace.branchName ?? project.defaultBranch,
-      baseCommit: workspace.baseCommit,
-      providerId: connection.providerId,
-      modelId: connection.modelId,
-      credential,
-      archivedAt:
-        workspace.status === "archived"
-          ? (workspace.archivedAt?.getTime() ?? Date.now())
-          : null,
-    })
-
-    await database
-      .update(schema.workspace)
-      .set({
-        status: "provisioning",
-        errorSummary: null,
-        updatedAt: new Date(),
-      })
-      .where(eq(schema.workspace.id, workspace.id))
-
-    try {
-      await restartDurableWorkspace(() => {
-        const runtime = workspaceRuntime(workspace.id)
-        return {
-          evict: () => runtime.evict(),
-          initialize: () =>
-            runtime.initialize(runtimeInput).then(() => undefined),
-        }
-      })
-    } catch (cause) {
-      const summary = failureMessage(cause, "Workspace runtime failed")
-      await database
-        .update(schema.workspace)
-        .set({ status: "error", errorSummary: summary, updatedAt: new Date() })
-        .where(eq(schema.workspace.id, workspace.id))
-      throw new WorkspaceRuntimeFailure({ message: summary })
-    }
-
-    const status = workspace.status === "archived" ? "archived" : "ready"
-    await database
-      .update(schema.workspace)
-      .set({ status, errorSummary: null, updatedAt: new Date() })
-      .where(eq(schema.workspace.id, workspace.id))
-
-    return { id: workspace.id, status } as const
+    await connectionCredential(connection)
+    const restarted = await requestWorkspaceRestart(database, data)
+    if (restarted.status === "provisioning")
+      await scheduleWorkspaceProvisioning(workspace.id)
+    return { id: workspace.id, status: restarted.status }
   })
 
 export const promptWorkspace = createServerFn({ method: "POST" })
@@ -822,14 +735,6 @@ export const retryWorkspaceCheck = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const run = await workspaceRuntime(data.workspaceId).retryCheck(data)
     return { id: run.id, status: run.status, attempt: run.attempt }
-  })
-
-export const repairWorkspaceCheck = createServerFn({ method: "POST" })
-  .middleware([writableWorkspace])
-  .validator((input) => decodeWorkspaceRepairCheckInputPromise(input))
-  .handler(async ({ data }) => {
-    const result = await workspaceRuntime(data.workspaceId).repairCheck(data)
-    return { started: result.started }
   })
 
 export const syncWorkspaceProject = createServerFn({ method: "POST" })

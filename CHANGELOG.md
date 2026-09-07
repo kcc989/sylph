@@ -18,6 +18,7 @@ All notable changes to Sylph are recorded here. The format follows [Keep a Chang
 
 ### Changed
 
+- Resume the normal coding agent after eligible failed Checkpoints, with durable delivery and a three-Turn limit. Consolidate Workspace restart into the provisioning Workflow and browser state into one synchronization module. Upgrades apply migration 0023 without new secrets.
 - Open Workspace chat while repository and runtime setup run in a Workflow. Save early messages in D1 and deliver them in order after setup. Upgrades add migration 0022, a message delivery Workflow, and a minute recovery cron without new secrets.
 - Retire new dependency-repair jobs in favor of native shell installation, retaining completion support for in-flight jobs.
 - Share command environment selection, deadlines, output limits, and cancellation across agent commands and immutable Check execution.

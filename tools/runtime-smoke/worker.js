@@ -1,3 +1,9 @@
+import {
+  WorkspaceChecks,
+  newCheckRun,
+} from "../../apps/web/src/server/workspace-checks"
+import { deliverCheckCompletion } from "../../apps/web/src/server/workspace-check-completion"
+import { WorkspaceCheckRun, WorkspaceCheckUpdate } from "@workspace/domain"
 import { DurableObject } from "cloudflare:workers"
 import { WorkspaceFilesystem } from "../../apps/web/src/server/workspace-filesystem"
 import { workspaceModelCacheBody } from "../../apps/web/src/server/workspace-model-cache"
@@ -217,16 +223,51 @@ export class Probe extends DurableObject {
       await host.sessions.wait({ sessionID })
       return Response.json(await host.sessions.get({ sessionID }))
     }
+    if (path === "/check-continuation" || path === "/check-redelivery") {
+      const sessionID = await this.ctx.storage.get("probeSession")
+      const checks = new WorkspaceChecks(this.ctx.storage)
+      checks.initialize()
+      const run = new WorkspaceCheckRun({
+        ...newCheckRun({
+          id: "self-healing",
+          workspaceId: "probe",
+          checkpointId: "checkpoint",
+          commit: "a".repeat(40),
+          kind: "checkpoint",
+          attempt: 1,
+          createdAt: 1,
+        }),
+        status: "failed",
+      })
+      checks.apply(
+        new WorkspaceCheckUpdate({ callbackId: "self-healing:failed", run })
+      )
+      try {
+        await checks.deliverCompletions(async (completion) => {
+          await deliverCheckCompletion(host.sessions, sessionID, completion)
+          await host.sessions.wait({ sessionID })
+          if (path === "/check-continuation")
+            throw new Error("Acknowledgement lost")
+        })
+      } catch (cause) {
+        if (cause.message !== "Acknowledgement lost") throw cause
+      }
+      return Response.json({
+        pending: checks.hasPendingCompletions(),
+        continuations: checks.checkContinuationsUsed(),
+        active: Boolean((await host.sessions.active())[sessionID]),
+      })
+    }
     if (path === "/check-notice") {
       const sessionID = await this.ctx.storage.get("probeSession")
-      await host.sessions.synthetic({
-        sessionID,
+      await deliverCheckCompletion(host.sessions, sessionID, {
+        id: "msg_fixture-passed-check",
+        runId: "passed-check",
+        commit: "a".repeat(40),
+        attempt: 1,
         text: "Fixture Check passed. Do not repeat Checks.",
+        summary: "Checks passed",
         resume: false,
-        metadata: {
-          sylphOrigin: "check",
-          sylphNotice: { summary: "Checks passed" },
-        },
       })
       return Response.json({
         active: Boolean((await host.sessions.active())[sessionID]),

@@ -33,6 +33,7 @@ describe("Workspace thread entries", () => {
       {
         partialMessages: { "agent-1": "Working" },
         permissionRequests: {},
+        dismissedPermissionRequests: [],
       },
       [{ id: "optimistic-1", kind: "user", body: "Next task" }],
       () => undefined
