@@ -40,17 +40,6 @@ test("a failed shared runner preserves completed stages and skips later work", (
 })
 
 describe("Workspace CI verification", () => {
-  test("runs verification stages in one shell command", () => {
-    const command = verificationCommand([
-      { name: "typecheck", command: "npm run typecheck" },
-      { name: "lint", command: "npm run lint" },
-    ])
-
-    expect(command).toContain("if (npm run typecheck); then")
-    expect(command).toContain("if (npm run lint); then")
-    expect(command).toContain("SYLPH_STAGE_FAILED=lint")
-  })
-
   test("reads stage durations and the failing stage", () => {
     const output = [
       "SYLPH_STAGE_STARTED=typecheck:100",
@@ -146,38 +135,46 @@ test("supports serial verification for scripts with shared outputs", () => {
   expect(result.stdout.toString()).not.toContain("SYLPH_STAGE_STARTED=lint")
 })
 
-test("install finishes before verification and its failure stops every check", () => {
-  const success = Bun.spawnSync({
-    cmd: [
-      "sh",
-      "-c",
-      verificationCommand([
-        {
-          name: "install",
-          command: 'export SYLPH_INSTALLED=1; touch "$sylph_logs/installed"',
-        },
-        { name: "typecheck", command: 'test -f "$sylph_logs/installed"' },
-        { name: "lint", command: 'test -f "$sylph_logs/installed"' },
-      ]),
-    ],
-  })
-  expect(success.exitCode).toBe(0)
-  expect(
-    verificationDurations(success.stdout.toString()).has("install")
-  ).toBeTrue()
-  const failure = Bun.spawnSync({
-    cmd: [
-      "sh",
-      "-c",
-      verificationCommand([
-        { name: "install", command: "exit 9" },
-        { name: "typecheck", command: "true" },
-      ]),
-    ],
-  })
-  expect(failure.exitCode).toBe(9)
-  expect(verificationFailureStage(failure.stdout.toString())).toBe("install")
-  expect(failure.stdout.toString()).not.toContain(
-    "SYLPH_STAGE_STARTED=typecheck"
-  )
+test("install finishes before verification and its failure stops every check", async () => {
+  const { mkdtemp, rm } = await import("node:fs/promises")
+  const { join } = await import("node:path")
+  const { tmpdir } = await import("node:os")
+  const directory = await mkdtemp(join(tmpdir(), "sylph-install-"))
+  try {
+    const success = Bun.spawnSync({
+      cmd: [
+        "sh",
+        "-c",
+        verificationCommand([
+          {
+            name: "install",
+            command: `touch "${directory}/installed"`,
+          },
+          { name: "typecheck", command: `test -f "${directory}/installed"` },
+          { name: "lint", command: `test -f "${directory}/installed"` },
+        ]),
+      ],
+    })
+    expect(success.exitCode).toBe(0)
+    expect(
+      verificationDurations(success.stdout.toString()).has("install")
+    ).toBeTrue()
+    const failure = Bun.spawnSync({
+      cmd: [
+        "sh",
+        "-c",
+        verificationCommand([
+          { name: "install", command: "exit 9" },
+          { name: "typecheck", command: "true" },
+        ]),
+      ],
+    })
+    expect(failure.exitCode).toBe(9)
+    expect(verificationFailureStage(failure.stdout.toString())).toBe("install")
+    expect(failure.stdout.toString()).not.toContain(
+      "SYLPH_STAGE_STARTED=typecheck"
+    )
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
 })

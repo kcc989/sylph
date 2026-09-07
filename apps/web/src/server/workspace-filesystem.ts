@@ -277,7 +277,7 @@ export class WorkspaceFilesystem implements WorkspaceGitFilesystem {
     ) {
       throw new DependencyRepairConflict({
         message:
-          "Dependency inputs changed while CI was running. Run workspace_install_dependencies again; no files were overwritten.",
+          "Dependency inputs changed while CI was running. Run bun install with the native shell tool; no files were overwritten.",
       })
     }
     return this.writeFile("bun.lock", output.lockfile)

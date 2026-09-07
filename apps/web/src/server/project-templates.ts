@@ -1,5 +1,9 @@
 import { schema } from "@workspace/db"
-import { ProjectTemplate, ProjectTemplateCatalog } from "@workspace/domain"
+import {
+  ProjectTemplate,
+  ProjectTemplateCatalog,
+  builtInTemplateRelease,
+} from "@workspace/domain"
 import { and, eq } from "drizzle-orm"
 import { Effect } from "effect"
 
@@ -11,11 +15,11 @@ export const defaultProjectTemplateKey = "cloudflare-tanstack"
 export const builtInProjectTemplates: ReadonlyArray<ProjectTemplate> = [
   new ProjectTemplate({
     key: defaultProjectTemplateKey,
-    name: "Cloudflare app",
+    name: `Cloudflare app ${builtInTemplateRelease.version}`,
     description:
-      "TanStack Start, shadcn/ui, Effect, and Better Auth on D1, deployed with Alchemy. Passes every Sylph Check out of the box.",
-    sourceUrl: "https://github.com/kcc989/sylph-tanstack-template",
-    sourceRef: "main",
+      "TanStack Start, shadcn/ui, Effect, and Better Auth on D1, deployed with Alchemy. Uses a pinned template checked in CI.",
+    sourceUrl: `https://github.com/${builtInTemplateRelease.repository}`,
+    sourceRef: builtInTemplateRelease.commit,
   }),
 ]
 
@@ -52,8 +56,8 @@ export interface TemplateRepositoryRecord {
   readonly headCommit: string
 }
 
-const importedTemplateRepository = async (
-  repositories: RepositoryStore["Service"],
+export const importedTemplateRepository = async (
+  repositories: Pick<RepositoryStore["Service"], "import" | "inspect" | "head">,
   name: string,
   template: ProjectTemplate
 ) => {
@@ -63,7 +67,10 @@ const importedTemplateRepository = async (
         name,
         description: `${template.name} template imported by Sylph`,
         sourceUrl: template.sourceUrl,
-        sourceRef: template.sourceRef,
+        sourceRef:
+          template.sourceRef === builtInTemplateRelease.commit
+            ? builtInTemplateRelease.ref
+            : template.sourceRef,
       })
       .pipe(
         Effect.catchIf(
@@ -73,6 +80,14 @@ const importedTemplateRepository = async (
       )
   )
   const headCommit = await Effect.runPromise(repositories.head(imported.name))
+  if (
+    template.sourceRef === builtInTemplateRelease.commit &&
+    headCommit !== builtInTemplateRelease.commit
+  ) {
+    throw new Error(
+      "The imported template does not match the verified release commit"
+    )
+  }
   return {
     artifactRepo: imported.name,
     artifactRemote: imported.remote,
@@ -101,7 +116,17 @@ export const ensureTemplateRepository = async (
       )
     )
     .get()
-  if (existing) return existing
+  if (existing) {
+    if (
+      template.sourceRef === builtInTemplateRelease.commit &&
+      existing.headCommit !== builtInTemplateRelease.commit
+    ) {
+      throw new Error(
+        "The cached template does not match the verified release commit"
+      )
+    }
+    return existing
+  }
 
   const record = await importedTemplateRepository(
     repositories,

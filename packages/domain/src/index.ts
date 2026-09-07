@@ -21,3 +21,7 @@ export * from "./instance-model-policy"
 export * from "./workspace-command"
 
 export * from "./workspace-smoke"
+
+export * from "./workspace-event-policy"
+
+export * from "./template-release"

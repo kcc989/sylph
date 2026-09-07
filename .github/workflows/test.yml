@@ -72,13 +72,46 @@ jobs:
       - run: bunx playwright install --with-deps chromium
       - run: bun --cwd packages/ui test:stories
 
+  template:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - name: Read the pinned template release
+        id: release
+        run: bun -e 'import { builtInTemplateRelease as release } from "./packages/domain/src/template-release.ts"; for (const [key, value] of Object.entries(release)) console.log(`${key}=${value}`)' >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ steps.release.outputs.repository }}
+          ref: ${{ steps.release.outputs.commit }}
+          path: template-check
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ steps.release.outputs.bunVersion }}
+      - name: Verify the template release
+        working-directory: template-check
+        env:
+          EXPECTED_TEMPLATE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          bun -e 'const p = await Bun.file("package.json").json(); if (p.version !== process.env.EXPECTED_TEMPLATE_VERSION) throw new Error("Template version mismatch")'
+          bun install --frozen-lockfile
+          bun run format:check
+          bun run typecheck
+          bun run lint
+          bun test
+          bun run build
+          git diff --exit-code
+
   test:
     if: always()
-    needs: [verification, stories]
+    needs: [verification, stories, template]
     runs-on: ubuntu-latest
     steps:
       - name: Require all checks
         env:
           VERIFICATION_RESULT: ${{ needs.verification.result }}
           STORIES_RESULT: ${{ needs.stories.result }}
-        run: test "$VERIFICATION_RESULT" = success && test "$STORIES_RESULT" = success
+          TEMPLATE_RESULT: ${{ needs.template.result }}
+        run: test "$VERIFICATION_RESULT" = success && test "$STORIES_RESULT" = success && test "$TEMPLATE_RESULT" = success

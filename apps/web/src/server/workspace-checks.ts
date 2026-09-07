@@ -211,6 +211,12 @@ export class WorkspaceChecks {
       .toArray()[0]
     const run = this.#required(runId)
     if (existing) return run
+    if (run.kind === "dependencies") {
+      throw new PreconditionFailed({
+        message:
+          "Dependency repair jobs are retired. Run bun install with the native shell tool, then create a Checkpoint.",
+      })
+    }
     if (run.attempt >= maxWorkspaceCheckAttempts) {
       throw new PreconditionFailed({
         message: `This Check reached its ${maxWorkspaceCheckAttempts}-attempt limit`,
@@ -249,6 +255,12 @@ export class WorkspaceChecks {
       )
       .toArray()[0]
     const run = this.#required(runId)
+    if (run.kind === "dependencies") {
+      throw new PreconditionFailed({
+        message:
+          "Dependency jobs are retired. Use bun install with the native shell tool.",
+      })
+    }
     if (existing) return run
     if (run.status !== "failed") {
       throw new PreconditionFailed({

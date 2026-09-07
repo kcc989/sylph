@@ -74,7 +74,11 @@ export class WorkspaceSocket {
     })
     socket.addEventListener("message", (message) => {
       this.#receiveQueue = this.#receiveQueue
-        .then(() => this.#receive(message.data))
+        .then(() =>
+          this.#socket === socket
+            ? this.#receive(message.data, socket)
+            : undefined
+        )
         .catch(() => undefined)
     })
     socket.addEventListener("close", (event) => {
@@ -125,15 +129,16 @@ export class WorkspaceSocket {
     this.#socket?.send(frame)
   }
 
-  async #receive(value: string | ArrayBuffer | Blob) {
+  async #receive(value: string | ArrayBuffer | Blob, source: WebSocket) {
     try {
       const text = await decodeSocketText(value)
       const frame = await decodeServerFrame(JSON.parse(text))
+      if (source !== this.#socket) return
       if (frame.type === "event") {
         const cursor = advanceWorkspaceSocketCursor(frame.event, this.#cursor)
         if (cursor === null && frame.event.durable) return
-        this.#cursor = cursor
         await this.#options.onEvent(frame.event)
+        if (source === this.#socket) this.#cursor = cursor
         return
       }
       if (frame.type === "synced") {
@@ -150,7 +155,11 @@ export class WorkspaceSocket {
         this.#options.onError?.(frame.message)
       }
     } catch {
-      this.#options.onError?.("Workspace sent an invalid socket frame")
+      if (source !== this.#socket) return
+      this.#options.onError?.(
+        "Workspace update could not be applied; reconnecting"
+      )
+      this.#socket?.close(1012, "Replay unapplied updates")
     }
   }
 

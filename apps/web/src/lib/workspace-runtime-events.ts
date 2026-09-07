@@ -1,5 +1,6 @@
 import {
   type WorkspaceRuntimeEvent,
+  workspaceEventRefreshScope,
   WorkspacePermissionAskedEventData,
   WorkspacePermissionRepliedEventData,
   WorkspaceTextDeltaEventData,
@@ -89,20 +90,4 @@ export const applyWorkspaceRuntimeEvent = async (
 }
 
 export const workspaceEventNeedsSnapshot = (event: WorkspaceRuntimeEvent) =>
-  event.type === "workspace.check.updated" ||
-  event.type === "workspace.event.truncated" ||
-  event.type === "session.idle" ||
-  event.type === "session.execution.started" ||
-  event.type === "session.execution.succeeded" ||
-  event.type === "session.execution.failed" ||
-  event.type === "session.execution.interrupted" ||
-  event.type === "session.tool.called" ||
-  event.type === "session.tool.success" ||
-  event.type === "session.tool.failed" ||
-  event.type === "session.inbox.enqueued" ||
-  event.type === "session.inbox.delivered" ||
-  event.type === "session.inbox.cancelled" ||
-  event.type === "session.inbox.delivery.changed" ||
-  event.type === "form.created" ||
-  event.type === "form.replied" ||
-  event.type === "form.cancelled"
+  workspaceEventRefreshScope(event.type) !== null
