@@ -69,6 +69,34 @@ describe("toolCallEntry", () => {
     })
   })
 
+  test("keeps failed browser assertions visible with their action and evidence", () => {
+    const output = JSON.stringify({
+      url: "https://preview.example.com",
+      checkId: "check-1",
+      evidence: [],
+      accessibility: "{}",
+      outcome: "failed",
+      detail: "Expected one todo, received zero",
+    })
+    const entry = toolCallEntry(
+      new WorkspaceMessageToolPart({
+        ...part("workspace_browser", output),
+        input: {
+          action: {
+            type: "assert",
+            assertion: { type: "count", selector: ".todo", value: 1 },
+          },
+        },
+      })
+    )
+    expect(entry.status).toBe("error")
+    expect(entry.error).toBe("Expected one todo, received zero")
+    expect(entry.label).toBe("Checked browser assertion")
+    expect(entry.detail?.kind === "browser" && entry.detail.result).toBe(
+      "Expected one todo, received zero"
+    )
+  })
+
   test("decodes browser metadata and markdown", () => {
     const header = JSON.stringify({
       url: "https://preview.example.com/login",

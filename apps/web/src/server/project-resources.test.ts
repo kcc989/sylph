@@ -38,7 +38,7 @@ const setup = async (scope = "preview:check:1") => {
   sqlite.exec(
     await Bun.file(
       new URL(
-        "../../../../packages/db/migrations/0024_project_resources.sql",
+        "../../../../packages/db/migrations/0025_project_resources.sql",
         import.meta.url
       )
     ).text()

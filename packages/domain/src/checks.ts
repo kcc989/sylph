@@ -1,4 +1,5 @@
 import { Schema } from "effect"
+import { WorkspaceBrowserAction, WorkspaceBrowserSession } from "./browser"
 
 import { toolJsonSchema } from "./json-schema"
 
@@ -30,6 +31,11 @@ export const WorkspaceCheckStageName = Schema.Literals([
   "preview",
   "browser",
   "production",
+  "release-review",
+  "release-prepare",
+  "data-restore",
+  "production-journey",
+  "release-resume",
 ])
 export type WorkspaceCheckStageName = typeof WorkspaceCheckStageName.Type
 
@@ -261,6 +267,8 @@ export class WorkspacePreviewResult extends Schema.Class<WorkspacePreviewResult>
 export class WorkspaceBrowserToolInput extends Schema.Class<WorkspaceBrowserToolInput>(
   "@sylph/domain/WorkspaceBrowserToolInput"
 )({
+  action: Schema.optional(WorkspaceBrowserAction),
+  sessionId: Schema.optional(Schema.NonEmptyString),
   path: Schema.optional(Schema.String),
   url: Schema.optional(Schema.NonEmptyString),
   fullPage: Schema.optional(Schema.Boolean),
@@ -274,6 +282,11 @@ export class WorkspaceBrowserResult extends Schema.Class<WorkspaceBrowserResult>
   markdown: Schema.String,
   accessibility: Schema.String,
   evidence: Schema.Array(WorkspaceCheckEvidence),
+  session: Schema.optional(Schema.NullOr(WorkspaceBrowserSession)),
+  outcome: Schema.optional(
+    Schema.Literals(["observed", "passed", "failed", "closed"])
+  ),
+  detail: Schema.optional(Schema.String),
 }) {}
 
 export class WorkspaceBrowserToolOutput extends Schema.Class<WorkspaceBrowserToolOutput>(
@@ -283,6 +296,11 @@ export class WorkspaceBrowserToolOutput extends Schema.Class<WorkspaceBrowserToo
   checkId: Schema.NonEmptyString,
   evidence: Schema.Array(WorkspaceCheckEvidence),
   accessibility: Schema.String,
+  session: Schema.optional(Schema.NullOr(WorkspaceBrowserSession)),
+  outcome: Schema.optional(
+    Schema.Literals(["observed", "passed", "failed", "closed"])
+  ),
+  detail: Schema.optional(Schema.String),
 }) {}
 
 export class WorkspaceArchiveInput extends Schema.Class<WorkspaceArchiveInput>(

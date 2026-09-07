@@ -120,7 +120,7 @@ export function WorkspaceToolPane({
   acceptedCommit?: string | null
   deployPending?: string | null
   deployError?: string | null
-  onDeploy?: (commit: string) => Promise<void>
+  onDeploy?: (commit: string, recoveryDeploymentId?: string) => Promise<void>
 }) {
   const store = useWorkspaceShellStore()
   const active = useWorkspaceShell((state) => state.activeTabId ?? "browser")

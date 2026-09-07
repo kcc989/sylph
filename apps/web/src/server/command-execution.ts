@@ -29,7 +29,12 @@ export const commandEnvironment = (
       "CLOUDFLARE_ACCOUNT_ID",
       "BETTER_AUTH_SECRET",
       "SYLPH_RESOURCE_PLAN",
-      "SYLPH_PROJECT_SECRETS"
+      "SYLPH_PROJECT_SECRETS",
+      "SYLPH_RELEASE_ID",
+      "SYLPH_PROJECT_ID",
+      "SYLPH_BASE_COMMIT",
+      "SYLPH_RECOVERY_POINT",
+      "SYLPH_PRODUCTION_URL"
     )
   return Object.fromEntries(
     names.flatMap((name) =>

@@ -46,7 +46,6 @@ import {
   WorkspaceVersionControlSnapshot,
   ProjectId,
   WorkspaceArchiveInput,
-  WorkspaceCheckEvidence,
   WorkspaceCheckRun,
   type WorkspaceCiInput,
   WorkspaceId,
@@ -70,13 +69,14 @@ import {
   WorkspaceReadFileInput,
   WorkspaceFileContent,
   WorkspaceFileNotFound,
+  WorkspaceBrowserToolInput,
 } from "@workspace/domain"
 import type { OpenCodeWorkerd } from "@opencode-ai/sdk/workerd"
 import { DurableObject } from "cloudflare:workers"
 import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/durable-sqlite"
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
-import { Effect, Schema } from "effect"
+import { Effect, Layer, ManagedRuntime, Schema } from "effect"
 
 import { decodeWorkspaceSocketAttachment } from "./workspace-socket-server"
 import { WorkspaceSockets } from "./workspace-sockets"
@@ -122,14 +122,13 @@ import {
 import { deliverCheckCompletion } from "./workspace-check-completion"
 import { loadInstalledSkills } from "./installed-skills"
 import { createWorkspaceSkillRegistry } from "./workspace-skills"
+import { previewForBrowser } from "./workspace-browser"
+import { browserRunLayer } from "./browser-run"
 import {
-  browserEvidenceIds,
-  browserResult,
-  browserTargetUrl,
-  bytesFromBase64,
-  evidenceUrl,
-  previewForBrowser,
-} from "./workspace-browser"
+  WorkspaceBrowser,
+  workspaceBrowserLayer,
+  durableBrowserSessionStore,
+} from "./workspace-browser-session"
 
 const decodeInitializeWorkspaceRuntime = Schema.decodeUnknownPromise(
   InitializeWorkspaceRuntime
@@ -320,6 +319,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   readonly #credentials
   readonly #cursor
   readonly #sockets
+  readonly #browserRuntime
 
   constructor(context: DurableObjectState, bindings: WorkspaceBindings) {
     super(context, bindings)
@@ -335,6 +335,38 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       this.#filesystem
     )
     this.#checks = new WorkspaceChecks(context.storage)
+    this.#browserRuntime = ManagedRuntime.make(
+      workspaceBrowserLayer({
+        storage: durableBrowserSessionStore(context.storage),
+        async saveEvidence(key, value, contentType) {
+          await bindings.CHECK_EVIDENCE.put(key, value, {
+            httpMetadata: { contentType },
+          })
+        },
+        context: async () => {
+          this.#assertWritable()
+          const state = this.#requiredState()
+          if (!state.sessionId) throw new Error("No Conversation is active")
+          const version = await this.#workspaceGit.versionControl()
+          if (version.working.length)
+            throw new Error(
+              "Save and Check the current changes before testing their Preview"
+            )
+          return {
+            ...previewForBrowser(this.#checks.list(), version.forkHead),
+            conversationId: state.sessionId,
+          }
+        },
+        addEvidence: (run, evidence) => {
+          const current = this.#checks.get(run.id)
+          if (current?.attempt !== run.attempt || current.commit !== run.commit)
+            throw new Error(
+              "The Check changed while the browser action ran. Its evidence was not attached to the new attempt."
+            )
+          this.#checks.addEvidence(run.id, evidence)
+        },
+      }).pipe(Layer.provide(browserRunLayer(bindings.BROWSER)))
+    )
     this.#opencode = context.blockConcurrencyWhile(async () => {
       const { OpenCodeWorkerd } = await import("@opencode-ai/sdk/workerd")
       const { Environment } =
@@ -921,6 +953,9 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         )
         await this.ctx.storage.deleteAlarm()
       }
+      await this.#browserRuntime.runPromise(
+        Effect.flatMap(WorkspaceBrowser, (browser) => browser.close())
+      )
       this.#database.update(appWorkspaceState).set({ archivedAt }).run()
       await this.env.DB.prepare(
         "UPDATE agent_sessions SET status = 'archived', archived_at = unixepoch(), updated_at = unixepoch() WHERE workspace_id = ?"
@@ -1441,77 +1476,11 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     })
   }
 
-  async #browser(input: { path?: string; url?: string; fullPage: boolean }) {
-    const state = this.#requiredState()
-    const versionControl = await this.#workspaceGit.versionControl()
-    const preview = previewForBrowser(
-      this.#checks.list(),
-      versionControl.forkHead
+  async #browser(input: WorkspaceBrowserToolInput) {
+    this.#assertWritable()
+    return this.#browserRuntime.runPromise(
+      Effect.flatMap(WorkspaceBrowser, (browser) => browser.execute(input))
     )
-    const target = browserTargetUrl({
-      previewUrl: preview.previewUrl,
-      path: input.path,
-      url: input.url,
-    })
-    const response = await this.env.BROWSER.quickAction("snapshot", {
-      url: target,
-      formats: ["markdown", "screenshot", "accessibilityTree"],
-      viewport: { width: 1440, height: 900 },
-      gotoOptions: { waitUntil: "networkidle2", timeout: 60_000 },
-      waitForTimeout: 5_000,
-      actionTimeout: 120_000,
-      screenshotOptions: { type: "png", fullPage: input.fullPage },
-      cacheTTL: 0,
-    })
-    if (!response.ok) throw new Error(await response.text())
-    const snapshot = await response.json<BrowserRunSnapshotSuccessResponse>()
-    const screenshot = snapshot.result.screenshot
-    if (!screenshot) throw new Error("Browser Run returned no screenshot")
-    const accessibility = JSON.stringify(
-      snapshot.result.accessibilityTree ?? null
-    )
-    const createdAt = Date.now()
-    const ids = browserEvidenceIds({
-      runId: preview.run.id,
-      sequence: createdAt,
-    })
-    await Promise.all([
-      this.env.CHECK_EVIDENCE.put(
-        `${state.workspaceId}/${ids.screenshot}`,
-        bytesFromBase64(screenshot),
-        { httpMetadata: { contentType: "image/png" } }
-      ),
-      this.env.CHECK_EVIDENCE.put(
-        `${state.workspaceId}/${ids.accessibility}`,
-        accessibility,
-        { httpMetadata: { contentType: "application/json" } }
-      ),
-    ])
-    const path = new URL(target).pathname
-    const evidence = [
-      new WorkspaceCheckEvidence({
-        id: ids.screenshot,
-        kind: "screenshot",
-        label: `Agent browser ${path}`,
-        url: evidenceUrl(state.workspaceId, ids.screenshot),
-        createdAt,
-      }),
-      new WorkspaceCheckEvidence({
-        id: ids.accessibility,
-        kind: "accessibility",
-        label: `Agent accessibility ${path}`,
-        url: evidenceUrl(state.workspaceId, ids.accessibility),
-        createdAt,
-      }),
-    ]
-    this.#checks.addEvidence(preview.run.id, evidence)
-    return browserResult({
-      url: target,
-      run: preview.run,
-      markdown: snapshot.result.markdown ?? "",
-      accessibility,
-      evidence,
-    })
   }
 
   async #startCheckpointCheck(

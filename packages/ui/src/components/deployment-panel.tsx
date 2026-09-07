@@ -16,7 +16,15 @@ export type DeploymentItem = {
   id: string
   commit: string
   status: string
+  verified?: boolean
   productionUrl: string | null
+  recovery?: {
+    commit: string
+    capturedAt: number
+    expiresAt: number
+    resourceCount: number
+    available: boolean
+  } | null
   actorName: string
   failureDetails: string | null
   startedAt: Date | string | number | null
@@ -31,7 +39,7 @@ export type DeploymentPanelProps = {
   pendingCommit?: string | null
   error?: string | null
   currentWorkspaceAcceptedCommit?: string | null
-  onDeploy: (commit: string) => Promise<void>
+  onDeploy: (commit: string, recoveryDeploymentId?: string) => Promise<void>
   className?: string
 }
 
@@ -54,6 +62,11 @@ function DeploymentPanel({
 }: DeploymentPanelProps) {
   const [confirmingCommit, setConfirmingCommit] = useState<string | null>(null)
 
+  const active = deployments.some(
+    (deployment) =>
+      deployment.status === "queued" || deployment.status === "running"
+  )
+
   return (
     <div className={cn("min-w-0", className)}>
       <section aria-labelledby="production-deployment-heading">
@@ -67,7 +80,7 @@ function DeploymentPanel({
         <div className="space-y-2 p-3">
           {acceptedCommits.length ? (
             acceptedCommits.map((accepted, index) => {
-              const action = index === 0 ? "Deploy" : "Rollback"
+              const action = index === 0 ? "Deploy" : "Redeploy"
               const confirming = confirmingCommit === accepted.commit
               const pending = pendingCommit === accepted.commit
               return (
@@ -100,7 +113,9 @@ function DeploymentPanel({
                       <Button
                         size="sm"
                         variant={index === 0 ? "default" : "outline"}
-                        disabled={pendingCommit !== null || confirming}
+                        disabled={
+                          active || pendingCommit !== null || confirming
+                        }
                         onClick={() => setConfirmingCommit(accepted.commit)}
                       >
                         {pending ? (
@@ -131,7 +146,7 @@ function DeploymentPanel({
                       <div className="mt-2 flex gap-2">
                         <Button
                           size="sm"
-                          disabled={pendingCommit !== null}
+                          disabled={active || pendingCommit !== null}
                           onClick={async () => {
                             try {
                               await onDeploy(accepted.commit)
@@ -147,7 +162,7 @@ function DeploymentPanel({
                         <Button
                           size="sm"
                           variant="ghost"
-                          disabled={pendingCommit !== null}
+                          disabled={active || pendingCommit !== null}
                           onClick={() => setConfirmingCommit(null)}
                         >
                           Cancel
@@ -165,7 +180,7 @@ function DeploymentPanel({
           )}
           <p className="text-xs leading-5 text-muted-foreground">
             {canDeploy
-              ? "Deploy publishes the selected Accepted commit after you confirm it. Rollback creates a new Deployment and does not change the Project Repository."
+              ? "Releases check migration compatibility, save a data recovery point, and verify production before reporting success. Redeploying earlier code keeps current data."
               : "Only Organization Admins can deploy or roll back production. Ask an Admin to confirm a Deployment."}
           </p>
           {error ? (
@@ -200,7 +215,9 @@ function DeploymentPanel({
                       deploymentStatusClass(deployment.status)
                     )}
                   >
-                    {deployment.status}
+                    {deployment.status === "succeeded" && !deployment.verified
+                      ? "Published, unverified"
+                      : deployment.status}
                   </span>
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">
@@ -217,6 +234,29 @@ function DeploymentPanel({
                     Open production
                   </a>
                 ) : null}
+                {deployment.recovery ? (
+                  <DataRecoveryAction
+                    recovery={deployment.recovery}
+                    canRecover={
+                      canDeploy &&
+                      acceptedCommits.some(
+                        (accepted) =>
+                          accepted.commit === deployment.recovery?.commit
+                      )
+                    }
+                    disabled={active || pendingCommit !== null}
+                    onRecover={() =>
+                      onDeploy(
+                        deployment.recovery?.commit ?? deployment.commit,
+                        deployment.id
+                      )
+                    }
+                  />
+                ) : (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    No saved data recovery point.
+                  </p>
+                )}
                 {deployment.failureDetails ? (
                   <pre className="mt-2 max-h-32 overflow-auto bg-muted p-2 font-mono text-[10px] leading-4 whitespace-pre-wrap text-destructive">
                     {deployment.failureDetails}
@@ -231,6 +271,79 @@ function DeploymentPanel({
           )}
         </div>
       </section>
+    </div>
+  )
+}
+
+function DataRecoveryAction({
+  recovery,
+  canRecover,
+  disabled,
+  onRecover,
+}: {
+  recovery: NonNullable<DeploymentItem["recovery"]>
+  canRecover: boolean
+  disabled: boolean
+  onRecover: () => Promise<void>
+}) {
+  const [confirming, setConfirming] = useState(false)
+  return (
+    <div className="mt-2 space-y-2">
+      <p className="text-xs text-muted-foreground">
+        Data recovery point: {new Date(recovery.capturedAt).toLocaleString()} ·{" "}
+        {recovery.resourceCount} resources.
+        {recovery.available
+          ? ` Expires ${new Date(recovery.expiresAt).toLocaleString()}.`
+          : " Expired."}
+      </p>
+      {canRecover && recovery.available ? (
+        confirming ? (
+          <div
+            className="space-y-2 border border-destructive/40 p-3"
+            role="group"
+            aria-label="Confirm data recovery"
+          >
+            <p className="text-xs leading-5">
+              Restore data from this point and deploy commit{" "}
+              <span className="font-mono break-all">{recovery.commit}</span>?
+              Writes made after this point can be lost. Application writes pause
+              until verification passes.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="destructive"
+                disabled={disabled}
+                onClick={async () => {
+                  try {
+                    await onRecover()
+                    setConfirming(false)
+                  } catch {}
+                }}
+              >
+                Confirm restore and data loss
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={disabled}
+                onClick={() => setConfirming(false)}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={disabled}
+            onClick={() => setConfirming(true)}
+          >
+            Recover code and data
+          </Button>
+        )
+      ) : null}
     </div>
   )
 }

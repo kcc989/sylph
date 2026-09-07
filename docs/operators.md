@@ -48,6 +48,26 @@ GitHub:
 
 If you would rather not grant Account API Tokens Write, create the runtime token and the R2 key pair yourself in the dashboard, put them in `.env` before running the wizard, and the wizard reuses them instead of minting new ones.
 
+## Production release safety upgrade
+
+Upgrades apply `0024_release_safety.sql` through Alchemy. It stores release evidence
+and permits only one queued or running production operation per Project. Reconcile
+any overlapping active deployments before upgrading; the migration does not cancel
+them automatically. No new Installation secrets or wizard steps are required.
+
+Before the next Project production release, implement and test the application's
+migration, backup, restore, journey, and writer coordination hooks described in
+[Production releases and application data](release-safety.md). Missing hooks block
+production before data capture or publication. Storage permissions depend on the
+application's provider integrations; the upgrade does not grant them automatically.
+
+Data recovery requires an Admin to confirm the paired code commit and possible
+loss of writes since the selected recovery point. It creates an undo point and
+verifies production before reporting success. Repository exports provide Git
+access only; application data, secret values, and Workspace runtime state require
+separate recovery procedures. Validate real backup and restore behavior in an
+isolated stage before production rollout.
+
 ## What the first deployment creates
 
 Workspace creation saves the record before repository and runtime setup. The
@@ -239,7 +259,7 @@ rollout procedure are in [the resource management guide](../tools/resource-manag
 Existing Project repositories also need the new `sylph:plan` script and matching
 Alchemy resource names. Sylph does not rewrite their reviewed Checkpoints.
 
-Upgrades apply `0024_project_resources.sql` and provision the `ResourceMaintenance`
+Upgrades apply `0025_project_resources.sql` and provision the `ResourceMaintenance`
 Workflow through `alchemy.run.ts`. No new secret keys are required. The existing
 runtime token must be able to list Workers, D1 databases, KV namespaces, R2
 buckets, and Queues for ownership checks, and delete the resources and R2 objects

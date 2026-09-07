@@ -510,6 +510,15 @@ export const deployment = sqliteTable(
     commit: text("commit").notNull(),
     status: text("status").notNull().default("queued"),
     productionUrl: text("production_url"),
+    baseDeploymentId: text("base_deployment_id"),
+    recoveryDeploymentId: text("recovery_deployment_id"),
+    reviewJson: text("review_json"),
+    recoveryJson: text("recovery_json"),
+    verificationJson: text("verification_json"),
+    restoreJson: text("restore_json"),
+    mutationStarted: integer("mutation_started", { mode: "boolean" })
+      .notNull()
+      .default(false),
     actorUserId: text("actor_user_id")
       .notNull()
       .references(() => user.id, { onDelete: "restrict" }),

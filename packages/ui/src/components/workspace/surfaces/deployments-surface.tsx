@@ -19,7 +19,7 @@ export function DeploymentsSurface({
   acceptedCommit?: string | null
   pendingCommit?: string | null
   error?: string | null
-  onDeploy?: (commit: string) => Promise<void>
+  onDeploy?: (commit: string, recoveryDeploymentId?: string) => Promise<void>
 }) {
   return (
     <section className="flex size-full min-h-0 flex-col bg-[var(--sylph-ink)]">
@@ -39,7 +39,8 @@ export function DeploymentsSurface({
         />
       </ScrollArea>
       <footer className="border-t px-3 py-2 text-[10px] text-muted-foreground">
-        Rollback creates a new Deployment of an earlier Accepted commit.
+        Redeploy keeps current data. Data recovery requires a separate
+        confirmation.
       </footer>
     </section>
   )

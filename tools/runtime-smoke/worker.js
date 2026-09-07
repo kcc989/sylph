@@ -4,6 +4,7 @@ import {
 } from "../../apps/web/src/server/workspace-checks"
 import { deliverCheckCompletion } from "../../apps/web/src/server/workspace-check-completion"
 import { WorkspaceCheckRun, WorkspaceCheckUpdate } from "@workspace/domain"
+import { workspaceBrowserTool } from "../../apps/web/src/server/workspace-browser-tool"
 import { DurableObject } from "cloudflare:workers"
 import { WorkspaceFilesystem } from "../../apps/web/src/server/workspace-filesystem"
 import { workspaceModelCacheBody } from "../../apps/web/src/server/workspace-model-cache"
@@ -121,7 +122,29 @@ export class Probe extends DurableObject {
                 await ctx.session.hook("http.request", async (event) =>
                   assertWorkspaceModelRequestSize(event.request, event.agent)
                 )
-                await ctx.tool.transform((draft) =>
+                await ctx.tool.transform((draft) => {
+                  draft.add(
+                    workspaceBrowserTool(async (input) => ({
+                      url: "https://fixture.test/preview",
+                      checkId: "browser-check",
+                      markdown: `Browser fixture received ${input.action.type}`,
+                      accessibility: "{}",
+                      evidence: [],
+                      outcome:
+                        input.action.type === "assert" ? "passed" : "observed",
+                      session: {
+                        id: "browser-fixture-session",
+                        workspaceId: "fixture-workspace",
+                        conversationId: "fixture-conversation",
+                        checkId: "browser-check",
+                        commit: "a".repeat(40),
+                        attempt: 1,
+                        previewUrl: "https://fixture.test",
+                        sequence: 1,
+                        expiresAt: Date.now() + 600_000,
+                      },
+                    }))
+                  )
                   draft.add({
                     name: "probe_recovery_tool",
                     description: "A deterministic recovery test tool",
@@ -135,7 +158,7 @@ export class Probe extends DurableObject {
                       return { content: "probe result" }
                     },
                   })
-                )
+                })
               },
             },
           ],

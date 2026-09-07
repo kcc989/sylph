@@ -172,7 +172,7 @@ function ProjectSettingsScreen() {
             className="border-b py-3"
             deployments={deploymentContext?.deployments ?? []}
             error={repositoryError}
-            onDeploy={async (commit) => {
+            onDeploy={async (commit, recoveryDeploymentId) => {
               setDeployPending(commit)
               setRepositoryError(null)
               try {
@@ -182,6 +182,8 @@ function ProjectSettingsScreen() {
                     commit,
                     confirmedCommit: commit,
                     idempotencyKey: deployKey,
+                    recoveryDeploymentId,
+                    confirmedDataLoss: recoveryDeploymentId ? true : undefined,
                   },
                 })
                 setDeployKey(crypto.randomUUID())
@@ -338,10 +340,15 @@ function ProjectSettingsScreen() {
           ) : null}
           <div className="grid gap-4 border-b py-6 sm:grid-cols-[180px_1fr]">
             <div className="flex items-center gap-2 text-xs font-medium">
-              <Download className="size-3.5 text-muted-foreground" /> Recovery
+              <Download className="size-3.5 text-muted-foreground" /> Repository
               export
             </div>
             <div>
+              <p className="mb-2 text-xs leading-5 text-muted-foreground">
+                This manifest gives temporary Git access. It does not back up
+                application data, secrets, or Workspace runtime state. Use
+                Deployment history for application data recovery.
+              </p>
               <Button
                 size="sm"
                 variant="outline"
@@ -380,7 +387,7 @@ function ProjectSettingsScreen() {
                 ) : (
                   <Download />
                 )}
-                {exportPending ? "Preparing…" : "Download recovery manifest"}
+                {exportPending ? "Preparing…" : "Download repository manifest"}
               </Button>
               <p className="mt-2 text-xs leading-5 text-muted-foreground">
                 Includes the Project Repository, every Workspace fork, commit
