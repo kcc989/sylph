@@ -1,3 +1,14 @@
+import { Effect } from "effect"
+import {
+  ProjectResourceMutations,
+  ProjectResourceMutationsLayer,
+} from "./resource-mutations"
+import { verifyWorkerResources } from "./cloudflare-resources"
+import type {
+  ResourceMutationInput,
+  ResourceMutationReview,
+  CloudflareWorkerBindings,
+} from "@workspace/domain/project-resources"
 import {
   projectSecretEnvironment,
   saveProjectSecret,
@@ -37,6 +48,14 @@ const setup = async (scope = "preview:check:1") => {
     await Bun.file(
       new URL(
         "../../../../packages/db/migrations/0001_initial.sql",
+        import.meta.url
+      )
+    ).text()
+  )
+  sqlite.exec(
+    await Bun.file(
+      new URL(
+        "../../../../packages/db/migrations/0002_resource_lifecycle.sql",
         import.meta.url
       )
     ).text()
@@ -93,8 +112,17 @@ const setup = async (scope = "preview:check:1") => {
     ])}`,
     prefix
   )
-  const live: Array<{ kind: ProjectResourceKind; id: string; name: string }> =
-    []
+  const live: Array<{
+    kind: ProjectResourceKind
+    id: string
+    name: string
+    worker?: string
+    className?: string
+  }> = []
+  const bindings = new Map<
+    string,
+    typeof CloudflareWorkerBindings.Type.bindings
+  >()
   const deletes: string[] = []
   let failDatabaseDelete = false
   const request: ResourceRequest = async (input, init) => {
@@ -106,17 +134,31 @@ const setup = async (scope = "preview:check:1") => {
       if (failDatabaseDelete && path.includes("d1/database"))
         return Response.json({ success: false }, { status: 503 })
       const index = live.findIndex((resource) =>
-        path.endsWith(`/${resource.id}`)
+        path.endsWith(
+          `/${resource.kind === "workflow" ? resource.name : resource.id}`
+        )
       )
       if (index < 0) throw new Error("Unknown deletion")
       deletes.push(path)
-      live.splice(index, 1)
+      const removed = live.splice(index, 1)[0]
+      if (removed?.kind === "worker") {
+        for (let child = live.length - 1; child >= 0; child--)
+          if (
+            live[child]?.kind === "durable_object" &&
+            live[child]?.worker === removed.name
+          )
+            live.splice(child, 1)
+      }
       return Response.json({ success: true, result: null })
     }
     if (path.endsWith("/settings"))
       return Response.json({
         success: true,
-        result: { bindings: [{ type: "d1", name: "DB", id: "database-id" }] },
+        result: {
+          bindings: bindings.get(path.split("/").at(-2) ?? "") ?? [
+            { type: "d1", name: "DB", id: "database-id" },
+          ],
+        },
       })
     if (path.endsWith("/workers/scripts"))
       return Response.json({
@@ -132,6 +174,33 @@ const setup = async (scope = "preview:check:1") => {
           .filter((resource) => resource.kind === "d1")
           .map(({ id, name }) => ({ uuid: id, name })),
       })
+    if (path.endsWith("/containers/applications")) return Response.json([])
+    if (path.endsWith("/workers/durable_objects/namespaces"))
+      return Response.json({
+        success: true,
+        result: live
+          .filter((item) => item.kind === "durable_object")
+          .map((item) => ({
+            id: item.id,
+            script: item.worker,
+            class: item.className,
+          })),
+      })
+    if (path.endsWith("/workflows"))
+      return Response.json({
+        success: true,
+        result: live
+          .filter((item) => item.kind === "workflow")
+          .map((item) => ({
+            id: item.id,
+            name: item.name,
+            script_name: item.worker,
+            class_name: item.className,
+            created_on: "2026-09-07T00:00:00Z",
+          })),
+      })
+    if (path.endsWith("/workers/domains"))
+      return Response.json({ success: true, result: [] })
     if (path.endsWith("/r2/buckets"))
       return Response.json({ success: true, result: { buckets: [] } })
     if (path.endsWith("/storage/kv/namespaces") || path.endsWith("/queues"))
@@ -154,6 +223,7 @@ const setup = async (scope = "preview:check:1") => {
     plan,
     live,
     deletes,
+    bindings,
     request,
     deploy,
     failDelete: () => {
@@ -565,7 +635,7 @@ test("bucket cleanup drains objects in batches before the bucket can be removed"
   expect(removed).toEqual(["first", "second"])
 })
 
-test("undeclared resources within the reserved namespace are inventoried and cleaned", async () => {
+test("undeclared resources require adoption and cannot gain ownership from a prefix", async () => {
   const fixture = await setup()
   await reserveProjectResources(
     fixture.database,
@@ -588,22 +658,24 @@ test("undeclared resources within the reserved namespace are inventoried and cle
       true,
       fixture.request
     )
-  ).rejects.toThrow("undeclared resources")
-  expect(await readProjectResources(fixture.database, "one")).toHaveLength(3)
+  ).rejects.toThrow("requires explicit adoption")
+  expect(await readProjectResources(fixture.database, "one")).toHaveLength(2)
   await finishResourceOperation(
     fixture.database,
     fixture.credentials,
     fixture.owner,
     "retained"
   )
-  await removePreviewResources(
-    fixture.database,
-    fixture.credentials,
-    fixture.owner,
-    fixture.request
-  )
-  expect(fixture.live).toEqual([])
-  expect(fixture.deletes).toHaveLength(3)
+  await expect(
+    removePreviewResources(
+      fixture.database,
+      fixture.credentials,
+      fixture.owner,
+      fixture.request
+    )
+  ).rejects.toThrow("requires explicit adoption")
+  expect(fixture.live).toHaveLength(3)
+  expect(fixture.deletes).toHaveLength(0)
 })
 
 test("cleanup rejects a recreated Worker even when its name is unchanged", async () => {
@@ -648,4 +720,537 @@ test("cleanup rejects a recreated Worker even when its name is unchanged", async
     )
   ).rejects.toThrow("identity changed")
   expect(fixture.deletes).toEqual([])
+})
+
+const mutationService = (fixture: Awaited<ReturnType<typeof setup>>) => {
+  const layer = ProjectResourceMutationsLayer(
+    fixture.database,
+    fixture.credentials,
+    fixture.request
+  )
+  return {
+    review: (input: ResourceMutationInput) =>
+      Effect.runPromise(
+        Effect.gen(function* () {
+          return yield* (yield* ProjectResourceMutations).review(input)
+        }).pipe(Effect.provide(layer))
+      ),
+    confirm: (
+      review: ResourceMutationReview,
+      confirmation = `${review.action} production`
+    ) =>
+      Effect.runPromise(
+        Effect.gen(function* () {
+          return yield* (yield* ProjectResourceMutations).confirm({
+            projectId: review.projectId,
+            reviewId: review.id,
+            confirmation,
+          })
+        }).pipe(Effect.provide(layer))
+      ),
+    execute: (review: ResourceMutationReview) =>
+      Effect.runPromise(
+        Effect.gen(function* () {
+          yield* (yield* ProjectResourceMutations).execute(
+            review.projectId,
+            review.id
+          )
+        }).pipe(Effect.provide(layer))
+      ),
+  }
+}
+
+test("multi-Worker topology verifies real namespace IDs, Workflow identity, service and AI references and cleans host children", async () => {
+  const fixture = await setup()
+  const web = `${fixture.prefix}-web`
+  const host = `${fixture.prefix}-runtime`
+  const job = `${fixture.prefix}-job`
+  const room = `${host}/Room`
+  const plan = readResourcePlan(
+    `SYLPH_RESOURCE_PLAN=${JSON.stringify([
+      {
+        kind: "worker",
+        name: web,
+        entrypoint: true,
+        bindings: [
+          { type: "service", name: "API", target: host },
+          { type: "durable_object_namespace", name: "ROOM", target: room },
+          { type: "workflow", name: "JOB", target: job },
+          { type: "ai", name: "AI" },
+        ],
+      },
+      { kind: "worker", name: host },
+      { kind: "d1", name: `${fixture.prefix}-db` },
+      { kind: "durable_object", name: room, worker: host, className: "Room" },
+      { kind: "workflow", name: job, worker: host, className: "Job" },
+    ])}`,
+    fixture.prefix
+  )
+  await reserveProjectResources(
+    fixture.database,
+    fixture.credentials,
+    fixture.owner,
+    plan,
+    fixture.request
+  )
+  fixture.deploy()
+  fixture.live.push(
+    { kind: "worker", name: host, id: host },
+    {
+      kind: "durable_object",
+      name: room,
+      worker: host,
+      className: "Room",
+      id: "namespace-id",
+    },
+    {
+      kind: "workflow",
+      name: job,
+      worker: host,
+      className: "Job",
+      id: "workflow-id",
+    }
+  )
+  fixture.bindings.set(web, [
+    { type: "service", name: "API", service: host },
+    {
+      type: "durable_object_namespace",
+      name: "ROOM",
+      namespace_id: "namespace-id",
+      script_name: host,
+      class_name: "Room",
+    },
+    {
+      type: "workflow",
+      name: "JOB",
+      workflow_name: job,
+      script_name: host,
+      class_name: "Job",
+    },
+    { type: "ai", name: "AI" },
+  ])
+  const inventory = await captureProjectResources(
+    fixture.database,
+    fixture.credentials,
+    fixture.owner,
+    true,
+    fixture.request
+  )
+  expect(inventory).toHaveLength(5)
+  verifyResourceUrl(`https://${web}.account.workers.dev`, plan)
+  expect(() =>
+    verifyResourceUrl(`https://${host}.account.workers.dev`, plan)
+  ).toThrow()
+  fixture.bindings.set(web, [{ type: "ai", name: "UNREVIEWED_AI" }])
+  await expect(
+    verifyWorkerResources(fixture.credentials, inventory, fixture.request, plan)
+  ).rejects.toThrow("unsupported")
+  fixture.bindings.set(web, [])
+  await finishResourceOperation(
+    fixture.database,
+    fixture.credentials,
+    fixture.owner,
+    "retained"
+  )
+  await removePreviewResources(
+    fixture.database,
+    fixture.credentials,
+    fixture.owner,
+    fixture.request
+  )
+  expect(fixture.live).toHaveLength(0)
+  expect(fixture.deletes[0]).toContain(`/workflows/${job}`)
+  expect(fixture.deletes.some((path) => path.includes("durable_objects"))).toBe(
+    false
+  )
+})
+
+test("adoption requires exact confirmation, rejects source drift and cannot take another Project's resources", async () => {
+  const fixture = await setup("production")
+  fixture.deploy()
+  const service = mutationService(fixture)
+  const input: ResourceMutationInput = {
+    projectId: "one",
+    scope: "production",
+    action: "adopt",
+    resources: fixture.plan,
+  }
+  const review = await service.review(input)
+  expect(await readProjectResources(fixture.database, "one")).toHaveLength(0)
+  await expect(service.execute(review)).rejects.toThrow("confirmation")
+  await expect(service.confirm(review, "yes")).rejects.toThrow("exact action")
+  const db = fixture.live.find((item) => item.kind === "d1")
+  if (!db) throw new Error("Missing fixture database")
+  db.id = "replacement"
+  await expect(service.confirm(review)).rejects.toThrow(
+    "outside the reserved resource plan"
+  )
+  db.id = "database-id"
+  await service.confirm(review)
+  await service.execute(review)
+  expect(
+    (await readProjectResources(fixture.database, "one")).every(
+      (item) => item.state === "active"
+    )
+  ).toBe(true)
+  await expect(service.review({ ...input, projectId: "two" })).rejects.toThrow(
+    "ownership claim"
+  )
+  expect(fixture.deletes).toHaveLength(0)
+})
+
+test("production retirement keeps data, blocks referenced resources, and removal preserves partial progress", async () => {
+  const fixture = await setup("production")
+  fixture.deploy()
+  const service = mutationService(fixture)
+  const adopt = await service.review({
+    projectId: "one",
+    scope: "production",
+    action: "adopt",
+    resources: fixture.plan,
+  })
+  await service.confirm(adopt)
+  await service.execute(adopt)
+  const databasePlan = fixture.plan.filter((item) => item.kind === "d1")
+  await expect(
+    service.review({
+      projectId: "one",
+      scope: "production",
+      action: "retire",
+      resources: databasePlan,
+    })
+  ).rejects.toThrow("still referenced")
+  const retire = await service.review({
+    projectId: "one",
+    scope: "production",
+    action: "retire",
+    resources: fixture.plan,
+  })
+  await service.confirm(retire)
+  await expect(
+    reserveProjectResources(
+      fixture.database,
+      fixture.credentials,
+      fixture.owner,
+      fixture.plan,
+      fixture.request
+    )
+  ).rejects.toThrow()
+  await service.execute(retire)
+  expect(fixture.live).toHaveLength(2)
+  expect(
+    (await readProjectResources(fixture.database, "one")).every(
+      (item) => item.state === "retired"
+    )
+  ).toBe(true)
+  const remove = await service.review({
+    projectId: "one",
+    scope: "production",
+    action: "remove",
+    resources: fixture.plan,
+  })
+  await service.confirm(remove)
+  fixture.failDelete()
+  await expect(service.execute(remove)).rejects.toThrow("503")
+  expect(
+    (await readProjectResources(fixture.database, "one")).find(
+      (item) => item.kind === "worker"
+    )?.state
+  ).toBe("deleted")
+  expect(
+    (await readProjectResources(fixture.database, "one")).find(
+      (item) => item.kind === "d1"
+    )?.state
+  ).toBe("retired")
+  fixture.allowDelete()
+  const retry = await service.review({
+    projectId: "one",
+    scope: "production",
+    action: "remove",
+    resources: databasePlan,
+  })
+  await service.confirm(retry)
+  await service.execute(retry)
+  expect(fixture.live).toHaveLength(0)
+})
+
+test("recovery-control claims cannot be adopted or retired as application data", async () => {
+  const fixture = await setup("production")
+  fixture.deploy()
+  const service = mutationService(fixture)
+  await expect(
+    service.review({
+      projectId: "one",
+      scope: "production",
+      action: "adopt",
+      resources: fixture.plan.map((item) =>
+        item.kind === "d1" ? { ...item, purpose: "recovery_control" } : item
+      ),
+    })
+  ).rejects.toThrow("independent ownership")
+  fixture.sqlite.exec(
+    `INSERT INTO project_resource (account_id, project_id, scope, kind, name, resource_id, purpose, state) VALUES ('account', 'one', 'production', 'd1', '${fixture.prefix}-db', 'database-id', 'recovery_control', 'active')`
+  )
+  await expect(
+    service.review({
+      projectId: "one",
+      scope: "production",
+      action: "retire",
+      resources: fixture.plan.filter((item) => item.kind === "d1"),
+    })
+  ).rejects.toThrow("independent ownership")
+  expect(fixture.deletes).toHaveLength(0)
+})
+
+test("unknown kinds, missing hosts and cross-Project service targets fail before reservations", async () => {
+  const fixture = await setup()
+  for (const addition of [
+    { kind: "vectorize", name: `${fixture.prefix}-vectors` },
+    { kind: "workflow", name: `${fixture.prefix}-job` },
+    { kind: "worker", name: `${fixture.prefix}-other` },
+  ]) {
+    expect(() =>
+      readResourcePlan(
+        `SYLPH_RESOURCE_PLAN=${JSON.stringify([...fixture.plan, addition])}`,
+        fixture.prefix
+      )
+    ).toThrow()
+  }
+  expect(() =>
+    readResourcePlan(
+      `SYLPH_RESOURCE_PLAN=${JSON.stringify([{ kind: "worker", name: `${fixture.prefix}-web`, bindings: [{ type: "service", name: "SHARED", target: "another-project" }] }])}`,
+      fixture.prefix
+    )
+  ).toThrow("cross-Project")
+})
+
+test("concurrent and expired adoption reviews cannot bypass the production lock", async () => {
+  const fixture = await setup("production")
+  fixture.deploy()
+  const service = mutationService(fixture)
+  const input: ResourceMutationInput = {
+    projectId: "one",
+    scope: "production",
+    action: "adopt",
+    resources: fixture.plan,
+  }
+  const first = await service.review(input)
+  const second = await service.review(input)
+  await service.confirm(first)
+  await expect(service.confirm(second)).rejects.toThrow(
+    "current resource operation"
+  )
+  await service.confirm(first)
+  await service.execute(first)
+  await service.execute(first)
+  expect(await readProjectResources(fixture.database, "one")).toHaveLength(2)
+  const retire = await service.review({ ...input, action: "retire" })
+  fixture.sqlite
+    .query("UPDATE project_resource_review SET review_json = ? WHERE id = ?")
+    .run(JSON.stringify({ ...retire, expiresAt: 1 }), retire.id)
+  await expect(service.confirm(retire)).rejects.toThrow("current review")
+  expect(fixture.deletes).toHaveLength(0)
+})
+
+test("a new external binding after confirmation stops removal before any deletion", async () => {
+  const fixture = await setup("production")
+  fixture.deploy()
+  const service = mutationService(fixture)
+  const input: ResourceMutationInput = {
+    projectId: "one",
+    scope: "production",
+    action: "adopt",
+    resources: fixture.plan,
+  }
+  const adopt = await service.review(input)
+  await service.confirm(adopt)
+  await service.execute(adopt)
+  const retire = await service.review({ ...input, action: "retire" })
+  await service.confirm(retire)
+  await service.execute(retire)
+  const remove = await service.review({ ...input, action: "remove" })
+  await service.confirm(remove)
+  fixture.live.push({
+    kind: "worker",
+    name: "unrelated-worker",
+    id: "unrelated-worker",
+  })
+  await expect(service.execute(remove)).rejects.toThrow("still referenced")
+  expect(fixture.deletes).toHaveLength(0)
+})
+
+test("Preview cleanup retains independently owned recovery control state", async () => {
+  const fixture = await setup()
+  const control = {
+    kind: "d1",
+    name: `${fixture.prefix}-recovery`,
+    purpose: "recovery_control",
+  } as const
+  await reserveProjectResources(
+    fixture.database,
+    fixture.credentials,
+    fixture.owner,
+    [...fixture.plan, control],
+    fixture.request
+  )
+  fixture.deploy()
+  fixture.live.push({ kind: "d1", name: control.name, id: "control-id" })
+  fixture.bindings.set(`${fixture.prefix}-web`, [
+    { type: "d1", name: "DB", id: "database-id" },
+    { type: "d1", name: "SYLPH_RECOVERY_CONTROL", id: "control-id" },
+  ])
+  await captureProjectResources(
+    fixture.database,
+    fixture.credentials,
+    fixture.owner,
+    true,
+    fixture.request
+  )
+  await finishResourceOperation(
+    fixture.database,
+    fixture.credentials,
+    fixture.owner,
+    "retained"
+  )
+  await removePreviewResources(
+    fixture.database,
+    fixture.credentials,
+    fixture.owner,
+    fixture.request
+  )
+  expect(fixture.live).toEqual([
+    { kind: "d1", name: control.name, id: "control-id" },
+  ])
+  expect(
+    (await readProjectResources(fixture.database, "one")).find(
+      (item) => item.resource_id === "control-id"
+    )?.state
+  ).toBe("active")
+  expect(fixture.deletes.some((path) => path.endsWith("control-id"))).toBe(
+    false
+  )
+})
+
+test("legacy resource names are usable only after explicit production adoption", async () => {
+  const fixture = await setup("production")
+  const input: ResourceMutationInput = {
+    projectId: "one",
+    scope: "production",
+    action: "adopt",
+    resources: [
+      { kind: "worker", name: "legacy-web", adopted: true },
+      { kind: "d1", name: "legacy-db", adopted: true },
+    ],
+  }
+  fixture.live.push(
+    { kind: "worker", id: "legacy-web", name: "legacy-web" },
+    { kind: "d1", id: "database-id", name: "legacy-db" }
+  )
+  const plan = readResourcePlan(
+    `SYLPH_RESOURCE_PLAN=${JSON.stringify(input.resources)}`,
+    fixture.prefix
+  )
+  await expect(
+    reserveProjectResources(
+      fixture.database,
+      fixture.credentials,
+      fixture.owner,
+      plan,
+      fixture.request
+    )
+  ).rejects.toThrow("explicit reviewed production adoption")
+  const service = mutationService(fixture)
+  const review = await service.review(input)
+  await service.confirm(review)
+  await service.execute(review)
+  await reserveProjectResources(
+    fixture.database,
+    fixture.credentials,
+    { ...fixture.owner, runId: "next-deployment" },
+    plan,
+    fixture.request
+  )
+  expect(fixture.deletes).toHaveLength(0)
+})
+
+test("container-backed namespaces fail management instead of masquerading as Durable Objects", async () => {
+  const fixture = await setup()
+  const namespace = {
+    account_id: "account",
+    project_id: "one",
+    scope: fixture.owner.scope,
+    kind: "durable_object",
+    name: `${fixture.prefix}-runtime/Sandbox`,
+    resource_id: "container-namespace",
+    generation: null,
+    state: "active",
+  } as const
+  const request: ResourceRequest = async (input, init) => {
+    if (String(input).endsWith("/containers/applications"))
+      return Response.json([
+        {
+          id: "container-app",
+          durable_objects: { namespace_id: "container-namespace" },
+        },
+      ])
+    return fixture.request(input, init)
+  }
+  await expect(
+    verifyWorkerResources(fixture.credentials, [namespace], request)
+  ).rejects.toThrow("Containers are outside supported")
+  expect(fixture.deletes).toHaveLength(0)
+})
+
+test("an external Queue consumer blocks Worker cleanup before any mutation", async () => {
+  const fixture = await setup()
+  await reserveProjectResources(
+    fixture.database,
+    fixture.credentials,
+    fixture.owner,
+    fixture.plan,
+    fixture.request
+  )
+  fixture.deploy()
+  await captureProjectResources(
+    fixture.database,
+    fixture.credentials,
+    fixture.owner,
+    true,
+    fixture.request
+  )
+  await finishResourceOperation(
+    fixture.database,
+    fixture.credentials,
+    fixture.owner,
+    "retained"
+  )
+  const request: ResourceRequest = async (input, init) => {
+    const path = new URL(String(input)).pathname
+    if (path.endsWith("/queues"))
+      return Response.json({
+        success: true,
+        result: [{ queue_id: "external-queue", queue_name: "external" }],
+      })
+    if (path.endsWith("/queues/external-queue/consumers"))
+      return Response.json({
+        success: true,
+        result: [
+          {
+            consumer_id: "consumer",
+            type: "worker",
+            script: `${fixture.prefix}-web`,
+          },
+        ],
+      })
+    return fixture.request(input, init)
+  }
+  await expect(
+    removePreviewResources(
+      fixture.database,
+      fixture.credentials,
+      fixture.owner,
+      request
+    )
+  ).rejects.toThrow("detach it through the owning Alchemy stack")
+  expect(fixture.deletes).toHaveLength(0)
 })

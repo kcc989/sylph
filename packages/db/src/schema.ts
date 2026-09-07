@@ -714,6 +714,7 @@ export const projectResource = sqliteTable(
     name: text("name").notNull(),
     resourceId: text("resource_id"),
     generation: text("generation"),
+    purpose: text("purpose").notNull().default("application"),
     state: text("state")
       .$type<
         import("@workspace/domain/project-resources").StoredProjectResource["state"]
@@ -731,11 +732,11 @@ export const projectResource = sqliteTable(
     index("project_resource_project_idx").on(table.projectId, table.scope),
     check(
       "project_resource_kind_check",
-      sql`${table.kind} IN ('worker', 'd1', 'kv', 'r2', 'queue', 'domain')`
+      sql`${table.kind} IN ('worker', 'd1', 'kv', 'r2', 'queue', 'domain', 'durable_object', 'workflow')`
     ),
     check(
       "project_resource_state_check",
-      sql`${table.state} IN ('reserved', 'active', 'deleted')`
+      sql`${table.state} IN ('reserved', 'active', 'retired', 'deleted')`
     ),
   ]
 )
@@ -762,7 +763,7 @@ export const projectResourceOperation = sqliteTable(
     primaryKey({ columns: [table.accountId, table.projectId, table.scope] }),
     check(
       "project_resource_operation_status_check",
-      sql`${table.status} IN ('deploying', 'retained', 'cleanup_failed', 'deleted', 'complete')`
+      sql`${table.status} IN ('deploying', 'retained', 'cleanup_failed', 'deleted', 'complete', 'maintaining')`
     ),
   ]
 )
@@ -855,3 +856,15 @@ export const projectIncident = sqliteTable(
     index("project_incident_recent").on(table.projectId, table.lastSeen),
   ]
 )
+export const projectResourceReview = sqliteTable("project_resource_review", {
+  id: text("id").primaryKey().notNull(),
+  projectId: text("project_id")
+    .notNull()
+    .references(() => project.id, { onDelete: "restrict" }),
+  reviewJson: text("review_json").notNull(),
+  status: text("status").notNull(),
+  error: text("error"),
+  createdAt: integer("created_at")
+    .notNull()
+    .default(sql`(unixepoch())`),
+})

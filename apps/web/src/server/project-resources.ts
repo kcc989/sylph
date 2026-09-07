@@ -1,3 +1,5 @@
+import { removeOwnedResources } from "./resource-removal"
+import { entryWorker, validateResourceTopology } from "./resource-policy"
 import {
   ProjectResourceOperation,
   ProjectResourcePlan,
@@ -6,10 +8,7 @@ import {
 } from "@workspace/domain/project-resources"
 import { Schema } from "effect"
 import {
-  emptyPreviewBucket,
-  cloudflareResourceRequest,
   listCloudflareResources,
-  resourceCollectionPath,
   verifyWorkerResources,
   type ResourceCredentials,
   type ResourceRequest,
@@ -54,18 +53,10 @@ export const readResourcePlan = (
   const line = lines[0]
   if (lines.length !== 1 || !line)
     throw new Error("sylph:plan must print one SYLPH_RESOURCE_PLAN JSON array")
-  const plan = Schema.decodeUnknownSync(ProjectResourcePlan)(
-    JSON.parse(line.slice("SYLPH_RESOURCE_PLAN=".length))
-  )
-  if (
-    !plan.length ||
-    plan.length > 20 ||
-    plan.filter((resource) => resource.kind === "worker").length !== 1
-  ) {
-    throw new Error(
-      "A resource plan must contain one Worker and at most 20 resources"
-    )
-  }
+  const plan = Schema.decodeUnknownSync(ProjectResourcePlan, {
+    onExcessProperty: "error",
+  })(JSON.parse(line.slice("SYLPH_RESOURCE_PLAN=".length)))
+  validateResourceTopology(plan)
   const domains = plan.filter((resource) => resource.kind === "domain")
   if (
     domains.length !== (customDomain ? 1 : 0) ||
@@ -78,6 +69,8 @@ export const readResourcePlan = (
   for (const resource of plan) {
     if (
       resource.kind !== "domain" &&
+      resource.kind !== "durable_object" &&
+      !resource.adopted &&
       (!resource.name.startsWith(`${prefix}-`) ||
         !/^[a-z0-9][a-z0-9-]{0,62}$/.test(resource.name))
     ) {
@@ -107,7 +100,7 @@ export const readProjectResources = async (
   )
 }
 
-const scopeResources = async (
+export const scopeResources = async (
   database: ResourceDatabase,
   credentials: ResourceCredentials,
   owner: ResourceOwner
@@ -118,7 +111,7 @@ const scopeResources = async (
       resource.scope === owner.scope
   )
 
-const findResource = async (
+export const findResource = async (
   credentials: ResourceCredentials,
   resource: PlannedProjectResource,
   request: ResourceRequest
@@ -137,7 +130,15 @@ const namespacedResources = async (
   request: ResourceRequest
 ) => {
   const prefix = await resourcePrefix(owner.projectId, owner.scope)
-  const kinds = ["worker", "d1", "kv", "r2", "queue"] as const
+  const kinds = [
+    "worker",
+    "d1",
+    "kv",
+    "r2",
+    "queue",
+    "durable_object",
+    "workflow",
+  ] as const
   const resources = []
   for (const kind of kinds) {
     for (const resource of await listCloudflareResources(
@@ -159,7 +160,27 @@ export const reserveProjectResources = async (
   plan: ProjectResourcePlan,
   request: ResourceRequest = fetch
 ) => {
+  validateResourceTopology(plan)
   const previous = await scopeResources(database, credentials, owner)
+  for (const resource of plan) {
+    const claim = previous.find(
+      (item) => item.kind === resource.kind && item.name === resource.name
+    )
+    if (claim?.state === "retired" || claim?.state === "deleted")
+      throw new Error(`Resource ${resource.name} was retired; use a new name`)
+    if (
+      resource.adopted &&
+      (owner.scope !== "production" || claim?.state !== "active")
+    )
+      throw new Error(
+        `Resource ${resource.name} requires explicit reviewed production adoption`
+      )
+    if (
+      claim &&
+      (claim.purpose ?? "application") !== (resource.purpose ?? "application")
+    )
+      throw new Error(`Resource purpose cannot change for ${resource.name}`)
+  }
   if (owner.scope === "production" && !previous.length) {
     const deployed = await database
       .prepare(
@@ -196,6 +217,15 @@ export const reserveProjectResources = async (
     const claim = previous.find(
       (item) => item.kind === resource.kind && item.name === resource.name
     )
+    if (
+      existing &&
+      ["durable_object", "workflow"].includes(resource.kind) &&
+      (existing.service !== resource.worker ||
+        existing.className !== resource.className)
+    )
+      throw new Error(
+        `Resource host or class changed for ${resource.name}; review its migration before deployment`
+      )
     if (!existing && claim?.resource_id && claim.state !== "deleted")
       throw new Error(
         `Owned resource ${resource.name} is missing; reconcile it before deploying`
@@ -216,6 +246,7 @@ export const reserveProjectResources = async (
     previous.some(
       (resource) =>
         resource.state !== "deleted" &&
+        resource.state !== "retired" &&
         !plan.some(
           (item) => item.kind === resource.kind && item.name === resource.name
         )
@@ -241,8 +272,8 @@ export const reserveProjectResources = async (
       ),
     ...plan.map((resource) =>
       database
-        .prepare(`INSERT INTO project_resource (account_id, project_id, scope, kind, name)
-      VALUES (?, ?, ?, ?, ?) ON CONFLICT(account_id, kind, name) DO UPDATE SET
+        .prepare(`INSERT INTO project_resource (account_id, project_id, scope, kind, name, purpose)
+      VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(account_id, kind, name) DO UPDATE SET
       project_id = CASE WHEN project_resource.project_id = excluded.project_id AND project_resource.scope = excluded.scope
         AND project_resource.state != 'deleted' THEN excluded.project_id ELSE NULL END`)
         .bind(
@@ -250,7 +281,8 @@ export const reserveProjectResources = async (
           owner.projectId,
           owner.scope,
           resource.kind,
-          resource.name
+          resource.name,
+          resource.purpose ?? "application"
         )
     ),
   ])
@@ -281,26 +313,27 @@ export const captureProjectResources = async (
     owner,
     request
   )) {
-    await database
-      .prepare(
-        "INSERT INTO project_resource (account_id, project_id, scope, kind, name, resource_id, generation, state) VALUES (?, ?, ?, ?, ?, ?, ?, 'active') ON CONFLICT(account_id, kind, name) DO NOTHING"
+    if (
+      !declared.some(
+        (item) => item.kind === discovered.kind && item.name === discovered.name
+      ) &&
+      !(await scopeResources(database, credentials, owner)).some(
+        (item) =>
+          item.kind === discovered.kind &&
+          item.name === discovered.name &&
+          item.resource_id === discovered.id &&
+          item.state === "retired"
       )
-      .bind(
-        credentials.accountId,
-        owner.projectId,
-        owner.scope,
-        discovered.kind,
-        discovered.name,
-        discovered.id,
-        discovered.generation ?? null
+    )
+      throw new Error(
+        `Undeclared resource ${discovered.name} requires explicit adoption; a name prefix is not ownership`
       )
-      .run()
   }
   const resources = await scopeResources(database, credentials, owner)
   if (!resources.length)
     throw new Error("No reserved Project resource inventory exists")
   for (const resource of resources) {
-    if (resource.state === "deleted") continue
+    if (resource.state === "deleted" || resource.state === "retired") continue
     const existing = await findResource(credentials, resource, request)
     if (!existing) {
       if (requireComplete)
@@ -310,9 +343,20 @@ export const captureProjectResources = async (
     if (
       resource.kind === "domain" &&
       existing.service !==
-        resources.find((item) => item.kind === "worker")?.name
+        (declared.find(
+          (item) => item.kind === "domain" && item.name === resource.name
+        )?.worker ?? entryWorker(declared)?.name)
     )
       throw new Error("Custom domain does not route to the reserved Worker")
+    const descriptor = declared.find(
+      (item) => item.kind === resource.kind && item.name === resource.name
+    )
+    if (
+      ["durable_object", "workflow"].includes(resource.kind) &&
+      (existing.service !== descriptor?.worker ||
+        existing.className !== descriptor?.className)
+    )
+      throw new Error(`Resource host or class changed for ${resource.name}`)
     if (
       resource.resource_id &&
       (resource.resource_id !== existing.id ||
@@ -339,6 +383,8 @@ export const captureProjectResources = async (
     if (
       inventory.some(
         (resource) =>
+          resource.state !== "retired" &&
+          resource.state !== "deleted" &&
           !declared.some(
             (item) => item.kind === resource.kind && item.name === resource.name
           )
@@ -347,7 +393,7 @@ export const captureProjectResources = async (
       throw new Error(
         "Deployment created undeclared resources; they have been recorded for cleanup"
       )
-    await verifyWorkerResources(credentials, inventory, request)
+    await verifyWorkerResources(credentials, inventory, request, declared)
     await database
       .prepare(
         "UPDATE project_resource_operation SET inspected_at = unixepoch() WHERE account_id = ? AND project_id = ? AND scope = ? AND run_id = ?"
@@ -397,7 +443,7 @@ export const removePreviewResources = async (
   if (
     !operation ||
     operation.run_id !== owner.runId ||
-    operation.status === "deploying"
+    ["deploying", "maintaining"].includes(operation.status)
   )
     throw new Error("Preview deployment must stop before cleanup")
   if (operation.status === "deleted") return
@@ -409,50 +455,21 @@ export const removePreviewResources = async (
       false,
       request
     )
-    const ordered = [...inventory].sort(
-      (a, b) => Number(b.kind === "worker") - Number(a.kind === "worker")
+    await removeOwnedResources(
+      database,
+      credentials,
+      owner,
+      inventory.filter((resource) => resource.purpose !== "recovery_control"),
+      request
     )
-    for (const resource of ordered) {
-      if (resource.state === "deleted") continue
-      const existing = await findResource(credentials, resource, request)
-      if (existing) {
-        if (
-          !resource.resource_id ||
-          existing.id !== resource.resource_id ||
-          resource.generation !== (existing.generation ?? null)
-        )
-          throw new Error(`Resource ownership changed for ${resource.name}`)
-        if (resource.kind === "r2")
-          await emptyPreviewBucket(credentials, resource.name, request)
-        try {
-          await cloudflareResourceRequest(
-            credentials,
-            `${resourceCollectionPath(resource.kind)}/${encodeURIComponent(existing.id)}`,
-            request,
-            "DELETE"
-          )
-        } catch (cause) {
-          if (await findResource(credentials, resource, request)) throw cause
-        }
-        if (await findResource(credentials, resource, request))
-          throw new Error(
-            `Resource ${resource.name} still exists after cleanup`
-          )
-      }
-      await database
-        .prepare(
-          "UPDATE project_resource SET state = 'deleted' WHERE account_id = ? AND project_id = ? AND scope = ? AND kind = ? AND name = ?"
-        )
-        .bind(
-          credentials.accountId,
-          owner.projectId,
-          owner.scope,
-          resource.kind,
-          resource.name
-        )
-        .run()
-    }
-    await finishResourceOperation(database, credentials, owner, "deleted")
+    await finishResourceOperation(
+      database,
+      credentials,
+      owner,
+      inventory.some((resource) => resource.purpose === "recovery_control")
+        ? "complete"
+        : "deleted"
+    )
   } catch (cause) {
     await finishResourceOperation(
       database,
@@ -467,7 +484,7 @@ export const removePreviewResources = async (
 
 export const verifyResourceUrl = (url: string, plan: ProjectResourcePlan) => {
   const parsed = new URL(url)
-  const worker = plan.find((resource) => resource.kind === "worker")
+  const worker = entryWorker(plan)
   if (
     parsed.protocol === "https:" &&
     !parsed.username &&

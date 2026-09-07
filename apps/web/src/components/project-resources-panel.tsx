@@ -1,3 +1,4 @@
+import { ProjectResourceActions } from "./project-resource-actions"
 import { useServerFn } from "@tanstack/react-start"
 import { useRouter } from "@tanstack/react-router"
 import { failureMessage } from "@workspace/domain"
@@ -109,7 +110,8 @@ export function ProjectResourcesPanel({
             )}
             {canManage &&
               operation.status !== "deleted" &&
-              operation.status !== "deploying" && (
+              operation.status !== "deploying" &&
+              operation.status !== "maintaining" && (
                 <div className="flex flex-wrap gap-2">
                   <Button
                     size="sm"
@@ -145,7 +147,12 @@ export function ProjectResourcesPanel({
                   className="py-2 text-xs"
                 >
                   <div className="flex justify-between gap-3">
-                    <span>{resource.kind.toUpperCase()}</span>
+                    <span>
+                      {resource.kind.toUpperCase()}
+                      {resource.purpose === "recovery_control"
+                        ? " · Recovery control (retained)"
+                        : ""}
+                    </span>
                     <span>{resource.state}</span>
                   </div>
                   <p className="mt-1 font-mono break-all">{resource.name}</p>
@@ -193,6 +200,28 @@ export function ProjectResourcesPanel({
           )}
         </div>
       ))}
+      {canManage && (
+        <ProjectResourceActions
+          projectId={projectId}
+          resources={inventory.resources}
+          pendingReview={
+            inventory.reviews.find(
+              (item) => item.status === "confirmed" || item.status === "running"
+            )?.review
+          }
+        />
+      )}
+      {inventory.reviews
+        .filter((review) => review.error)
+        .map((review) => (
+          <p
+            key={review.id}
+            role="alert"
+            className="mt-3 text-sm text-destructive"
+          >
+            Resource action {review.status}: {review.error}
+          </p>
+        ))}
       {error && (
         <p role="alert" className="mt-3 text-sm text-destructive">
           {error}

@@ -54,6 +54,26 @@ export const deploymentCredentials = Effect.fn("deploymentCredentials")(
       })
       runtimeToken = token.value
     }
+    const configuredResourceToken = yield* optionalSecret("RESOURCE_TOKEN")
+    const resourceToken = Redacted.value(configuredResourceToken)
+      ? configuredResourceToken
+      : (yield* Cloudflare.ApiToken.AccountApiToken("ResourceToken", {
+          accountId,
+          policies: [
+            {
+              effect: "allow",
+              resources,
+              permissionGroups: [
+                "Workers Scripts Write",
+                "D1 Write",
+                "Workers R2 Storage Write",
+                "Workers KV Storage Write",
+                "Queues Write",
+                "Workers Containers Read",
+              ],
+            },
+          ],
+        })).value
     const accessKeyId = yield* optionalSecret("R2_ACCESS_KEY_ID")
     const secretAccessKey = yield* optionalSecret("R2_SECRET_ACCESS_KEY")
     if (
@@ -77,6 +97,7 @@ export const deploymentCredentials = Effect.fn("deploymentCredentials")(
       })
       return {
         runtimeToken,
+        resourceToken,
         accessKeyId: Output.map(token.tokenId, Redacted.make),
         secretAccessKey: Output.map(token.value, (value) =>
           Redacted.make(
@@ -85,6 +106,6 @@ export const deploymentCredentials = Effect.fn("deploymentCredentials")(
         ),
       }
     }
-    return { runtimeToken, accessKeyId, secretAccessKey }
+    return { runtimeToken, resourceToken, accessKeyId, secretAccessKey }
   }
 )

@@ -7,12 +7,37 @@ export const ProjectResourceKind = Schema.Literals([
   "r2",
   "queue",
   "domain",
+  "durable_object",
+  "workflow",
 ])
 export type ProjectResourceKind = typeof ProjectResourceKind.Type
+
+export const ProjectResourceBinding = Schema.Struct({
+  type: Schema.Literals([
+    "durable_object_namespace",
+    "workflow",
+    "service",
+    "ai",
+  ]),
+  name: Schema.NonEmptyString,
+  target: Schema.optional(Schema.NonEmptyString),
+  entrypoint: Schema.optional(Schema.NonEmptyString),
+})
+
+export const ProjectResourcePurpose = Schema.Literals([
+  "application",
+  "recovery_control",
+])
 
 export const PlannedProjectResource = Schema.Struct({
   kind: ProjectResourceKind,
   name: Schema.NonEmptyString,
+  worker: Schema.optional(Schema.NonEmptyString),
+  className: Schema.optional(Schema.NonEmptyString),
+  entrypoint: Schema.optional(Schema.Boolean),
+  adopted: Schema.optional(Schema.Boolean),
+  purpose: Schema.optional(ProjectResourcePurpose),
+  bindings: Schema.optional(Schema.Array(ProjectResourceBinding)),
 })
 export type PlannedProjectResource = typeof PlannedProjectResource.Type
 
@@ -27,7 +52,8 @@ export const StoredProjectResource = Schema.Struct({
   name: Schema.NonEmptyString,
   resource_id: Schema.NullOr(Schema.String),
   generation: Schema.NullOr(Schema.String),
-  state: Schema.Literals(["reserved", "active", "deleted"]),
+  purpose: Schema.optional(ProjectResourcePurpose),
+  state: Schema.Literals(["reserved", "active", "retired", "deleted"]),
 })
 export type StoredProjectResource = typeof StoredProjectResource.Type
 
@@ -58,7 +84,19 @@ export const CloudflareBuckets = Schema.Struct({
 export const CloudflareQueues = Schema.Array(
   Schema.Struct({ queue_id: Schema.String, queue_name: Schema.String })
 )
+export const CloudflareQueueConsumers = Schema.Array(
+  Schema.Struct({
+    consumer_id: Schema.NonEmptyString,
+    type: Schema.String,
+    script: Schema.optional(Schema.NullOr(Schema.String)),
+    script_name: Schema.optional(Schema.NullOr(Schema.String)),
+  })
+)
 export const CloudflareWorkerBindings = Schema.Struct({
+  containers: Schema.optional(Schema.Array(Schema.Unknown)),
+  tail_consumers: Schema.optional(
+    Schema.Array(Schema.Struct({ service: Schema.String }))
+  ),
   bindings: Schema.Array(
     Schema.Struct({
       type: Schema.String,
@@ -67,6 +105,15 @@ export const CloudflareWorkerBindings = Schema.Struct({
       namespace_id: Schema.optional(Schema.String),
       bucket_name: Schema.optional(Schema.String),
       queue_name: Schema.optional(Schema.String),
+      class_name: Schema.optional(Schema.String),
+      script_name: Schema.optional(Schema.String),
+      workflow_name: Schema.optional(Schema.String),
+      service: Schema.optional(Schema.String),
+      environment: Schema.optional(Schema.String),
+      namespace: Schema.optional(Schema.String),
+      dispatch_namespace: Schema.optional(Schema.String),
+      jurisdiction: Schema.optional(Schema.String),
+      entrypoint: Schema.optional(Schema.String),
     })
   ),
 })
@@ -83,6 +130,7 @@ export const ProjectResourceOperation = Schema.Struct({
     "cleanup_failed",
     "deleted",
     "complete",
+    "maintaining",
   ]),
   error: Schema.NullOr(Schema.String),
   inspected_at: Schema.NullOr(Schema.Number),
@@ -100,7 +148,8 @@ export const ProjectResourceMaintenance = Schema.Struct({
   scope: Schema.NonEmptyString,
   runId: Schema.NonEmptyString,
   accountId: Schema.NonEmptyString,
-  action: Schema.Literals(["inspect", "cleanup"]),
+  action: Schema.Literals(["inspect", "cleanup", "adopt", "retire", "remove"]),
+  reviewId: Schema.optional(Schema.NonEmptyString),
 })
 export type ProjectResourceMaintenance = typeof ProjectResourceMaintenance.Type
 
@@ -131,3 +180,65 @@ export const CloudflareDomains = Schema.Array(
 export const CloudflareObjects = Schema.Array(
   Schema.Struct({ key: Schema.String })
 )
+
+export const CloudflareDurableObjects = Schema.Array(
+  Schema.Struct({
+    id: Schema.NonEmptyString,
+    script: Schema.NonEmptyString,
+    class: Schema.NonEmptyString,
+  })
+)
+export const CloudflareContainerApplications = Schema.Array(
+  Schema.Struct({
+    id: Schema.String,
+    durable_objects: Schema.optional(
+      Schema.NullOr(Schema.Struct({ namespace_id: Schema.NonEmptyString }))
+    ),
+  })
+)
+export const CloudflareWorkflows = Schema.Array(
+  Schema.Struct({
+    id: Schema.NonEmptyString,
+    name: Schema.NonEmptyString,
+    script_name: Schema.NonEmptyString,
+    class_name: Schema.NonEmptyString,
+    created_on: Schema.NonEmptyString,
+  })
+)
+
+export class ResourcePolicyError extends Schema.TaggedError<ResourcePolicyError>()(
+  "ResourcePolicyError",
+  {
+    message: Schema.String,
+  }
+) {}
+
+export const ResourceMutationAction = Schema.Literals([
+  "adopt",
+  "retire",
+  "remove",
+])
+export const ResourceMutationInput = Schema.Struct({
+  projectId: Schema.NonEmptyString,
+  scope: Schema.Literal("production"),
+  action: ResourceMutationAction,
+  resources: ProjectResourcePlan,
+})
+export type ResourceMutationInput = typeof ResourceMutationInput.Type
+export const ResourceMutationReview = Schema.Struct({
+  id: Schema.NonEmptyString,
+  accountId: Schema.NonEmptyString,
+  projectId: Schema.NonEmptyString,
+  scope: Schema.Literal("production"),
+  action: ResourceMutationAction,
+  resources: ProjectResourcePlan,
+  inventory: Schema.Array(StoredProjectResource),
+  operationRunId: Schema.NullOr(Schema.String),
+  expiresAt: Schema.Number,
+})
+export type ResourceMutationReview = typeof ResourceMutationReview.Type
+export const ResourceMutationConfirmation = Schema.Struct({
+  projectId: Schema.NonEmptyString,
+  reviewId: Schema.NonEmptyString,
+  confirmation: Schema.NonEmptyString,
+})

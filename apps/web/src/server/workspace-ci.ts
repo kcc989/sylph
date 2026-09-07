@@ -82,6 +82,7 @@ const decodeWorkspaceCiInput = Schema.decodeUnknownSync(WorkspaceCiInput)
 const encodeWorkspaceCheckUpdateSync = Schema.encodeSync(WorkspaceCheckUpdate)
 
 type WorkspaceCiBindings = CiBindings & {
+  RESOURCE_TOKEN: string
   CREDENTIAL_ENCRYPTION_KEY: string
   CI_VERIFICATION_CONCURRENCY: string
   BROWSER: BrowserRun
@@ -150,7 +151,7 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
 
     const credentials = {
       accountId: this.env.CLOUDFLARE_ACCOUNT_ID,
-      token: this.env.CF_TOKEN,
+      token: this.env.RESOURCE_TOKEN,
     }
     const owner = {
       projectId: input.projectId,
@@ -741,7 +742,10 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
     await step.do("reserve-project-resources", () =>
       reserveProjectResources(
         this.env.DB,
-        { accountId: this.env.CLOUDFLARE_ACCOUNT_ID, token: this.env.CF_TOKEN },
+        {
+          accountId: this.env.CLOUDFLARE_ACCOUNT_ID,
+          token: this.env.RESOURCE_TOKEN,
+        },
         owner,
         plan
       )

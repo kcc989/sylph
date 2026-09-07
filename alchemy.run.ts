@@ -78,6 +78,7 @@ export class Website extends Cloudflare.Website.Vite<Website>()(
           maxInstances: 10,
         }),
         CF_TOKEN: credentials.runtimeToken,
+        RESOURCE_TOKEN: credentials.resourceToken,
         PREVIEW_RETENTION_SECONDS: Config.string(
           "PREVIEW_RETENTION_SECONDS"
         ).pipe(Config.withDefault("")),

@@ -13,6 +13,8 @@ import type { WorkspaceRetentionInput } from "./server/workspace-retention"
 declare global {
   namespace Cloudflare {
     interface Env {
+      RESOURCE_TOKEN: string
+      CLOUDFLARE_ACCOUNT_ID: string
       SYLPH_URL: string
       BETTER_AUTH_SECRET: string
       ALLOW_TEST_MAGIC_LINKS: string

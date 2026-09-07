@@ -5,7 +5,11 @@ import {
 } from "cloudflare:workers"
 import { ProjectResourceMaintenance } from "@workspace/domain/project-resources"
 import { CiRunSummary } from "@workspace/domain"
-import { Schema } from "effect"
+import { Effect, Schema } from "effect"
+import {
+  ProjectResourceMutations,
+  ProjectResourceMutationsLayer,
+} from "./resource-mutations"
 import type { WorkspaceDO } from "./workspace-do"
 import {
   captureProjectResources,
@@ -14,7 +18,7 @@ import {
 
 interface MaintenanceBindings {
   DB: D1Database
-  CF_TOKEN: string
+  RESOURCE_TOKEN: string
   CLOUDFLARE_ACCOUNT_ID: string
   WORKSPACES: DurableObjectNamespace<WorkspaceDO>
 }
@@ -32,7 +36,34 @@ export class ResourceMaintenance extends WorkflowEntrypoint<
     )
     if (input.accountId !== this.env.CLOUDFLARE_ACCOUNT_ID)
       throw new Error("Resource account does not match this installation")
-    const credentials = { accountId: input.accountId, token: this.env.CF_TOKEN }
+    const credentials = {
+      accountId: input.accountId,
+      token: this.env.RESOURCE_TOKEN,
+    }
+    if (
+      input.action === "adopt" ||
+      input.action === "retire" ||
+      input.action === "remove"
+    ) {
+      const reviewId = input.reviewId
+      if (!reviewId || reviewId !== input.runId)
+        throw new Error("A confirmed resource review is required")
+      await step.do("apply-reviewed-resource-mutation", () =>
+        Effect.runPromise(
+          Effect.gen(function* () {
+            yield* (yield* ProjectResourceMutations).execute(
+              input.projectId,
+              reviewId
+            )
+          }).pipe(
+            Effect.provide(
+              ProjectResourceMutationsLayer(this.env.DB, credentials)
+            )
+          )
+        )
+      )
+      return
+    }
     await step.do("maintain-project-resources", async () => {
       const operation = await this.env.DB.prepare(
         "SELECT status, run_id FROM project_resource_operation WHERE account_id = ? AND project_id = ? AND scope = ?"
@@ -42,7 +73,7 @@ export class ResourceMaintenance extends WorkflowEntrypoint<
       if (
         !operation ||
         operation.run_id !== input.runId ||
-        operation.status === "deploying"
+        ["deploying", "maintaining"].includes(operation.status)
       )
         throw new Error("Resource deployment is still running or has changed")
       try {

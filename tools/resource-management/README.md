@@ -1,14 +1,93 @@
 # Project resource management
 
-The Project settings page lists the resource inventory for each production deployment and Preview attempt. Organization Admins can inspect resources, retry failed Preview cleanup, manage encrypted application secrets, and configure a production custom domain. Members can read the inventory and configuration names, but never secret values.
+Organization Admins use Project settings to inspect resources, review adoption, retire production resources while retaining data, permanently remove retired resources, or retry failed Preview cleanup. Every production action requires a stored review and the exact typed confirmation `adopt production`, `retire production`, or `remove production`. Members can read inventory; they cannot start these actions.
 
-## Rollout
+## Supported plan
 
-1. Apply `template.patch` to `kcc989/sylph-tanstack-template` at `bed6b52785eab6e79680041ee1367f2831f59296`. It adds `sylph:plan`, all five release hooks, reserved Alchemy resources, a separate recovery-control D1 database, encrypted immutable secret versions, live secret fingerprint checks, and real provider recovery integration. The unpublished candidate is recorded in `template-candidate.json`. Frozen dependency installation, typecheck, lint, format, 20 tests, build, migration-review execution, and the platform contract verifier passed locally. No provider restore drill or deployed lifecycle claim was made.
-2. Publish the reviewed template revision and update `packages/domain/src/template-release.ts` to that immutable revision. The current pin is deliberately unchanged until publication. Repositories created from an older template need the same script and Alchemy changes; Sylph does not rewrite reviewed Checkpoints.
-3. Deploy the Website Worker through `alchemy.run.ts` using fresh resources. The initial database schema includes the resource inventory, and Website hosts the `ResourceMaintenance` Workflow and its binding. This baseline does not migrate previous D1 or Durable Object state. Do not run production deployment or resource destruction without approval.
-4. Before rollout to existing Projects, review their resource inventory. Existing successful production deployments without claims are blocked; no automatic adoption or database replacement occurs. Legacy Previews without a recorded reservation are not eligible for automatic cleanup. A separate reviewed adoption is required for those resources.
-5. Run the disposable deployed checks in `tests/release-smoke/README.md`. Include two simultaneous Preview attempts, one partial deployment failure, a browser-check failure, a cleanup retry, and a production ownership conflict. Confirm actual Worker/D1 IDs and disappearance through authenticated Cloudflare APIs. Local tests are not deployed proof.
+`sylph:plan` prints one `SYLPH_RESOURCE_PLAN=` JSON array before CI provides deployment credentials. The plan supports at most 20 resources, with one or more Workers. Multiple Workers require exactly one `entrypoint: true`. The returned URL must identify that Worker or the configured custom domain.
+
+```json
+[
+  {
+    "kind": "worker",
+    "name": "<prefix>-web",
+    "entrypoint": true,
+    "bindings": [
+      { "type": "service", "name": "API", "target": "<prefix>-runtime" },
+      { "type": "durable_object_namespace", "name": "ROOMS", "target": "<prefix>-runtime/Room" },
+      { "type": "workflow", "name": "JOBS", "target": "<prefix>-job" },
+      { "type": "ai", "name": "AI" }
+    ]
+  },
+  { "kind": "worker", "name": "<prefix>-runtime" },
+  { "kind": "durable_object", "name": "<prefix>-runtime/Room", "worker": "<prefix>-runtime", "className": "Room" },
+  { "kind": "workflow", "name": "<prefix>-job", "worker": "<prefix>-runtime", "className": "Job" },
+  { "kind": "d1", "name": "<prefix>-db" },
+  { "kind": "d1", "name": "<prefix>-recovery", "purpose": "recovery_control" }
+]
+```
+
+The shared schemas are in `@workspace/domain/project-resources`. A service binding can specify `entrypoint` for a named Worker entrypoint. Service targets must be Workers owned by the same Project and scope. Workers AI is an explicitly reviewed account capability; it has no separately owned resource or deletion operation. Unknown kinds, binding types and excess plan properties fail validation. Bindings to another Project, dispatch namespaces, named environments, non-default R2 jurisdictions, Containers and tail consumers are outside supported management and fail with a reason. KV, R2, Queue, D1 and production custom domains remain supported. Queue consumers must be detached through the owning Alchemy stack before Worker removal if Cloudflare refuses deletion; this code does not force-detach them.
+
+Names normally use the supplied `SYLPH_RESOURCE_PREFIX`, lowercase letters, digits and hyphens, with at most 63 characters. Durable Object names are the host Worker name plus `/` plus class name. Cloudflare namespace IDs, Workflow IDs, and creation timestamps are captured independently; a class name or Workflow name alone is insufficient identity. Domains use the configured hostname and can specify the target `worker`.
+
+A name prefix is a coordination convention, not credential isolation or proof of ownership. Undeclared resources are not automatically claimed or deleted. The operation stops and identifies the resource that needs review. Account API read failures are errors, including collection 404 responses.
+
+## Adoption and retirement
+
+Adoption reviews an entire previously untracked production topology. Paste its resource plan into Project settings. The server reads provider identities and bindings, rejects any existing ownership claim, and stores a review with a 15-minute confirmation window. Confirmation checks the same inventory again and acquires the production operation lock. The Workflow checks identities again before claiming anything. Adoption cannot steal resources or automatically create missing ones. Legacy physical names require `adopted: true` in the subsequent deployment plan and an active matching claim.
+
+Sylph adoption records ownership. The Project's `alchemy.run.ts` must also adopt the existing resources with per-resource Alchemy adoption policy, preserve logical IDs, and retain physical resources. This code does not rewrite Project source or an existing Alchemy state file. Review that source before the next production deploy; a blanket account-wide adoption flag is not a substitute for the reviewed plan.
+
+Retirement requires detaching bindings from Workers that will remain active. It retains the selected resources and data, keeps their claims, and prevents future deployment use. Remove retired resources from the next plan and retain them in Alchemy state. Permanent removal requires a second review and confirmation. A failed removal retains per-resource progress and reports its error; review only the remaining retired resources to retry.
+
+Deletion checks all account Worker bindings and host-owned DO/Workflow/domain dependencies before mutation, and checks them again during removal. Domains and Workflows are removed before Workers, then backing data resources. Durable Objects are removed only with their host Worker, after every associated namespace has an exact owned claim and no external Worker reference is present. Only this checked path enables the provider's cascading Worker deletion. There is no fictitious Durable Object namespace DELETE endpoint. Standalone class retirement/deletion, transfers, and renames require a separately reviewed Alchemy migration and are rejected here. Authenticated collection reads must prove absence; lost DELETE responses do not imply failure if absence is independently verified.
+
+Cloudflare does not make the account inspection plus mutation sequence atomic. External account administrators can race these checks; Project locks only serialize Sylph operations. R2 contents are drained before bucket deletion. Workers can still have provider-managed attachments outside the supported graph; provider refusal keeps cleanup failed, with claims intact.
+
+## Recovery control and integration
+
+`purpose: "recovery_control"` identifies a separate D1 control database. The `SYLPH_RECOVERY_CONTROL` binding must reference that claim. Application adoption, retirement and removal cannot select it. Preview cleanup retains control databases and reports a completed operation with the retained control claim visible. A mislabeled live control binding blocks cleanup before any deletion.
+
+The template worker must add this purpose to its `<prefix>-recovery` plan entry. Recovery must exclude that database from application restore/export replacement and preserve its writer gate, manifests and secret versions. Existing control resources need independently established claims; generic application adoption deliberately cannot claim them. Full-topology production recovery needs separate adapters for DO/Workflow/KV/R2/Queue state; this change does not claim their recovery support.
+
+Deploy database migration `0002_resource_lifecycle.sql` through Alchemy. It preserves existing claims and adds lifecycle review storage. Reconcile migration ordering when integrating sibling changes. `alchemy.run.ts` now provisions `ResourceToken` or uses a configured `RESOURCE_TOKEN`, scoped to Worker scripts, D1, KV, R2 and Queue permissions plus read-only Container attachment inspection in the installation account. Resource inspection and maintenance use it. CI deployment retains its separate account-scoped token and existing CI/Container/AI permissions. Neither token is isolated by Project name.
+
+The template and recovery workers own the template patch, release hooks, D1 recovery adapter, secret capture and application restore. Merge their changes without replacing them with the old `template.patch` in this worktree. The resource worker changes only two resource-credential call sites plus the binding type in `workspace-ci.ts`; preserve sibling CI changes during integration.
+
+## Reviewable verification commands
+
+Local regression tests:
+
+```sh
+bun test apps/web/src/server/project-resources.test.ts packages/db/src/initial-schema.test.ts
+bun run lint
+bun run format:check
+bun run typecheck
+bun run test
+bun run build
+```
+
+Read-only provider inspection, with `CLOUDFLARE_ACCOUNT_ID` and `RESOURCE_TOKEN` supplied by an approved protected environment:
+
+```sh
+bun tools/resource-management/inspect.ts /private/tmp/reviewed-resource-plan.json
+```
+
+The inspector prints resource identities and verifies declared Worker bindings. It does not prove Project ownership, adopt resources, delete resources, or read application records/secrets. Do not pass tokens in command arguments or copy them into this checkout.
+
+After separate approval, follow `tests/release-smoke/README.md` to provision a new disposable stage. The concrete commands are:
+
+```sh
+bun run smoke:release:doctor -- --auth magic
+bun run smoke:release:deploy -- --auth magic
+```
+
+Keep the run record and use its printed URL/optional regression command. For the combined proof, exercise a two-Worker topology with real DO/Workflow/service/AI bindings; reject a foreign service target; adopt an existing disposable topology; detach then retire it; confirm removal; induce a partial deletion failure and retry remaining claims. Include control-state retention and compare every provider ID and generation. Destructive actions require a separate current review in the UI and explicit human confirmation. No live action was executed by this worker.
+
+## Provider references
+
+Capabilities were checked against installed Alchemy `2.0.0-beta.76`, Distilled provider source, and official documentation: [Alchemy Worker bindings](https://alchemy.run/cloudflare/compute/workers/), [cross-Worker Durable Objects](https://alchemy.run/cloudflare/compute/cross-worker-durable-object/), [Durable Object namespace identities](https://developers.cloudflare.com/api/resources/durable_objects/), [Durable Object class lifecycle](https://developers.cloudflare.com/durable-objects/reference/durable-objects-migrations/), [Workflow identities](https://developers.cloudflare.com/api/resources/workflows/), [Workflow deletion](https://developers.cloudflare.com/api/resources/workflows/methods/delete/), and [Worker cascading deletion](https://developers.cloudflare.com/api/resources/workers/subresources/scripts/methods/delete/).
 
 ## Candidate publication dependency
 
@@ -16,40 +95,3 @@ The complete prepared starter is local commit `05b2a1d46af88084bae080518d0624760
 
 Production capture also requires an approved real-provider restore drill for the application schema. The starter includes `scripts/sylph-recovery-drill.ts` and its precise setup in `RECOVERY.md`. The control database must exist first and is never restored with application data. First prepare checks for restore evidence before acquiring the writer pause. No publication, production deployment, restore, or resource destruction was performed while preparing this patch.
 
-## Deployment contract
-
-`SYLPH_RESOURCE_PREFIX` is derived from the immutable Project ID and deployment scope. Production has a stable Project scope. Each Preview Check attempt gets its own scope, including repeated attempts at the same commit.
-
-After build and before credentials are provided, `sylph:plan` prints exactly one line:
-
-```text
-SYLPH_RESOURCE_PLAN=[{"kind":"worker","name":"<prefix>-web"},{"kind":"d1","name":"<prefix>-db"},{"kind":"d1","name":"<prefix>-recovery"}]
-```
-
-The prefix is supplied by CI. All names must use that prefix followed by `-`, contain only lowercase letters, digits, and hyphens, and have at most 63 characters. A plan contains one Worker and at most 20 resources. Supported resource kinds are Worker, D1, KV, R2 in the default jurisdiction, Queue, and a configured production custom domain. Custom domains use the configured hostname instead of the prefix. Previews cannot attach custom domains.
-
-Sylph inspects the namespace before deployment, rejects unknown existing resources, and reserves names in an atomic D1 batch. A production operation excludes other production operations for that Project and account. Existing resource IDs and creation timestamps must still match. Missing owned resources and plan removals block deployment. Cloudflare read failures are errors, including HTTP 404 from a collection endpoint.
-
-The deploy runner receives the reserved JSON in `SYLPH_RESOURCE_PLAN`, plus its prefix. Deployment scripts must use the exact plan, keep Alchemy state isolated under that prefix, and never create or adopt resources outside it. Cloudflare credentials remain account-scoped; this contract is not a security sandbox for arbitrary deployment code. Infrastructure outside the reserved namespace cannot safely be attributed to a Project or automatically deleted.
-
-After deployment, Sylph records resource IDs and verifies Worker bindings. Any extra supported resources discovered inside the reserved namespace are recorded and cause verification to fail; Preview cleanup includes them. Worker assets and inline values belong to the Worker. Unsupported bindings fail verification instead of implying complete management.
-
-## Cleanup and inspection
-
-Cleanup is scheduled for any Preview whose resources were reserved, even if the deployment or browser check fails and no Preview URL is published. It runs after retention, deletes the Worker before backing resources, and verifies absence with authenticated collection reads. R2 objects are removed in batches before the bucket is deleted. Resource IDs, creation timestamps, and ownership are rechecked. Deletion progress and claims remain in D1 as tombstones. Uncertain deletions remain retryable and visible as `cleanup_failed`.
-
-Automatic cleanup retries five times. Admins can confirm a retry from Project settings after the original CI Workflow stops. Production resources are excluded from Preview cleanup. Successful cleanup clears the Preview URL, including when a separate maintenance Workflow performs the retry. Inspection records its time and error on the operation. It does not execute SQL or expose application data.
-
-## Application configuration
-
-Application secrets are encrypted with the existing credential encryption key and partitioned by Project and `preview` or `production`. CI sends only the selected environment's values in `SYLPH_PROJECT_SECRETS`, a JSON object. The template validates names and turns values into Alchemy secret bindings. Verification and planning commands do not receive these secrets. Configuration APIs return names only. Scripts must not print secret values.
-
-The production domain and zone are supplied as `SYLPH_CUSTOM_DOMAIN` and `SYLPH_CUSTOM_DOMAIN_ZONE`. The domain must appear in the plan and route to its reserved Worker after deployment. Alchemy owns domain configuration; saving a setting does not publish DNS changes. A deployed domain cannot be removed or renamed through configuration until its resource has been explicitly retired.
-
-API shapes were checked against the installed Distilled/Alchemy source and the Cloudflare references for [resource listing](https://developers.cloudflare.com/api/resources/workers/), [D1](https://developers.cloudflare.com/api/resources/d1/), [R2 buckets](https://developers.cloudflare.com/api/resources/r2/subresources/buckets/methods/list/), and [Queues](https://developers.cloudflare.com/api/resources/queues/methods/list/).
-
-## Starter compatibility gate and existing Projects
-
-`bun tools/template-contract/verify.mjs <starter-checkout>` checks every required package script, executes credential-free resource planning, and proves release hooks reject missing release identity without printing success receipts. CI executes this gate against the exact published pin. A missing hook blocks CI; the old 0.1.1 pin is incompatible and must not be described as a compatible release. Publish the prepared starter only after explicit approval, then update the immutable pin and version together.
-
-For an existing Project, run `bun tools/template-contract/upgrade.mjs <Project-checkout> <new-worktree> [codex/branch]`. This checks patch applicability before creating a separate branch and worktree. It refuses dirty repositories and leaves the original checkout and accepted commit unchanged. Review conflicts manually if the Project has changed starter files; do not force the patch or overwrite application code. Run the Project checks and contract verifier in the new worktree, commit a new Checkpoint, then use the normal Check, Accept, and separately approved production Deploy flow. Existing unclaimed production resources still require reviewed adoption.
