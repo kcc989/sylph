@@ -1,3 +1,4 @@
+import { ciCommand } from "./command-execution"
 import { readWorkspaceCiLogs } from "./workspace-ci-logs"
 import { projectAuthSecret } from "./project-auth-secret"
 import {
@@ -368,7 +369,13 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
         item.name === stage ? checkStage(stage, "running", "Running") : item
       ),
     })
-    const result = await parent.runner(options)
+    const result = await parent.runner({
+      ...options,
+      command: ciCommand(
+        options.command,
+        stage === "preview" || stage === "production"
+      ),
+    })
     const logs = await readWorkspaceCiLogs(result.logs)
     const completedAt = await step.do(`${stage}-completed-at`, async () =>
       Date.now()

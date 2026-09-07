@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test"
+import { builtInTemplateRelease, ProjectTemplate } from "@workspace/domain"
+import { Effect } from "effect"
+import type { RepositoryStore } from "./repository-store"
 
 import {
   builtInProjectTemplates,
+  importedTemplateRepository,
   defaultProjectTemplateKey,
   projectTemplateCatalog,
   resolveProjectTemplate,
@@ -20,8 +24,9 @@ describe("project templates", () => {
     expect(resolveProjectTemplate(defaultProjectTemplateKey)?.sourceUrl).toBe(
       builtInProjectTemplates[0]?.sourceUrl
     )
+    expect(builtInTemplateRelease.commit).toMatch(/^[a-f0-9]{40}$/)
     expect(resolveProjectTemplate(defaultProjectTemplateKey)?.sourceRef).toBe(
-      "main"
+      builtInTemplateRelease.commit
     )
   })
 
@@ -46,4 +51,39 @@ describe("project templates", () => {
     expect(name.length).toBeLessThanOrEqual(63)
     expect(name).toMatch(/^[a-z0-9._-]+$/)
   })
+})
+
+test("rejects a moved template source before it can seed a Project", async () => {
+  const refs: string[] = []
+  const repository = {
+    id: "template",
+    name: "template",
+    remote: "https://example.com/template.git",
+    defaultBranch: "main",
+  }
+  const template = new ProjectTemplate({
+    key: "cloudflare-tanstack",
+    name: "Cloudflare app",
+    description: "test",
+    sourceUrl: `https://github.com/${builtInTemplateRelease.repository}`,
+    sourceRef: builtInTemplateRelease.commit,
+  })
+  const store = (head: string) => ({
+    import: (input: Parameters<RepositoryStore["Service"]["import"]>[0]) => {
+      refs.push(input.sourceRef)
+      return Effect.succeed(repository)
+    },
+    inspect: () => Effect.succeed(repository),
+    head: () => Effect.succeed(head),
+  })
+  await expect(
+    importedTemplateRepository(store("a".repeat(40)), "template", template)
+  ).rejects.toThrow("verified release commit")
+  const result = await importedTemplateRepository(
+    store(builtInTemplateRelease.commit),
+    "template",
+    template
+  )
+  expect(result.headCommit).toBe(builtInTemplateRelease.commit)
+  expect(refs).toEqual([builtInTemplateRelease.ref, builtInTemplateRelease.ref])
 })

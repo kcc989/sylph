@@ -1,16 +1,11 @@
-export const sandboxCommandEnvironment = (
-  values: Readonly<Record<string, string | undefined>>
-) =>
-  Object.fromEntries(
-    ["TERM", "COLORTERM", "LANG", "LC_ALL", "CI", "OPENCODE_TERMINAL"].flatMap(
-      (name) => (values[name] === undefined ? [] : [[name, values[name]]])
-    )
-  )
-
-export const shellArgument = (value: string) =>
-  `'${value.replaceAll("'", "'\\''")}'`
+import { commandProcessScript } from "./command-execution"
+export {
+  commandEnvironment as sandboxCommandEnvironment,
+  shellArgument,
+} from "./command-execution"
 
 export const workspaceCommandScript = `
+${commandProcessScript}
 const fs = require('node:fs');
 const path = require('node:path');
 const cp = require('node:child_process');
@@ -37,30 +32,7 @@ for (const file of request.files) {
   fs.writeFileSync(target, Buffer.from(file.content, 'base64'));
 }
 fs.writeFileSync(previousPath, JSON.stringify([...names]));
-let stdout = [];
-let stderr = [];
-let size = 0;
-const child = cp.spawn(request.command, request.args, {
-  cwd: request.cwd,
-  env: { PATH: process.env.PATH, HOME: '/root', LANG: 'C.UTF-8', ...request.env },
-  detached: true,
-  stdio: ['pipe', 'pipe', 'pipe'],
-});
-const stop = () => { try { process.kill(-child.pid, 'SIGKILL'); } catch {} };
-process.on('SIGTERM', stop);
-const timer = setTimeout(stop, 600000);
-const collect = chunks => chunk => {
-  size += chunk.length;
-  if (size > 8 * 1024 * 1024) stop();
-  else chunks.push(chunk);
-};
-child.stdout.on('data', collect(stdout));
-child.stderr.on('data', collect(stderr));
-child.stdin.on('error', () => {});
-child.stdin.end(Buffer.from(request.stdin, 'base64'));
-child.on('error', error => stderr.push(Buffer.from(error.message)));
-child.on('close', code => {
-  clearTimeout(timer);
+runCommand(request).then(result => {
   try {
     const listing = cp.execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], { cwd: root, maxBuffer: 8 * 1024 * 1024 });
     const candidates = new Set([...listing.toString().split('\\0').filter(Boolean), ...request.files.filter(f => !f.path.startsWith('.git/')).map(f => f.path)]);
@@ -75,7 +47,7 @@ child.on('close', code => {
       if (data.length > 5 * 1024 * 1024 || total > 50 * 1024 * 1024) throw Error('Workspace file limit exceeded');
       files.push({ path: name, content: data.toString('base64') });
     }
-    fs.writeFileSync(request.result, JSON.stringify({ exitCode: size > 8 * 1024 * 1024 ? 125 : code ?? 137, stdout: Buffer.concat(stdout).toString('base64'), stderr: Buffer.concat(stderr).toString('base64'), files }));
+    fs.writeFileSync(request.result, JSON.stringify({ ...result, files }));
     fs.writeFileSync(previousPath, JSON.stringify([...names].filter(n => n.startsWith('.git/')).concat(files.map(f => f.path))));
   } catch (error) {
     fs.writeFileSync(request.result + '.error', String(error));

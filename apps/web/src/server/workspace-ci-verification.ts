@@ -1,3 +1,4 @@
+import { ciCommand } from "./command-execution"
 import type {
   WorkspaceCheckStage,
   WorkspaceCheckStageName,
@@ -32,7 +33,7 @@ const stageMarker = (
 const stageCommand = ({ name, command }: VerificationStageCommand) =>
   [
     stageMarker("STARTED", name),
-    `if (${command}); then`,
+    `if (${ciCommand(command)}); then`,
     stageMarker("PASSED", name),
     "else",
     "sylph_stage_status=$?",
