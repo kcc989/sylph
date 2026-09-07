@@ -1,3 +1,7 @@
+import { getProjectConfiguration } from "@/functions/project-resources"
+import { ProjectConfigurationPanel } from "@/components/project-configuration-panel"
+import { getProjectResources } from "@/functions/project-resources"
+import { ProjectResourcesPanel } from "@/components/project-resources-panel"
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router"
 import { useServerFn } from "@tanstack/react-start"
 import { failureMessage } from "@workspace/domain"
@@ -38,14 +42,32 @@ export const Route = createFileRoute("/projects/$projectSlug/settings")({
     const deploymentContext = project
       ? await getProjectDeployments({ data: { projectId: project.id } })
       : null
-    return { context, dashboard, deploymentContext }
+    const resourceInventory = project
+      ? await getProjectResources({ data: { projectId: project.id } })
+      : null
+    const configuration = project
+      ? await getProjectConfiguration({ data: { projectId: project.id } })
+      : null
+    return {
+      context,
+      dashboard,
+      deploymentContext,
+      resourceInventory,
+      configuration,
+    }
   },
   component: ProjectSettingsScreen,
 })
 
 function ProjectSettingsScreen() {
   const { projectSlug } = Route.useParams()
-  const { context, dashboard, deploymentContext } = Route.useLoaderData()
+  const {
+    context,
+    dashboard,
+    deploymentContext,
+    resourceInventory,
+    configuration,
+  } = Route.useLoaderData()
   const router = useRouter()
   const setDeliveryMode = useServerFn(setProjectDeliveryMode)
   const exportRecovery = useServerFn(exportProjectRecovery)
@@ -130,6 +152,20 @@ function ProjectSettingsScreen() {
               </p>
             </div>
           </div>
+          {resourceInventory && (
+            <ProjectResourcesPanel
+              inventory={resourceInventory}
+              projectId={context.project.id}
+              canManage={canDeploy}
+            />
+          )}
+          {configuration && (
+            <ProjectConfigurationPanel
+              configuration={configuration}
+              projectId={context.project.id}
+              canManage={canDeploy}
+            />
+          )}
           <DeploymentPanel
             acceptedCommits={deploymentContext?.acceptedCommits ?? []}
             canDeploy={canDeploy}

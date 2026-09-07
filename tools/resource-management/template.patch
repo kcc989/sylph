@@ -1,0 +1,226 @@
+diff --git a/AGENTS.md b/AGENTS.md
+index 63f0990..f9a8860 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -13,10 +13,10 @@ This is a Cloudflare Workers application built with TanStack Start, shadcn/ui, E
+
+ ## Check contract
+
+-Sylph verifies every Checkpoint with these package scripts, in this order: `typecheck`, `lint`, `test`, `build`, then `sylph:preview`. Production uses `build` then `sylph:deploy`. Keep all six scripts working.
++Sylph verifies every Checkpoint with these package scripts, in this order: `typecheck`, `lint`, `test`, `build`, then `sylph:plan` and `sylph:preview`. Production uses `build`, `sylph:plan`, then `sylph:deploy`. Keep all six scripts working.
+
+ - `scripts/sylph-deploy.ts` deploys an Alchemy stage named from `SYLPH_DEPLOYMENT` and `SYLPH_CHECKPOINT` and prints `SYLPH_PREVIEW_URL=` or `SYLPH_PRODUCTION_URL=`.
+-- `alchemy.run.ts` names the stack `sylph-<SYLPH_PROJECT>`. Sylph sets `SYLPH_PROJECT` to the Project slug so resources never collide with other Projects in the same Cloudflare account. Keep that derivation.
++- `sylph:plan` declares resource names without Cloudflare credentials. `alchemy.run.ts` uses the reserved `SYLPH_RESOURCE_PREFIX` for the stack, Worker, and D1 database. Preview prefixes are unique to each Check attempt; production prefixes are stable per Project. Do not adopt existing resources or create resources outside the declared plan.
+ - The home page renders `SYLPH_CHECKPOINT=<commit>` and `SYLPH_DEPLOYMENT=<kind>` so the Preview browser check can confirm it is looking at the right deployment. Keep that text on the root route.
+ - `src/routeTree.gen.ts` is committed because `typecheck` runs before `build`. Regenerate it with `bun run build` after adding or renaming routes, then commit it.
+
+diff --git a/alchemy.run.ts b/alchemy.run.ts
+index c69982c..d7fa343 100644
+--- a/alchemy.run.ts
++++ b/alchemy.run.ts
+@@ -1,10 +1,18 @@
++import * as Redacted from "effect/Redacted"
++import { sylphResources, sylphSecrets } from "./scripts/sylph-resources"
+ import * as Alchemy from "alchemy"
+ import * as Cloudflare from "alchemy/Cloudflare"
+ import * as Config from "effect/Config"
+ import * as Effect from "effect/Effect"
+
++const resources = process.env.SYLPH_RESOURCE_PREFIX
++  ? sylphResources(process.env)
++  : null
++const applicationSecrets = sylphSecrets(process.env.SYLPH_PROJECT_SECRETS)
++
+ const Database = Cloudflare.D1.Database("Database", {
+   migrations: "migrations",
++  name: resources?.databaseName,
+ })
+
+ export class Website extends Cloudflare.Website.Vite<Website>()(
+@@ -13,11 +21,21 @@ export class Website extends Cloudflare.Website.Vite<Website>()(
+     const database = yield* Database
+
+     return {
++      name: resources?.workerName,
++      domain: resources?.hostname
++        ? { name: resources.hostname, zoneId: resources.zoneId }
++        : undefined,
+       main: "src/worker.ts",
+       compatibility: {
+         flags: ["nodejs_compat"],
+       },
+       env: {
++        ...Object.fromEntries(
++          Object.entries(applicationSecrets).map(([name, value]) => [
++            name,
++            Redacted.make(value),
++          ])
++        ),
+         BETTER_AUTH_SECRET: Config.redacted("BETTER_AUTH_SECRET"),
+         DB: database,
+         SYLPH_CHECKPOINT: Config.string("SYLPH_CHECKPOINT").pipe(
+@@ -43,7 +61,7 @@ const stackName = (project: string | undefined) => {
+ }
+
+ export default Alchemy.Stack(
+-  stackName(process.env.SYLPH_PROJECT),
++  resources?.prefix ?? stackName(process.env.SYLPH_PROJECT),
+   {
+     providers: Cloudflare.providers(),
+     state: Cloudflare.state(),
+diff --git a/package.json b/package.json
+index 6fabafe..6262a08 100644
+--- a/package.json
++++ b/package.json
+@@ -27,7 +27,8 @@
+     "destroy": "alchemy destroy",
+     "sylph:preview": "bun scripts/sylph-deploy.ts deploy",
+     "sylph:preview:destroy": "bun scripts/sylph-deploy.ts destroy",
+-    "sylph:deploy": "bun scripts/sylph-deploy.ts deploy"
++    "sylph:deploy": "bun scripts/sylph-deploy.ts deploy",
++    "sylph:plan": "bun scripts/sylph-resources.ts"
+   },
+   "dependencies": {
+     "@base-ui/react": "1.7.0",
+diff --git a/scripts/sylph-deploy.ts b/scripts/sylph-deploy.ts
+index 8bea05d..4cee0a3 100644
+--- a/scripts/sylph-deploy.ts
++++ b/scripts/sylph-deploy.ts
+@@ -1,3 +1,4 @@
++import { sylphResources } from "./sylph-resources"
+ import { spawn } from "node:child_process"
+ import { fileURLToPath } from "node:url"
+ import { dirname, resolve } from "node:path"
+@@ -43,10 +44,20 @@ const runAlchemy = (
+
+ const main = async () => {
+   const action = readAction(process.argv[2])
+-  const plan = planSylphDeployment({
++  const resources = sylphResources(process.env)
++  if (process.env.SYLPH_RESOURCE_PLAN !== JSON.stringify(resources.plan))
++    throw new Error(
++      "Deployment resource plan does not match Sylph's reservation"
++    )
++  const basePlan = planSylphDeployment({
+     SYLPH_DEPLOYMENT: process.env.SYLPH_DEPLOYMENT,
+     SYLPH_CHECKPOINT: process.env.SYLPH_CHECKPOINT,
+   })
++  const plan = {
++    ...basePlan,
++    stage:
++      basePlan.deployment === "preview" ? resources.prefix : basePlan.stage,
++  }
+   const environment: NodeJS.ProcessEnv = {
+     ...process.env,
+     SYLPH_DEPLOYMENT: plan.deployment,
+@@ -64,7 +75,9 @@ const main = async () => {
+   }
+   if (action === "destroy") return
+
+-  const url = deployedUrl(result.output)
++  const url = resources.hostname
++    ? `https://${resources.hostname}`
++    : deployedUrl(result.output)
+   if (!url) {
+     process.stderr.write(
+       "Alchemy finished without printing a workers.dev URL, so the deployment cannot be reported to Sylph\n"
+diff --git a/scripts/sylph-resources.test.ts b/scripts/sylph-resources.test.ts
+new file mode 100644
+index 0000000..99f095d
+--- /dev/null
++++ b/scripts/sylph-resources.test.ts
+@@ -0,0 +1,34 @@
++import { expect, test } from "bun:test"
++import { sylphResources, sylphSecrets } from "./sylph-resources"
++
++test("resource plan pins isolated Worker and D1 names", () => {
++  const resources = sylphResources({
++    SYLPH_RESOURCE_PREFIX: `sylph-${"a".repeat(24)}`,
++    SYLPH_DEPLOYMENT: "preview",
++  })
++  expect(resources.plan).toEqual([
++    { kind: "worker", name: `${resources.prefix}-web` },
++    { kind: "d1", name: `${resources.prefix}-db` },
++  ])
++  expect(() => sylphResources({})).toThrow("ownership checks")
++})
++
++test("custom domains require production and application secrets cannot override bindings", () => {
++  const env = {
++    SYLPH_RESOURCE_PREFIX: `sylph-${"b".repeat(24)}`,
++    SYLPH_DEPLOYMENT: "production",
++    SYLPH_CUSTOM_DOMAIN: "app.example.com",
++    SYLPH_CUSTOM_DOMAIN_ZONE: "zone",
++  }
++  expect(sylphResources(env).plan).toContainEqual({
++    kind: "domain",
++    name: "app.example.com",
++  })
++  expect(() => sylphResources({ ...env, SYLPH_DEPLOYMENT: "preview" })).toThrow(
++    "production"
++  )
++  expect(() => sylphSecrets('{"DB":"bad"}')).toThrow("reserved binding")
++  expect(sylphSecrets('{"PAYMENTS_KEY":"value"}')).toEqual({
++    PAYMENTS_KEY: "value",
++  })
++})
+diff --git a/scripts/sylph-resources.ts b/scripts/sylph-resources.ts
+new file mode 100644
+index 0000000..21c450a
+--- /dev/null
++++ b/scripts/sylph-resources.ts
+@@ -0,0 +1,53 @@
++import { Schema } from "effect"
++
++const SecretValues = Schema.Record(Schema.String, Schema.String)
++
++export const sylphResources = (environment: NodeJS.ProcessEnv) => {
++  const prefix = environment.SYLPH_RESOURCE_PREFIX ?? ""
++  if (!/^sylph-[a-f0-9]{24}$/.test(prefix))
++    throw new Error(
++      "SYLPH_RESOURCE_PREFIX must be provided by Sylph resource ownership checks"
++    )
++  const hostname = environment.SYLPH_CUSTOM_DOMAIN ?? ""
++  const zoneId = environment.SYLPH_CUSTOM_DOMAIN_ZONE ?? ""
++  if (hostname && (environment.SYLPH_DEPLOYMENT !== "production" || !zoneId))
++    throw new Error(
++      "Custom domains require a production deployment and a Cloudflare zone ID"
++    )
++  const plan: Array<{ kind: string; name: string }> = [
++    { kind: "worker", name: `${prefix}-web` },
++    { kind: "d1", name: `${prefix}-db` },
++  ]
++  if (hostname) plan.push({ kind: "domain", name: hostname })
++  return {
++    prefix,
++    workerName: `${prefix}-web`,
++    databaseName: `${prefix}-db`,
++    hostname,
++    zoneId,
++    plan,
++  }
++}
++
++export const sylphSecrets = (value: string | undefined) => {
++  const secrets = Schema.decodeUnknownSync(SecretValues)(
++    JSON.parse(value ?? "{}")
++  )
++  for (const name of Object.keys(secrets)) {
++    if (
++      !/^[A-Z][A-Z0-9_]{0,127}$/.test(name) ||
++      /^(SYLPH_|CLOUDFLARE_|CF_|ALCHEMY_|BETTER_AUTH_SECRET$|DB$|ASSETS$|PATH$|HOME$|NODE_OPTIONS$|BUN_OPTIONS$)/.test(
++        name
++      )
++    )
++      throw new Error(
++        "Application secret name conflicts with a reserved binding"
++      )
++  }
++  return secrets
++}
++
++if (import.meta.main)
++  process.stdout.write(
++    `SYLPH_RESOURCE_PLAN=${JSON.stringify(sylphResources(process.env).plan)}\n`
++  )

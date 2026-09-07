@@ -1,3 +1,4 @@
+import type { ProjectResourceMaintenance } from "@workspace/domain/project-resources"
 import type { CodexContainer } from "./apps/web/src/server/codex-container"
 import type { ProjectSynchronization } from "./apps/web/src/server/project-synchronization"
 import type { CursorConnectionObject } from "./apps/web/src/server/cursor-connection-object"
@@ -45,6 +46,9 @@ const WorkspaceRuntime = Cloudflare.Worker(
         BROWSER: Cloudflare.Browser("BROWSER"),
         CHECK_EVIDENCE: checkEvidence,
         CI_WORKFLOW: Cloudflare.Workflow("CI", { className: "CI" }),
+        RESOURCE_MAINTENANCE: Cloudflare.Workflow("ResourceMaintenance", {
+          className: "ResourceMaintenance",
+        }),
         CLOUDFLARE_ACCOUNT_ID: Config.string("CLOUDFLARE_ACCOUNT_ID"),
         DB: database,
         CREDENTIAL_ENCRYPTION_KEY: Config.redacted("CREDENTIAL_ENCRYPTION_KEY"),
@@ -126,6 +130,13 @@ export class Website extends Cloudflare.Website.Vite<Website>()(
         }),
         REPOS: Repositories,
         CHECK_EVIDENCE: checkEvidence,
+        RESOURCE_MAINTENANCE: Cloudflare.Workflow<ProjectResourceMaintenance>(
+          "ResourceMaintenance",
+          {
+            className: "ResourceMaintenance",
+            scriptName: workspaceRuntime.workerName,
+          }
+        ),
         CI_WORKFLOW: Cloudflare.Workflow<WorkspaceCiInput>("CI", {
           className: "CI",
           scriptName: workspaceRuntime.workerName,

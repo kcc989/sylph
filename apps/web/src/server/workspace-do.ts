@@ -1,3 +1,4 @@
+import { WorkspacePreviewExpiry } from "@workspace/domain/checks"
 import { reserveSmokeRequest } from "./workspace-smoke-budget"
 import type { Sandbox } from "@cloudflare/sandbox"
 import type { CodexContainer } from "./codex-container"
@@ -843,6 +844,22 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         }
         throw cause
       }
+    })
+  }
+
+  expireCheckPreview(input: typeof WorkspacePreviewExpiry.Encoded) {
+    return this.#run(async () => {
+      const data = Schema.decodeUnknownSync(WorkspacePreviewExpiry)(input)
+      const run = this.#checks.expirePreview(data)
+      if (run)
+        this.#sockets.broadcast(
+          new WorkspaceRuntimeEvent({
+            id: data.callbackId,
+            created: run.updatedAt,
+            type: "workspace.check.updated",
+            data: run,
+          })
+        )
     })
   }
 

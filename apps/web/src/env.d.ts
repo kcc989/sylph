@@ -1,3 +1,4 @@
+import type { ProjectResourceMaintenance } from "@workspace/domain/project-resources"
 import type { ProjectSynchronization } from "./server/project-synchronization"
 import type {
   WorkspaceProvisioningInput,
@@ -27,6 +28,7 @@ declare global {
       REPOS: Artifacts
       CHECK_EVIDENCE: R2Bucket
       CI_WORKFLOW: Workflow<WorkspaceCiInput>
+      RESOURCE_MAINTENANCE: Workflow<ProjectResourceMaintenance>
       REPOSITORY_NAMESPACE: string
       PROJECT_SYNCS: DurableObjectNamespace<ProjectSynchronization>
       MESSAGE_DELIVERY: Workflow<typeof WorkspaceMessageDeliveryInput.Encoded>

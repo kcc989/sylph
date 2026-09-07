@@ -377,3 +377,9 @@ export class WorkspaceCheckCompletion extends Schema.Class<WorkspaceCheckComplet
   summary: Schema.String,
   resume: Schema.Boolean,
 }) {}
+
+export const WorkspacePreviewExpiry = Schema.Struct({
+  runId: Schema.NonEmptyString,
+  attempt: Schema.Number,
+  callbackId: Schema.NonEmptyString,
+})

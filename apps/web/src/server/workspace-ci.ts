@@ -1,3 +1,7 @@
+import {
+  projectSecretEnvironment,
+  readProjectDomain,
+} from "./project-configuration"
 import { ciCommand } from "./command-execution"
 import { readWorkspaceCiLogs } from "./workspace-ci-logs"
 import { projectAuthSecret } from "./project-auth-secret"
@@ -27,7 +31,17 @@ import {
   readDependencyRepairOutput,
 } from "./dependency-repair"
 import type { WorkspaceDO } from "./workspace-do"
-import { previewRetention, removePreviewWorker } from "./preview-lifecycle"
+import { previewRetention } from "./preview-lifecycle"
+import type { ProjectResourcePlan } from "@workspace/domain/project-resources"
+import {
+  captureProjectResources,
+  finishResourceOperation,
+  readResourcePlan,
+  removePreviewResources,
+  reserveProjectResources,
+  resourcePrefix,
+  verifyResourceUrl,
+} from "./project-resources"
 import {
   deploymentFailedSql,
   deploymentRunningSql,
@@ -119,6 +133,20 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
       })
     }
 
+    const credentials = {
+      accountId: this.env.CLOUDFLARE_ACCOUNT_ID,
+      token: this.env.CF_TOKEN,
+    }
+    const owner = {
+      projectId: input.projectId,
+      scope:
+        input.kind === "production"
+          ? "production"
+          : `preview:${run.id}:${run.attempt}`,
+      runId: event.instanceId,
+    }
+    let resourcesReserved = false
+    let resourcePlan: ProjectResourcePlan = []
     try {
       if (input.kind === "dependencies") {
         const installation = await this.#runner(step, ci, run, "install", {
@@ -163,9 +191,18 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
           "build",
         ])
         run = build.run
-        const deployment = await this.#runner(
+        const planned = await this.#planResources(
           step,
           build.result,
+          input,
+          owner,
+          projectSlug
+        )
+        resourcePlan = planned.plan
+        resourcesReserved = true
+        const deployment = await this.#runner(
+          step,
+          planned.result,
           run,
           "production",
           {
@@ -184,6 +221,15 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
                 checkpoint: input.sha,
                 deployment: "production",
               }),
+              ...(await projectSecretEnvironment(
+                this.env.DB,
+                input.projectId,
+                "production",
+                this.env.CREDENTIAL_ENCRYPTION_KEY
+              )),
+              ...planned.domainEnvironment,
+              SYLPH_RESOURCE_PREFIX: planned.prefix,
+              SYLPH_RESOURCE_PLAN: JSON.stringify(resourcePlan),
               BETTER_AUTH_SECRET: authSecret,
             },
           }
@@ -197,6 +243,10 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
             "The sylph:deploy script must print SYLPH_PRODUCTION_URL=https://..."
           )
         }
+        verifyResourceUrl(url, resourcePlan)
+        await step.do("inspect-production-resources", () =>
+          captureProjectResources(this.env.DB, credentials, owner, true)
+        )
         if (!input.deploymentId) {
           throw new Error("Production CI requires a Deployment record")
         }
@@ -209,9 +259,18 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
         const verification = await this.#verification(step, ci, run)
         run = verification.run
 
-        const preview = await this.#runner(
+        const planned = await this.#planResources(
           step,
           verification.result,
+          input,
+          owner,
+          projectSlug
+        )
+        resourcePlan = planned.plan
+        resourcesReserved = true
+        const preview = await this.#runner(
+          step,
+          planned.result,
           run,
           "preview",
           {
@@ -224,11 +283,21 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
             cloudflareCredentials: {
               accountId: this.env.CLOUDFLARE_ACCOUNT_ID,
             },
-            env: projectDeployEnvironment({
-              slug: projectSlug,
-              checkpoint: input.sha,
-              deployment: "preview",
-            }),
+            env: {
+              ...projectDeployEnvironment({
+                slug: projectSlug,
+                checkpoint: input.sha,
+                deployment: "preview",
+              }),
+              ...(await projectSecretEnvironment(
+                this.env.DB,
+                input.projectId,
+                "preview",
+                this.env.CREDENTIAL_ENCRYPTION_KEY
+              )),
+              SYLPH_RESOURCE_PREFIX: planned.prefix,
+              SYLPH_RESOURCE_PLAN: JSON.stringify(resourcePlan),
+            },
           }
         )
         run = preview.run
@@ -238,6 +307,10 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
             "The sylph:preview script must print SYLPH_PREVIEW_URL=https://..."
           )
         }
+        verifyResourceUrl(url, resourcePlan)
+        await step.do("inspect-preview-resources", () =>
+          captureProjectResources(this.env.DB, credentials, owner, true)
+        )
         run = await this.#publish(step, "preview-url", run, {
           previewUrl: url,
         })
@@ -247,26 +320,6 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
       run = await this.#publish(step, "run-passed", run, {
         status: "passed",
       })
-      const retainedPreviewUrl = run.previewUrl
-      if (input.kind !== "production" && retainedPreviewUrl) {
-        await step.sleep(
-          "retain-preview",
-          previewRetention(this.env.PREVIEW_RETENTION_SECONDS)
-        )
-        await step.do(
-          "delete-expired-preview",
-          { retries: { limit: 5, delay: "1 minute", backoff: "exponential" } },
-          () =>
-            removePreviewWorker({
-              accountId: this.env.CLOUDFLARE_ACCOUNT_ID,
-              token: this.env.CF_TOKEN,
-              previewUrl: retainedPreviewUrl,
-            })
-        )
-        await this.#publish(step, "preview-expired", run, {
-          previewUrl: null,
-        })
-      }
     } catch (cause) {
       const diagnostics = isCiRunnerFailure(cause)
         ? cause.diagnostics.failures.flatMap((failure) => {
@@ -319,7 +372,7 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
         ),
         updatedAt: run.updatedAt,
       })
-      await this.#publish(step, "run-failed", failedRun)
+      run = await this.#publish(step, "run-failed", failedRun)
       if (input.deploymentId) {
         const failureDetails = diagnostics
           .map((diagnostic) => `${diagnostic.summary}\n${diagnostic.output}`)
@@ -332,6 +385,79 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
         })
       }
     }
+    if (resourcesReserved) {
+      await step.do("finish-resource-deployment", () =>
+        finishResourceOperation(
+          this.env.DB,
+          credentials,
+          owner,
+          input.kind === "production" ? "complete" : "retained"
+        )
+      )
+      if (input.kind !== "production") {
+        await step.sleep(
+          "retain-preview",
+          previewRetention(this.env.PREVIEW_RETENTION_SECONDS)
+        )
+        await step.do(
+          "delete-expired-preview",
+          {
+            retries: { limit: 5, delay: "1 minute", backoff: "exponential" },
+          },
+          () => removePreviewResources(this.env.DB, credentials, owner)
+        )
+        await this.#publish(step, "preview-expired", run, { previewUrl: null })
+      }
+    }
+  }
+
+  async #planResources(
+    step: WorkflowStep,
+    parent: CiRunnerResult,
+    input: WorkspaceCiInput,
+    owner: { projectId: string; scope: string; runId: string },
+    slug: string
+  ) {
+    const prefix = await resourcePrefix(owner.projectId, owner.scope)
+    const domain =
+      input.kind === "production"
+        ? await step.do("read-project-domain", () =>
+            readProjectDomain(this.env.DB, owner.projectId)
+          )
+        : null
+    const domainEnvironment = {
+      SYLPH_CUSTOM_DOMAIN: domain?.hostname ?? "",
+      SYLPH_CUSTOM_DOMAIN_ZONE: domain?.zone_id ?? "",
+    }
+    const result = await parent.runner({
+      name: "resource-plan",
+      config: verificationRunnerConfig,
+      command: ciCommand(
+        requiredScriptCommand("sylph:plan", "resource ownership checks"),
+        false,
+        true
+      ),
+      env: {
+        ...projectDeployEnvironment({
+          slug,
+          checkpoint: input.sha,
+          deployment: input.kind === "production" ? "production" : "preview",
+        }),
+        ...domainEnvironment,
+        SYLPH_RESOURCE_PREFIX: prefix,
+      },
+    })
+    const logs = await readWorkspaceCiLogs(result.logs)
+    const plan = readResourcePlan(logs.stdout, prefix, domain?.hostname)
+    await step.do("reserve-project-resources", () =>
+      reserveProjectResources(
+        this.env.DB,
+        { accountId: this.env.CLOUDFLARE_ACCOUNT_ID, token: this.env.CF_TOKEN },
+        owner,
+        plan
+      )
+    )
+    return { result, plan, prefix, domainEnvironment }
   }
 
   #projectId = ""
@@ -551,14 +677,21 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
       const workspace = this.env.WORKSPACES.get(
         this.env.WORKSPACES.idFromName(updated.workspaceId)
       )
-      await workspace.applyCheckUpdate(
-        encodeWorkspaceCheckUpdateSync(
-          new WorkspaceCheckUpdate({
-            callbackId: `${updated.id}:${updated.attempt}:${label}`,
-            run: updated,
-          })
+      if (label === "preview-expired")
+        await workspace.expireCheckPreview({
+          runId: updated.id,
+          attempt: updated.attempt,
+          callbackId: `${updated.id}:${updated.attempt}:${label}`,
+        })
+      else
+        await workspace.applyCheckUpdate(
+          encodeWorkspaceCheckUpdateSync(
+            new WorkspaceCheckUpdate({
+              callbackId: `${updated.id}:${updated.attempt}:${label}`,
+              run: updated,
+            })
+          )
         )
-      )
       return JSON.stringify(updated)
     })
     return decodeWorkspaceCheckRun(JSON.parse(payload))

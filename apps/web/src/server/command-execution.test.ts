@@ -53,3 +53,22 @@ test("the shared process runner bounds output and stops timed-out processes", ()
   expect(overflow.bytes).toBeLessThanOrEqual(commandOutputLimit)
   expect(execute("/nonexistent/sylph-command", [], 5000).code).toBe(127)
 })
+
+test("resource planning receives isolation settings without deployment credentials or application secrets", () => {
+  const command =
+    'printf "%s|%s|%s|%s" "$SYLPH_RESOURCE_PREFIX" "$CLOUDFLARE_API_TOKEN" "$SYLPH_PROJECT_SECRETS" "$SYLPH_CUSTOM_DOMAIN"'
+  const result = Bun.spawnSync(
+    ["bash", "-c", ciCommand(command, false, true)],
+    {
+      env: {
+        ...process.env,
+        SYLPH_RESOURCE_PREFIX: "reserved-prefix",
+        CLOUDFLARE_API_TOKEN: "test-token",
+        SYLPH_PROJECT_SECRETS: '{"KEY":"private"}',
+        SYLPH_CUSTOM_DOMAIN: "app.example.com",
+      },
+    }
+  )
+  expect(result.exitCode).toBe(0)
+  expect(result.stdout.toString()).toBe("reserved-prefix|||app.example.com")
+})

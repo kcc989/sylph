@@ -368,3 +368,33 @@ test("an uncertain prior delivery retains its reservation when the Checkpoint ch
   expect(delivered).toEqual([true, true, false])
   expect(checks.checkContinuationsUsed()).toBe(3)
 })
+
+test("Preview expiry clears terminal Check URLs without overwriting newer attempts", () => {
+  const checks = new WorkspaceChecks(new TestSqlStorage())
+  checks.initialize()
+  const completed = new WorkspaceCheckRun({
+    ...run(),
+    status: "passed",
+    attempt: 2,
+    previewUrl: "https://preview.account.workers.dev",
+  })
+  checks.create(completed)
+  expect(
+    checks.expirePreview({ runId: completed.id, attempt: 1, callbackId: "old" })
+  ).toBeNull()
+  expect(checks.get(completed.id)?.previewUrl).toBe(completed.previewUrl)
+  const expired = checks.expirePreview({
+    runId: completed.id,
+    attempt: 2,
+    callbackId: "current",
+  })
+  expect(expired?.status).toBe("passed")
+  expect(checks.get(completed.id)?.previewUrl).toBeNull()
+  expect(
+    checks.expirePreview({
+      runId: completed.id,
+      attempt: 2,
+      callbackId: "retry",
+    })
+  ).toBeNull()
+})
