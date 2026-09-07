@@ -91,7 +91,7 @@ Capabilities were checked against installed Alchemy `2.0.0-beta.76`, Distilled p
 
 ## Candidate publication dependency
 
-The complete prepared starter is local commit `05b2a1d46af88084bae080518d0624760680fc33` on `codex/complete-release-contract` in `kcc989/sylph-tanstack-template`. The full patch reproduces it from the recorded base. Publishing this branch requires explicit approval. After publication, verify the remote immutable commit and change `packages/domain/src/template-release.ts` to the candidate ref, commit, and version `0.2.0`. Until then the shipped pin remains unchanged and the strengthened template CI correctly rejects it as incompatible.
+The complete prepared starter is local commit `53be0a3cf72778fe82a81b8fd4bd0111ba0ae375` on `codex/complete-release-contract` in `kcc989/sylph-tanstack-template`. The full patch reproduces it from the recorded base. Publishing this branch requires explicit approval. After publication, verify the remote immutable commit and change `packages/domain/src/template-release.ts` to the candidate ref, commit, and version `0.2.0`. Until then the shipped pin remains unchanged and the strengthened template CI correctly rejects it as incompatible.
 
 Production capture also requires an approved real-provider restore drill for the application schema. The starter includes `scripts/sylph-recovery-drill.ts` and its precise setup in `RECOVERY.md`. The control database must exist first and is never restored with application data. First prepare checks for restore evidence before acquiring the writer pause. No publication, production deployment, restore, or resource destruction was performed while preparing this patch.
 
