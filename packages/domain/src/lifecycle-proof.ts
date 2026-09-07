@@ -97,10 +97,22 @@ export const LifecyclePhase = Schema.Struct({
 })
 export type LifecyclePhase = typeof LifecyclePhase.Type
 
+export const LifecycleActionOptions = Schema.Struct({
+  organizationName: Schema.NonEmptyString,
+  projectName: Schema.NonEmptyString,
+  modelName: Schema.Literal("Grok 4.6"),
+  appEmail: Schema.NonEmptyString,
+  cleanupScope: Schema.optional(
+    Schema.String.check(Schema.isPattern(/^preview:[a-zA-Z0-9-]+:[0-9]+$/))
+  ),
+})
+export type LifecycleActionOptions = typeof LifecycleActionOptions.Type
+
 export const LifecycleScenario = Schema.Struct({
   identity: DeployedSmokeIdentity,
   accountId: Schema.String.check(Schema.isPattern(/^[a-f0-9]{32}$/)),
   modelBudgetUsd: Schema.Literal(4),
+  options: Schema.optional(LifecycleActionOptions),
   phases: Schema.Array(LifecyclePhase),
 })
 export type LifecycleScenario = typeof LifecycleScenario.Type

@@ -1,9 +1,11 @@
+import { existsSync } from "node:fs"
 import { spawnSync } from "node:child_process"
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises"
 import { resolve } from "node:path"
 import { parseArgs, parseEnv } from "node:util"
 import { Schema } from "effect"
 import {
+  LifecycleActionOptions,
   CombinedSmokeRun,
   DeployedSmokeIdentity,
   LifecycleBrowserEvidence,
@@ -20,12 +22,20 @@ import {
   jsonPointer,
 } from "../tools/release-smoke/lifecycle"
 
+import { createLifecycleScenario } from "../tools/release-smoke/lifecycle-scenario"
+import {
+  LifecycleActionState,
+  LifecycleProviderEvidence,
+} from "@workspace/domain/lifecycle-actions"
+
 const { values, positionals } = parseArgs({
   allowPositionals: true,
   options: {
     run: { type: "string" },
     scenario: { type: "string" },
     phase: { type: "string" },
+    options: { type: "string" },
+    "account-id": { type: "string" },
     "approval-digest": { type: "string" },
   },
 })
@@ -42,14 +52,37 @@ async function main() {
   if (
     !values.run ||
     !values.scenario ||
-    !["prepare", "run", "report"].includes(command ?? "")
+    !["create", "prepare", "run", "report"].includes(command ?? "")
   )
     throw new Error(
-      "Use prepare|run|report --run run.json --scenario scenario.json; run requires --phase and approved actions require --approval-digest"
+      "Use create|prepare|run|report --run run.json --scenario scenario.json; create requires --options and --account-id; run requires --phase"
     )
   const run = Schema.decodeUnknownSync(CombinedSmokeRun)(
     JSON.parse(await readFile(values.run, "utf8"))
   )
+  if (command === "create") {
+    if (!values.options || !values["account-id"])
+      throw new Error(
+        "create requires --options options.json and --account-id ACCOUNT_ID"
+      )
+    const options = Schema.decodeUnknownSync(LifecycleActionOptions)(
+      JSON.parse(await readFile(values.options, "utf8"))
+    )
+    const scenario = await createLifecycleScenario(
+      root,
+      run,
+      values["account-id"],
+      options
+    )
+    await writeFile(values.scenario, JSON.stringify(scenario, null, 2), {
+      mode: 0o600,
+      flag: "wx",
+    })
+    console.log(
+      `Prepared twelve concrete actions in ${resolve(values.scenario)}. No provider request or mutation was made.`
+    )
+    return
+  }
   const scenario = Schema.decodeUnknownSync(LifecycleScenario)(
     JSON.parse(await readFile(values.scenario, "utf8"))
   )
@@ -109,6 +142,21 @@ async function main() {
     )
       throw new Error(`Action source digest differs: ${phase.path}`)
   }
+  const statePath = resolve(directory, "state.json")
+  const observedState = existsSync(statePath)
+    ? Schema.decodeUnknownSync(LifecycleActionState)(
+        JSON.parse(await readFile(statePath, "utf8"))
+      )
+    : null
+  const last = [...observations]
+    .sort((a, b) => a.observedAt.localeCompare(b.observedAt))
+    .at(-1)
+  const stateEvidence = last?.evidence.find((entry) => entry.kind === "source")
+  if (
+    stateEvidence &&
+    lifecycleDigest(await readFile(statePath, "utf8")) !== stateEvidence.sha256
+  )
+    throw new Error("Observed lifecycle state changed outside the prior action")
   if (command === "prepare") {
     console.log(
       JSON.stringify(
@@ -116,6 +164,7 @@ async function main() {
           identity: scenario.identity,
           accountId: scenario.accountId,
           modelBudgetUsd: scenario.modelBudgetUsd,
+          observedState,
           phases: scenario.phases.map((phase) => ({
             ...phase,
             approvalDigest: phaseApprovalDigest(scenario, phase),
@@ -193,6 +242,7 @@ async function main() {
         ...process.env,
         ...saved,
         SYLPH_SMOKE_BASE_URL: run.baseURL,
+        SYLPH_SMOKE_AUTH_MODE: run.auth,
         SYLPH_LIFECYCLE_SCENARIO: resolve(values.scenario),
         SYLPH_LIFECYCLE_PHASE: phase.path,
         SYLPH_LIFECYCLE_OUTPUT: attemptDirectory,
@@ -206,8 +256,57 @@ async function main() {
       `${result.stdout ?? ""}${result.stderr ?? ""}`,
       { mode: 0o600 }
     )
-    if (result.status !== 0)
-      throw new Error("Phase action failed; inspect the private action log")
+    if (result.status !== 0) {
+      try {
+        const failure = Schema.decodeUnknownSync(
+          Schema.Struct({
+            outcome: Schema.Literals(["blocked", "failed"]),
+            message: Schema.String,
+          })
+        )(
+          JSON.parse(
+            await readFile(resolve(attemptDirectory, "failure.json"), "utf8")
+          )
+        )
+        observation = {
+          ...observation,
+          outcome: failure.outcome,
+          detail: failure.message,
+        }
+      } catch {
+        observation = {
+          ...observation,
+          detail: "Phase process failed; inspect the private action log",
+        }
+      }
+      throw new Error(observation.detail)
+    }
+    const providerFile = resolve(attemptDirectory, "provider.json")
+    const providerText = await readFile(providerFile, "utf8")
+    const provider = Schema.decodeUnknownSync(LifecycleProviderEvidence)(
+      JSON.parse(providerText)
+    )
+    if (
+      provider.path !== phase.path ||
+      JSON.stringify(provider.identity) !== JSON.stringify(identity) ||
+      provider.assertions.some(
+        (assertion) =>
+          JSON.stringify(assertion.observed) !==
+          JSON.stringify(assertion.expected)
+      )
+    )
+      throw new Error("Action provider observations did not verify this phase")
+    observation = {
+      ...observation,
+      evidence: [
+        {
+          kind: "cloudflare-api",
+          file: providerFile,
+          sha256: lifecycleDigest(providerText),
+        },
+      ],
+    }
+
     const browserFile = resolve(attemptDirectory, "browser.json")
     const browserText = await readFile(browserFile, "utf8")
     const browser = Schema.decodeUnknownSync(LifecycleBrowserEvidence)(
@@ -276,8 +375,14 @@ async function main() {
         ],
       }
     }
+    const stateFile = resolve(attemptDirectory, "state-after.json")
+    const stateText = await readFile(stateFile, "utf8")
     observation = {
       ...observation,
+      evidence: [
+        ...observation.evidence,
+        { kind: "source", file: stateFile, sha256: lifecycleDigest(stateText) },
+      ],
       outcome: "passed",
       detail: `Verified ${phase.target}`,
     }

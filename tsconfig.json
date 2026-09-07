@@ -21,6 +21,8 @@
     "tools/release-smoke/lifecycle*.ts",
     "tools/release-smoke/preservation*.ts",
     "scripts/lifecycle-proof.ts",
+    "tests/release-smoke/actions/*.ts",
+    "tests/release-smoke/flow-helpers.ts",
     "scripts/installation-preserve.ts",
     "scripts/deploy-check.ts"
   ]

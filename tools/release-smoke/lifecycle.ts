@@ -64,6 +64,7 @@ export function phaseApprovalDigest(
     JSON.stringify({
       identity: scenario.identity,
       accountId: scenario.accountId,
+      options: scenario.options,
       phase,
     })
   )
