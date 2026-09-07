@@ -1,4 +1,9 @@
 import type { ProjectResourceMaintenance } from "@workspace/domain/project-resources"
+import { normalizeDomain } from "./tools/deployment/config"
+import {
+  deploymentCredentials,
+  installationSecret,
+} from "./tools/deployment/resources"
 import type { CodexContainer } from "./apps/web/src/server/codex-container"
 import type { ProjectSynchronization } from "./apps/web/src/server/project-synchronization"
 import type { CursorConnectionObject } from "./apps/web/src/server/cursor-connection-object"
@@ -27,75 +32,28 @@ const smokeBucketOptions = Effect.gen(function* () {
 })
 const CheckBackups = Cloudflare.R2.Bucket("CheckBackups", smokeBucketOptions)
 const CheckEvidence = Cloudflare.R2.Bucket("CheckEvidence", smokeBucketOptions)
-const WorkspaceRuntime = Cloudflare.Worker(
-  "WorkspaceRuntime",
-  Effect.gen(function* () {
-    const repositories = yield* Repositories
-    const checkBackups = yield* CheckBackups
-    const checkEvidence = yield* CheckEvidence
-    const database = yield* Database
-
-    return {
-      main: "apps/web/src/workspace-worker.ts",
-      compatibility: {
-        flags: ["nodejs_compat"],
-      },
-      env: {
-        CI_VERIFICATION_CONCURRENCY: Config.string(
-          "CI_VERIFICATION_CONCURRENCY"
-        ).pipe(Config.withDefault("2")),
-        ARTIFACTS: repositories,
-        BACKUP_BUCKET: checkBackups,
-        BACKUP_BUCKET_NAME: checkBackups.bucketName,
-        BROWSER: Cloudflare.Browser("BROWSER"),
-        CHECK_EVIDENCE: checkEvidence,
-        CI_WORKFLOW: Cloudflare.Workflow("CI", { className: "CI" }),
-        RESOURCE_MAINTENANCE: Cloudflare.Workflow("ResourceMaintenance", {
-          className: "ResourceMaintenance",
-        }),
-        CLOUDFLARE_ACCOUNT_ID: Config.string("CLOUDFLARE_ACCOUNT_ID"),
-        DB: database,
-        CREDENTIAL_ENCRYPTION_KEY: Config.redacted("CREDENTIAL_ENCRYPTION_KEY"),
-        CURSOR: Cloudflare.DurableObject<CursorConnectionObject>("Cursor", {
-          className: "CursorContainer",
-        }),
-        CODEX: Cloudflare.Container<CodexContainer>("CodexContainer", {
-          image: "docker.io/library/node:24-alpine",
-          className: "CodexContainer",
-          instanceType: "basic",
-          maxInstances: 10,
-        }),
-        CF_TOKEN: Config.redacted("CF_TOKEN"),
-        PREVIEW_RETENTION_SECONDS: Config.string(
-          "PREVIEW_RETENTION_SECONDS"
-        ).pipe(Config.withDefault("")),
-        R2_ACCESS_KEY_ID: Config.redacted("R2_ACCESS_KEY_ID"),
-        R2_SECRET_ACCESS_KEY: Config.redacted("R2_SECRET_ACCESS_KEY"),
-        REPOSITORY_NAMESPACE: repositories.namespace,
-        REPOS: repositories,
-        SANDBOX: Cloudflare.Container<CiSandbox>("CiSandbox", {
-          image:
-            "docker.io/cloudflare/sandbox:0.12.1@sha256:ea9b35e61c800eddbc4450fad333e5dd26033a06f7d36624388b0711bef9f8c5",
-          className: "CiSandbox",
-          instanceType: "standard-4",
-          maxInstances: 10,
-        }),
-        WORKSPACES: Cloudflare.DurableObject<WorkspaceDO>("Workspaces", {
-          className: "WorkspaceDO",
-        }),
-      },
-    }
-  })
-)
 
 export class Website extends Cloudflare.Website.Vite<Website>()(
   "Website",
   Effect.gen(function* () {
-    const workspaceRuntime = yield* WorkspaceRuntime
+    const domain = normalizeDomain(
+      yield* Config.string("SYLPH_DOMAIN").pipe(
+        Config.withDefault(""),
+        Effect.orDie
+      )
+    )
+    const credentials = yield* deploymentCredentials()
+    const authSecret = yield* installationSecret("BETTER_AUTH_SECRET")
+    const encryptionSecret = yield* installationSecret(
+      "CREDENTIAL_ENCRYPTION_KEY"
+    )
+    const checkBackups = yield* CheckBackups
+    const database = yield* Database
     const repositories = yield* Repositories
     const checkEvidence = yield* CheckEvidence
 
     return {
+      domain: domain || null,
       rootDir: "apps/web",
       main: "src/worker.ts",
       crons: ["15 * * * *", "* * * * *"],
@@ -103,12 +61,40 @@ export class Website extends Cloudflare.Website.Vite<Website>()(
         flags: ["nodejs_compat"],
       },
       env: {
-        BETTER_AUTH_SECRET: Config.redacted("BETTER_AUTH_SECRET"),
-        DB: Database,
+        SYLPH_URL: Cloudflare.Worker.URL,
+        CI_VERIFICATION_CONCURRENCY: Config.string(
+          "CI_VERIFICATION_CONCURRENCY"
+        ).pipe(Config.withDefault("2")),
+        ARTIFACTS: repositories,
+        BACKUP_BUCKET: checkBackups,
+        BACKUP_BUCKET_NAME: checkBackups.bucketName,
+        BROWSER: Cloudflare.Browser("BROWSER"),
+        CLOUDFLARE_ACCOUNT_ID: Config.string("CLOUDFLARE_ACCOUNT_ID"),
+        DB: database,
+        CODEX: Cloudflare.Container<CodexContainer>("CodexContainer", {
+          image: "docker.io/library/node:24-alpine",
+          className: "CodexContainer",
+          instanceType: "basic",
+          maxInstances: 10,
+        }),
+        CF_TOKEN: credentials.runtimeToken,
+        PREVIEW_RETENTION_SECONDS: Config.string(
+          "PREVIEW_RETENTION_SECONDS"
+        ).pipe(Config.withDefault("")),
+        R2_ACCESS_KEY_ID: credentials.accessKeyId,
+        R2_SECRET_ACCESS_KEY: credentials.secretAccessKey,
+        SANDBOX: Cloudflare.Container<CiSandbox>("CiSandbox", {
+          image:
+            "docker.io/cloudflare/sandbox:0.12.1@sha256:ea9b35e61c800eddbc4450fad333e5dd26033a06f7d36624388b0711bef9f8c5",
+          className: "CiSandbox",
+          instanceType: "standard-4",
+          maxInstances: 10,
+        }),
+        BETTER_AUTH_SECRET: authSecret,
         SYLPH_SMOKE_GROK_BUDGET: Config.string("SYLPH_SMOKE_GROK_BUDGET").pipe(
           Config.withDefault("false")
         ),
-        CREDENTIAL_ENCRYPTION_KEY: Config.redacted("CREDENTIAL_ENCRYPTION_KEY"),
+        CREDENTIAL_ENCRYPTION_KEY: encryptionSecret,
         INSTALLATION_CLAIM_SECRET: Config.redacted("INSTALLATION_CLAIM_SECRET"),
         ALLOW_TEST_MAGIC_LINKS: Config.string("ALLOW_TEST_MAGIC_LINKS").pipe(
           Config.withDefault("false")
@@ -130,7 +116,6 @@ export class Website extends Cloudflare.Website.Vite<Website>()(
         ).pipe(Config.withDefault("")),
         CURSOR: Cloudflare.DurableObject<CursorConnectionObject>("Cursor", {
           className: "CursorContainer",
-          scriptName: workspaceRuntime.workerName,
         }),
         REPOS: Repositories,
         CHECK_EVIDENCE: checkEvidence,
@@ -138,12 +123,10 @@ export class Website extends Cloudflare.Website.Vite<Website>()(
           "ResourceMaintenance",
           {
             className: "ResourceMaintenance",
-            scriptName: workspaceRuntime.workerName,
           }
         ),
         CI_WORKFLOW: Cloudflare.Workflow<WorkspaceCiInput>("CI", {
           className: "CI",
-          scriptName: workspaceRuntime.workerName,
         }),
         REPOSITORY_NAMESPACE: repositories.namespace,
         PROJECT_SYNCS: Cloudflare.DurableObject<ProjectSynchronization>(
@@ -170,12 +153,12 @@ export class Website extends Cloudflare.Website.Vite<Website>()(
         ).pipe(Config.withDefault("")),
         WORKSPACES: Cloudflare.DurableObject<WorkspaceDO>("Workspaces", {
           className: "WorkspaceDO",
-          scriptName: workspaceRuntime.workerName,
         }),
       },
       memo: {
         include: [
           "**/*",
+          "../../tools/wizard/github-app-manifest.ts",
           "../../packages/db/src/**",
           "../../packages/db/migrations/**",
           "../../packages/domain/src/**",

@@ -101,7 +101,6 @@ import {
   workspaceFileEncoding,
 } from "./workspace-file-content"
 import { WorkspaceGit } from "./workspace-git"
-import { createOpenCodeWithStorageBootstrap } from "./opencode-storage-bootstrap"
 import {
   connectOpenCodeKeyCredential,
   OpenCodeCredentialReloadRequired,
@@ -388,108 +387,100 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         () => this.#assertWritable(),
         `agent-${context.id.toString().slice(0, 56)}`
       )
-      const opencode = await createOpenCodeWithStorageBootstrap(
-        context.storage,
-        () =>
-          OpenCodeWorkerd.create(
-            {
-              storage: context.storage,
-              models: {
-                url: "https://models.opencode.ai",
-                snapshot: false,
-              },
-              log: {
-                level: "error",
-                emit: ({ message, cause }) =>
-                  console.error("OpenCode runtime error", message, cause),
-              },
-              config:
-                bindings.SYLPH_SMOKE_GROK_BUDGET === "true"
-                  ? {
-                      ...workerdModelConfiguration,
-                      agents: {
-                        title: { model: "openrouter/x-ai/grok-4.6" },
-                        compaction: { model: "openrouter/x-ai/grok-4.6" },
-                      },
-                    }
-                  : workerdModelConfiguration,
-              plugins: [
-                this.#cursor.plugin,
-                createWorkspacePlugin(
-                  this.#workspaceGit,
-                  this.#openAIOAuth,
-                  this.#skills,
-                  {
-                    codexRequest: (request) =>
-                      this.env.CODEX.get(
-                        this.env.CODEX.idFromName(this.ctx.id.toString())
-                      ).fetch(request),
-                    authorizeModelRequest:
-                      bindings.SYLPH_SMOKE_GROK_BUDGET === "true"
-                        ? (request) =>
-                            reserveSmokeRequest(request, context.storage)
-                        : undefined,
-                    assertWritable: () => this.#assertWritable(),
-                    runChecks: async (input) => {
-                      try {
-                        const state = this.#requiredState()
-                        const version =
-                          await this.#workspaceGit.versionControl()
-                        const checkpoint = version.working.length
-                          ? (await this.#agentCheckpoint(input.message))
-                              .checkpoint
-                          : this.#workspaceGit
-                              .checkpoints()
-                              .find(
-                                (candidate) =>
-                                  candidate.commit === version.forkHead
-                              )
-                        if (!checkpoint)
-                          throw new Error(
-                            "Create a Checkpoint before running Checks"
-                          )
-                        return await this.#startCheckpointCheck(
-                          state.workspaceId,
-                          checkpoint.id,
-                          checkpoint.commit
-                        )
-                      } catch (error) {
-                        console.error(
-                          "Workspace runChecks failed",
-                          error instanceof Error ? error.stack : error
-                        )
-                        throw error
-                      }
-                    },
-                    syncProject: async () => this.#syncProjectAndCheck(),
-                    checkpoint: async (input) =>
-                      this.#agentCheckpoint(input.message),
-                    preview: async () => this.#preview(),
-                    browser: async (input) => this.#browser(input),
-                  }
-                ),
-              ],
-            },
-            {
-              overrides: [
-                workspaceShellSelection,
-                [WorkspaceDriver.node, sandbox.registry],
-                [Ripgrep.node, workspaceSearchLayer(this.#filesystem)],
-                [
-                  Environment.node,
-                  {
-                    ...Environment.node,
-                    dependencies: [Workspace.node],
-                    implementation: workspaceEnvironmentLayer(
-                      this.#filesystem,
-                      () => this.#assertWritable(),
-                      sandbox.spawner
-                    ),
+      const opencode = await OpenCodeWorkerd.create(
+        {
+          storage: context.storage,
+          models: {
+            url: "https://models.opencode.ai",
+            snapshot: false,
+          },
+          log: {
+            level: "error",
+            emit: ({ message, cause }) =>
+              console.error("OpenCode runtime error", message, cause),
+          },
+          config:
+            bindings.SYLPH_SMOKE_GROK_BUDGET === "true"
+              ? {
+                  ...workerdModelConfiguration,
+                  agents: {
+                    title: { model: "openrouter/x-ai/grok-4.6" },
+                    compaction: { model: "openrouter/x-ai/grok-4.6" },
                   },
-                ],
-              ],
-            }
-          )
+                }
+              : workerdModelConfiguration,
+          plugins: [
+            this.#cursor.plugin,
+            createWorkspacePlugin(
+              this.#workspaceGit,
+              this.#openAIOAuth,
+              this.#skills,
+              {
+                codexRequest: (request) =>
+                  this.env.CODEX.get(
+                    this.env.CODEX.idFromName(this.ctx.id.toString())
+                  ).fetch(request),
+                authorizeModelRequest:
+                  bindings.SYLPH_SMOKE_GROK_BUDGET === "true"
+                    ? (request) => reserveSmokeRequest(request, context.storage)
+                    : undefined,
+                assertWritable: () => this.#assertWritable(),
+                runChecks: async (input) => {
+                  try {
+                    const state = this.#requiredState()
+                    const version = await this.#workspaceGit.versionControl()
+                    const checkpoint = version.working.length
+                      ? (await this.#agentCheckpoint(input.message)).checkpoint
+                      : this.#workspaceGit
+                          .checkpoints()
+                          .find(
+                            (candidate) => candidate.commit === version.forkHead
+                          )
+                    if (!checkpoint)
+                      throw new Error(
+                        "Create a Checkpoint before running Checks"
+                      )
+                    return await this.#startCheckpointCheck(
+                      state.workspaceId,
+                      checkpoint.id,
+                      checkpoint.commit
+                    )
+                  } catch (error) {
+                    console.error(
+                      "Workspace runChecks failed",
+                      error instanceof Error ? error.stack : error
+                    )
+                    throw error
+                  }
+                },
+                syncProject: async () => this.#syncProjectAndCheck(),
+                checkpoint: async (input) =>
+                  this.#agentCheckpoint(input.message),
+                preview: async () => this.#preview(),
+                browser: async (input) => this.#browser(input),
+              }
+            ),
+          ],
+        },
+        {
+          overrides: [
+            workspaceShellSelection,
+            [WorkspaceDriver.node, sandbox.registry],
+            [Ripgrep.node, workspaceSearchLayer(this.#filesystem)],
+            [
+              Environment.node,
+              {
+                ...Environment.node,
+                dependencies: [Workspace.node],
+                implementation: workspaceEnvironmentLayer(
+                  this.#filesystem,
+                  () => this.#assertWritable(),
+                  sandbox.spawner
+                ),
+              },
+            ],
+          ],
+        }
       )
 
       this.#filesystem.initialize()
@@ -513,47 +504,6 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           archived_at INTEGER
         )
       `)
-      const columns = context.storage.sql
-        .exec<{ name: string }>("PRAGMA table_info(app_workspace_state)")
-        .toArray()
-        .map((column) => column.name)
-
-      if (!columns.includes("project_name")) {
-        context.storage.sql.exec(
-          "ALTER TABLE app_workspace_state ADD COLUMN project_name TEXT"
-        )
-      }
-      if (!columns.includes("session_id")) {
-        context.storage.sql.exec(
-          "ALTER TABLE app_workspace_state ADD COLUMN session_id TEXT"
-        )
-      }
-      if (!columns.includes("event_cursor")) {
-        context.storage.sql.exec(
-          "ALTER TABLE app_workspace_state ADD COLUMN event_cursor INTEGER"
-        )
-      }
-      if (!columns.includes("provider_id")) {
-        context.storage.sql.exec(
-          "ALTER TABLE app_workspace_state ADD COLUMN provider_id TEXT"
-        )
-      }
-      if (!columns.includes("model_id")) {
-        context.storage.sql.exec(
-          "ALTER TABLE app_workspace_state ADD COLUMN model_id TEXT"
-        )
-      }
-      if (!columns.includes("credential_fingerprint")) {
-        context.storage.sql.exec(
-          "ALTER TABLE app_workspace_state ADD COLUMN credential_fingerprint TEXT"
-        )
-      }
-      if (!columns.includes("archived_at")) {
-        context.storage.sql.exec(
-          "ALTER TABLE app_workspace_state ADD COLUMN archived_at INTEGER"
-        )
-      }
-
       return opencode
     })
     const credentialLayer = WorkspaceCredentials.layer(

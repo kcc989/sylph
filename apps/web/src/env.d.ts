@@ -13,6 +13,7 @@ import type { WorkspaceRetentionInput } from "./server/workspace-retention"
 declare global {
   namespace Cloudflare {
     interface Env {
+      SYLPH_URL: string
       BETTER_AUTH_SECRET: string
       ALLOW_TEST_MAGIC_LINKS: string
       CURSOR: DurableObjectNamespace<CursorConnectionObject>

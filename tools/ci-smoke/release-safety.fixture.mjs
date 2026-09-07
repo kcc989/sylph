@@ -37,20 +37,20 @@ mock.module("../../apps/web/src/server/project-configuration.ts", () => ({
 const { CI } = await import("../../apps/web/src/server/workspace-ci.ts")
 const mode = process.argv[2]
 const store = new Database(":memory:")
-store.exec(`
-  CREATE TABLE project (id TEXT PRIMARY KEY, slug TEXT);
-  INSERT INTO project VALUES ('project-1', 'verified-app');
-  CREATE TABLE deployment (id TEXT PRIMARY KEY, project_id TEXT, [commit] TEXT, status TEXT, production_url TEXT, actor_user_id TEXT, failure_details TEXT, started_at INTEGER, completed_at INTEGER, created_at INTEGER, updated_at INTEGER);
-  CREATE TABLE ci_runs (id TEXT PRIMARY KEY, project_id TEXT, workspace_id TEXT, agent_session_id TEXT, workflow_instance_id TEXT, commit_sha TEXT, kind TEXT, status TEXT, summary_json TEXT, started_at INTEGER, finished_at INTEGER, created_at INTEGER, updated_at INTEGER);
-`)
+store.exec("PRAGMA foreign_keys = ON")
 store.exec(
   await Bun.file(
-    new URL(
-      "../../packages/db/migrations/0024_release_safety.sql",
-      import.meta.url
-    )
+    new URL("../../packages/db/migrations/0001_initial.sql", import.meta.url)
   ).text()
 )
+store.exec(`
+  INSERT INTO user (id, name, email) VALUES ('admin', 'Admin', 'admin@example.com');
+  INSERT INTO organization (id, name, slug) VALUES ('org', 'Organization', 'org');
+  INSERT INTO project (id, organization_id, owner_user_id, name, slug, artifact_repo_id, artifact_repo, artifact_remote)
+  VALUES ('project-1', 'org', 'admin', 'Verified app', 'verified-app', 'repo', 'repo', 'https://example.com/repo.git');
+  INSERT INTO workspace (id, project_id, organization_id, owner_user_id, title, base_artifact_repo, workspace_artifact_repo)
+  VALUES ('workspace-1', 'project-1', 'org', 'admin', 'Workspace', 'repo', 'workspace-repo');
+`)
 const commit = "a".repeat(40)
 const recovering = mode.startsWith("restore")
 const identity = {
@@ -78,13 +78,13 @@ const point = {
 if (recovering) {
   store
     .query(
-      "INSERT INTO deployment (id, project_id, [commit], status, recovery_json, created_at) VALUES ('baseline', 'project-1', ?, 'succeeded', ?, 1)"
+      "INSERT INTO deployment (id, project_id, [commit], status, actor_user_id, recovery_json, created_at) VALUES ('baseline', 'project-1', ?, 'succeeded', 'admin', ?, 1)"
     )
     .run(commit, JSON.stringify({ ...point, deploymentId: "baseline" }))
 }
 store
   .query(
-    "INSERT INTO deployment (id, project_id, [commit], status, base_deployment_id, recovery_deployment_id, created_at) VALUES ('deployment-1', 'project-1', ?, 'queued', ?, ?, 2)"
+    "INSERT INTO deployment (id, project_id, [commit], status, actor_user_id, base_deployment_id, recovery_deployment_id, created_at) VALUES ('deployment-1', 'project-1', ?, 'queued', 'admin', ?, ?, 2)"
   )
   .run(commit, recovering ? "baseline" : null, recovering ? "baseline" : null)
 const database = {

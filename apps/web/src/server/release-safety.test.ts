@@ -94,17 +94,21 @@ test("migration review and journeys are pinned to the release identity", () => {
 
 test("production reservation serializes concurrent requests and rejects stale baselines", async () => {
   const db = new Database(":memory:")
-  db.exec(
-    "CREATE TABLE deployment (id TEXT PRIMARY KEY, project_id TEXT, [commit] TEXT, status TEXT, actor_user_id TEXT, created_at INTEGER, updated_at INTEGER)"
-  )
+  db.exec("PRAGMA foreign_keys = ON")
   db.exec(
     await Bun.file(
       new URL(
-        "../../../../packages/db/migrations/0024_release_safety.sql",
+        "../../../../packages/db/migrations/0001_initial.sql",
         import.meta.url
       )
     ).text()
   )
+  db.exec(`
+    INSERT INTO user (id, name, email) VALUES ('admin', 'Admin', 'admin@example.com');
+    INSERT INTO organization (id, name, slug) VALUES ('org', 'Organization', 'org');
+    INSERT INTO project (id, organization_id, owner_user_id, name, slug, artifact_repo_id, artifact_repo, artifact_remote)
+    VALUES ('project', 'org', 'admin', 'Project', 'project', 'repo', 'repo', 'https://example.com/repo.git');
+  `)
   const reserve = (id: string, baseline: string | null) =>
     db
       .query(reserveDeploymentSql)

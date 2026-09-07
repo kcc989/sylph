@@ -32,17 +32,22 @@ afterEach(() => {
 const setup = async (scope = "preview:check:1") => {
   const sqlite = new Database(":memory:")
   databases.push(sqlite)
-  sqlite.exec(
-    "PRAGMA foreign_keys = ON; CREATE TABLE project (id TEXT PRIMARY KEY); INSERT INTO project VALUES ('one'), ('two')"
-  )
+  sqlite.exec("PRAGMA foreign_keys = ON")
   sqlite.exec(
     await Bun.file(
       new URL(
-        "../../../../packages/db/migrations/0025_project_resources.sql",
+        "../../../../packages/db/migrations/0001_initial.sql",
         import.meta.url
       )
     ).text()
   )
+  sqlite.exec(`
+    INSERT INTO user (id, name, email) VALUES ('admin', 'Admin', 'admin@example.com');
+    INSERT INTO organization (id, name, slug) VALUES ('org', 'Organization', 'org');
+    INSERT INTO project (id, organization_id, owner_user_id, name, slug, artifact_repo_id, artifact_repo, artifact_remote)
+    VALUES ('one', 'org', 'admin', 'One', 'one', 'repo-one', 'repo-one', 'https://example.com/one.git'),
+           ('two', 'org', 'admin', 'Two', 'two', 'repo-two', 'repo-two', 'https://example.com/two.git');
+  `)
   const statements = new WeakMap<object, () => { success: boolean }>()
   const prepare = (sql: string, values: Array<string | null> = []) => {
     const statement = {
@@ -74,9 +79,6 @@ const setup = async (scope = "preview:check:1") => {
         })
       )(),
   }
-  sqlite.exec(
-    "CREATE TABLE deployment (id TEXT PRIMARY KEY, project_id TEXT, status TEXT)"
-  )
   const credentials = { accountId: "account", token: "test-token" }
   const owner = {
     projectId: "one",
@@ -400,7 +402,7 @@ test("resource listing paginates and never interprets authorization failures as 
 test("production never replaces untracked or missing databases silently", async () => {
   const fixture = await setup("production")
   fixture.sqlite.exec(
-    "INSERT INTO deployment VALUES ('old', 'one', 'succeeded')"
+    "INSERT INTO deployment (id, project_id, [commit], status, actor_user_id) VALUES ('old', 'one', 'commit', 'succeeded', 'admin')"
   )
   await expect(
     reserveProjectResources(

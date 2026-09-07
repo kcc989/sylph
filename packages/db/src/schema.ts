@@ -795,3 +795,19 @@ export const projectDomain = sqliteTable("project_domain", {
   hostname: text("hostname").notNull().unique(),
   zoneId: text("zone_id").notNull(),
 })
+
+export const installationGithubApp = sqliteTable("installation_github_app", {
+  id: text("id").primaryKey().notNull(),
+  encrypted: text("encrypted").notNull(),
+  iv: text("iv").notNull(),
+})
+
+export const installationSetupSession = sqliteTable(
+  "installation_setup_session",
+  {
+    id: text("id").primaryKey().notNull(),
+    expiresAt: integer("expires_at").notNull(),
+    githubState: text("github_state"),
+    githubOrigin: text("github_origin"),
+  }
+)

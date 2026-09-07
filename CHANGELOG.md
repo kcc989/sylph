@@ -6,6 +6,8 @@ All notable changes to Sylph are recorded here. The format follows [Keep a Chang
 
 ### Added
 
+- Browser deployment through GitHub Actions with optional custom domains, account preflight checks, stable Alchemy-managed credentials, and setup links.
+- Protected browser setup for GitHub App creation or reuse, encrypted credential storage, and Installation claim without a second deployment.
 - Project resource inventory, deployment ownership checks, encrypted application secrets, custom-domain configuration, and resource inspection controls.
 - Production release gates for migration compatibility, saved data recovery points, and production journeys; Admin-confirmed code/data recovery with an undo point. Applications must implement the release hooks before deploying.
 
@@ -23,12 +25,12 @@ All notable changes to Sylph are recorded here. The format follows [Keep a Chang
 
 ### Changed
 
-- Require a resource plan before deployment credentials are provided. Upgrades need migration `0025_project_resources.sql`, the ResourceMaintenance Workflow, and a compatible published template revision; the template update is currently included as a patch and the existing pin is unchanged. See the operator upgrade notes before rollout.
-- Apply migration `0024_release_safety.sql` to reserve one production operation per Project and retain release evidence. Repository export now declares its repository-only scope; it does not provide a full Workspace backup.
-
-- Resume the normal coding agent after eligible failed Checkpoints, with durable delivery and a three-Turn limit. Consolidate Workspace restart into the provisioning Workflow and browser state into one synchronization module. Upgrades apply migration 0023 without new secrets.
-- Open Workspace chat while repository and runtime setup run in a Workflow. Save early messages in D1 and deliver them in order after setup. Upgrades add migration 0022, a message delivery Workflow, and a minute recovery cron without new secrets.
-- Remove the retired dependency-repair runner and completion callback. Existing results remain readable; resumed dependency jobs fail with instructions to use native `bun install`. Finish any active dependency jobs before upgrading. No new secrets or database migrations are required.
+- Combine Website and WorkspaceRuntime into one Worker and replace pre-release database upgrades with one initial schema. Deploy to fresh resources; existing D1 and Durable Object state is not migrated.
+- Resume the normal coding agent after eligible failed Checkpoints, with durable delivery and a three-Turn limit. Consolidate Workspace restart into the provisioning Workflow and browser state into one synchronization module.
+- Open Workspace chat while repository and runtime setup run in a Workflow. Save early messages in D1 and deliver them in order after setup. The initial deployment includes a message delivery Workflow and a minute recovery cron.
+- Remove the retired dependency-repair runner and completion callback. Dependency repairs use native shell commands.
+- Reserve one production operation per Project and retain release evidence in the initial schema. Repository export declares its repository-only scope; it does not provide a full Workspace backup.
+- Require a resource plan before deployment credentials are provided. The initial deployment includes the ResourceMaintenance Workflow and resource inventory. A compatible template revision still needs to be published and pinned; see the operator notes before rollout.
 - Share command environment selection, deadlines, output limits, and cancellation across agent commands and immutable Check execution.
 - Use one event policy and refresh queue for Workspace synchronization; failed socket updates retain their replay cursor.
 - Pin new Projects to template 0.1.1's verified commit and test that exact template release in CI. Existing Projects remain unchanged.

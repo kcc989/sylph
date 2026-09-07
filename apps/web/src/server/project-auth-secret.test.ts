@@ -4,16 +4,23 @@ import { projectAuthSecret } from "./project-auth-secret"
 
 test("Project secrets survive retries, isolate Projects, and stay encrypted", async () => {
   const sqlite = new Database(":memory:")
-  sqlite.exec("CREATE TABLE project (id TEXT PRIMARY KEY)")
   sqlite.exec(
     await Bun.file(
       new URL(
-        "../../../../packages/db/migrations/0021_project_auth_secret.sql",
+        "../../../../packages/db/migrations/0001_initial.sql",
         import.meta.url
       )
     ).text()
   )
-  sqlite.exec("INSERT INTO project VALUES ('one'), ('two')")
+  sqlite.exec(
+    "INSERT INTO user (id, name, email) VALUES ('owner', 'Owner', 'owner@example.com')"
+  )
+  sqlite.exec(
+    "INSERT INTO organization (id, name, slug) VALUES ('org', 'Organization', 'org')"
+  )
+  sqlite.exec(
+    "INSERT INTO project (id, organization_id, owner_user_id, name, slug, artifact_repo_id, artifact_repo, artifact_remote) VALUES ('one', 'org', 'owner', 'One', 'one', 'one', 'one', 'https://example.com/one'), ('two', 'org', 'owner', 'Two', 'two', 'two', 'two', 'https://example.com/two')"
+  )
   const database = {
     prepare: (sql: string) => ({
       bind: (...values: string[]) => ({
