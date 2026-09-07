@@ -54,7 +54,7 @@ const passing = new WorkspaceCheckRun({
 })
 
 describe("Merge request readiness", () => {
-  test("is ready when the reviewed Checkpoint passed and nothing is pending", () => {
+  test("requires journey policy even when the reviewed Checkpoint passed", () => {
     const request = workspaceMergeRequest({
       versionControl: versionControl(),
       checks: [passing],
@@ -63,8 +63,8 @@ describe("Merge request readiness", () => {
       unresolvedComments: 0,
       turnActive: false,
     })
-    expect(request.ready).toBeTrue()
-    expect(request.blockers).toEqual([])
+    expect(request.ready).toBeFalse()
+    expect(request.blockers.join(" ")).toContain("browser journey policy")
     expect(request.passingCheckId).toBe("check-1")
   })
 
@@ -84,7 +84,7 @@ describe("Merge request readiness", () => {
     expect(request.blockers).toEqual([
       "An agent Turn is still running.",
       "1 Working copy change(s) are not in a Checkpoint.",
-      "The latest Checkpoint has not passed its Check, Preview, and browser verification.",
+      "The latest Checkpoint has not passed its Check, Preview, and homepage identity verification.",
       "The Project Repository advanced. Update the Workspace and run a new Check.",
       "The review is changes requested; a User must approve it.",
       "2 review comment(s) are unresolved.",

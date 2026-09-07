@@ -28,6 +28,24 @@ export type WorkspaceBrowserAssertion = typeof WorkspaceBrowserAssertion.Type
 
 export const WorkspaceBrowserAction = Schema.Union([
   Schema.Struct({ type: Schema.Literal("start") }),
+  Schema.Struct({
+    type: Schema.Literal("journey_begin"),
+    requirementId: Schema.NonEmptyString,
+  }),
+  Schema.Struct({ type: Schema.Literal("journey_finish") }),
+  Schema.Struct({ type: Schema.Literal("take_control") }),
+  Schema.Struct({ type: Schema.Literal("release_control") }),
+  Schema.Struct({
+    type: Schema.Literal("viewport"),
+    viewport: Schema.Literals(["desktop", "mobile"]),
+  }),
+  Schema.Struct({ type: Schema.Literal("click_point"), x: count, y: count }),
+  Schema.Struct({ type: Schema.Literal("type_text"), value: text }),
+  Schema.Struct({ type: Schema.Literal("popup"), url: Schema.NonEmptyString }),
+  Schema.Struct({
+    type: Schema.Literal("switch_page"),
+    pageId: Schema.NonEmptyString,
+  }),
   Schema.Struct({ type: Schema.Literal("observe") }),
   Schema.Struct({ type: Schema.Literal("navigate") }),
   Schema.Struct({ type: Schema.Literal("reload") }),
@@ -92,6 +110,14 @@ export class WorkspaceBrowserSession extends Schema.Class<WorkspaceBrowserSessio
   previewUrl: Schema.NonEmptyString,
   sequence: Schema.Int,
   expiresAt: Schema.Number,
+  identityVerified: Schema.optional(Schema.Boolean),
+  controller: Schema.optional(Schema.Literals(["agent", "human"])),
+  controllerUserId: Schema.optional(Schema.String),
+  viewport: Schema.optional(Schema.Literals(["desktop", "mobile"])),
+  journeyId: Schema.optional(Schema.String),
+  pageId: Schema.optional(Schema.String),
+  screenshotUrl: Schema.optional(Schema.String),
+  currentUrl: Schema.optional(Schema.String),
 }) {}
 
 export class WorkspaceBrowserFailure extends Schema.TaggedError<WorkspaceBrowserFailure>()(

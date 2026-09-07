@@ -1,3 +1,8 @@
+import {
+  BrowserJourneySnapshot,
+  BrowserJourneyPolicy,
+  BrowserPolicyException,
+} from "./browser-journeys"
 import { describe, expect, test } from "bun:test"
 import { workspaceAcceptance } from "./acceptance"
 import { WorkspaceId } from "./ids"
@@ -53,6 +58,41 @@ const input = () => ({
   unresolvedComments: 0,
   turnActive: false,
   runtimeHealthy: true,
+  conversationId: "conversation",
+  browserProof: new BrowserJourneySnapshot({
+    policy: new BrowserJourneyPolicy({
+      revision: 1,
+      requirements: [],
+      allowedOrigins: [],
+      reason: "Documentation-only change",
+      actorUserId: "reviewer",
+      createdAt: 1,
+    }),
+    binding: {
+      workspaceId: WorkspaceId.make("workspace"),
+      conversationId: "conversation",
+      checkId: "check",
+      commit: head,
+      attempt: 1,
+      policyRevision: 1,
+    },
+    results: [],
+    session: null,
+    exception: new BrowserPolicyException({
+      binding: {
+        workspaceId: WorkspaceId.make("workspace"),
+        conversationId: "conversation",
+        checkId: "check",
+        commit: head,
+        attempt: 1,
+        policyRevision: 1,
+      },
+      actorUserId: "reviewer",
+      reason: "Documentation-only change",
+      createdAt: 2,
+      ordinal: 1,
+    }),
+  }),
 })
 
 describe("Workspace Acceptance", () => {
@@ -62,6 +102,23 @@ describe("Workspace Acceptance", () => {
       blockers: [],
       passingCheckId: "check",
     })
+  })
+  test("blocks a homepage-only Check without explicit journey handling", () => {
+    expect(
+      workspaceAcceptance({ ...input(), browserProof: undefined }).ready
+    ).toBe(false)
+  })
+  test("a newer failed attempt cannot reuse an older passing Check", () => {
+    const current = input()
+    expect(
+      workspaceAcceptance({
+        ...current,
+        checks: [
+          ...current.checks,
+          { ...current.checks[0], attempt: 2, status: "failed", createdAt: 2 },
+        ],
+      }).passingCheckId
+    ).toBeNull()
   })
   test("requires an approval of the exact current commit with no unresolved comments", () => {
     const current = input()

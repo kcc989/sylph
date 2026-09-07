@@ -1,10 +1,14 @@
 import type { Page } from "@cloudflare/puppeteer"
 import {
   WorkspaceBrowserFailure,
+  browserViewportSize,
+  type BrowserViewport,
   type WorkspaceBrowserAction,
   type WorkspaceBrowserAssertion,
 } from "@workspace/domain"
 import { Context, Effect, Layer } from "effect"
+
+import { browserNavigationGuard } from "./browser-navigation-guard"
 
 import { browserTargetUrl, bounded } from "./workspace-browser"
 import { browserEvidenceSelector } from "./workspace-ci-browser"
@@ -17,6 +21,9 @@ export type BrowserObservation = {
   markdown: string
   accessibility: string
   screenshot: Uint8Array
+  viewport?: BrowserViewport
+  pageId?: string
+  pages?: ReadonlyArray<{ id: string; url: string }>
 }
 
 export type BrowserConnection = {
@@ -29,12 +36,19 @@ export type BrowserConnection = {
   close(): Promise<void>
 }
 
+export type BrowserConnectionOptions = {
+  allowedOrigins: ReadonlyArray<string>
+  viewport: BrowserViewport
+  pageId?: string
+}
+
 export class BrowserRunClient extends Context.Service<
   BrowserRunClient,
   {
     connect(
       previewUrl: string,
-      sessionId?: string
+      sessionId?: string,
+      options?: BrowserConnectionOptions
     ): Effect.Effect<BrowserConnection, WorkspaceBrowserFailure>
     close(sessionId: string): Effect.Effect<void, WorkspaceBrowserFailure>
   }
@@ -91,6 +105,22 @@ const uniqueElement = async (page: Page, selector: string) => {
 
 const actOnPage = async (page: Page, action: WorkspaceBrowserAction) => {
   switch (action.type) {
+    case "click_point": {
+      const viewport = page.viewport()
+      if (
+        !viewport ||
+        action.x >= viewport.width ||
+        action.y >= viewport.height
+      )
+        throw new Error(
+          "Click is outside the visible viewport. Scroll and observe before clicking."
+        )
+      await page.mouse.click(action.x, action.y)
+      return
+    }
+    case "type_text":
+      await page.keyboard.type(action.value)
+      return
     case "reload":
       await page.reload({
         waitUntil: "domcontentloaded",
@@ -184,7 +214,11 @@ export const browserRunLayer = (binding: Pick<BrowserRun, "fetch">) =>
       })
     ),
     connect: Effect.fn("BrowserRunClient.connect")(
-      (previewUrl: string, sessionId?: string) =>
+      (
+        previewUrl: string,
+        sessionId?: string,
+        options?: BrowserConnectionOptions
+      ) =>
         Effect.tryPromise({
           try: async () => {
             const { default: puppeteer } = await import("@cloudflare/puppeteer")
@@ -200,40 +234,45 @@ export const browserRunLayer = (binding: Pick<BrowserRun, "fetch">) =>
                   keep_alive: browserIdleTimeout,
                 })
             try {
-              const pages = await browser.pages()
-              if (sessionId && pages.length !== 1)
-                throw new Error(
-                  "The browser page was closed or additional tabs were opened. Start a new session."
-                )
-              const page = pages[0] ?? (await browser.newPage())
-              page.setDefaultTimeout(actionTimeout)
-              page.setDefaultNavigationTimeout(actionTimeout)
-              await page.setViewport({ width: 1440, height: 900 })
-              let blocked: string | undefined
               const checkUrl = (url: string) =>
-                browserTargetUrl({ previewUrl, url })
-              await page.setRequestInterception(true)
-              page.on("request", (request) => {
-                if (request.isInterceptResolutionHandled()) return
-                if (request.isNavigationRequest()) {
-                  try {
-                    checkUrl(request.url())
-                  } catch {
-                    blocked = "Navigation outside the Preview was blocked"
-                    void request.abort().catch(() => undefined)
-                    return
-                  }
+                browserTargetUrl({
+                  previewUrl,
+                  url,
+                  allowedOrigins: options?.allowedOrigins,
+                })
+              const guard = await browserNavigationGuard(browser, checkUrl)
+              const pages = await browser.pages()
+              let page = pages[0] ?? (await browser.newPage())
+              const pageId = async (target: Page) => {
+                const session = await guard.prepare(target)
+                return (await session.send("Target.getTargetInfo")).targetInfo
+                  .targetId
+              }
+              if (options?.pageId) {
+                const selected = await Promise.all(
+                  pages.map(async (candidate) => ({
+                    page: candidate,
+                    id: await pageId(candidate),
+                  }))
+                )
+                const match = selected.find(
+                  (candidate) => candidate.id === options.pageId
+                )
+                if (match) page = match.page
+              }
+              let viewport = options?.viewport ?? "desktop"
+              const prepare = async (target: Page) => {
+                await guard.prepare(target)
+                target.setDefaultTimeout(actionTimeout)
+                target.setDefaultNavigationTimeout(actionTimeout)
+                await target.setViewport(browserViewportSize(viewport))
+              }
+              await prepare(page)
+              const ensureAllowed = async () => {
+                await guard.check()
+                for (const target of await browser.pages()) {
+                  if (target.url() !== "about:blank") checkUrl(target.url())
                 }
-                void request.continue().catch(() => undefined)
-              })
-              page.on("popup", (popup) => {
-                blocked =
-                  "Popup journeys are not supported in this browser session"
-                void popup?.close().catch(() => undefined)
-              })
-              const ensureAllowed = () => {
-                if (blocked) throw new Error(blocked)
-                checkUrl(page.url())
               }
               return {
                 id: browser.sessionId(),
@@ -243,7 +282,7 @@ export const browserRunLayer = (binding: Pick<BrowserRun, "fetch">) =>
                     waitUntil: "domcontentloaded",
                     timeout: actionTimeout,
                   })
-                  ensureAllowed()
+                  await ensureAllowed()
                 },
                 async verify(commit) {
                   const marker = await page.waitForSelector(
@@ -257,12 +296,39 @@ export const browserRunLayer = (binding: Pick<BrowserRun, "fetch">) =>
                   await marker.dispose()
                 },
                 async act(action) {
-                  ensureAllowed()
-                  await actOnPage(page, action)
-                  ensureAllowed()
+                  await ensureAllowed()
+                  if (action.type === "viewport") {
+                    viewport = action.viewport
+                    await prepare(page)
+                  } else if (action.type === "popup") {
+                    checkUrl(action.url)
+                    page = await browser.newPage()
+                    await prepare(page)
+                    await page.goto(action.url, {
+                      waitUntil: "domcontentloaded",
+                      timeout: actionTimeout,
+                    })
+                  } else if (action.type === "switch_page") {
+                    const candidates = await Promise.all(
+                      (await browser.pages()).map(async (target) => ({
+                        page: target,
+                        id: await pageId(target),
+                      }))
+                    )
+                    const selected = candidates.find(
+                      (target) => target.id === action.pageId
+                    )
+                    if (!selected)
+                      throw new Error(
+                        "This browser page was closed. Observe the current pages before acting."
+                      )
+                    page = selected.page
+                    await prepare(page)
+                  } else await actOnPage(page, action)
+                  await ensureAllowed()
                 },
                 async observe(fullPage) {
-                  ensureAllowed()
+                  await ensureAllowed()
                   try {
                     await page.waitForNetworkIdle({
                       idleTime: 300,
@@ -274,7 +340,19 @@ export const browserRunLayer = (binding: Pick<BrowserRun, "fetch">) =>
                     )
                       throw error
                   }
-                  ensureAllowed()
+                  await ensureAllowed()
+                  const dimensions = await page.evaluate(() => ({
+                    width: innerWidth,
+                    height: innerHeight,
+                  }))
+                  const expected = browserViewportSize(viewport)
+                  if (
+                    dimensions.width !== expected.width ||
+                    dimensions.height !== expected.height
+                  )
+                    throw new Error(
+                      `Viewport verification failed: expected ${expected.width}×${expected.height}, received ${dimensions.width}×${dimensions.height}`
+                    )
                   const content = await page.evaluate(() => {
                     const fields = Array.from(
                       document.querySelectorAll(
@@ -299,22 +377,23 @@ export const browserRunLayer = (binding: Pick<BrowserRun, "fetch">) =>
                     type: "png",
                     fullPage,
                   })
-                  ensureAllowed()
+                  await ensureAllowed()
                   return {
                     url: page.url(),
                     markdown: bounded(content, 24_000),
                     accessibility,
                     screenshot,
+                    viewport,
+                    pageId: await pageId(page),
+                    pages: await Promise.all(
+                      (await browser.pages()).map(async (target) => ({
+                        id: await pageId(target),
+                        url: target.url(),
+                      }))
+                    ),
                   }
                 },
-                async disconnect() {
-                  try {
-                    if (browser.connected && !page.isClosed())
-                      await page.setRequestInterception(false)
-                  } finally {
-                    await browser.disconnect()
-                  }
-                },
+                disconnect: () => guard.disconnect(),
                 close: () => browser.close(),
               } satisfies BrowserConnection
             } catch (error) {

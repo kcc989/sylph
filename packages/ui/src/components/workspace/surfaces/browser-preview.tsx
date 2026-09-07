@@ -67,33 +67,38 @@ export function BrowserPreview({
             <Maximize2 />
           </Button>
         ) : null}
-        <span className="hidden font-mono text-[9px] text-muted-foreground lg:inline">
-          {viewportMode === "mobile" ? "Up to 390px" : "Responsive"}
-        </span>
-        <Button
-          aria-label="Responsive preview"
-          aria-pressed={viewportMode === "responsive"}
-          size="icon-xs"
-          variant="ghost"
-          onClick={() => setViewportMode("responsive")}
-        >
-          <Monitor />
-        </Button>
-        <Button
-          aria-label="Mobile preview"
-          aria-pressed={viewportMode === "mobile"}
-          size="icon-xs"
-          variant="ghost"
-          onClick={() => setViewportMode("mobile")}
-        >
-          <Smartphone />
-        </Button>
+        {!content ? (
+          <>
+            <span className="hidden font-mono text-[9px] text-muted-foreground lg:inline">
+              {viewportMode === "mobile" ? "Up to 390px" : "Responsive"}
+            </span>
+            <Button
+              aria-label="Responsive preview"
+              aria-pressed={viewportMode === "responsive"}
+              size="icon-xs"
+              variant="ghost"
+              onClick={() => setViewportMode("responsive")}
+            >
+              <Monitor />
+            </Button>
+            <Button
+              aria-label="Mobile preview"
+              aria-pressed={viewportMode === "mobile"}
+              size="icon-xs"
+              variant="ghost"
+              onClick={() => setViewportMode("mobile")}
+            >
+              <Smartphone />
+            </Button>
+          </>
+        ) : null}
       </div>
       <div className="relative min-h-0 flex-1 overflow-hidden bg-[#161513] text-foreground">
         <div
           className={cn(
             "mx-auto h-full overflow-auto transition-[max-width] duration-200 motion-reduce:transition-none",
-            viewportMode === "mobile" &&
+            !content &&
+              viewportMode === "mobile" &&
               "max-w-[390px] border-x border-black/10"
           )}
         >

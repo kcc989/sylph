@@ -1,3 +1,4 @@
+import { BrowserJourneySnapshot } from "./browser-journeys"
 import { Schema } from "effect"
 import { GitCommitId } from "./version-control"
 
@@ -439,6 +440,7 @@ export class WorkspaceRuntimeHealth extends Schema.Class<WorkspaceRuntimeHealth>
   checkContinuationsUsed: Schema.Int,
   archivedAt: Schema.NullOr(Schema.Number),
   opencode: Schema.Struct({ healthy: Schema.Boolean }),
+  browserProof: Schema.optional(BrowserJourneySnapshot),
 }) {}
 
 export class WorkspaceTurnCancelResult extends Schema.Class<WorkspaceTurnCancelResult>(

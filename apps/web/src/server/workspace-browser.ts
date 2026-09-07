@@ -4,17 +4,21 @@ export const browserTargetUrl = (input: {
   previewUrl: string
   path?: string
   url?: string
+  allowedOrigins?: ReadonlyArray<string>
 }) => {
   const preview = new URL(input.previewUrl)
   const target = input.url
     ? new URL(input.url)
     : new URL(input.path ?? "/", preview)
-  if (target.origin !== preview.origin) {
+  if (
+    target.origin !== preview.origin &&
+    !input.allowedOrigins?.includes(target.origin)
+  ) {
     throw new Error(
       `The agent browser is limited to the Preview at ${preview.origin}`
     )
   }
-  if (target.protocol !== "https:") {
+  if (target.protocol !== "https:" || target.username || target.password) {
     throw new Error("The agent browser only opens https Preview URLs")
   }
   return target.toString()
@@ -59,3 +63,24 @@ export const browserEvidenceIds = (input: {
 
 export const evidenceUrl = (workspaceId: string, evidenceId: string) =>
   `/api/workspaces/${encodeURIComponent(workspaceId)}/evidence/${encodeURIComponent(evidenceId)}`
+
+export const validateBrowserOrigins = (origins: ReadonlyArray<string>) => {
+  for (const origin of origins) {
+    const url = new URL(origin)
+    if (
+      url.origin !== origin ||
+      url.protocol !== "https:" ||
+      url.port ||
+      url.username ||
+      url.password ||
+      !url.hostname.includes(".") ||
+      /(^|\.)(localhost|local|internal|test|invalid)$/.test(url.hostname) ||
+      /^[\d.]+$/.test(url.hostname) ||
+      url.hostname.includes(":")
+    ) {
+      throw new Error(
+        "Allowed origins must be exact public HTTPS origins without paths, ports, wildcards, or credentials."
+      )
+    }
+  }
+}

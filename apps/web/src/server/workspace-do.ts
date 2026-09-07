@@ -1,3 +1,11 @@
+import { browserJournal } from "./workspace-browser-journal"
+import {
+  WorkspaceBrowserAcceptanceInput,
+  WorkspaceHumanBrowserInput,
+  WorkspaceBrowserPolicyInput,
+  WorkspaceBrowserExceptionInput,
+  WorkspaceBrowserResult,
+} from "@workspace/domain"
 import { WorkspacePreviewExpiry } from "@workspace/domain/checks"
 import { reserveSmokeRequest } from "./workspace-smoke-budget"
 import type { Sandbox } from "@cloudflare/sandbox"
@@ -337,6 +345,17 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     this.#browserRuntime = ManagedRuntime.make(
       workspaceBrowserLayer({
         storage: durableBrowserSessionStore(context.storage),
+        journal: browserJournal(context.storage),
+        assertWritable: () => this.#assertBrowserWritable(),
+        reserveAcceptance: async () => {
+          const result = await bindings.DB.prepare(
+            "UPDATE workspace SET status = 'merging', merge_status = 'merging', updated_at = unixepoch() WHERE id = ? AND status = 'ready'"
+          )
+            .bind(this.#requiredState().workspaceId)
+            .run()
+          if (result.meta.changes !== 1)
+            throw new Error("Workspace changed before Acceptance")
+        },
         async saveEvidence(key, value, contentType) {
           await bindings.CHECK_EVIDENCE.put(key, value, {
             httpMetadata: { contentType },
@@ -1228,6 +1247,96 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     })
   }
 
+  async #assertBrowserWritable() {
+    this.#assertWritable()
+    const state = await this.env.DB.prepare(
+      "SELECT status FROM workspace WHERE id = ?"
+    )
+      .bind(this.#requiredState().workspaceId)
+      .first<{ status: string }>()
+    if (state?.status !== "ready")
+      throw new Error(
+        "Browser actions require a ready Workspace; Acceptance or archival may be in progress."
+      )
+  }
+
+  reserveBrowserAcceptance(
+    input: typeof WorkspaceBrowserAcceptanceInput.Encoded
+  ) {
+    return this.#run(async () => {
+      const data = Schema.decodeUnknownSync(WorkspaceBrowserAcceptanceInput)(
+        input
+      )
+      if (data.workspaceId !== this.#requiredState().workspaceId)
+        throw new Error("Workspace mismatch")
+      await this.#browserRuntime.runPromise(
+        Effect.flatMap(WorkspaceBrowser, (browser) =>
+          browser.reserve(data.binding)
+        )
+      )
+    })
+  }
+
+  browserSnapshot() {
+    return this.#browserRuntime.runPromise(
+      Effect.flatMap(WorkspaceBrowser, (browser) => browser.snapshot())
+    )
+  }
+
+  browserAction(
+    input: typeof WorkspaceHumanBrowserInput.Encoded,
+    userId: string
+  ) {
+    return this.#run(async () => {
+      this.#assertWritable()
+      const data = Schema.decodeUnknownSync(WorkspaceHumanBrowserInput)(input)
+      if (data.workspaceId !== this.#requiredState().workspaceId)
+        throw new Error("Workspace mismatch")
+      const result = await this.#browserRuntime.runPromise(
+        Effect.flatMap(WorkspaceBrowser, (browser) =>
+          browser.execute(data.input, { userId })
+        )
+      )
+      return Schema.encodeSync(WorkspaceBrowserResult)(result)
+    })
+  }
+
+  configureBrowser(
+    input: typeof WorkspaceBrowserPolicyInput.Encoded,
+    userId: string
+  ) {
+    return this.#run(async () => {
+      this.#assertWritable()
+      const data = Schema.decodeUnknownSync(WorkspaceBrowserPolicyInput)(input)
+      if (data.workspaceId !== this.#requiredState().workspaceId)
+        throw new Error("Workspace mismatch")
+      await this.#browserRuntime.runPromise(
+        Effect.flatMap(WorkspaceBrowser, (browser) =>
+          browser.configure(data.policy, data.expectedRevision, userId)
+        )
+      )
+    })
+  }
+
+  exceptBrowser(
+    input: typeof WorkspaceBrowserExceptionInput.Encoded,
+    userId: string
+  ) {
+    return this.#run(async () => {
+      this.#assertWritable()
+      const data = Schema.decodeUnknownSync(WorkspaceBrowserExceptionInput)(
+        input
+      )
+      if (data.workspaceId !== this.#requiredState().workspaceId)
+        throw new Error("Workspace mismatch")
+      await this.#browserRuntime.runPromise(
+        Effect.flatMap(WorkspaceBrowser, (browser) =>
+          browser.except(data.binding, data.reason, userId)
+        )
+      )
+    })
+  }
+
   snapshot() {
     return this.#run(async () =>
       encodeWorkspaceRuntimeHealthSync(
@@ -1775,6 +1884,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
 
     return new WorkspaceRuntimeHealth({
       workspaceId: WorkspaceId.make(state.workspaceId),
+      browserProof: await this.browserSnapshot(),
       sessionId: AgentSessionId.make(sessionId),
       eventCursor: state.eventCursor,
       status: workspaceRuntimeStatus(turnActive, session.outcome),

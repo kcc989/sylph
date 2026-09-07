@@ -25,3 +25,5 @@ export * from "./workspace-smoke"
 export * from "./workspace-event-policy"
 
 export * from "./template-release"
+
+export * from "./browser-journeys"

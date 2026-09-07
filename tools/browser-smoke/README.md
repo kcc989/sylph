@@ -2,10 +2,10 @@
 
 Run `bun run smoke:release:doctor -- --auth magic`, then `bun run smoke:browser` from the repository root.
 
-The runner uses Alchemy v2 to create a disposable `smoke-browser-*` Worker, Durable Object, D1 database, and R2 bucket. It reads the existing release smoke configuration without sourcing it. Only the deployment process receives the Cloudflare credentials. The fixture receives a new random password and the source commit.
+Alchemy v2 creates a fresh disposable `smoke-browser-*` stage with the application fixture, a separate external authentication fixture, a Durable Object, D1, and R2. It loads the existing release smoke configuration without sourcing it. Only the local deployment process receives Cloudflare credentials; its private environment file is outside the checkout. Workers receive a newly generated fixture password and the source identity. No owner-account credential is sent to either fixture.
 
-Every browser action runs through the same `WorkspaceBrowser` service used by OpenCode's `workspace_browser` tool. The browser runs in Cloudflare Browser Run. The Node process sends tool inputs and checks results; it does not run Playwright or a local browser. The fixture reconstructs the service between calls to verify that the stored session reconnects.
+Every browser action uses the same `WorkspaceBrowser` service as the product. The browser runs in Cloudflare Browser Run, and the fixture reconstructs the service between calls. The Node runner does not run Playwright or a local browser.
 
-The journey verifies login, click, fill, keyboard, select, scroll, wait, create, edit, completion, reload, deletion, failed assertions, local storage, and closing a session. It reads the actual D1 rows and downloads a stored screenshot. This is browser runtime proof; it does not test Installation setup, provider generation, GitHub OAuth, or the Preview iframe.
+The smoke verifies CRUD, login, reload, local storage, action deduplication, durable requirements and results, acceptance blocking and valid proof, changed attempts, failed and interrupted journeys, desktop/mobile viewport assertions, shared human/agent ownership, external popup authentication, and default-deny navigation. The external fixture counts incoming requests to detect a popup that escaped before its origin was allowed. It reads actual D1 rows and downloads a stored screenshot.
 
-Run records, source changes, private deployment logs, and the screenshot are stored in `.alchemy/browser-smoke-runs/<stage>/`. Infrastructure remains available for inspection. Destroying the stage requires explicit approval.
+This is service evidence, not full Installation, provider generation, real GitHub OAuth, or product-UI evidence. Run records include the commit, source manifest hash, deployment URLs, ordered results, and proof snapshots in `.alchemy/browser-smoke-runs/<stage>/`. Infrastructure remains for inspection; destruction requires explicit approval.

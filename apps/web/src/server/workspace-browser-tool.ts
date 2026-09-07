@@ -16,7 +16,7 @@ export const workspaceBrowserTool = (
 ): Info<typeof WorkspaceBrowserToolJsonSchema> => ({
   name: "workspace_browser",
   description:
-    "Test the exact current Checkpoint Preview in one persistent Cloudflare Browser Run page. Start, observe, navigate with path/url, click, fill, select, press, scroll, wait, reload, assert, or close. Reuse the returned session.id as sessionId for actions. CSS selectors must identify one element for interactions. Assertions use exact text/value/count/checked/visible expectations. Each call returns its outcome, page text, accessibility, and saved Check Evidence. Cookies and local storage persist until close or 10 minutes idle. No arbitrary JavaScript, external navigation, or popups.",
+    "Test required user journeys in the exact current Preview's persistent Browser Run. Observe returns the User's policy. Use journey_begin with requirementId, actions and ordered assertions at each required viewport, then journey_finish. Use unique requestId per action and sessionId from start; exact retries return saved results without replay. Failed or interrupted journeys block acceptance until full retry or a User exception. viewport selects desktop/mobile; switch_page selects an observed popup page; popup opens an allowed URL. Human control blocks agent actions. Only the Preview and User-configured HTTPS origins are allowed. No arbitrary JavaScript. Cookies persist across reconnects, and the browser pauses between calls.",
   input: WorkspaceBrowserToolJsonSchema,
   options: { codemode: false },
   async execute(input) {
@@ -33,6 +33,9 @@ export const workspaceBrowserTool = (
               evidence: result.evidence,
               accessibility: result.accessibility,
               session: result.session,
+              journey: result.journey,
+              policy: result.policy,
+              pages: result.pages,
               outcome: result.outcome,
               detail: result.detail,
             })
