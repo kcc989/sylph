@@ -182,6 +182,39 @@ const meta = {
 export default meta
 type Story = StoryObj<typeof meta>
 
+export const StartingWorkspace: Story = {
+  args: {
+    workspaceStarting: true,
+    entries: [],
+    checks: [],
+    agentControllingBrowser: false,
+    queuedMessages: [
+      {
+        id: "first-message",
+        text: "Build a todo list with due dates",
+        createdAt: 1,
+        delivery: "queue",
+      },
+    ],
+    onSubmitPrompt: fn(async () => true),
+  },
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.getByText("Setting up workspace…")).toBeVisible()
+    await expect(canvas.getByText("Waiting for workspace")).toBeVisible()
+    await userEvent.type(
+      canvas.getByLabelText("Message the agent"),
+      "Also add a completed filter"
+    )
+    await userEvent.click(canvas.getByLabelText("Send message"))
+    await expect(args.onSubmitPrompt).toHaveBeenCalledWith(
+      "Also add a completed filter",
+      args.selectedModel,
+      undefined
+    )
+  },
+}
+
 export const TabbedWorkspace: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)

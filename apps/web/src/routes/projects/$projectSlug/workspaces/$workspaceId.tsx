@@ -191,9 +191,10 @@ function WorkspaceScreen() {
   const router = useRouter()
   const readFile = useServerFn(readWorkspaceFile)
   const readPatch = useServerFn(readWorkspacePatch)
-  const forkHead = result.versionControl.forkHead
+  const forkHead = result.versionControl?.forkHead
   const readWorkspaceChanges = useCallback(
     async (scope: "working" | "branch") => {
+      if (!forkHead) return ""
       try {
         return await readPatch({
           data: {
@@ -254,7 +255,7 @@ function WorkspaceScreen() {
     },
     [readFile, workspaceId]
   )
-  const workingChanges = result.versionControl.working
+  const workingChanges = result.versionControl?.working ?? []
   const additions = workingChanges.reduce(
     (total, change) => total + change.additions,
     0
@@ -298,7 +299,7 @@ function WorkspaceScreen() {
     onRetry: (run) => actions.runRetry(run.id),
     onUpdateProject: actions.runUpdateProject,
     pending: actions.checkActionPending,
-    projectChanged: result.versionControl.projectChanged,
+    projectChanged: result.versionControl?.projectChanged ?? false,
     workingChanges: workingChanges.length,
   })
   const isPending = (
@@ -412,11 +413,11 @@ function WorkspaceScreen() {
               onPermissionReply={action.onPermissionReply}
               onRestartWorkspace={action.onRestartWorkspace}
               onSubmitPrompt={action.onSubmitPrompt}
+              onRetryQueuedMessage={action.onRetryQueuedMessage}
               permissionRequests={permissionRequests}
+              workspaceStarting={runtime.status === "provisioning"}
               promptDisabled={
-                runtime.status === "provisioning" ||
-                runtime.status === "error" ||
-                workspace.status === "archived"
+                runtime.status === "error" || workspace.status === "archived"
               }
               promptError={workspaceCommandErrorExcept(
                 actions.commandError,
@@ -496,8 +497,8 @@ function WorkspaceScreen() {
             onSubmitReview={action.onSubmitReview}
             onReadPatch={readWorkspaceChanges}
             patchRevision={`${forkHead}:${result.workingRevision}`}
-            reviewPatchRevision={`${result.versionControl.baseCommit}:${forkHead}`}
-            review={result.review}
+            reviewPatchRevision={`${result.versionControl?.baseCommit}:${forkHead}`}
+            review={result.review ?? undefined}
             reviewError={workspaceCommandErrorMessage(
               actions.commandError,
               "review"

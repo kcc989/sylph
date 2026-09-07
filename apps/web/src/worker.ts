@@ -1,3 +1,5 @@
+import { recoverWorkspaceJobs } from "./server/workspace-job-recovery"
+export { WorkspaceMessageDelivery } from "./server/workspace-message-delivery"
 export { ProjectSynchronization } from "./server/project-synchronization"
 export { WorkspaceProvisioning } from "./server/workspace-provisioning"
 import serverEntry from "@tanstack/react-start/server-entry"
@@ -9,7 +11,11 @@ export { WorkspaceRetention } from "./server/workspace-retention"
 
 export default {
   fetch: serverEntry.fetch,
-  async scheduled() {
+  async scheduled(controller: ScheduledController) {
+    if (controller.cron === "* * * * *") {
+      await recoverWorkspaceJobs()
+      return
+    }
     const result = await refreshProviderCatalogs()
     console.info("Provider catalog refresh completed", result)
   },

@@ -1163,6 +1163,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       const invocation = resolveSkillInvocation(data.text, this.#skills.list())
       this.#checks.resetAutomaticRepairs(`prompt:${Date.now()}`)
       await opencode.sessions.prompt({
+        id: data.messageId,
         sessionID: sessionId,
         text: invocation
           ? invocation.text || "Follow the attached Skill instructions."

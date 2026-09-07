@@ -1,5 +1,9 @@
 import type { ProjectSynchronization } from "./server/project-synchronization"
-import type { WorkspaceRequestInput, WorkspaceCiInput } from "@workspace/domain"
+import type {
+  WorkspaceRequestInput,
+  WorkspaceCiInput,
+  WorkspaceMessageDeliveryInput,
+} from "@workspace/domain"
 import type { CursorConnectionObject } from "./server/cursor-connection-object"
 import type { WorkspaceDO } from "./server/workspace-do"
 import type { WorkspaceMergeInput } from "./server/workspace-merge"
@@ -25,6 +29,7 @@ declare global {
       CI_WORKFLOW: Workflow<WorkspaceCiInput>
       REPOSITORY_NAMESPACE: string
       PROJECT_SYNCS: DurableObjectNamespace<ProjectSynchronization>
+      MESSAGE_DELIVERY: Workflow<typeof WorkspaceMessageDeliveryInput.Encoded>
       PROVISIONING: Workflow<typeof WorkspaceRequestInput.Encoded>
       MERGES: Workflow<WorkspaceMergeInput>
       RETENTION: Workflow<WorkspaceRetentionInput>

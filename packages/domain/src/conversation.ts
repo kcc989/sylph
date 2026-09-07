@@ -27,10 +27,16 @@ export class InitializeWorkspaceRuntime extends Schema.Class<InitializeWorkspace
   archivedAt: Schema.optional(Schema.NullOr(Schema.Number)),
 }) {}
 
+const WorkspacePromptMessageId = Schema.NonEmptyString.check(
+  Schema.isMaxLength(92),
+  Schema.isPattern(/^[a-zA-Z0-9_-]+$/)
+)
+
 export class WorkspacePromptInput extends Schema.Class<WorkspacePromptInput>(
   "@sylph/domain/WorkspacePromptInput"
 )({
   workspaceId: WorkspaceId,
+  messageId: Schema.optional(WorkspacePromptMessageId),
   text: Schema.NonEmptyString,
   model: Schema.optional(ModelSelection),
   delivery: Schema.optional(Schema.Literals(["queue", "steer"])),
@@ -40,6 +46,7 @@ export class WorkspaceRuntimePromptInput extends Schema.Class<WorkspaceRuntimePr
   "@sylph/domain/WorkspaceRuntimePromptInput"
 )({
   workspaceId: WorkspaceId,
+  messageId: Schema.optional(WorkspacePromptMessageId),
   text: Schema.NonEmptyString,
   model: ModelSelection,
   credential: OpenCodeCredential,
@@ -393,6 +400,7 @@ export class WorkspaceQueuedMessage extends Schema.Class<WorkspaceQueuedMessage>
   text: Schema.String,
   createdAt: Schema.Number,
   delivery: Schema.Literals(["queue", "steer"]),
+  error: Schema.optionalKey(Schema.String),
   notice: Schema.optionalKey(WorkspaceConversationNotice),
 }) {}
 
@@ -448,3 +456,10 @@ export const WorkspaceSocketAttachment = Schema.Struct({
   synced: Schema.Boolean,
 })
 export type WorkspaceSocketAttachment = typeof WorkspaceSocketAttachment.Type
+
+export class WorkspaceMessageDeliveryInput extends Schema.Class<WorkspaceMessageDeliveryInput>(
+  "@sylph/domain/WorkspaceMessageDeliveryInput"
+)({
+  workspaceId: WorkspaceId,
+  messageId: WorkspacePromptMessageId,
+}) {}

@@ -95,7 +95,8 @@ export const useWorkspaceData = (initial: WorkspaceResult) => {
     if (
       result.workspace.status !== "provisioning" &&
       result.workspace.status !== "merging" &&
-      result.runtime.status !== "running"
+      result.runtime.status !== "running" &&
+      result.runtime.queuedMessages.length === 0
     )
       return
     let stopped = false
@@ -111,7 +112,12 @@ export const useWorkspaceData = (initial: WorkspaceResult) => {
       stopped = true
       clearTimeout(timer)
     }
-  }, [refresh, result.workspace.status, result.runtime.status])
+  }, [
+    refresh,
+    result.workspace.status,
+    result.runtime.status,
+    result.runtime.queuedMessages.length,
+  ])
 
   const current = result.workspace.id === workspaceId ? result : initial
   const currentModel = current.models.find(

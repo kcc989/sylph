@@ -1,4 +1,7 @@
-import type { InstanceModelPolicy } from "@workspace/domain"
+import type {
+  InstanceModelPolicy,
+  WorkspacePromptInput,
+} from "@workspace/domain"
 import { sql } from "drizzle-orm"
 import {
   check,
@@ -293,6 +296,7 @@ export const workspace = sqliteTable(
       .notNull()
       .references(() => user.id, { onDelete: "restrict" }),
     creationKey: text("creation_key"),
+    provisioningScheduledAt: integer("provisioning_scheduled_at"),
     branchName: text("branch_name"),
     title: text("title").notNull(),
     status: text("status").notNull().default("provisioning"),
@@ -314,6 +318,11 @@ export const workspace = sqliteTable(
   (table) => [
     index("workspace_organization_id_idx").on(table.organizationId),
     index("workspace_project_id_idx").on(table.projectId),
+    index("workspace_provisioning_schedule_idx").on(
+      table.status,
+      table.provisioningScheduledAt,
+      table.createdAt
+    ),
     uniqueIndex("workspace_project_creation_key_unique").on(
       table.projectId,
       table.creationKey
@@ -640,3 +649,36 @@ export const userModelPreference = sqliteTable("user_model_preference", {
   createdAt: timestamp("created_at"),
   updatedAt: timestamp("updated_at"),
 })
+
+export const workspacePendingPrompt = sqliteTable(
+  "workspace_pending_prompt",
+  {
+    sequence: integer("sequence").primaryKey({ autoIncrement: true }),
+    id: text("id").notNull().unique(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    payload: text("payload", { mode: "json" })
+      .$type<typeof WorkspacePromptInput.Encoded>()
+      .notNull(),
+    createdAt: integer("created_at").notNull(),
+    errorSummary: text("error_summary"),
+    scheduledAt: integer("scheduled_at"),
+    deliveredAt: integer("delivered_at"),
+  },
+  (table) => [
+    index("workspace_pending_prompt_workspace_idx").on(
+      table.workspaceId,
+      table.deliveredAt,
+      table.sequence
+    ),
+    index("workspace_pending_prompt_schedule_idx").on(
+      table.deliveredAt,
+      table.scheduledAt,
+      table.sequence
+    ),
+  ]
+)

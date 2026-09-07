@@ -28,6 +28,7 @@ import {
   discardWorkspace,
   getWorkspace,
   promptWorkspace,
+  retryWorkspaceQueuedMessage,
   rebaseWorkspace,
   repairWorkspaceCheck,
   restartWorkspace,
@@ -72,6 +73,7 @@ type WorkspaceActionProps = {
     resolved: boolean
   ) => Promise<void>
   onRestartWorkspace: () => Promise<void>
+  onRetryQueuedMessage: (messageId: string) => Promise<void>
   onSubmitPrompt: (
     text: string,
     model: { providerId: string; modelId: string; variant?: string },
@@ -87,6 +89,10 @@ export function useWorkspaceActions({
   workspaceId,
 }: WorkspaceActionsInput) {
   const router = useRouter()
+  const retryQueuedMessage = useServerFn(retryWorkspaceQueuedMessage)
+  const promptSubmission = useRef<{ id: string; signature: string } | null>(
+    null
+  )
   const prompt = useServerFn(promptWorkspace)
   const cancelTurn = useServerFn(cancelWorkspaceTurn)
   const answerQuestion = useServerFn(answerWorkspaceQuestion)
@@ -165,18 +171,25 @@ export function useWorkspaceActions({
     )
 
   const workspace = result.workspace
-  const acceptance = workspaceAcceptance({
-    versionControl: result.versionControl,
-    checks: result.checks,
-    workspaceStatus: workspace.status,
-    reviewDecision: result.review.decision,
-    reviewCommit: result.review.commit,
-    unresolvedComments: result.review.comments.filter(
-      (comment) => comment.resolvedAt === null
-    ).length,
-    turnActive: result.runtime.status === "running",
-    runtimeHealthy: result.runtime.opencode.healthy,
-  })
+  const acceptance =
+    result.versionControl && result.review
+      ? workspaceAcceptance({
+          versionControl: result.versionControl,
+          checks: result.checks,
+          workspaceStatus: workspace.status,
+          reviewDecision: result.review.decision,
+          reviewCommit: result.review.commit,
+          unresolvedComments: result.review.comments.filter(
+            (comment) => comment.resolvedAt === null
+          ).length,
+          turnActive: result.runtime.status === "running",
+          runtimeHealthy: result.runtime.opencode.healthy,
+        })
+      : {
+          ready: false,
+          blockers: ["The Workspace is still being set up."],
+          passingCheckId: null,
+        }
 
   const actionProps: WorkspaceActionProps = {
     onAccept: acceptance.ready
@@ -194,15 +207,16 @@ export function useWorkspaceActions({
         }
       : undefined,
     onAddReviewComment: (comment) =>
-      runReviewMutation(() =>
-        addReviewComment({
+      runReviewMutation(async () => {
+        if (!result.review) throw new Error("Workspace review is not ready")
+        return addReviewComment({
           data: {
             workspaceId,
             commit: result.review.commit,
             ...comment,
           },
         })
-      ),
+      }),
     onAnswerQuestion: async (
       questionId,
       answer: Record<string, WorkspaceQuestionValue>
@@ -315,7 +329,7 @@ export function useWorkspaceActions({
       )
     },
     onRebase:
-      result.versionControl.projectChanged &&
+      result.versionControl?.projectChanged &&
       workspace.status !== "merging" &&
       workspace.status !== "archived"
         ? async () => {
@@ -341,7 +355,18 @@ export function useWorkspaceActions({
         "Workspace restart failed"
       )
     },
+    onRetryQueuedMessage: async (messageId) => {
+      await commands.run(
+        "prompt",
+        () => retryQueuedMessage({ data: { workspaceId, messageId } }),
+        "Could not retry the queued message"
+      )
+    },
     onSubmitPrompt: async (text, model, delivery) => {
+      const signature = JSON.stringify({ text, model, delivery })
+      if (promptSubmission.current?.signature !== signature)
+        promptSubmission.current = { id: crypto.randomUUID(), signature }
+      const messageId = promptSubmission.current.id
       setOptimisticEntries([
         {
           id: `optimistic-${crypto.randomUUID()}`,
@@ -360,7 +385,13 @@ export function useWorkspaceActions({
         "prompt",
         async () => {
           const response = await prompt({
-            data: { workspaceId, text, model, delivery },
+            data: {
+              workspaceId,
+              text,
+              model,
+              delivery,
+              messageId,
+            },
           })
           modelSelectionChanged.current = false
           setSelectedModel(response.selectedModel)
@@ -371,18 +402,20 @@ export function useWorkspaceActions({
         { refresh: false, refreshOnFailure: true }
       )
       setOptimisticEntries([])
+      if (sent) promptSubmission.current = null
       return sent
     },
     onSubmitReview: (decision) =>
-      runReviewMutation(() =>
-        submitReview({
+      runReviewMutation(async () => {
+        if (!result.review) throw new Error("Workspace review is not ready")
+        return submitReview({
           data: {
             workspaceId,
             commit: result.review.commit,
             decision,
           },
         })
-      ).then(() => undefined),
+      }).then(() => undefined),
   }
 
   return {

@@ -42,8 +42,10 @@ export function WorkspaceChat({
   onCancelTurn,
   initialPrompt,
   onSubmitPrompt,
+  onRetryQueuedMessage,
   onRestartWorkspace,
   promptDisabled,
+  workspaceStarting,
   promptError,
   promptPending,
   cancelTurnPending,
@@ -78,12 +80,14 @@ export function WorkspaceChat({
   ) => Promise<void>
   onCancelTurn?: () => Promise<void>
   initialPrompt?: string
+  onRetryQueuedMessage?: (messageId: string) => Promise<void>
   onSubmitPrompt?: (
     text: string,
     model: { providerId: string; modelId: string; variant?: string },
     delivery?: "queue" | "steer"
   ) => Promise<boolean | void>
   onRestartWorkspace?: () => Promise<void>
+  workspaceStarting?: boolean
   promptDisabled?: boolean
   promptError?: string | null
   promptPending?: boolean
@@ -113,6 +117,8 @@ export function WorkspaceChat({
       className="flex size-full min-w-0 flex-col bg-background"
     >
       <AgentThread
+        workspaceStarting={workspaceStarting}
+        onRetryQueuedMessage={onRetryQueuedMessage}
         onOpenEvidence={(kind) => openWorkspaceTool(store, kind)}
         references={references}
         onRemoveReference={(text) =>

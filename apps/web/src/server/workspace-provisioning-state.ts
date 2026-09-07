@@ -1,4 +1,8 @@
-import { WorkspaceId, WorkspaceRuntimeHealth } from "@workspace/domain"
+import {
+  WorkspaceId,
+  WorkspaceRuntimeHealth,
+  type WorkspaceQueuedMessage,
+} from "@workspace/domain"
 import {
   maxWorkspaceAutomaticRepairs,
   maxWorkspaceCheckAttempts,
@@ -8,7 +12,10 @@ import {
 export const maxQueuedMessages = 5
 export const maxTurnDurationMs = 15 * 60 * 1000
 
-export const provisioningRuntimeHealth = (workspaceId: string) =>
+export const provisioningRuntimeHealth = (
+  workspaceId: string,
+  queuedMessages: ReadonlyArray<WorkspaceQueuedMessage> = []
+) =>
   new WorkspaceRuntimeHealth({
     workspaceId: WorkspaceId.make(workspaceId),
     sessionId: null,
@@ -17,7 +24,7 @@ export const provisioningRuntimeHealth = (workspaceId: string) =>
     model: null,
     files: [],
     messages: [],
-    queuedMessages: [],
+    queuedMessages,
     questions: [],
     permissions: [],
     lastTurnOutcome: null,

@@ -1,3 +1,8 @@
+import {
+  savePendingWorkspacePrompt,
+  pendingPromptMessages,
+  pendingWorkspacePrompts,
+} from "@/server/workspace-pending-prompts"
 import { assertInstanceModelEnabled } from "@/server/instance-model-policy"
 import { provisioningRuntimeHealth } from "@/server/workspace-provisioning-state"
 import { createServerFn } from "@tanstack/react-start"
@@ -19,6 +24,7 @@ import {
   WorkspaceRuntimeHealth,
   WorkspaceMessagePageInput,
   WorkspaceMessagePage,
+  WorkspaceMessageDeliveryInput,
   WorkspaceRuntimePromptInput,
   WorkspaceTurnCancelInput,
   CreateWorkspaceInput,
@@ -74,6 +80,7 @@ import { readWorkspaceVersionControlSnapshot } from "@/server/workspace-reposito
 import { loadWorkspaceReview } from "@/server/workspace-review-store"
 import {
   scheduleWorkspaceProvisioning,
+  scheduleWorkspaceMessageDelivery,
   workspaceRuntime,
 } from "@/server/workspace-runtime"
 import { restartDurableWorkspace } from "@/server/workspace-runtime-lifecycle"
@@ -177,15 +184,6 @@ export const createWorkspace = createServerFn({ method: "POST" })
       return existingWorkspace
     }
 
-    const synchronized = await synchronizeProjectRepository(database, user.id, {
-      id: project.id,
-      repositoryName: project.repositoryName,
-      repositoryRemote: project.repositoryRemote,
-      defaultRef: project.defaultBranch,
-      sourceUrl: project.importOriginUrl,
-      sourceRef: project.importOriginBranch,
-    })
-
     let title = randomWorkspaceName()
     for (let attempt = 0; attempt < 20; attempt += 1) {
       const collision = await database
@@ -216,17 +214,6 @@ export const createWorkspace = createServerFn({ method: "POST" })
     }
 
     const workspaceId = WorkspaceId.make(crypto.randomUUID())
-    const repositories = repositoryStore()
-    const head =
-      synchronized?.projectHead ??
-      (await Effect.runPromise(repositories.head(project.repositoryName)))
-    const workspaceRepository = await Effect.runPromise(
-      repositories.fork({
-        sourceName: project.repositoryName,
-        name: workspaceRepositoryNameFor(project.repositoryName, workspaceId),
-        description: `Workspace for ${project.name}: ${title}`,
-      })
-    )
     const now = new Date()
 
     await database.insert(schema.workspace).values({
@@ -240,9 +227,10 @@ export const createWorkspace = createServerFn({ method: "POST" })
       status: "provisioning",
       repositoryMode: "fork",
       baseArtifactRepo: project.repositoryName,
-      workspaceArtifactRepo: workspaceRepository.name,
-      baseCommit: head,
-      forkHead: head,
+      workspaceArtifactRepo: workspaceRepositoryNameFor(
+        project.repositoryName,
+        workspaceId
+      ),
       syncStatus: "hydrating",
       mergeStatus: "unreviewed",
       createdAt: now,
@@ -314,6 +302,7 @@ export const getWorkspace = createServerFn({ method: "GET" })
     }
 
     const shouldSynchronize =
+      workspace.status !== "provisioning" &&
       workspace.importOriginUrl &&
       (!workspace.upstreamSyncedAt ||
         Date.now() - workspace.upstreamSyncedAt.getTime() > 5 * 60 * 1000)
@@ -330,15 +319,22 @@ export const getWorkspace = createServerFn({ method: "GET" })
       )
     }
 
+    const pendingMessages = await pendingPromptMessages(
+      database,
+      data.workspaceId
+    )
     const runtime = workspaceRuntime(data.workspaceId)
+    const runtimeUnprepared =
+      workspace.status === "provisioning" ||
+      workspace.syncStatus === "hydrating"
     const readVersionControl = () => runtime.versionControl(false, false)
     const [runtimeSnapshot, versionControlSnapshot, checks, skills] =
       await Promise.all([
-        workspace.status === "provisioning"
-          ? provisioningRuntimeHealth(workspace.id)
+        runtimeUnprepared
+          ? provisioningRuntimeHealth(workspace.id, pendingMessages)
           : runtime.snapshot(),
-        workspace.status === "provisioning" ? null : readVersionControl(),
-        workspace.status === "provisioning" ? [] : runtime.listChecks(),
+        runtimeUnprepared ? null : readVersionControl(),
+        runtimeUnprepared ? [] : runtime.listChecks(),
         data.includeOptions === false
           ? []
           : loadInstalledSkills(
@@ -373,21 +369,23 @@ export const getWorkspace = createServerFn({ method: "GET" })
         syncStatus: workspace.syncStatus,
         mergeStatus: workspace.mergeStatus,
       })
-    const review = await loadWorkspaceReview(
-      database,
-      data.workspaceId,
-      versionControl.forkHead
-    )
+    const review = versionControl
+      ? await loadWorkspaceReview(
+          database,
+          data.workspaceId,
+          versionControl.forkHead
+        )
+      : null
     const [
       encodedVersionControl,
       encodedCheckpoints,
       encodedChecks,
       encodedReview,
     ] = await Promise.all([
-      encodeWorkspaceVersionControl(versionControl),
+      versionControl ? encodeWorkspaceVersionControl(versionControl) : null,
       encodeWorkspaceCheckpointList(checkpoints),
       encodeWorkspaceCheckRunList(checks),
-      encodeWorkspaceReview(review),
+      review ? encodeWorkspaceReview(review) : null,
     ])
 
     const runtimeStatus =
@@ -415,6 +413,13 @@ export const getWorkspace = createServerFn({ method: "GET" })
       runtime: await encodeWorkspaceRuntimeHealth(
         new WorkspaceRuntimeHealth({
           ...runtimeSnapshot,
+          queuedMessages: [
+            ...pendingMessages,
+            ...runtimeSnapshot.queuedMessages.filter(
+              (message) =>
+                !pendingMessages.some((pending) => pending.id === message.id)
+            ),
+          ],
           status: runtimeStatus,
         })
       ),
@@ -494,6 +499,20 @@ export const restartWorkspace = createServerFn({ method: "POST" })
         message:
           "The Workspace owner needs a connected provider with an instance-enabled model before this Workspace can restart",
       })
+    }
+
+    if (workspace.syncStatus === "hydrating" || !workspace.baseCommit) {
+      await database
+        .update(schema.workspace)
+        .set({
+          status: "provisioning",
+          errorSummary: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.workspace.id, workspace.id))
+      const instance = await env.PROVISIONING.get(`provision-${workspace.id}`)
+      await instance.restart()
+      return { id: workspace.id, status: "provisioning" } as const
     }
 
     const credential = await connectionCredential(connection)
@@ -585,10 +604,47 @@ export const promptWorkspace = createServerFn({ method: "POST" })
       })
     }
 
+    const pending = await pendingPromptMessages(database, data.workspaceId)
+    if (workspace.status === "provisioning" || pending.length > 0) {
+      const queued = await savePendingWorkspacePrompt(
+        database,
+        user.id,
+        new WorkspacePromptInput({
+          ...data,
+          model: {
+            providerId: connection.providerId,
+            modelId: connection.modelId,
+            variant:
+              data.model?.providerId === connection.providerId &&
+              data.model.modelId === connection.modelId
+                ? data.model.variant
+                : undefined,
+          },
+        })
+      )
+      await scheduleWorkspaceMessageDelivery(queued)
+      return {
+        health: await encodeWorkspaceRuntimeHealth(
+          provisioningRuntimeHealth(
+            workspace.id,
+            await pendingPromptMessages(database, workspace.id)
+          )
+        ),
+        models: connection.models,
+        selectedModel: {
+          providerId: connection.providerId,
+          modelId: connection.modelId,
+          variant: data.model?.variant,
+        },
+        modelNotice: connection.notice,
+      }
+    }
+
     const credential = await connectionCredential(connection)
     const health = await workspaceRuntime(data.workspaceId).prompt(
       new WorkspaceRuntimePromptInput({
         workspaceId: data.workspaceId,
+        messageId: data.messageId,
         text: data.text,
         model: {
           providerId: connection.providerId,
@@ -918,11 +974,53 @@ export const getWorkspaceMessages = createServerFn({ method: "GET" })
 export const getWorkspaceActivity = createServerFn({ method: "GET" })
   .middleware([workspaceMember])
   .validator((input) => decodeWorkspaceRequestInputPromise(input))
-  .handler(async ({ data }) =>
-    encodeWorkspaceRuntimeHealth(
-      await workspaceRuntime(data.workspaceId).snapshot()
+  .handler(async ({ data, context }) => {
+    const pending = await pendingPromptMessages(
+      context.database,
+      data.workspaceId
     )
-  )
+    const health =
+      context.workspace.status === "provisioning" ||
+      context.workspace.syncStatus === "hydrating"
+        ? provisioningRuntimeHealth(data.workspaceId)
+        : await workspaceRuntime(data.workspaceId).snapshot()
+    return encodeWorkspaceRuntimeHealth(
+      new WorkspaceRuntimeHealth({
+        ...health,
+        status: context.workspace.status === "error" ? "error" : health.status,
+        queuedMessages: [
+          ...pending,
+          ...health.queuedMessages.filter(
+            (message) => !pending.some((item) => item.id === message.id)
+          ),
+        ],
+      })
+    )
+  })
+
+export const retryWorkspaceQueuedMessage = createServerFn({ method: "POST" })
+  .middleware([writableWorkspace])
+  .validator(Schema.decodeUnknownPromise(WorkspaceMessageDeliveryInput))
+  .handler(async ({ data, context }) => {
+    const pending = await pendingWorkspacePrompts(
+      context.database,
+      data.workspaceId
+    )
+    const message = pending.find(
+      (row) => row.id === data.messageId && row.userId === context.user.id
+    )
+    if (!message)
+      throw new AccessDenied({
+        message: "This queued message is unavailable",
+        resource: "workspace",
+      })
+    const instance = await env.MESSAGE_DELIVERY.get(`message-${data.messageId}`)
+    await instance.restart()
+    await context.database
+      .update(schema.workspacePendingPrompt)
+      .set({ errorSummary: null })
+      .where(eq(schema.workspacePendingPrompt.id, message.id))
+  })
 
 export const getWorkspaceChecks = createServerFn({ method: "GET" })
   .middleware([workspaceMember])
