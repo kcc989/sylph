@@ -8,7 +8,6 @@ import type {
   WorkspaceQuestionValue,
   WorkspaceReviewCommentDraft,
 } from "@workspace/ui/components/workspace/types"
-import { isWorkspaceCommandPending } from "@workspace/ui/lib/workspace-commands"
 import { useEffect, useRef, useState } from "react"
 
 import {
@@ -396,10 +395,12 @@ export function useWorkspaceActions({
   return {
     acceptance,
     actionProps,
-    checkActionPending: isWorkspaceCommandPending(commands.pending, "check"),
-    commandError: commands.error,
+    checkActionPending: commands.isPending("check"),
+    errorExcept: commands.errorExcept,
+    errorFor: commands.errorFor,
+    isPending: commands.isPending,
     modelNotice,
-    pending: commands.pending,
+    pendingTarget: commands.pendingTarget,
     runRetry: (runId: string) => {
       void commands.run(
         "check",

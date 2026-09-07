@@ -225,7 +225,7 @@ Delete `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` from `.env` and re-run the 
 
 ## Native execution simplification
 
-New dependency repairs run through native shell commands. Existing dependency Workflows can finish through the retained compatibility callback, but their Retry and Repair actions are retired. Correct dependency failures with `bun install`, then create a normal Checkpoint. No database migration or cleanup is needed for this upgrade.
+Dependency repairs run through native shell commands. The retired dependency runner and its completion callback have been removed. Finish any active dependency Workflows before upgrading. Existing results remain readable, but resumed dependency jobs fail and their Retry and Repair actions remain disabled. Correct dependency failures with `bun install`, then run `workspace_run_checks` to create and verify a normal Checkpoint. No new secrets, database migration, or cleanup is needed for this upgrade.
 
 Agent and Check commands share process limits: ten minutes and eight MiB of captured output per command. Check verification does not receive deployment credentials; preview and production retain their explicit credential environment and immutable checkpoint source.
 

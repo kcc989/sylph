@@ -21,8 +21,12 @@ const Database = Cloudflare.D1.Database("Database", {
   migrations: "packages/db/migrations",
 })
 const Repositories = Cloudflare.Artifacts.Namespace("Repositories")
-const CheckBackups = Cloudflare.R2.Bucket("CheckBackups")
-const CheckEvidence = Cloudflare.R2.Bucket("CheckEvidence")
+const smokeBucketOptions = Effect.gen(function* () {
+  const stage = yield* Alchemy.Stage
+  return { forceDestroy: /^smoke-[a-z0-9-]{1,45}$/.test(stage) }
+})
+const CheckBackups = Cloudflare.R2.Bucket("CheckBackups", smokeBucketOptions)
+const CheckEvidence = Cloudflare.R2.Bucket("CheckEvidence", smokeBucketOptions)
 const WorkspaceRuntime = Cloudflare.Worker(
   "WorkspaceRuntime",
   Effect.gen(function* () {

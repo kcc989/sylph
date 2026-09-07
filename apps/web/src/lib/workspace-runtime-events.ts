@@ -6,7 +6,6 @@ import {
   WorkspaceTextDeltaEventData,
   WorkspaceTextEndedEventData,
 } from "@workspace/domain"
-import type { WorkspacePermissionRequest } from "@workspace/ui/components/workspace/types"
 import { Schema } from "effect"
 
 const decodeWorkspacePermissionAskedEventDataPromise =
@@ -22,7 +21,7 @@ const decodeWorkspaceTextEndedEventDataPromise = Schema.decodeUnknownPromise(
 
 export type WorkspaceLiveState = {
   partialMessages: Record<string, string>
-  permissionRequests: Record<string, WorkspacePermissionRequest>
+  permissionRequests: Record<string, WorkspacePermissionAskedEventData>
   dismissedPermissionRequests: ReadonlyArray<string>
 }
 
@@ -45,13 +44,7 @@ export const applyWorkspaceRuntimeEvent = async (
       ...state,
       permissionRequests: {
         ...state.permissionRequests,
-        [data.id]: {
-          id: data.id,
-          action: data.action,
-          resources: [...data.resources],
-          message: data.message,
-          canSave: Boolean(data.save?.length),
-        },
+        [data.id]: data,
       },
     }
   }

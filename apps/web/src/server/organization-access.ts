@@ -119,10 +119,6 @@ export const accessibleProject = (
     .where(eq(schema.project.id, projectId))
     .get()
 
-export type AccessibleProject = NonNullable<
-  Awaited<ReturnType<typeof accessibleProject>>
->
-
 export const requireProject = async (
   database: Database,
   projectId: string,
@@ -173,10 +169,6 @@ export const accessibleWorkspace = (
     .where(eq(schema.workspace.id, workspaceId))
     .get()
 
-export type AccessibleWorkspace = NonNullable<
-  Awaited<ReturnType<typeof accessibleWorkspace>>
->
-
 export const requireWorkspace = async (
   database: Database,
   workspaceId: string,
@@ -220,10 +212,6 @@ export const accessibleIssue = (
     )
     .where(eq(schema.issue.id, issueId))
     .get()
-
-export type AccessibleIssue = NonNullable<
-  Awaited<ReturnType<typeof accessibleIssue>>
->
 
 export const requireIssue = async (
   database: Database,

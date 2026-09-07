@@ -24,12 +24,6 @@ import {
   WorkspaceTopbar,
   TerminalSurface,
 } from "@workspace/ui/components/workspace-shell"
-import {
-  isWorkspaceCommandPending,
-  pendingWorkspaceCommandTarget,
-  workspaceCommandErrorExcept,
-  workspaceCommandErrorMessage,
-} from "@workspace/ui/lib/workspace-commands"
 import { useCallback, useEffect, useState } from "react"
 
 import { validateOnboardingSearch } from "@/lib/onboarding"
@@ -262,9 +256,7 @@ function WorkspaceScreen() {
     projectChanged: result.versionControl?.projectChanged ?? false,
     workingChanges: workingChanges.length,
   })
-  const isPending = (
-    command: Parameters<typeof isWorkspaceCommandPending>[1]
-  ) => isWorkspaceCommandPending(actions.pending, command)
+  const isPending = actions.isPending
   const browser = {
     commit: checkpointCheck?.commit,
     url: checkpointCheck?.previewUrl ?? "",
@@ -322,10 +314,7 @@ function WorkspaceScreen() {
                 workingChanges.length === 0
               }
               activeTurnStartedAt={runtime.activeTurnStartedAt}
-              answeringQuestionId={pendingWorkspaceCommandTarget(
-                actions.pending,
-                "answerQuestion"
-              )}
+              answeringQuestionId={actions.pendingTarget("answerQuestion")}
               cancelTurnPending={isPending("cancelTurn")}
               entries={entries}
               historyControls={
@@ -379,17 +368,11 @@ function WorkspaceScreen() {
               promptDisabled={
                 runtime.status === "error" || workspace.status === "archived"
               }
-              promptError={workspaceCommandErrorExcept(
-                actions.commandError,
-                "review"
-              )}
+              promptError={actions.errorExcept("review")}
               promptPending={isPending("prompt")}
               questions={runtime.questions}
               queuedMessages={runtime.queuedMessages}
-              replyingPermissionId={pendingWorkspaceCommandTarget(
-                actions.pending,
-                "permissionReply"
-              )}
+              replyingPermissionId={actions.pendingTarget("permissionReply")}
               restartPending={isPending("restart")}
               runtimeLimits={runtime.limits}
               selectedModel={actions.selectedModel}
@@ -407,10 +390,7 @@ function WorkspaceScreen() {
         >
           <WorkspaceToolPane
             changeError={
-              workspaceCommandErrorMessage(
-                actions.commandError,
-                "checkpoint"
-              ) ?? workspaceCommandErrorMessage(actions.commandError, "accept")
+              actions.errorFor("checkpoint") ?? actions.errorFor("accept")
             }
             entries={entries}
             onAccept={action.onAccept}
@@ -439,15 +419,9 @@ function WorkspaceScreen() {
             currentReviewer={result.currentReviewer}
             acceptedCommit={workspace.acceptedCommit}
             canDeploy={dashboard.installation.canAdminister}
-            deployError={workspaceCommandErrorMessage(
-              actions.commandError,
-              "deploy"
-            )}
+            deployError={actions.errorFor("deploy")}
             deployments={deployments}
-            deployPending={pendingWorkspaceCommandTarget(
-              actions.pending,
-              "deploy"
-            )}
+            deployPending={actions.pendingTarget("deploy")}
             fileChanges={workingChanges}
             files={runtime.files}
             onAddReviewComment={action.onAddReviewComment}
@@ -459,10 +433,7 @@ function WorkspaceScreen() {
             patchRevision={`${forkHead}:${result.workingRevision}`}
             reviewPatchRevision={`${result.versionControl?.baseCommit}:${forkHead}`}
             review={result.review ?? undefined}
-            reviewError={workspaceCommandErrorMessage(
-              actions.commandError,
-              "review"
-            )}
+            reviewError={actions.errorFor("review")}
 
             reviewPending={isPending("review")}
           />

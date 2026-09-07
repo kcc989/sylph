@@ -56,13 +56,37 @@ Browser state defaults beside the shared env file, at `release-smoke-auth.json`,
 
 Failure traces, screenshots, video, and test evidence are under `test-results/release-smoke/<stage>`; the HTML report is under `playwright-report/release-smoke/<stage>`. These may contain credentials and application data. Keep them local. The runner retains the isolated stage for review and never destroys resources automatically.
 
-After explicit approval to remove that stage, use the stage and snapshot from its run record:
+Preview the smoke deployments recorded in the current worktree, then remove them after approval:
 
 ```sh
-bun alchemy destroy --env-file /absolute/path/to/deploy.env --stage smoke-EXACT-STAGE --yes
+bun run smoke:release:cleanup
+bun run smoke:release:cleanup -- --yes
 ```
 
-Then remove that run's local directory. Keep the shared credential file and GitHub browser state for future runs.
+To discover deployed smoke stages across registered Git worktrees and remote Alchemy state, including stages whose worktrees or local records are gone:
+
+```sh
+bun run smoke:release:cleanup -- --all
+bun run smoke:release:cleanup -- --all --yes
+```
+
+`--all` is scoped to the `Sylph` stack in the Cloudflare account from the saved smoke env file. It reads that Alchemy profile's cached state-store credentials and requires the account IDs to match. Discovery uses read-only HTTP requests; it does not bootstrap or upgrade the state store. It selects only validated `smoke-*` stages. If credentials are missing, stale, or rejected, discovery fails before any deletion.
+
+The preview lists each remote stage and its source worktree, or marks it as having no local snapshot. Matching local snapshots take priority; otherwise cleanup uses the shared smoke configuration. Records from other accounts are excluded, and conflicting snapshots stop cleanup. Remote state is authoritative: stale local records do not add undeployed stages to the list. A failed deployment that left remote state is included.
+
+All-account cleanup stores private snapshots, records, and logs under `.alchemy/smoke-cleanup/<account>/<stage>` in the current worktree. It leaves other worktrees untouched and checks that each destroyed stage disappears from remote state. Retry the same command after a failure; discovery selects stages still present. If a process is killed, verify it has stopped before removing its account-level and stage-level `cleanup.lock` directories.
+
+This covers resources tracked in Alchemy's remote stage state. Workers with no Alchemy state, and app Previews created outside that state, still require manual recovery. It does not search other accounts or unrelated Git repositories.
+
+To select one stage, add `--stage smoke-EXACT-STAGE` to either command. The default is a preview; only `--yes` runs Alchemy destroy. This removes the stage's Alchemy-managed resources and data. Stop active deployments and tests before cleanup.
+
+Local cleanup uses each run's saved configuration, including for incomplete deployments, and does not require the shared env file. Both modes work without browser login or provider credits. It records successful destruction, skips completed cleanup, and continues after individual Alchemy failures. Run it again to retry unfinished stages. Private output is saved as `destroy.log` beside each run record. Run records, snapshots, and test evidence remain available locally.
+
+Without `--all`, the scope is `.alchemy/smoke-runs` in the current worktree, including older records without branch metadata. New deployments record their branch and worktree for identification. Switching branches does not change which local records are selected. Run cleanup from each worktree before removing it; deployments with missing local records need manual recovery. This does not discover Workers created outside Alchemy's stage resources, such as app Previews.
+
+If a cleanup process is killed, check that it has stopped before removing that run's `cleanup.lock` directory and retrying. Keep the shared credential file and GitHub browser state for future runs.
+
+New smoke deployments set `forceDestroy` on the CheckBackups and CheckEvidence R2 buckets, so approved stage teardown can remove their objects. Other stages keep the default protection. Older deployments retain the bucket settings saved in Alchemy state; changing the source does not change those settings during destroy. If cleanup reports `BucketNotEmpty`, empty only the exact smoke-stage buckets named in that run's `destroy.log`, then retry cleanup. Do not redeploy a partially destroyed stage just to change its bucket settings.
 
 For manual recovery of an interrupted test, invoke Playwright directly with that run's environment and set `SYLPH_SMOKE_RESUME_CLAIMED=true`, `SYLPH_SMOKE_WORKSPACE_URL`, and optionally the exact `SYLPH_SMOKE_PROOF_MARKER`. This is recovery evidence, not a fresh-Installation test. The normal runner clears these flags so stale exports cannot skip the claim test.
 

@@ -6,7 +6,7 @@ import { workspaceThreadEntries } from "./workspace-thread-entries"
 describe("Workspace thread entries", () => {
   test("leaves a new ready Workspace conversation empty", () => {
     const entries = workspaceThreadEntries(
-      { files: ["README.md"], messages: [], status: "ready" },
+      { messages: [], status: "ready" },
       emptyWorkspaceLiveState(),
       [],
       () => undefined
@@ -18,7 +18,6 @@ describe("Workspace thread entries", () => {
   test("appends optimistic and unsnapshotted streaming entries", () => {
     const entries = workspaceThreadEntries(
       {
-        files: [],
         messages: [
           {
             id: "user-1",
@@ -49,7 +48,7 @@ describe("Workspace thread entries", () => {
 
 test("leaves a provisioning Workspace conversation empty", () => {
   const entries = workspaceThreadEntries(
-    { files: [], messages: [], status: "provisioning" },
+    { messages: [], status: "provisioning" },
     emptyWorkspaceLiveState(),
     [],
     () => undefined
@@ -60,7 +59,6 @@ test("leaves a provisioning Workspace conversation empty", () => {
 test("renders system check notices separately from user messages", () => {
   const entries = workspaceThreadEntries(
     {
-      files: [],
       status: "ready",
       messages: [
         {

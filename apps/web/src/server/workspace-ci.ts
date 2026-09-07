@@ -20,16 +20,11 @@ import {
   WorkspaceCheckRun,
   WorkspaceCheckStageName,
   WorkspaceCheckUpdate,
-  WorkspaceDependencyRepair,
 } from "@workspace/domain"
 import { Schema } from "effect"
 import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers"
 import type { CiBindings } from "@cloudflare/ci/worker"
 import { checkStage, newCheckRun } from "./workspace-checks"
-import {
-  dependencyRepairCommand,
-  readDependencyRepairOutput,
-} from "./dependency-repair"
 import type { WorkspaceDO } from "./workspace-do"
 import { previewRetention } from "./preview-lifecycle"
 import type { ProjectResourcePlan } from "@workspace/domain/project-resources"
@@ -149,32 +144,9 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
     let resourcePlan: ProjectResourcePlan = []
     try {
       if (input.kind === "dependencies") {
-        const installation = await this.#runner(step, ci, run, "install", {
-          name: "install",
-          command: dependencyRepairCommand,
-          config: verificationRunnerConfig,
-        })
-        run = installation.run
-        const output = readDependencyRepairOutput(installation.logs.stdout)
-        await step.do("save-generated-lockfile", async () => {
-          const workspace = this.env.WORKSPACES.get(
-            this.env.WORKSPACES.idFromName(input.workspaceId)
-          )
-          await workspace.applyDependencyRepair(
-            Schema.encodeSync(WorkspaceDependencyRepair)(
-              new WorkspaceDependencyRepair({
-                runId: run.id,
-                commit: run.commit,
-                output,
-              })
-            )
-          )
-          return { saved: true }
-        })
-        await this.#publish(step, "run-passed", run, {
-          status: "passed",
-        })
-        return
+        throw new Error(
+          "Dependency repair jobs are retired. Run bun install with the native shell tool, then run workspace_run_checks."
+        )
       }
       const projectSlug = await step.do("read-project-slug", () =>
         readProjectSlug(this.env.DB, input.projectId)

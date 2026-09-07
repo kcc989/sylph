@@ -97,8 +97,3 @@ export const checkCompletion = (
     resume,
   })
 }
-
-export const productionNotification = (run: WorkspaceCheckRun) =>
-  run.status === "passed"
-    ? `Sylph production Deployment ${run.id} succeeded for Accepted commit ${run.commit.slice(0, 7)}.`
-    : `Sylph production Deployment ${run.id} failed for Accepted commit ${run.commit.slice(0, 7)}.\n\n${checkDiagnosticsText(run)}`

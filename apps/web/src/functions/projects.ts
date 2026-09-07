@@ -9,7 +9,6 @@ import {
   PreconditionFailed,
   ProviderConnectionRequired,
   productionDeployConfirmed,
-  PrepareProjectRepositoryInput,
   ProjectId,
   type ProjectSource,
   WorkspaceId,
@@ -481,22 +480,19 @@ const createProjectRepository = async (input: {
       defaultBranch: sourceBranch ?? "main",
     })
   )
-  const head = await prepareProjectRepository(
-    env.REPOS,
-    new PrepareProjectRepositoryInput({
-      repositoryName: artifact.name,
-      repositoryRemote: artifact.remote,
-      defaultRef: artifact.defaultBranch,
-      projectName: input.projectName,
-      source: sourceRepositoryUrl
-        ? {
-            remote: `${sourceRepositoryUrl}.git`,
-            ref: sourceBranch ?? artifact.defaultBranch,
-            accessToken: sourceAccessToken,
-          }
-        : undefined,
-    })
-  )
+  const head = await prepareProjectRepository(repositories, {
+    repositoryName: artifact.name,
+    repositoryRemote: artifact.remote,
+    defaultRef: artifact.defaultBranch,
+    projectName: input.projectName,
+    source: sourceRepositoryUrl
+      ? {
+          remote: `${sourceRepositoryUrl}.git`,
+          ref: sourceBranch ?? artifact.defaultBranch,
+          accessToken: sourceAccessToken,
+        }
+      : undefined,
+  })
   const connected = source.kind === "github" && source.mode === "connected"
   return {
     artifact,

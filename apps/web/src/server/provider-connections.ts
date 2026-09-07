@@ -191,10 +191,6 @@ export const effectiveConnection = async (
     : null
 }
 
-export type EffectiveConnection = NonNullable<
-  Awaited<ReturnType<typeof effectiveConnection>>
->
-
 export const connectionCredential = async (connection: {
   authMethod: string
   encryptedCredential: string

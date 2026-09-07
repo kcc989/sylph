@@ -1,6 +1,5 @@
 import { schema } from "@workspace/db"
 import {
-  SyncProjectRepositoryInput,
   ProjectSynchronizationInput,
   ProjectId,
   type SyncProjectRepositoryResult,
@@ -15,6 +14,7 @@ import {
 } from "@/server/github-repository-service"
 import type { Database } from "@/server/organization-access"
 import { syncProjectRepository } from "@/server/project-repository-git"
+import { repositoryStore } from "@/server/repositories"
 
 export const githubUserAccessToken = async (
   database: Database,
@@ -92,16 +92,16 @@ export const synchronizeProjectRepositoryDirect = async (
 ) => {
   if (!project.sourceUrl) return null
   const accessToken = await githubUserAccessToken(database, userId)
-  const input = new SyncProjectRepositoryInput({
+  const input = {
     repositoryName: project.repositoryName,
     repositoryRemote: project.repositoryRemote,
     defaultRef: project.defaultRef,
     sourceRemote: `${project.sourceUrl}.git`,
     sourceRef: project.sourceRef ?? project.defaultRef,
     sourceAccessToken: accessToken,
-  })
+  }
   const result = await syncProjectRepository(
-    env.REPOS,
+    repositoryStore(),
     input,
     undefined,
     previous
@@ -136,7 +136,6 @@ const encodeSynchronizationInput = Schema.encodeSync(
 )
 
 export const synchronizeProjectRepository = (
-  _database: Database,
   userId: string,
   project: Parameters<typeof synchronizeProjectRepositoryDirect>[2]
 ) => {

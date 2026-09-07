@@ -256,7 +256,15 @@ test("answered permissions do not reappear from snapshots or replay", async () =
   const initial = snapshot()
   initial.runtime = { ...initial.runtime, permissions: [permission] }
   const { sync, sockets } = setup(initial)
-  expect(sync.getSnapshot().permissionRequests).toHaveLength(1)
+  expect(sync.getSnapshot().permissionRequests).toEqual([
+    {
+      id: permission.id,
+      action: permission.action,
+      resources: permission.resources,
+      message: undefined,
+      canSave: true,
+    },
+  ])
   await sockets[0].options.onEvent(
     new WorkspaceRuntimeEvent({
       id: "reply",

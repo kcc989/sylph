@@ -16,7 +16,6 @@ export * from "./workspace-files"
 export * from "./skills"
 
 export * from "./acceptance"
-export * from "./dependency-repair"
 export * from "./instance-model-policy"
 export * from "./workspace-command"
 
