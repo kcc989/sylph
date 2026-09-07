@@ -1,5 +1,6 @@
 import {
   WorkspaceBrowserToolOutput,
+  WorkspaceBrowserToolInput,
   WorkspaceCheckRun,
   WorkspaceCheckRunList,
   WorkspaceDiffResult,
@@ -18,6 +19,9 @@ const decodeWorkspaceDiff = Schema.decodeUnknownOption(
 )
 const decodeWorkspaceBrowserOutput = Schema.decodeUnknownOption(
   Schema.fromJsonString(WorkspaceBrowserToolOutput)
+)
+const decodeWorkspaceBrowserInput = Schema.decodeUnknownOption(
+  WorkspaceBrowserToolInput
 )
 const decodeWorkspaceCheckRun = Schema.decodeUnknownOption(
   Schema.fromJsonString(WorkspaceCheckRun)
@@ -46,7 +50,7 @@ const browserDetail = (output: string): ToolCallDetail | undefined => {
   const header = lineEnd === -1 ? output : output.slice(0, lineEnd)
   const decoded = decodeWorkspaceBrowserOutput(header)
   if (Option.isNone(decoded)) return undefined
-  return {
+  const detail: Extract<ToolCallDetail, { kind: "browser" }> = {
     kind: "browser",
     url: decoded.value.url,
     evidence: decoded.value.evidence.map((item) => ({
@@ -58,6 +62,32 @@ const browserDetail = (output: string): ToolCallDetail | undefined => {
     markdown: lineEnd === -1 ? "" : output.slice(lineEnd + 1),
     accessibility: decoded.value.accessibility,
   }
+  if (decoded.value.detail) detail.result = decoded.value.detail
+  if (decoded.value.outcome === "failed")
+    detail.failure = decoded.value.detail ?? "Browser action failed"
+  return detail
+}
+
+const browserLabel = (input: WorkspaceMessageToolPart["input"]) => {
+  const decoded = decodeWorkspaceBrowserInput(input)
+  if (Option.isNone(decoded) || !decoded.value.action) return undefined
+  const action = decoded.value.action
+  const labels = {
+    start: "Started browser session",
+    observe: "Observed browser",
+    navigate: "Navigated Preview",
+    reload: "Reloaded browser",
+    close: "Closed browser session",
+    click: "Clicked",
+    fill: "Filled",
+    select: "Selected",
+    press: "Pressed key",
+    scroll: "Scrolled browser",
+    wait: "Waited for",
+    assert: "Checked browser assertion",
+  }
+  const target = "selector" in action ? action.selector : undefined
+  return target ? `${labels[action.type]} ${target}` : labels[action.type]
 }
 
 const checksDetail = (output: string): ToolCallDetail | undefined => {
@@ -111,5 +141,13 @@ export const toolCallEntry = (
     error: part.error,
   }
   if (detail) entry.detail = detail
+  if (part.name === "workspace_browser") {
+    const label = browserLabel(part.input)
+    if (label) entry.label = label
+    if (detail?.kind === "browser" && detail.failure) {
+      entry.status = "error"
+      entry.error = detail.failure
+    }
+  }
   return entry
 }

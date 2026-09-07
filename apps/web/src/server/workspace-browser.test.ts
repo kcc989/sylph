@@ -61,19 +61,21 @@ describe("Agent browser", () => {
     ).toThrow("limited to the Preview")
   })
 
-  test("prefers the current Checkpoint Preview and falls back to the latest", () => {
+  test("requires the current Checkpoint Preview without falling back", () => {
     const current = run({ id: "check-b", commit: commitB, previewUrl: null })
     const previous = run({
       id: "check-a",
       commit: commitA,
       previewUrl: "https://a.example.workers.dev",
     })
-    expect(previewForBrowser([current, previous], commitB)).toEqual({
-      run: previous,
-      previewUrl: "https://a.example.workers.dev",
-    })
+    expect(() => previewForBrowser([current, previous], commitB)).toThrow(
+      "No Preview exists for the current Checkpoint"
+    )
     expect(() => previewForBrowser([current], commitB)).toThrow(
-      "No Preview exists yet"
+      "No Preview exists for the current Checkpoint"
+    )
+    expect(previewForBrowser([current, previous], commitA).run).toEqual(
+      previous
     )
   })
 
@@ -87,5 +89,17 @@ describe("Agent browser", () => {
     expect(evidenceUrl("workspace 1", "shot/1")).toBe(
       "/api/workspaces/workspace%201/evidence/shot%2F1"
     )
+  })
+
+  test("waits for the Check to finish before attaching agent evidence", () => {
+    const pending = new WorkspaceCheckRun({
+      ...run({
+        id: "check-a",
+        commit: commitA,
+        previewUrl: "https://a.example.workers.dev",
+      }),
+      status: "running",
+    })
+    expect(() => previewForBrowser([pending], commitA)).toThrow("still running")
   })
 })

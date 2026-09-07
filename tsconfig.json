@@ -15,6 +15,7 @@
     "alchemy.run.ts",
     "oxlint.config.ts",
     "apps/web/src/env.d.ts",
-    "tools/runtime-smoke/*.test.ts"
+    "tools/runtime-smoke/*.test.ts",
+    "tools/browser-smoke/*.ts"
   ]
 }
