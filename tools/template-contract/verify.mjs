@@ -1,4 +1,5 @@
 import { Schema } from "effect"
+import { readResourcePlan } from "../../apps/web/src/server/project-resources.ts"
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { spawnSync } from "node:child_process"
@@ -50,33 +51,9 @@ export const verifyTemplateContract = (directory) => {
   })
   if (planned.status !== 0)
     throw new Error(`Credential-free planning failed: ${planned.stderr}`)
-  const receipts = planned.stdout
-    .split(/\r?\n/)
-    .filter((line) => line.startsWith("SYLPH_RESOURCE_PLAN="))
-  if (receipts.length !== 1)
-    throw new Error("Planning must emit exactly one resource plan")
-  const plan = JSON.parse(receipts[0].slice("SYLPH_RESOURCE_PLAN=".length))
-  if (
-    !Array.isArray(plan) ||
-    plan.length === 0 ||
-    plan.length > 20 ||
-    plan.filter((resource) => resource.kind === "worker").length !== 1
-  )
-    throw new Error(
-      "Template plan must declare one Worker and at most twenty resources"
-    )
-  const names = new Set()
-  for (const resource of plan) {
-    if (
-      !["worker", "d1", "kv", "r2", "queue"].includes(resource.kind) ||
-      !Schema.is(Schema.String)(resource.name) ||
-      !resource.name.startsWith(`${prefix}-`) ||
-      !/^[a-z0-9-]{1,63}$/.test(resource.name) ||
-      names.has(resource.name)
-    )
-      throw new Error("Template resource plan violates the reserved namespace")
-    names.add(resource.name)
-  }
+  const plan = readResourcePlan(planned.stdout, prefix)
+  if (plan.some((resource) => resource.adopted))
+    throw new Error("A new starter cannot adopt existing account resources")
   for (const script of requiredTemplateScripts.filter((name) =>
     name.startsWith("sylph:release:")
   )) {

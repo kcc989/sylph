@@ -58,9 +58,7 @@ test("runs planning and rejects hooks that report success without release identi
       join(directory, "plan.mjs"),
       'console.log("SYLPH_RESOURCE_PLAN=" + JSON.stringify([{kind:"worker",name:"unreserved"}]))'
     )
-    expect(() => verifyTemplateContract(directory)).toThrow(
-      "reserved namespace"
-    )
+    expect(() => verifyTemplateContract(directory)).toThrow("reserved prefix")
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }

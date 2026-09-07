@@ -48,7 +48,7 @@ test("resource lifecycle migration preserves claims and permits reviewed retirem
   `)
   database.exec(
     readFileSync(
-      new URL("../migrations/0002_resource_lifecycle.sql", import.meta.url),
+      new URL("../migrations/0003_resource_lifecycle.sql", import.meta.url),
       "utf8"
     )
   )

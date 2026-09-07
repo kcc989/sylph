@@ -55,7 +55,7 @@ const setup = async (scope = "preview:check:1") => {
   sqlite.exec(
     await Bun.file(
       new URL(
-        "../../../../packages/db/migrations/0002_resource_lifecycle.sql",
+        "../../../../packages/db/migrations/0003_resource_lifecycle.sql",
         import.meta.url
       )
     ).text()
