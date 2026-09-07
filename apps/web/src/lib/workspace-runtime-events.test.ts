@@ -77,6 +77,11 @@ describe("applyWorkspaceRuntimeEvent", () => {
 
   test("refreshes durable inbox and question changes", () => {
     for (const type of [
+      "session.execution.started",
+      "session.execution.succeeded",
+      "session.execution.failed",
+      "session.execution.interrupted",
+      "session.idle",
       "session.inbox.enqueued",
       "session.inbox.delivered",
       "session.inbox.cancelled",

@@ -1,3 +1,5 @@
+import { reserveSmokeRequest } from "./workspace-smoke-budget"
+import type { Sandbox } from "@cloudflare/sandbox"
 import type { CodexContainer } from "./codex-container"
 import {
   findWorkspaceModel,
@@ -42,18 +44,14 @@ import {
   WorkspaceSyncResult,
   WorkspaceTurnCancelInput,
   WorkspaceVersionControlSnapshot,
-  GitCommitId,
   ProjectId,
   WorkspaceArchiveInput,
   WorkspaceCheckEvidence,
   WorkspaceCheckRun,
   type WorkspaceCiInput,
-  type WorkspaceDiffScope,
   WorkspaceId,
   resolveSkillInvocation,
   WorkspacePreviewResult,
-  WorkspaceProductionDeployment,
-  WorkspaceProductionStatus,
   InvalidRequest,
   isServerFailure,
   PreconditionFailed,
@@ -93,7 +91,6 @@ import {
   providerFailureDetail,
 } from "./workspace-error-summary"
 import {
-  createWorkspacePermissionBridge,
   createWorkspacePlugin,
   workspaceMutationPermissions,
 } from "./workspace-plugin"
@@ -145,11 +142,6 @@ import {
   evidenceUrl,
   previewForBrowser,
 } from "./workspace-browser"
-import { workspaceDiff } from "./workspace-diff"
-import {
-  reviewDecisionFromRow,
-  workspaceMergeRequest,
-} from "./workspace-merge-request"
 
 const decodeInitializeWorkspaceRuntime = Schema.decodeUnknownPromise(
   InitializeWorkspaceRuntime
@@ -226,6 +218,7 @@ const encodeWorkspaceVersionControlSnapshotSync = Schema.encodeSync(
 const encodeWorkspaceFileContentSync = Schema.encodeSync(WorkspaceFileContent)
 const workerdModelConfiguration = {
   default_agent: "build",
+  experimental: { portable_shell_scanner: true },
   compaction: { auto: true, keep: { tokens: 8_000 }, buffer: 8_192 },
   permissions: workspaceMutationPermissions,
 }
@@ -306,6 +299,8 @@ const subscriptionProviderId = "openai"
 const subscriptionMethodId = "chatgpt-headless"
 
 interface WorkspaceBindings extends Cloudflare.Env {
+  SYLPH_SMOKE_GROK_BUDGET?: string
+  SANDBOX: DurableObjectNamespace<Sandbox>
   CODEX: DurableObjectNamespace<CodexContainer>
   CURSOR: DurableObjectNamespace<CursorConnectionObject>
   BROWSER: BrowserRun
@@ -327,27 +322,12 @@ const encodeRepairResult = Schema.encodeSync(WorkspaceRepairResult)
 const encodeTurnCancelResult = Schema.encodeSync(WorkspaceTurnCancelResult)
 const encodeSkillReloadResult = Schema.encodeSync(WorkspaceSkillReloadResult)
 
-type ReviewStateRow = {
-  decision: string | null
-  unresolved: number
-}
-type WorkspaceStatusRow = { status: string }
-type AcceptedCommitRow = { commit: string }
-type DeploymentRow = {
-  id: string
-  commit: string
-  status: string
-  productionUrl: string | null
-  createdAt: number
-}
-
 export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   readonly #database
   readonly #opencode: Promise<OpenCodeWorkerd.Interface>
   readonly #filesystem
   readonly #workspaceGit
   readonly #checks
-  readonly #permissionBridge = createWorkspacePermissionBridge()
   readonly #skills = createWorkspaceSkillRegistry()
   readonly #openAIOAuth: OpenAIOAuthRequestState = {
     active: false,
@@ -379,6 +359,19 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       const { workspaceSearchLayer } = await import("./workspace-search")
       const { workspaceEnvironmentLayer } =
         await import("./workspace-environment")
+      const { Workspace } = await import("@opencode-ai/core/workspace")
+      const { WorkspaceDriver } =
+        await import("@opencode-ai/core/workspace/driver")
+      const { workspaceShellSelection } =
+        await import("./workspace-shell-selection")
+      const { workspaceSandboxProvider } = await import("./workspace-sandbox")
+      const sandbox = workspaceSandboxProvider(
+        bindings.SANDBOX,
+        context.storage,
+        this.#filesystem,
+        () => this.#assertWritable(),
+        `agent-${context.id.toString().slice(0, 56)}`
+      )
       const opencode = await createOpenCodeWithStorageBootstrap(
         context.storage,
         () =>
@@ -394,23 +387,33 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
                 emit: ({ message, cause }) =>
                   console.error("OpenCode runtime error", message, cause),
               },
-              config: workerdModelConfiguration,
+              config:
+                bindings.SYLPH_SMOKE_GROK_BUDGET === "true"
+                  ? {
+                      ...workerdModelConfiguration,
+                      agents: {
+                        title: { model: "openrouter/x-ai/grok-4.6" },
+                        compaction: { model: "openrouter/x-ai/grok-4.6" },
+                      },
+                    }
+                  : workerdModelConfiguration,
               plugins: [
                 this.#cursor.plugin,
                 createWorkspacePlugin(
-                  this.#filesystem,
                   this.#workspaceGit,
                   this.#openAIOAuth,
-                  this.#permissionBridge,
                   this.#skills,
                   {
                     codexRequest: (request) =>
                       this.env.CODEX.get(
                         this.env.CODEX.idFromName(this.ctx.id.toString())
                       ).fetch(request),
+                    authorizeModelRequest:
+                      bindings.SYLPH_SMOKE_GROK_BUDGET === "true"
+                        ? (request) =>
+                            reserveSmokeRequest(request, context.storage)
+                        : undefined,
                     assertWritable: () => this.#assertWritable(),
-                    installDependencies: async () =>
-                      this.#installDependencies(),
                     runChecks: async (input) => {
                       try {
                         const state = this.#requiredState()
@@ -446,10 +449,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
                     syncProject: async () => this.#syncProjectAndCheck(),
                     checkpoint: async (input) =>
                       this.#agentCheckpoint(input.message),
-                    diff: async (scope) => this.#diff(scope),
-                    requestMerge: async () => this.#requestMerge(),
                     preview: async () => this.#preview(),
-                    production: async () => this.#production(),
                     browser: async (input) => this.#browser(input),
                   }
                 ),
@@ -457,31 +457,24 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
             },
             {
               overrides: [
+                workspaceShellSelection,
+                [WorkspaceDriver.node, sandbox.registry],
                 [Ripgrep.node, workspaceSearchLayer(this.#filesystem)],
                 [
                   Environment.node,
-                  workspaceEnvironmentLayer(this.#filesystem, () =>
-                    this.#assertWritable()
-                  ),
+                  {
+                    ...Environment.node,
+                    dependencies: [Workspace.node],
+                    implementation: workspaceEnvironmentLayer(
+                      this.#filesystem,
+                      () => this.#assertWritable(),
+                      sandbox.spawner
+                    ),
+                  },
                 ],
               ],
             }
           )
-      )
-
-      this.#permissionBridge.connect(async (request) =>
-        opencode.permission.create({
-          sessionID: request.sessionID,
-          action: request.action,
-          resources: [request.path],
-          save: [request.path],
-          source: {
-            type: "tool",
-            messageID: request.messageID,
-            id: request.toolCallID,
-          },
-          agent: request.agent,
-        })
       )
 
       this.#filesystem.initialize()
@@ -1100,11 +1093,6 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         sessionID: sessionId,
       })
       const delivery = data.delivery ?? (turnActive ? "queue" : undefined)
-      if (!turnActive && data.delivery === "steer") {
-        throw new PreconditionFailed({
-          message: "There is no active Turn to steer",
-        })
-      }
       if (
         turnActive &&
         (state.providerId !== data.model.providerId ||
@@ -1265,7 +1253,6 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         reply: data.reply,
         message: data.message,
       })
-      this.#permissionBridge.reply(data.requestId, data.reply)
     })
   }
 
@@ -1513,35 +1500,6 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       : { started: false, reason: readOnlyMessage }
   }
 
-  async #diff(scope: WorkspaceDiffScope) {
-    return workspaceDiff(await this.#workspaceGit.versionControl(), scope)
-  }
-
-  async #requestMerge() {
-    const opencode = await this.#opencode
-    const state = this.#requiredState()
-    const versionControl = await this.#workspaceGit.versionControl(true)
-    const [statusRow, reviewRow, active] = await Promise.all([
-      this.env.DB.prepare("SELECT status FROM workspace WHERE id = ?")
-        .bind(state.workspaceId)
-        .first<WorkspaceStatusRow>(),
-      this.env.DB.prepare(
-        'SELECT review.decision AS decision, (SELECT COUNT(*) FROM workspace_review_comment comment WHERE comment.review_id = review.id AND comment.resolved_at IS NULL) AS unresolved FROM workspace_review review WHERE review.workspace_id = ? AND review."commit" = ?'
-      )
-        .bind(state.workspaceId, versionControl.forkHead)
-        .first<ReviewStateRow>(),
-      opencode.sessions.active(),
-    ])
-    return workspaceMergeRequest({
-      versionControl,
-      checks: this.#checks.list(),
-      workspaceStatus: statusRow?.status ?? "ready",
-      reviewDecision: reviewDecisionFromRow(reviewRow?.decision),
-      unresolvedComments: reviewRow?.unresolved ?? 0,
-      turnActive: Boolean(state.sessionId && active[state.sessionId]),
-    })
-  }
-
   async #preview() {
     const state = this.#requiredState()
     const versionControl = await this.#workspaceGit.versionControl()
@@ -1626,39 +1584,6 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       evidence: [],
       detail:
         "Started the Check for the current Checkpoint. Sylph will deliver the Preview URL to this Conversation when it is ready.",
-    })
-  }
-
-  async #production() {
-    const state = this.#requiredState()
-    const [accepted, deployments] = await Promise.all([
-      this.env.DB.prepare(
-        'SELECT accepted_commit AS "commit" FROM workspace WHERE project_id = ? AND accepted_commit IS NOT NULL ORDER BY archived_at DESC'
-      )
-        .bind(state.projectId)
-        .all<AcceptedCommitRow>(),
-      this.env.DB.prepare(
-        'SELECT id, "commit", status, production_url AS productionUrl, created_at AS createdAt FROM deployment WHERE project_id = ? ORDER BY created_at DESC LIMIT 10'
-      )
-        .bind(state.projectId)
-        .all<DeploymentRow>(),
-    ])
-    return new WorkspaceProductionStatus({
-      acceptedCommits: [
-        ...new Set(accepted.results.map((row) => row.commit)),
-      ].map((commit) => GitCommitId.make(commit)),
-      deployments: deployments.results.map(
-        (row) =>
-          new WorkspaceProductionDeployment({
-            id: row.id,
-            commit: GitCommitId.make(row.commit),
-            status: row.status,
-            productionUrl: row.productionUrl,
-            createdAt: row.createdAt * 1000,
-          })
-      ),
-      instructions:
-        "Production deploys and rollbacks require an Admin to confirm the exact Accepted commit in the Deployments tab or Project settings. Ask the user to deploy; the agent cannot.",
     })
   }
 
@@ -1756,46 +1681,6 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       kind: "checkpoint",
       attempt: 1,
       repairOnFailure,
-      createdAt: Date.now(),
-    })
-    this.#checks.create(run)
-    await this.#startWorkflow(run)
-    return run
-  }
-
-  async #installDependencies() {
-    this.#assertWritable()
-    const active = this.#checks
-      .list()
-      .find(
-        (run) =>
-          run.kind === "dependencies" &&
-          (run.status === "queued" || run.status === "running")
-      )
-    if (active) {
-      await this.#startWorkflow(active)
-      return active
-    }
-    const version = await this.#workspaceGit.versionControl()
-    const checkpoint = version.working.length
-      ? (await this.#agentCheckpoint("Prepare dependency installation"))
-          .checkpoint
-      : this.#workspaceGit
-          .checkpoints()
-          .find((item) => item.commit === version.forkHead)
-    if (!checkpoint)
-      throw new InvalidRequest({
-        message:
-          "Create a package.json and Checkpoint before installing dependencies",
-      })
-    const run = newCheckRun({
-      id: `dependencies-${crypto.randomUUID()}`,
-      workspaceId: this.#requiredState().workspaceId,
-      checkpointId: checkpoint.id,
-      commit: checkpoint.commit,
-      kind: "dependencies",
-      attempt: 1,
-      repairOnFailure: false,
       createdAt: Date.now(),
     })
     this.#checks.create(run)

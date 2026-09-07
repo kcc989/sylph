@@ -192,9 +192,11 @@ function ThreadEntryRow({
 
 function ToolCallGroup({
   entries,
+  summary,
   onInspect,
 }: {
   entries: ReadonlyArray<ThreadEntry>
+  summary: string
   onInspect?: (id: string) => void
 }) {
   return (
@@ -204,13 +206,13 @@ function ToolCallGroup({
     >
       <Collapsible>
         <CollapsibleTrigger
-          aria-label={`Toggle ${entries.length} tool calls`}
+          aria-label={`Toggle ${entries.length} tool calls: ${summary}`}
           className="group flex min-h-8 w-full items-center gap-2 py-1 text-start focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
           type="button"
         >
           <Files className="size-3.5 shrink-0 text-foreground/65" />
           <span className="min-w-0 flex-1 text-[13px] text-foreground/80">
-            {entries.length} tool calls
+            {summary}
           </span>
           <ChevronRight className="size-3.5 shrink-0 text-muted-foreground transition-transform group-data-panel-open:rotate-90 motion-reduce:transition-none" />
         </CollapsibleTrigger>
@@ -340,6 +342,7 @@ export function AgentThread({
                   <ToolCallGroup
                     onInspect={onInspectActivity}
                     entries={entry.entries}
+                    summary={entry.summary}
                     key={entry.id}
                   />
                 ) : (

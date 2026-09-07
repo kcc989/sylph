@@ -94,21 +94,24 @@ export const useWorkspaceData = (initial: WorkspaceResult) => {
   useEffect(() => {
     if (
       result.workspace.status !== "provisioning" &&
-      result.workspace.status !== "merging"
+      result.workspace.status !== "merging" &&
+      result.runtime.status !== "running"
     )
       return
     let stopped = false
     let timer: ReturnType<typeof setTimeout>
     const poll = async () => {
-      await refresh("workspace")
-      if (!stopped) timer = setTimeout(poll, 1000)
+      await refresh(
+        result.runtime.status === "running" ? "runtime" : "workspace"
+      )
+      if (!stopped) timer = setTimeout(poll, 2000)
     }
     timer = setTimeout(poll, 1000)
     return () => {
       stopped = true
       clearTimeout(timer)
     }
-  }, [refresh, result.workspace.status])
+  }, [refresh, result.workspace.status, result.runtime.status])
 
   const current = result.workspace.id === workspaceId ? result : initial
   const currentModel = current.models.find(

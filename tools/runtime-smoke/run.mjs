@@ -39,6 +39,10 @@ let miniflare
 let nativeMode = false
 let nativeCallIndex = 0
 const nativeCalls = [
+  {
+    name: "shell",
+    arguments: { command: "printf SYLPH_NATIVE_SHELL", workdir: "/workspace" },
+  },
   { name: "glob", arguments: { pattern: "*.txt", path: "/workspace" } },
   { name: "grep", arguments: { pattern: "before", path: "/workspace" } },
   { name: "read", arguments: { path: "/workspace/native.txt" } },
@@ -237,6 +241,13 @@ try {
   for (const tool of nativeTools) {
     assert.equal(tool.state.status, "completed", JSON.stringify(tool))
   }
+  assert.ok(
+    JSON.stringify(
+      nativeTools.find(
+        (tool) => tool.name === "shell" || tool.tool === "shell"
+      ) ?? nativeTools[0]
+    ).includes("SYLPH_NATIVE_SHELL")
+  )
   assert.deepEqual(await read("native-state"), {
     files: ["native.txt"],
     content: "edited\n",
@@ -310,6 +321,7 @@ try {
         initialPluginsPresent: true,
         recoveredPluginsPresent: true,
         nativeFileTools: true,
+        nativeShellThroughWorkspaceProvider: true,
         nativeSearchTools: true,
         nativeFilesSurviveRestart: true,
         nativeCacheConfiguration: true,

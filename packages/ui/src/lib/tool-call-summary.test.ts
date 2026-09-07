@@ -47,46 +47,92 @@ describe("toolCallLabel", () => {
 })
 
 describe("groupToolCalls", () => {
-  const tool = (id: string, status: "running" | "completed" | "error") => ({
+  const tool = (
+    id: string,
+    name = "read",
+    status: "running" | "completed" | "error" = "completed"
+  ) => ({
     id,
     kind: "tool",
-    tool: { status },
+    tool: { name, input: { path: "src/app.tsx" }, status },
   })
 
-  test("folds runs longer than five", () => {
-    const entries = Array.from({ length: 6 }, (_, index) =>
-      tool(`tool-${index}`, "completed")
-    )
-    const grouped = groupToolCalls(entries)
-
-    expect(grouped).toHaveLength(1)
-    expect(grouped[0]).toMatchObject({ kind: "tool-group" })
-    expect("entries" in grouped[0] ? grouped[0].entries : []).toHaveLength(6)
-  })
-
-  test("keeps short runs and active tools visible", () => {
+  test("summarizes related calls without losing their order or payloads", () => {
     const entries = [
-      ...Array.from({ length: 5 }, (_, index) =>
-        tool(`tool-${index}`, "completed")
-      ),
-      tool("active", "running"),
-      tool("done", "completed"),
+      tool("1"),
+      tool("2", "grep"),
+      tool("3", "write"),
+      tool("4", "edit"),
+      tool("5", "shell"),
+      tool("6", "shell"),
     ]
+    expect(groupToolCalls(entries)).toEqual([
+      {
+        id: "tool-group:1",
+        kind: "tool-group",
+        summary: "Inspected workspace · 1 read, 1 search",
+        entries: entries.slice(0, 2),
+      },
+      {
+        id: "tool-group:3",
+        kind: "tool-group",
+        summary: "Made 2 file changes",
+        entries: entries.slice(2, 4),
+      },
+      {
+        id: "tool-group:5",
+        kind: "tool-group",
+        summary: "Ran 2 commands",
+        entries: entries.slice(4, 6),
+      },
+    ])
+  })
 
+  test("keeps failures, running calls, and distinct actions visible", () => {
+    const entries = [
+      tool("1"),
+      tool("2", "read", "error"),
+      tool("3", "read", "running"),
+      tool("4", "write"),
+      tool("5", "shell"),
+      tool("6", "workspace_checkpoint"),
+      tool("7", "workspace_checkpoint"),
+    ]
     expect(groupToolCalls(entries)).toEqual(entries)
   })
 
-  test("does not group across text entries", () => {
+  test("preserves text boundaries and group identity as calls complete", () => {
     const entries = [
-      ...Array.from({ length: 4 }, (_, index) =>
-        tool(`before-${index}`, "completed")
-      ),
+      tool("1"),
+      tool("2"),
       { id: "text", kind: "agent" },
-      ...Array.from({ length: 4 }, (_, index) =>
-        tool(`after-${index}`, "completed")
-      ),
+      tool("3"),
+      tool("4"),
     ]
+    const groups = groupToolCalls(entries)
+    expect(groups).toHaveLength(3)
+    expect(groups[1]).toEqual(entries[2])
+    expect(groups[0]?.id).toBe(
+      groupToolCalls([tool("1"), tool("2"), tool("3")])[0]?.id
+    )
+  })
 
-    expect(groupToolCalls(entries)).toEqual(entries)
+  test("counts repeated reads as reads, not unique files", () => {
+    expect(groupToolCalls([tool("1"), tool("2")])[0]).toMatchObject({
+      summary: "Inspected files · 2 reads",
+    })
+  })
+
+  test("names native calls in expanded details", () => {
+    expect(
+      toolCallLabel({ name: "read", input: { filePath: "src/app.tsx" } })
+    ).toBe("Read src/app.tsx")
+    expect(
+      toolCallLabel({ name: "write", input: { path: "src/app.tsx" } })
+    ).toBe("Wrote src/app.tsx")
+    expect(
+      toolCallLabel({ name: "edit", input: { path: "src/app.tsx" } })
+    ).toBe("Edited src/app.tsx")
+    expect(toolCallLabel({ name: "shell", input: {} })).toBe("Ran command")
   })
 })

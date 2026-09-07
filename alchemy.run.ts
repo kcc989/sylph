@@ -93,6 +93,9 @@ export class Website extends Cloudflare.Website.Vite<Website>()(
       env: {
         BETTER_AUTH_SECRET: Config.redacted("BETTER_AUTH_SECRET"),
         DB: Database,
+        SYLPH_SMOKE_GROK_BUDGET: Config.string("SYLPH_SMOKE_GROK_BUDGET").pipe(
+          Config.withDefault("false")
+        ),
         CREDENTIAL_ENCRYPTION_KEY: Config.redacted("CREDENTIAL_ENCRYPTION_KEY"),
         INSTALLATION_CLAIM_SECRET: Config.redacted("INSTALLATION_CLAIM_SECRET"),
         ALLOW_TEST_MAGIC_LINKS: Config.string("ALLOW_TEST_MAGIC_LINKS").pipe(

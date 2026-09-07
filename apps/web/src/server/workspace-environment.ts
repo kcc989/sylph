@@ -13,9 +13,14 @@ const readFailure = (path: string, cause: unknown) =>
     ? new Environment.NotFound({ path })
     : new Environment.Failed({ path, cause })
 
-export const workspaceEnvironmentLayer = (
+export const workspaceEnvironmentLayer = <R = never>(
   filesystem: WorkspaceFilesystem,
-  assertWritable: () => void
+  assertWritable: () => void,
+  spawner: Effect.Effect<
+    Environment.Interface["spawner"],
+    never,
+    R
+  > = Effect.succeed(EnvironmentUnavailable.spawner)
 ) => {
   const assertMutation = (path: string) => {
     assertWritable()
@@ -157,8 +162,13 @@ export const workspaceEnvironmentLayer = (
     )
   )
 
-  return Layer.succeed(Environment.Service, {
-    files: { read, write, stat, list, remove, move, mkdir },
-    spawner: EnvironmentUnavailable.spawner,
-  })
+  return Layer.effect(
+    Environment.Service,
+    spawner.pipe(
+      Effect.map((processes) => ({
+        files: { read, write, stat, list, remove, move, mkdir },
+        spawner: processes,
+      }))
+    )
+  )
 }
