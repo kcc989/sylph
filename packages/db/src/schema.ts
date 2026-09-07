@@ -695,3 +695,103 @@ export const workspacePendingPrompt = sqliteTable(
     ),
   ]
 )
+
+export const projectResource = sqliteTable(
+  "project_resource",
+  {
+    accountId: text("account_id").notNull(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => project.id, { onDelete: "restrict" }),
+    scope: text("scope").notNull(),
+    kind: text("kind")
+      .$type<
+        import("@workspace/domain/project-resources").ProjectResourceKind
+      >()
+      .notNull(),
+    name: text("name").notNull(),
+    resourceId: text("resource_id"),
+    generation: text("generation"),
+    state: text("state")
+      .$type<
+        import("@workspace/domain/project-resources").StoredProjectResource["state"]
+      >()
+      .notNull()
+      .default("reserved"),
+  },
+  (table) => [
+    primaryKey({ columns: [table.accountId, table.kind, table.name] }),
+    uniqueIndex("project_resource_id_idx").on(
+      table.accountId,
+      table.kind,
+      table.resourceId
+    ),
+    index("project_resource_project_idx").on(table.projectId, table.scope),
+    check(
+      "project_resource_kind_check",
+      sql`${table.kind} IN ('worker', 'd1', 'kv', 'r2', 'queue', 'domain')`
+    ),
+    check(
+      "project_resource_state_check",
+      sql`${table.state} IN ('reserved', 'active', 'deleted')`
+    ),
+  ]
+)
+
+export const projectResourceOperation = sqliteTable(
+  "project_resource_operation",
+  {
+    accountId: text("account_id").notNull(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => project.id, { onDelete: "restrict" }),
+    scope: text("scope").notNull(),
+    runId: text("run_id").notNull(),
+    planJson: text("plan_json").notNull(),
+    inspectedAt: integer("inspected_at"),
+    status: text("status")
+      .$type<
+        import("@workspace/domain/project-resources").ProjectResourceOperation["status"]
+      >()
+      .notNull(),
+    error: text("error"),
+  },
+  (table) => [
+    primaryKey({ columns: [table.accountId, table.projectId, table.scope] }),
+    check(
+      "project_resource_operation_status_check",
+      sql`${table.status} IN ('deploying', 'retained', 'cleanup_failed', 'deleted', 'complete')`
+    ),
+  ]
+)
+
+export const projectSecret = sqliteTable(
+  "project_secret",
+  {
+    projectId: text("project_id")
+      .notNull()
+      .references(() => project.id, { onDelete: "cascade" }),
+    environment: text("environment")
+      .$type<"preview" | "production">()
+      .notNull(),
+    name: text("name").notNull(),
+    encrypted: text("encrypted").notNull(),
+    iv: text("iv").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.projectId, table.environment, table.name] }),
+    check(
+      "project_secret_environment_check",
+      sql`${table.environment} IN ('preview', 'production')`
+    ),
+  ]
+)
+
+export const projectDomain = sqliteTable("project_domain", {
+  projectId: text("project_id")
+    .primaryKey()
+    .notNull()
+    .references(() => project.id, { onDelete: "cascade" }),
+  hostname: text("hostname").notNull().unique(),
+  zoneId: text("zone_id").notNull(),
+})

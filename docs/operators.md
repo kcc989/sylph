@@ -250,3 +250,30 @@ Dependency repairs run through native shell commands. The retired dependency run
 Agent and Check commands share process limits: ten minutes and eight MiB of captured output per command. Check verification does not receive deployment credentials; preview and production retain their explicit credential environment and immutable checkpoint source.
 
 New Projects use the exact template commit in `packages/domain/src/template-release.ts`. The release includes pinned dependencies, deployment runtime imports, and checkpoint identity attributes. CI checks that exact revision with its recorded Bun version. The importer uses the recorded source ref and rejects any head that differs from the release commit, including a mismatched cached import. Existing Projects are not changed. Update the release record only after the replacement template has passed its contract checks.
+
+## Project resource management upgrade
+
+This change is not ready for production rollout until its matching template
+revision is published and pinned. The reviewed template patch and the complete
+rollout procedure are in [the resource management guide](../tools/resource-management/README.md).
+Existing Project repositories also need the new `sylph:plan` script and matching
+Alchemy resource names. Sylph does not rewrite their reviewed Checkpoints.
+
+Upgrades apply `0025_project_resources.sql` and provision the `ResourceMaintenance`
+Workflow through `alchemy.run.ts`. No new secret keys are required. The existing
+runtime token must be able to list Workers, D1 databases, KV namespaces, R2
+buckets, and Queues for ownership checks, and delete the resources and R2 objects
+owned by an expired Preview. Production custom domains also require access to
+the relevant account's Worker domains and zone configuration. Missing permissions
+block preflight; review the existing token before rollout.
+
+Project settings shows resource ownership, inspection results, cleanup failures,
+and Admin controls for cleanup retries, application secrets, and the production
+custom domain. Application secrets are encrypted and separated between Preview
+and production. Configuration changes apply on the next deployment.
+
+Existing successful production deployments without an inventory are blocked until
+their resources have been reviewed and adopted. Legacy Previews without recorded
+reservations are not deleted automatically. Do not infer ownership from a URL.
+Run disposable deployed lifecycle checks before production rollout; the local
+test suite and build do not prove live deletion or configuration behavior.

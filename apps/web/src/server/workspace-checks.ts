@@ -1,3 +1,4 @@
+import type { WorkspacePreviewExpiry } from "@workspace/domain/checks"
 import {
   GitCommitId,
   InvalidRequest,
@@ -283,6 +284,24 @@ export class WorkspaceChecks {
       )
       .toArray()[0]
     return row ? decodeWorkspaceCheckRun(JSON.parse(row.payload)) : null
+  }
+
+  expirePreview(input: typeof WorkspacePreviewExpiry.Type) {
+    const expire = () => {
+      const current = this.get(input.runId)
+      if (!current || current.attempt !== input.attempt || !current.previewUrl)
+        return null
+      const updated = new WorkspaceCheckRun({
+        ...current,
+        previewUrl: null,
+        updatedAt: Date.now(),
+      })
+      this.#save(updated)
+      return updated
+    }
+    return this.#storage.transactionSync
+      ? this.#storage.transactionSync(expire)
+      : expire()
   }
 
   list() {

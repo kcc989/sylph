@@ -16,6 +16,24 @@ mock.module("../../apps/web/src/server/project-auth-secret.ts", () => ({
   projectAuthSecret: async () => "test-secret",
 }))
 
+const resources = await import("../../apps/web/src/server/project-resources.ts")
+let resourcesReserved = false
+mock.module("../../apps/web/src/server/project-resources.ts", () => ({
+  ...resources,
+  resourcePrefix: async () => "sylph-fixture",
+  reserveProjectResources: async () => {
+    if (process.argv[2] === "resource-conflict")
+      throw new Error("Resource already belongs to another Project")
+    resourcesReserved = true
+  },
+  captureProjectResources: async () => {},
+  finishResourceOperation: async () => {},
+}))
+mock.module("../../apps/web/src/server/project-configuration.ts", () => ({
+  readProjectDomain: async () => null,
+  projectSecretEnvironment: async () => ({}),
+}))
+
 const { CI } = await import("../../apps/web/src/server/workspace-ci.ts")
 const mode = process.argv[2]
 const store = new Database(":memory:")
@@ -113,10 +131,12 @@ const environment = {
     },
   },
 }
-const url = "https://app.account.workers.dev"
+const url = "https://sylph-fixture-app.account.workers.dev"
 const runner = async (options) => {
   commands.push({
     name: options.name,
+    resourcesReserved,
+    env: options.env,
     deployment: store
       .query(
         "SELECT status, recovery_json, verification_json FROM deployment WHERE id = 'deployment-1'"
@@ -128,6 +148,8 @@ const runner = async (options) => {
   if (mode === "resume-failure" && options.name === "release-resume")
     throw new Error("Resume failed")
   let stdout = ""
+  if (options.name === "resource-plan")
+    stdout = `SYLPH_RESOURCE_PLAN=${JSON.stringify([{ kind: "worker", name: "sylph-fixture-app" }])}`
   if (options.name === "release-review")
     stdout = `SYLPH_MIGRATION_REVIEW=${JSON.stringify({ ...identity, compatible: mode !== "incompatible", evidence: "Migration tested with old and new code" })}`
   if (options.name === "release-prepare")

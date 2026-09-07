@@ -159,6 +159,7 @@ test("production saves recovery before publish and journeys before resuming writ
     result.commands.map((command: { name: string }) => command.name)
   ).toEqual([
     "verification",
+    "resource-plan",
     "release-review",
     "release-prepare",
     "production",
@@ -176,6 +177,14 @@ test("production saves recovery before publish and journeys before resuming writ
       (command: { name: string }) => command.name === "release-resume"
     ).deployment.verification_json
   ).not.toBeNull()
+  const review = result.commands.find(
+    (command: { name: string }) => command.name === "release-review"
+  )
+  expect(review.resourcesReserved).toBe(true)
+  expect(review.env.SYLPH_RESOURCE_PREFIX).toBe("sylph-fixture")
+  expect(JSON.parse(review.env.SYLPH_RESOURCE_PLAN)).toEqual([
+    { kind: "worker", name: "sylph-fixture-app" },
+  ])
   expect(result.selector).toContain(
     `data-sylph-checkpoint="${identity.commit}"`
   )
@@ -184,6 +193,7 @@ test("production saves recovery before publish and journeys before resuming writ
 })
 
 test.each([
+  "resource-conflict",
   "incompatible",
   "missing-backup",
   "expired-backup",
@@ -207,7 +217,7 @@ test.each([
   const result = await pipeline(mode)
   expect(result.deployment.status).toBe("failed")
   expect(result.deployment.production_url).toBe(
-    "https://app.account.workers.dev"
+    "https://sylph-fixture-app.account.workers.dev"
   )
   expect(result.check.status).toBe("failed")
   expect(

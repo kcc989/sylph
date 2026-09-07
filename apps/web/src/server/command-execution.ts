@@ -3,7 +3,8 @@ export const commandTimeoutMs = 10 * 60 * 1000
 
 export const commandEnvironment = (
   values: Readonly<Record<string, string | undefined>>,
-  deployment = false
+  deployment = false,
+  planning = false
 ) => {
   const names = [
     "TERM",
@@ -13,14 +14,22 @@ export const commandEnvironment = (
     "CI",
     "OPENCODE_TERMINAL",
   ]
+  if (deployment || planning)
+    names.push(
+      "SYLPH_PROJECT",
+      "SYLPH_CHECKPOINT",
+      "SYLPH_DEPLOYMENT",
+      "SYLPH_RESOURCE_PREFIX",
+      "SYLPH_CUSTOM_DOMAIN",
+      "SYLPH_CUSTOM_DOMAIN_ZONE"
+    )
   if (deployment)
     names.push(
       "CLOUDFLARE_API_TOKEN",
       "CLOUDFLARE_ACCOUNT_ID",
       "BETTER_AUTH_SECRET",
-      "SYLPH_PROJECT",
-      "SYLPH_CHECKPOINT",
-      "SYLPH_DEPLOYMENT",
+      "SYLPH_RESOURCE_PLAN",
+      "SYLPH_PROJECT_SECRETS",
       "SYLPH_RELEASE_ID",
       "SYLPH_PROJECT_ID",
       "SYLPH_BASE_COMMIT",
@@ -73,9 +82,13 @@ const runCommand = request => new Promise(resolve => {
 });
 `
 
-export const ciCommand = (command: string, deployment = false) =>
+export const ciCommand = (
+  command: string,
+  deployment = false,
+  planning = false
+) =>
   `node -e ${shellArgument(`${commandProcessScript}
-runCommand({ command: '/bin/bash', args: ['-c', ${JSON.stringify(command)}], cwd: process.cwd(), env: (${commandEnvironment.toString()})(process.env, ${deployment}) }).then(result => {
+runCommand({ command: '/bin/bash', args: ['-c', ${JSON.stringify(command)}], cwd: process.cwd(), env: (${commandEnvironment.toString()})(process.env, ${deployment}, ${planning}) }).then(result => {
   process.stdout.write(Buffer.from(result.stdout, 'base64'));
   process.stderr.write(Buffer.from(result.stderr, 'base64'));
   process.exitCode = result.exitCode;

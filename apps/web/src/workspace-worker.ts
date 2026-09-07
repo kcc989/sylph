@@ -1,3 +1,4 @@
+export { ResourceMaintenance } from "./server/project-resource-maintenance"
 export { CodexContainer } from "./server/codex-container"
 export { CursorConnectionObject as CursorContainer } from "./server/cursor-connection-object"
 export { CiSandbox } from "@cloudflare/ci/worker"

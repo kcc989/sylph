@@ -194,7 +194,7 @@ export const SendDuringWork: Story = {
       canvas.getByRole("button", { name: "Message options" })
     )
     await userEvent.click(
-      within(canvasElement.ownerDocument.body).getByRole("menuitem", {
+      await within(canvasElement.ownerDocument.body).findByRole("menuitem", {
         name: "Run after this",
       })
     )
