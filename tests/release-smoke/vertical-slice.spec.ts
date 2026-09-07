@@ -6,6 +6,7 @@ import {
   openToolMenu,
   finishWorkspaceTurn as completeWorkspaceTurn,
   expectExpandableToolCalls,
+  verifyMarkerJourney,
 } from "./flow-helpers"
 
 const requiredEnvironment = (name: string) => {
@@ -472,6 +473,7 @@ test("setup through eviction recovery", async ({ page, browser }, testInfo) => {
 
   if (!verificationOnly)
     await test.step("accept and archive the Workspace", async () => {
+      await verifyMarkerJourney(page, proofMarker)
       await page
         .getByRole("region", { name: "Workspace inspector" })
         .getByRole("button", { name: /^Changes/ })

@@ -93,10 +93,10 @@ export async function authenticatedPreview(r: LifecycleActionRuntime) {
       r.page.getByRole("button", { name: "Observe", exact: true })
     ).toBeEnabled()
     await remoteFill(r.page, '[aria-label="New todo"]', title)
-    await remoteClick(r.page, 'button:has-text("Add todo")')
+    await remoteClick(r.page, 'button[aria-label="Add todo"]')
     await browserClick(r.page, "Reload")
     await browserClick(r.page, "Verify next assertion")
-    await remoteClick(r.page, `input[type="checkbox"][aria-label="${title}"]`)
+    await remoteClick(r.page, `[aria-label=${JSON.stringify(title)}]`)
     await browserClick(r.page, "Reload")
     await browserClick(r.page, "Verify next assertion")
     r.assert(
@@ -110,7 +110,10 @@ export async function authenticatedPreview(r: LifecycleActionRuntime) {
       [{ title, completed: 1 }],
       true
     )
-    await remoteClick(r.page, `button:has-text("Delete ${title}")`)
+    await remoteClick(
+      r.page,
+      `button[aria-label=${JSON.stringify(`Delete ${title}`)}]`
+    )
   }
   await browserClick(r.page, "Finish journey")
   await expect(

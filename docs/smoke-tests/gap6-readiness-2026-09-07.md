@@ -1,5 +1,7 @@
 # Gap 6 implementation and evidence
 
+The action implementation described as pending in this initial snapshot is now recorded in [the action handoff](gap6-actions-2026-09-07.md). Combined deployed proof remains pending.
+
 Branch: `codex/e2e-proof`. Base: `301860e7b33af5dfb68b14e04148bb2681709b7b`.
 
 The built-in template remains `kcc989/sylph-tanstack-template` at `bed6b52785eab6e79680041ee1367f2831f59296` (0.1.1). This branch does not publish or change the template. No fresh combined stage was deployed. No final integrated source commit has been verified.

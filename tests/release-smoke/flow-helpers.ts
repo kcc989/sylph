@@ -10,6 +10,48 @@ export const openToolMenu = async (page: Page) => {
   await page.getByRole("button", { name: "More inspection tools" }).click()
 }
 
+export const verifyMarkerJourney = async (page: Page, marker: string) => {
+  await page
+    .getByRole("region", { name: "Workspace inspector" })
+    .getByRole("button", { name: "Preview", exact: true })
+    .click()
+  await page.getByRole("button", { name: "Set policy", exact: true }).click()
+  await page.getByRole("button", { name: "Add journey", exact: true }).click()
+  await page
+    .getByLabel("Journey name", { exact: true })
+    .fill("Current Preview marker")
+  await page.getByLabel("Step 1: CSS selector", { exact: true }).fill("body")
+  await page.getByLabel("Expected text", { exact: true }).fill(marker)
+  await page
+    .getByLabel("Reason for this policy", { exact: true })
+    .fill(
+      "Verify the generated marker in the current Check attempt at desktop and mobile sizes."
+    )
+  await page.getByRole("button", { name: "Save policy", exact: true }).click()
+  const act = async (name: string) => {
+    await page.getByRole("button", { name, exact: true }).click()
+    await expect(
+      page.getByRole("button", { name: "Observe", exact: true })
+    ).toBeEnabled()
+    await expect(page.getByRole("alert")).toHaveCount(0)
+  }
+  await act("Start browser")
+  await act("Begin attempt")
+  for (const viewport of ["desktop", "mobile"]) {
+    await page
+      .getByLabel("Browser Run viewport", { exact: true })
+      .selectOption(viewport)
+    await expect(
+      page.getByRole("button", { name: "Observe", exact: true })
+    ).toBeEnabled()
+    await act("Verify next assertion")
+  }
+  await act("Finish journey")
+  await expect(
+    page.getByText("Browser acceptance requirement satisfied", { exact: false })
+  ).toBeVisible()
+}
+
 export const finishWorkspaceTurn = async (
   page: Page,
   allowPriorErrors = false

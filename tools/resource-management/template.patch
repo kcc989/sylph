@@ -602,10 +602,10 @@ index 0000000..350a0f9
 +process.stdout.write(`${JSON.stringify(evidence)}\n`)
 diff --git a/scripts/sylph-release-review.test.ts b/scripts/sylph-release-review.test.ts
 new file mode 100644
-index 0000000..4869536
+index 0000000..dcb5b78
 --- /dev/null
 +++ b/scripts/sylph-release-review.test.ts
-@@ -0,0 +1,136 @@
+@@ -0,0 +1,146 @@
 +import { expect, test } from "bun:test"
 +import { reviewMigrationSql, reviewRecoveryPlan } from "./sylph-release-review"
 +import { sylphResources } from "./sylph-resources"
@@ -645,10 +645,20 @@ index 0000000..4869536
 +})
 +
 +test("review rejects proposed state or writers outside the recovery boundary", () => {
-+  const plan = sylphResources({
++  const resources = sylphResources({
 +    SYLPH_RESOURCE_PREFIX: `sylph-${"a".repeat(24)}`,
-+  }).plan
-+  expect(() => reviewRecoveryPlan(JSON.stringify(plan), plan)).not.toThrow()
++  })
++  const plan = resources.plan
++  expect(() =>
++    reviewRecoveryPlan(JSON.stringify(plan), resources)
++  ).not.toThrow()
++  const extended = {
++    ...resources,
++    plan: [...plan, { kind: "worker", name: "another" }],
++  }
++  expect(() =>
++    reviewRecoveryPlan(JSON.stringify(extended.plan), extended)
++  ).toThrow("tested recovery integration")
 +  for (const kind of [
 +    "worker",
 +    "r2",
@@ -660,7 +670,7 @@ index 0000000..4869536
 +    expect(() =>
 +      reviewRecoveryPlan(
 +        JSON.stringify([...plan, { kind, name: "additional" }]),
-+        plan
++        resources
 +      )
 +    ).toThrow("tested recovery integration")
 +  expect(() =>
@@ -677,7 +687,7 @@ index 0000000..4869536
 +            : item
 +        )
 +      ),
-+      plan
++      resources
 +    )
 +  ).toThrow("tested recovery integration")
 +})
@@ -744,17 +754,32 @@ index 0000000..4869536
 +}, 30000)
 diff --git a/scripts/sylph-release-review.ts b/scripts/sylph-release-review.ts
 new file mode 100644
-index 0000000..8cb81ed
+index 0000000..ecb8afb
 --- /dev/null
 +++ b/scripts/sylph-release-review.ts
-@@ -0,0 +1,88 @@
+@@ -0,0 +1,104 @@
 +import { execFileSync } from "node:child_process"
 +import { isDeepStrictEqual } from "node:util"
++import type { sylphResources } from "./sylph-resources"
 +
 +const git = (...args: string[]) =>
 +  execFileSync("git", args, { encoding: "utf8" }).trim()
 +
-+export const reviewRecoveryPlan = (serialized: string, expected: unknown) => {
++export const reviewRecoveryPlan = (
++  serialized: string,
++  resources: ReturnType<typeof sylphResources>
++) => {
++  const expected: Array<{ kind: string; name: string; purpose?: string }> = [
++    { kind: "worker", name: resources.workerName },
++    { kind: "d1", name: resources.databaseName },
++    {
++      kind: "d1",
++      name: resources.controlDatabaseName,
++      purpose: "recovery_control",
++    },
++  ]
++  if (resources.hostname)
++    expected.push({ kind: "domain", name: resources.hostname })
 +  if (!isDeepStrictEqual(JSON.parse(serialized), expected))
 +    throw new Error(
 +      "This recovery adapter requires the unchanged single Worker, application D1 and recovery-control D1 plan. Additional resources or bindings require a tested recovery integration."
@@ -799,6 +824,7 @@ index 0000000..8cb81ed
 +      "recovery-migrations",
 +      "alchemy.run.ts",
 +      "scripts/sylph-deploy.ts",
++      "scripts/sylph-resources.ts",
 +      "scripts/sylph-recovery-config.ts",
 +      "src/worker.ts",
 +      "src/recovery",
@@ -908,7 +934,7 @@ index 0000000..59b6f89
 +)
 diff --git a/scripts/sylph-release.ts b/scripts/sylph-release.ts
 new file mode 100644
-index 0000000..131e59b
+index 0000000..caaa6f8
 --- /dev/null
 +++ b/scripts/sylph-release.ts
 @@ -0,0 +1,232 @@
@@ -953,7 +979,7 @@ index 0000000..131e59b
 +  if (action === "review") {
 +    reviewRecoveryPlan(
 +      required("SYLPH_RESOURCE_PLAN"),
-+      sylphResources(process.env).plan
++      sylphResources(process.env)
 +    )
 +    let evidence = reviewMigrations(
 +      process.env.SYLPH_RECOVERY_POINT ? null : baseCommit,

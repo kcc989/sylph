@@ -1,7 +1,7 @@
 {
   "repository": "kcc989/sylph-tanstack-template",
   "baseCommit": "bed6b52785eab6e79680041ee1367f2831f59296",
-  "candidateCommit": "6e650388105ed9799f2efbfa4b493c4a1127c677",
+  "candidateCommit": "36860839fb2b1536228775998f3cce730f5b028c",
   "candidateRef": "codex/complete-release-contract",
   "version": "0.2.0",
   "published": false,
