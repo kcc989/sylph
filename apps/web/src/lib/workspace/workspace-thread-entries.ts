@@ -33,15 +33,7 @@ export const workspaceThreadEntries = (
           },
         ]
       : snapshot.status === "provisioning"
-        ? [
-            {
-              id: "workspace-provisioning",
-              kind: "result",
-              title: "Starting your Workspace",
-              body: "Preparing your files and assistant. You can leave this page and return when it is ready.",
-              meta: "Starting",
-            },
-          ]
+        ? []
         : snapshot.messages.length
           ? snapshot.messages.flatMap((message) => {
               if (message.notice) {
