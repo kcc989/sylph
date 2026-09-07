@@ -156,7 +156,7 @@ export const browserJourneyBlockers = (
       )
     if (!result || result.status !== "passed" || !complete)
       blockers.push(
-        `${requirement.title}: ${result?.status ?? "missing"} browser journey proof.`
+        `${requirement.title}: ${result?.status === "passed" && !complete ? "incomplete" : (result?.status ?? "missing")} browser journey proof.`
       )
   }
   for (const result of current) {

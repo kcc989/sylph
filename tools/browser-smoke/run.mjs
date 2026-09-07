@@ -136,8 +136,25 @@ for (let attempt = 0; attempt < 30; attempt++) {
     const version = await response.json()
     if (version.commit === commit && version.sourceHash === sourceHash) {
       oauthOrigin = version.oauthOrigin
-      ready = true
-      break
+      const proofResponse = await fetch(`${baseURL}/probe/proof`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: "{}",
+        signal: AbortSignal.timeout(30_000),
+      })
+      if (
+        proofResponse.ok &&
+        proofResponse.headers.get("content-type")?.includes("application/json")
+      ) {
+        const proof = await proofResponse.json()
+        if (proof.proof?.binding?.commit === commit) {
+          ready = true
+          break
+        }
+      }
     }
   }
   await setTimeout(2_000)
@@ -220,7 +237,17 @@ const probe = async (path, input) => {
     body: JSON.stringify(input ?? {}),
     signal: AbortSignal.timeout(120_000),
   })
-  const result = await response.json()
+  const body = await response.text()
+  if (!response.headers.get("content-type")?.includes("application/json")) {
+    await writeFile(
+      resolve(directory, "failed-probe.txt"),
+      body.replaceAll(token, "[redacted]")
+    )
+    throw new Error(
+      `${path}: unexpected HTTP ${response.status}; see failed-probe.txt`
+    )
+  }
+  const result = JSON.parse(body)
   assert.equal(response.status, 200, JSON.stringify(result))
   return result
 }
@@ -270,6 +297,7 @@ const policy = {
 try {
   await expectBlocked("No policy blocks acceptance", true)
   await step("Start origin guard probe", { type: "start" })
+  await step("Reconnect frozen browser before popup", { type: "observe" })
   await reject(
     "Block native popup before its first external request",
     { action: { type: "click", selector: "#external-popup" } },

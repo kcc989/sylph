@@ -21,6 +21,7 @@ const fieldClass =
 
 export function WorkspaceBrowserPanelView({
   workspaceId,
+  userId,
   proof,
   previewUrl,
   refresh,
@@ -30,6 +31,7 @@ export function WorkspaceBrowserPanelView({
   except,
 }: {
   workspaceId: string
+  userId: string
   proof: typeof BrowserJourneySnapshot.Encoded | undefined
   previewUrl: string
   refresh: () => Promise<void>
@@ -61,7 +63,8 @@ export function WorkspaceBrowserPanelView({
   >([])
   const [origins, setOrigins] = useState("")
   const session = proof?.session
-  const controlling = session?.controller === "human"
+  const controlling =
+    session?.controller === "human" && session.controllerUserId === userId
   const disabled = pending || readOnly
   const blockers = proof?.binding
     ? browserJourneyBlockers(proof, proof.binding)
@@ -769,8 +772,10 @@ export function WorkspaceBrowserPanelView({
                 onClick={(event) => {
                   if (event.detail === 0) return
                   const box = event.currentTarget.getBoundingClientRect()
-                  const width = session.viewport === "mobile" ? 390 : 1440
-                  const height = session.viewport === "mobile" ? 844 : 900
+                  const picture = event.currentTarget.querySelector("img")
+                  if (!picture) return
+                  const width = picture.naturalWidth
+                  const height = picture.naturalHeight
                   void act({
                     type: "click_point",
                     x: Math.floor(

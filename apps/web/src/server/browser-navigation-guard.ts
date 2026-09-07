@@ -33,9 +33,13 @@ export const browserNavigationGuard = async (
             requestId: request.requestId,
             errorReason: "BlockedByClient",
           })
-      void response.catch(() => {
-        unavailable = true
-      })
+      void response
+        .then(async () => {
+          if (!allowed) await session.send("Page.close")
+        })
+        .catch(() => {
+          if (allowed) unavailable = true
+        })
     })
     const ready = session
       .send("Fetch.enable", {
@@ -60,7 +64,10 @@ export const browserNavigationGuard = async (
     void Promise.all(pending)
       .then(async () => {
         if (unavailable) await browser.close()
-        else await session.send("Runtime.runIfWaitingForDebugger")
+        else {
+          await session.send("Page.setWebLifecycleState", { state: "active" })
+          await session.send("Runtime.runIfWaitingForDebugger")
+        }
       })
       .catch(() => {
         unavailable = true

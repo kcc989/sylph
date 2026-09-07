@@ -412,6 +412,7 @@ function WorkspaceScreen() {
             previewContent={
               <WorkspaceBrowserPanel
                 workspaceId={workspaceId}
+                userId={result.currentReviewer.id}
                 proof={runtime.browserProof}
                 previewUrl={browser.url}
                 refresh={async () => {
