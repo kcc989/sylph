@@ -524,7 +524,7 @@ export const CompanionWorkflow: Story = {
       canvas.getByRole("button", { name: "More workspace actions" })
     )
     await userEvent.click(
-      within(canvasElement.ownerDocument.body).getByRole("menuitem", {
+      await within(canvasElement.ownerDocument.body).findByRole("menuitem", {
         name: "Command output",
       })
     )
