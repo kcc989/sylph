@@ -255,11 +255,14 @@ export const requireWorkspaceNotMerging = <
 }
 
 export const requireWritableWorkspace = <
-  Workspace extends { readonly status: string },
+  Workspace extends {
+    readonly status: string
+    readonly archivedAt?: Date | null
+  },
 >(
   workspace: Workspace
 ) => {
-  if (workspace.status === "archived") {
+  if (workspace.status === "archived" || workspace.archivedAt != null) {
     throw new WorkspaceReadOnly({
       message: "Archived Workspaces are read-only",
       status: "archived",

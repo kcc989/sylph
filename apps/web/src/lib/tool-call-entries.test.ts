@@ -24,8 +24,6 @@ const checkRun = {
   kind: "checkpoint",
   status: "passed",
   attempt: 2,
-  repairOnFailure: false,
-  repairStatus: "disabled",
   previewUrl: null,
   stages: [],
   diagnostics: [],

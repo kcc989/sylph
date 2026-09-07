@@ -1,5 +1,9 @@
 import { schema } from "@workspace/db"
-import { eq } from "drizzle-orm"
+import type { WorkspaceProvisioningInput } from "@workspace/domain"
+import {
+  activeProvisioningRequest,
+  readProvisioningWorkspace,
+} from "./workspace-provisioning-request"
 import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core"
 import { Effect } from "effect"
 import type { RepositoryStore } from "./repository-store"
@@ -8,14 +12,10 @@ type Database = BaseSQLiteDatabase<"async", unknown, typeof schema>
 
 export const forkWorkspaceRepository = async (
   database: Database,
-  workspaceId: string,
+  input: WorkspaceProvisioningInput,
   repositories: Pick<RepositoryStore["Service"], "fork" | "inspect" | "head">
 ) => {
-  const workspace = await database
-    .select()
-    .from(schema.workspace)
-    .where(eq(schema.workspace.id, workspaceId))
-    .get()
+  const workspace = await readProvisioningWorkspace(database, input)
   if (!workspace || workspace.status !== "provisioning" || workspace.baseCommit)
     return
   await Effect.runPromise(
@@ -38,5 +38,5 @@ export const forkWorkspaceRepository = async (
   await database
     .update(schema.workspace)
     .set({ baseCommit: head, forkHead: head, updatedAt: new Date() })
-    .where(eq(schema.workspace.id, workspaceId))
+    .where(activeProvisioningRequest(input))
 }

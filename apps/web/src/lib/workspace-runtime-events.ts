@@ -23,11 +23,13 @@ const decodeWorkspaceTextEndedEventDataPromise = Schema.decodeUnknownPromise(
 export type WorkspaceLiveState = {
   partialMessages: Record<string, string>
   permissionRequests: Record<string, WorkspacePermissionRequest>
+  dismissedPermissionRequests: ReadonlyArray<string>
 }
 
 export const emptyWorkspaceLiveState = (): WorkspaceLiveState => ({
   partialMessages: {},
   permissionRequests: {},
+  dismissedPermissionRequests: [],
 })
 
 export const applyWorkspaceRuntimeEvent = async (
@@ -58,10 +60,7 @@ export const applyWorkspaceRuntimeEvent = async (
     const data = await decodeWorkspacePermissionRepliedEventDataPromise(
       event.data
     )
-    if (!state.permissionRequests[data.requestID]) return state
-    const permissionRequests = { ...state.permissionRequests }
-    delete permissionRequests[data.requestID]
-    return { ...state, permissionRequests }
+    return dismissWorkspacePermission(state, data.requestID)
   }
 
   if (event.type === "session.text.delta") {
@@ -91,3 +90,18 @@ export const applyWorkspaceRuntimeEvent = async (
 
 export const workspaceEventNeedsSnapshot = (event: WorkspaceRuntimeEvent) =>
   workspaceEventRefreshScope(event.type) !== null
+
+export const dismissWorkspacePermission = (
+  state: WorkspaceLiveState,
+  requestId: string
+): WorkspaceLiveState => {
+  const permissionRequests = { ...state.permissionRequests }
+  delete permissionRequests[requestId]
+  return {
+    ...state,
+    permissionRequests,
+    dismissedPermissionRequests: [
+      ...new Set([...state.dismissedPermissionRequests, requestId]),
+    ],
+  }
+}

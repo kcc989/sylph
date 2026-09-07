@@ -3,7 +3,11 @@ import { expect, test } from "bun:test"
 import { readdirSync, readFileSync } from "node:fs"
 import { drizzle } from "drizzle-orm/sqlite-proxy"
 import { schema } from "@workspace/db"
-import { WorkspaceId, WorkspacePromptInput } from "@workspace/domain"
+import {
+  WorkspaceId,
+  WorkspacePromptInput,
+  WorkspaceProvisioningInput,
+} from "@workspace/domain"
 import {
   dispatchPendingWorkspacePrompt,
   pendingPromptMessages,
@@ -247,18 +251,42 @@ test("workflow retries reuse a fork and record its actual head", async () => {
       "CREATE TRIGGER fail_fork_record BEFORE UPDATE ON workspace BEGIN SELECT RAISE(ABORT, 'lost acknowledgement'); END"
     )
     await expect(
-      forkWorkspaceRepository(database, "workspace", repositories)
+      forkWorkspaceRepository(
+        database,
+        new WorkspaceProvisioningInput({
+          workspaceId: WorkspaceId.make("workspace"),
+        }),
+        repositories
+      )
     ).rejects.toThrow()
     sqlite.exec("DROP TRIGGER fail_fork_record")
-    await forkWorkspaceRepository(database, "workspace", repositories)
+    await forkWorkspaceRepository(
+      database,
+      new WorkspaceProvisioningInput({
+        workspaceId: WorkspaceId.make("workspace"),
+      }),
+      repositories
+    )
     expect(inspections).toBe(1)
     expect(
       sqlite.query("SELECT base_commit, fork_head FROM workspace").get()
     ).toEqual({ base_commit: "a".repeat(40), fork_head: "a".repeat(40) })
-    await forkWorkspaceRepository(database, "workspace", repositories)
+    await forkWorkspaceRepository(
+      database,
+      new WorkspaceProvisioningInput({
+        workspaceId: WorkspaceId.make("workspace"),
+      }),
+      repositories
+    )
     expect(inspections).toBe(1)
     sqlite.exec("UPDATE workspace SET status='archived'")
-    await forkWorkspaceRepository(database, "workspace", repositories)
+    await forkWorkspaceRepository(
+      database,
+      new WorkspaceProvisioningInput({
+        workspaceId: WorkspaceId.make("workspace"),
+      }),
+      repositories
+    )
     expect(inspections).toBe(1)
   } finally {
     sqlite.close()

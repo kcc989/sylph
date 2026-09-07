@@ -79,17 +79,7 @@ export class WorkspaceCheckRun extends Schema.Class<WorkspaceCheckRun>(
   kind: WorkspaceCheckKind,
   status: WorkspaceCheckStatus,
   attempt: Schema.Int,
-  repairOnFailure: Schema.Boolean,
-  repairStatus: Schema.Literals([
-    "disabled",
-    "available",
-    "requested",
-    "started",
-  ]),
   maxAttempts: Schema.optional(Schema.Int),
-  repairAttempt: Schema.optional(Schema.Int),
-  maxRepairAttempts: Schema.optional(Schema.Int),
-  repairNotice: Schema.optional(Schema.String),
   previewUrl: Schema.NullOr(Schema.NonEmptyString),
   stages: Schema.Array(WorkspaceCheckStage),
   diagnostics: Schema.Array(WorkspaceCheckDiagnostic),
@@ -124,7 +114,6 @@ export class WorkspaceCiInput extends Schema.Class<WorkspaceCiInput>(
   checkpointId: Schema.NullOr(Schema.NonEmptyString),
   kind: WorkspaceCheckKind,
   attempt: Schema.Int,
-  repairOnFailure: Schema.Boolean,
   deploymentId: Schema.NullOr(Schema.NonEmptyString),
   createdAt: Schema.Number,
 }) {}
@@ -197,14 +186,6 @@ export class WorkspaceRetryCheckInput extends Schema.Class<WorkspaceRetryCheckIn
   idempotencyKey: Schema.NonEmptyString,
 }) {}
 
-export class WorkspaceRepairCheckInput extends Schema.Class<WorkspaceRepairCheckInput>(
-  "@sylph/domain/WorkspaceRepairCheckInput"
-)({
-  workspaceId: WorkspaceId,
-  runId: Schema.NonEmptyString,
-  idempotencyKey: Schema.NonEmptyString,
-}) {}
-
 export class WorkspaceSyncInput extends Schema.Class<WorkspaceSyncInput>(
   "@sylph/domain/WorkspaceSyncInput"
 )({
@@ -223,7 +204,6 @@ export class WorkspaceRunChecksToolInput extends Schema.Class<WorkspaceRunChecks
   "@sylph/domain/WorkspaceRunChecksToolInput"
 )({
   message: Schema.optional(Schema.NonEmptyString),
-  repairOnFailure: Schema.optional(Schema.Boolean),
 }) {}
 
 export class WorkspaceCheckStatusToolInput extends Schema.Class<WorkspaceCheckStatusToolInput>(
@@ -386,8 +366,14 @@ export class WorkspaceCheckUpdateResult extends Schema.Class<WorkspaceCheckUpdat
   applied: Schema.Boolean,
 }) {}
 
-export class WorkspaceRepairResult extends Schema.Class<WorkspaceRepairResult>(
-  "@sylph/domain/WorkspaceRepairResult"
+export class WorkspaceCheckCompletion extends Schema.Class<WorkspaceCheckCompletion>(
+  "@sylph/domain/WorkspaceCheckCompletion"
 )({
-  started: Schema.Boolean,
+  id: Schema.NonEmptyString,
+  runId: Schema.NonEmptyString,
+  commit: GitCommitId,
+  attempt: Schema.Int,
+  text: Schema.String,
+  summary: Schema.String,
+  resume: Schema.Boolean,
 }) {}

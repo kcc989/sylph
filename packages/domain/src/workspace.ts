@@ -80,11 +80,25 @@ export class WorkspaceRequestInput extends Schema.Class<WorkspaceRequestInput>(
   workspaceId: WorkspaceId,
 }) {}
 
+export class WorkspaceRestartRequest extends Schema.Class<WorkspaceRestartRequest>(
+  "@sylph/domain/WorkspaceRestartRequest"
+)({
+  idempotencyKey: Schema.String.check(Schema.isUUID()),
+  model: Schema.optional(ModelSelection),
+}) {}
+
 export class RestartWorkspaceInput extends Schema.Class<RestartWorkspaceInput>(
   "@sylph/domain/RestartWorkspaceInput"
 )({
+  ...WorkspaceRestartRequest.fields,
   workspaceId: WorkspaceId,
-  model: Schema.optional(ModelSelection),
+}) {}
+
+export class WorkspaceProvisioningInput extends Schema.Class<WorkspaceProvisioningInput>(
+  "@sylph/domain/WorkspaceProvisioningInput"
+)({
+  workspaceId: WorkspaceId,
+  restart: Schema.optional(WorkspaceRestartRequest),
 }) {}
 
 export class InvalidWorkspaceInput extends Schema.TaggedError<InvalidWorkspaceInput>()(

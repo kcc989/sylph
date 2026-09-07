@@ -410,8 +410,7 @@ export class WorkspaceRuntimeLimits extends Schema.Class<WorkspaceRuntimeLimits>
   maxQueuedMessages: Schema.Int,
   maxTurnDurationMs: Schema.Int,
   maxCheckAttempts: Schema.Int,
-  maxRepairAttempts: Schema.Int,
-  maxAutomaticRepairs: Schema.Int,
+  maxCheckContinuations: Schema.Int,
 }) {}
 
 export class WorkspaceRuntimeHealth extends Schema.Class<WorkspaceRuntimeHealth>(
@@ -435,7 +434,7 @@ export class WorkspaceRuntimeHealth extends Schema.Class<WorkspaceRuntimeHealth>
   ),
   activeTurnStartedAt: Schema.NullOr(Schema.Number),
   limits: WorkspaceRuntimeLimits,
-  automaticRepairsUsed: Schema.Int,
+  checkContinuationsUsed: Schema.Int,
   archivedAt: Schema.NullOr(Schema.Number),
   opencode: Schema.Struct({ healthy: Schema.Boolean }),
 }) {}

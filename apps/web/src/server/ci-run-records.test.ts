@@ -23,8 +23,6 @@ const run = (status: WorkspaceCheckRun["status"]) =>
     kind: "checkpoint",
     status,
     attempt: 1,
-    repairOnFailure: false,
-    repairStatus: "disabled",
     previewUrl: null,
     stages: [checkStage("install", "passed", "Passed", 100)],
     diagnostics:

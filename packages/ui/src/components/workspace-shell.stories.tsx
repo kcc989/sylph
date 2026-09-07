@@ -276,7 +276,6 @@ export const TurnControls: Story = {
       maxQueuedMessages: 5,
       maxTurnDurationMs: 15 * 60 * 1000,
       maxCheckAttempts: 3,
-      maxRepairAttempts: 2,
     },
     queuedMessages: [
       {
@@ -317,7 +316,6 @@ export const InterruptedTurn: Story = {
       maxQueuedMessages: 5,
       maxTurnDurationMs: 15 * 60 * 1000,
       maxCheckAttempts: 3,
-      maxRepairAttempts: 2,
     },
   },
 }
@@ -455,7 +453,7 @@ export const CompanionWorkflow: Story = {
       inspector.getByRole("button", { name: "More inspection tools" })
     )
     await userEvent.click(
-      within(canvasElement.ownerDocument.body).getByRole("menuitem", {
+      await within(canvasElement.ownerDocument.body).findByRole("menuitem", {
         name: "Files",
       })
     )
@@ -476,7 +474,7 @@ export const CompanionWorkflow: Story = {
       inspector.getByRole("button", { name: "More inspection tools" })
     )
     await userEvent.click(
-      within(canvasElement.ownerDocument.body).getByRole("menuitem", {
+      await within(canvasElement.ownerDocument.body).findByRole("menuitem", {
         name: "Files",
       })
     )

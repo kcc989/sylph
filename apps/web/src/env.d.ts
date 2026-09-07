@@ -1,6 +1,6 @@
 import type { ProjectSynchronization } from "./server/project-synchronization"
 import type {
-  WorkspaceRequestInput,
+  WorkspaceProvisioningInput,
   WorkspaceCiInput,
   WorkspaceMessageDeliveryInput,
 } from "@workspace/domain"
@@ -30,7 +30,7 @@ declare global {
       REPOSITORY_NAMESPACE: string
       PROJECT_SYNCS: DurableObjectNamespace<ProjectSynchronization>
       MESSAGE_DELIVERY: Workflow<typeof WorkspaceMessageDeliveryInput.Encoded>
-      PROVISIONING: Workflow<typeof WorkspaceRequestInput.Encoded>
+      PROVISIONING: Workflow<typeof WorkspaceProvisioningInput.Encoded>
       MERGES: Workflow<WorkspaceMergeInput>
       RETENTION: Workflow<WorkspaceRetentionInput>
       WORKSPACE_FORK_RETENTION_SECONDS: string

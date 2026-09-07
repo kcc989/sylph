@@ -35,7 +35,6 @@ import {
   WorkspaceQuestionOption,
   WorkspaceQuestionReplyInput,
   WorkspaceQueuedMessage,
-  WorkspaceRepairCheckInput,
   WorkspaceRetryCheckInput,
   WorkspaceRuntimeHealth,
   WorkspaceMessagePageInput,
@@ -59,7 +58,6 @@ import {
   WorkspaceArchiveResult,
   WorkspaceCheckUpdateResult,
   WorkspaceReadOnly,
-  WorkspaceRepairResult,
   WorkspaceRuntimeFailure,
   WorkspaceSkillReloadResult,
   WorkspaceTurnCancelResult,
@@ -116,24 +114,14 @@ import {
   type WorkspaceRuntimeMessageSource,
 } from "./workspace-runtime-messages"
 import {
-  automaticRepairIdempotencyKey,
-  maxWorkspaceAutomaticRepairs,
+  maxWorkspaceCheckContinuations,
   maxWorkspaceCheckAttempts,
-  maxWorkspaceRepairAttempts,
   newCheckRun,
   WorkspaceChecks,
-  WorkspaceRepairLimitReached,
-  type WorkspaceRepairSource,
 } from "./workspace-checks"
+import { deliverCheckCompletion } from "./workspace-check-completion"
 import { loadInstalledSkills } from "./installed-skills"
 import { createWorkspaceSkillRegistry } from "./workspace-skills"
-import {
-  checkFailedNotification,
-  checkPassedNotification,
-  checkRepairPrompt,
-  isTerminalCheckStatus,
-  repairDisabledReason,
-} from "./workspace-check-notification"
 import {
   browserEvidenceIds,
   browserResult,
@@ -169,9 +157,6 @@ const decodeWorkspacePermissionReplyInputPromise = Schema.decodeUnknownPromise(
 )
 const decodeWorkspaceQuestionReplyInputPromise = Schema.decodeUnknownPromise(
   WorkspaceQuestionReplyInput
-)
-const decodeWorkspaceRepairCheckInputPromise = Schema.decodeUnknownPromise(
-  WorkspaceRepairCheckInput
 )
 const decodeMessagePageInput = Schema.decodeUnknownPromise(
   WorkspaceMessagePageInput
@@ -318,7 +303,6 @@ const notInitialized = (message: string) =>
   new WorkspaceRuntimeFailure({ message, reason: "not_initialized" })
 const encodeArchiveResult = Schema.encodeSync(WorkspaceArchiveResult)
 const encodeCheckUpdateResult = Schema.encodeSync(WorkspaceCheckUpdateResult)
-const encodeRepairResult = Schema.encodeSync(WorkspaceRepairResult)
 const encodeTurnCancelResult = Schema.encodeSync(WorkspaceTurnCancelResult)
 const encodeSkillReloadResult = Schema.encodeSync(WorkspaceSkillReloadResult)
 
@@ -435,8 +419,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
                         return await this.#startCheckpointCheck(
                           state.workspaceId,
                           checkpoint.id,
-                          checkpoint.commit,
-                          input.repairOnFailure
+                          checkpoint.commit
                         )
                       } catch (error) {
                         console.error(
@@ -480,6 +463,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       this.#filesystem.initialize()
       this.#workspaceGit.initialize()
       this.#checks.initialize()
+      await this.#scheduleCheckCompletion()
       context.storage.sql.exec(
         "CREATE TABLE IF NOT EXISTS app_dependency_repair (run_id TEXT PRIMARY KEY NOT NULL, checkpoint_id TEXT, commit_id TEXT)"
       )
@@ -573,6 +557,13 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
 
   async alarm() {
     const opencode = await this.#opencode
+    try {
+      await this.#deliverCheckCompletions(opencode)
+    } catch (cause) {
+      console.error("Check completion delivery failed", cause)
+    } finally {
+      await this.#scheduleCheckCompletion()
+    }
     const state = this.#database.select().from(appWorkspaceState).get()
     if (!state?.sessionId) return
     const active = await opencode.sessions.active()
@@ -587,7 +578,9 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       })
       return
     }
-    await this.ctx.storage.setAlarm(deadline)
+    const scheduled = await this.ctx.storage.getAlarm()
+    if (scheduled === null || scheduled > deadline)
+      await this.ctx.storage.setAlarm(deadline)
   }
 
   async fetch(request: Request) {
@@ -800,8 +793,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       await this.#startCheckpointCheck(
         state.workspaceId,
         result.checkpoint.id,
-        result.checkpoint.commit,
-        data.repairOnFailure ?? false
+        result.checkpoint.commit
       )
       return encodeWorkspaceCheckpointResultSync(result)
     })
@@ -858,25 +850,24 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     return this.#run(async () => {
       const data = await decodeWorkspaceCheckUpdatePromise(update)
       const opencode = await this.#opencode
-      const previous = this.#checks.get(data.run.id)
-      const applied = this.#checks.apply(data)
-      if (applied) {
-        const event = new WorkspaceRuntimeEvent({
-          id: `check-${data.run.id}-${data.run.attempt}-${Date.now()}`,
-          created: Date.now(),
-          type: "workspace.check.updated",
-          data: data.run,
+      const state = this.#requiredState()
+      if (data.run.workspaceId !== state.workspaceId)
+        throw new InvalidRequest({
+          message: "Check belongs to another Workspace",
         })
-        this.#sockets.broadcast(event)
-      }
-      if (applied && previous?.status !== data.run.status) {
-        await this.#afterCheckUpdate(opencode, data.run).catch((cause) =>
-          console.error(
-            "Workspace check notification failed",
-            cause instanceof Error ? cause.stack : cause
-          )
+      const applied = this.#checks.apply(data)
+      await this.#scheduleCheckCompletion()
+      if (applied) {
+        this.#sockets.broadcast(
+          new WorkspaceRuntimeEvent({
+            id: `check-${data.run.id}-${data.run.attempt}-${Date.now()}`,
+            created: Date.now(),
+            type: "workspace.check.updated",
+            data: data.run,
+          })
         )
       }
+      await this.#deliverCheckCompletions(opencode)
       return encodeCheckUpdateResult(
         new WorkspaceCheckUpdateResult({ applied })
       )
@@ -941,7 +932,6 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           run.workspaceId,
           checkpointId,
           commit,
-          true,
           `${run.id}-verification`
         )
       )
@@ -1007,29 +997,6 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       const run = this.#checks.retry(data.runId, data.idempotencyKey)
       await this.#startWorkflow(run)
       return encodeWorkspaceCheckRunSync(run)
-    })
-  }
-
-  repairCheck(input: typeof WorkspaceRepairCheckInput.Encoded) {
-    return this.#run(async () => {
-      const data = await decodeWorkspaceRepairCheckInputPromise(input)
-      const opencode = await this.#opencode
-      const state = this.#requiredState()
-      if (data.workspaceId !== state.workspaceId) {
-        throw new InvalidRequest({
-          message: "Check repair belongs to another Workspace",
-        })
-      }
-      this.#assertWritable()
-      const repair = await this.#startRepairTurn(
-        opencode,
-        data.runId,
-        data.idempotencyKey,
-        "manual"
-      )
-      return encodeRepairResult(
-        new WorkspaceRepairResult({ started: repair.started })
-      )
     })
   }
 
@@ -1161,7 +1128,6 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       }
 
       const invocation = resolveSkillInvocation(data.text, this.#skills.list())
-      this.#checks.resetAutomaticRepairs(`prompt:${Date.now()}`)
       await opencode.sessions.prompt({
         id: data.messageId,
         sessionID: sessionId,
@@ -1172,6 +1138,9 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         delivery,
         metadata: { sylphOrigin: "user" },
       })
+      this.#checks.resetCheckContinuations(
+        `prompt:${data.messageId ?? crypto.randomUUID()}`
+      )
       if (delivery !== "queue") await this.#scheduleTurnLimit()
       return encodeWorkspaceRuntimeHealthSync(await this.#snapshot(opencode))
     })
@@ -1401,104 +1370,41 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     return versionControl
   }
 
-  async #promptSession(
-    opencode: OpenCodeWorkerd.Interface,
-    text: string,
-    resume = false
-  ) {
-    const state = this.#requiredState()
-    if (!state.sessionId) {
-      throw notInitialized("OpenCode session is not initialized")
-    }
-    if (state.archivedAt !== null) return false
-    const sessionId = state.sessionId
-    const active = await opencode.sessions.active()
-    const turnActive = Boolean(active[sessionId])
-    await opencode.sessions.synthetic({
-      sessionID: sessionId,
-      text,
-      resume,
-      metadata: {
-        sylphOrigin: "check",
-        sylphNotice: workspaceConversationNotice(text) ?? {
-          summary: "Checks updated",
-        },
+  async #deliverCheckCompletions(opencode: OpenCodeWorkerd.Interface) {
+    await this.#checks.deliverCompletions(
+      async (completion) => {
+        const state = this.#requiredState()
+        if (!state.sessionId)
+          throw notInitialized("OpenCode session is not initialized")
+        if (completion.resume) await this.#scheduleTurnLimit()
+        await deliverCheckCompletion(
+          opencode.sessions,
+          state.sessionId,
+          completion
+        )
       },
-      delivery: turnActive ? "queue" : undefined,
-    })
-    if (resume && !turnActive) await this.#scheduleTurnLimit()
-    return true
-  }
-
-  async #afterCheckUpdate(
-    opencode: OpenCodeWorkerd.Interface,
-    run: WorkspaceCheckRun
-  ) {
-    if (run.kind === "dependencies" && isTerminalCheckStatus(run.status)) {
-      await this.#promptSession(
-        opencode,
-        run.status === "passed"
-          ? "Dependency installation succeeded. The generated bun.lock is saved in the durable Workspace and a normal frozen-install Check has started. Wait for its result; do not edit bun.lock or start duplicate Checks."
-          : `Dependency installation failed. No successful repair is claimed. Inspect these diagnostics. Run bun install with the native shell tool after correcting the cause, then run workspace_run_checks. The dependency job is retired and cannot be retried.\n${run.diagnostics.map((item) => item.output || item.summary).join("\n")}`
-      )
-      return
-    }
-    if (run.kind !== "checkpoint" || !isTerminalCheckStatus(run.status)) return
-    if (this.#isArchived()) return
-    if (run.status === "passed") {
-      await this.#promptSession(opencode, checkPassedNotification(run))
-      return
-    }
-    if (run.repairOnFailure) {
-      const repair = await this.#startRepairTurn(
-        opencode,
-        run.id,
-        automaticRepairIdempotencyKey(run.id),
-        "automatic"
-      )
-      if (repair.started) return
-      await this.#promptSession(
-        opencode,
-        checkFailedNotification(run, { reason: repair.reason })
-      )
-      return
-    }
-    await this.#promptSession(
-      opencode,
-      checkFailedNotification(run, { reason: repairDisabledReason })
+      async (completion) => {
+        const state = this.#requiredState()
+        if (state.archivedAt !== null) return false
+        if (!state.sessionId)
+          throw notInitialized("OpenCode session is not initialized")
+        const run = this.#checks.get(completion.runId)
+        if (!run || run.attempt !== completion.attempt) return false
+        if (run.kind === "checkpoint" && run.status === "failed") {
+          const version = await this.#workspaceGit.versionControl()
+          if (version.forkHead !== completion.commit) return false
+        }
+        return true
+      }
     )
   }
 
-  async #startRepairTurn(
-    opencode: OpenCodeWorkerd.Interface,
-    runId: string,
-    idempotencyKey: string,
-    source: WorkspaceRepairSource
-  ) {
-    try {
-      this.#checks.requestRepair(runId, idempotencyKey, source)
-    } catch (cause) {
-      if (cause instanceof WorkspaceRepairLimitReached) {
-        this.#checks.recordRepairNotice(runId, cause.message)
-        return { started: false, reason: cause.message }
-      }
-      throw cause
-    }
-    const run = this.#checks.takeRepair(runId)
-    if (!run) {
-      return {
-        started: false,
-        reason: "A repair turn already started for this Check.",
-      }
-    }
-    const prompted = await this.#promptSession(
-      opencode,
-      checkRepairPrompt(run),
-      true
-    )
-    return prompted
-      ? { started: true, reason: "" }
-      : { started: false, reason: readOnlyMessage }
+  async #scheduleCheckCompletion() {
+    if (!this.#checks.hasPendingCompletions()) return
+    const scheduled = await this.ctx.storage.getAlarm()
+    const retryAt = Date.now() + 5000
+    if (scheduled === null || scheduled > retryAt)
+      await this.ctx.storage.setAlarm(retryAt)
   }
 
   async #preview() {
@@ -1549,8 +1455,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       const run = await this.#startCheckpointCheck(
         state.workspaceId,
         checkpoint.checkpoint.id,
-        checkpoint.checkpoint.commit,
-        false
+        checkpoint.checkpoint.commit
       )
       return new WorkspacePreviewResult({
         status: "pending",
@@ -1574,8 +1479,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     const run = await this.#startCheckpointCheck(
       state.workspaceId,
       checkpoint.id,
-      checkpoint.commit,
-      false
+      checkpoint.commit
     )
     return new WorkspacePreviewResult({
       status: "pending",
@@ -1665,14 +1569,20 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     workspaceId: string,
     checkpointId: string,
     commit: string,
-    repairOnFailure: boolean,
     checkId?: string
   ) {
     const id = checkId ?? `check-${checkpointId}`
     const existing = this.#checks.get(id)
     if (existing) {
-      await this.#startWorkflow(existing)
-      return existing
+      const run =
+        existing.status === "failed"
+          ? this.#checks.retry(
+              existing.id,
+              `agent:${existing.id}:${existing.attempt}`
+            )
+          : existing
+      await this.#startWorkflow(run)
+      return run
     }
     const run = newCheckRun({
       id,
@@ -1681,7 +1591,6 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       commit,
       kind: "checkpoint",
       attempt: 1,
-      repairOnFailure,
       createdAt: Date.now(),
     })
     this.#checks.create(run)
@@ -1716,7 +1625,6 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       checkpointId: run.checkpointId,
       kind: run.kind,
       attempt: run.attempt,
-      repairOnFailure: run.repairOnFailure,
       deploymentId: null,
       createdAt: run.createdAt,
     }
@@ -1748,8 +1656,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       await this.#startCheckpointCheck(
         state.workspaceId,
         checkpoint.id,
-        checkpoint.commit,
-        false
+        checkpoint.commit
       )
     }
     return result
@@ -1937,8 +1844,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       maxQueuedMessages,
       maxTurnDurationMs,
       maxCheckAttempts: maxWorkspaceCheckAttempts,
-      maxRepairAttempts: maxWorkspaceRepairAttempts,
-      maxAutomaticRepairs: maxWorkspaceAutomaticRepairs,
+      maxCheckContinuations: maxWorkspaceCheckContinuations,
     }
 
     if (!state?.sessionId) {
@@ -1956,7 +1862,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         lastTurnOutcome: null,
         activeTurnStartedAt: null,
         limits,
-        automaticRepairsUsed: this.#checks.automaticRepairsUsed(),
+        checkContinuationsUsed: this.#checks.checkContinuationsUsed(),
         archivedAt: state?.archivedAt ?? null,
         opencode: { healthy: health.healthy },
       })
@@ -2044,7 +1950,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       lastTurnOutcome: session.outcome ?? null,
       activeTurnStartedAt: turnActive ? activeTurnStartedAt(messages) : null,
       limits,
-      automaticRepairsUsed: this.#checks.automaticRepairsUsed(),
+      checkContinuationsUsed: this.#checks.checkContinuationsUsed(),
       archivedAt: state.archivedAt,
       opencode: { healthy: health.healthy },
     })

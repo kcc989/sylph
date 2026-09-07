@@ -11,9 +11,8 @@ import { checkStage } from "./workspace-checks"
 import {
   checkFailedNotification,
   checkPassedNotification,
-  checkRepairPrompt,
+  checkContinuationPrompt,
   isTerminalCheckStatus,
-  repairDisabledReason,
 } from "./workspace-check-notification"
 
 const commit = GitCommitId.make("1234567890123456789012345678901234567890")
@@ -27,8 +26,6 @@ const run = (status: WorkspaceCheckRun["status"]) =>
     kind: "checkpoint",
     status,
     attempt: 2,
-    repairOnFailure: false,
-    repairStatus: "available",
     previewUrl:
       status === "passed" ? "https://preview.example.workers.dev" : null,
     stages: [
@@ -78,18 +75,19 @@ describe("Check notifications", () => {
     expect(text).toContain("Do not run Workspace checks again")
   })
 
-  test("a failing Check without repair explains and waits for direction", () => {
-    const text = checkFailedNotification(run("failed"), {
-      reason: repairDisabledReason,
-    })
+  test("an exhausted Check continuation explains and waits for direction", () => {
+    const text = checkFailedNotification(
+      run("failed"),
+      "Self-healing CI reached its limit"
+    )
     expect(text).toContain("Check check-1 failed")
-    expect(text).toContain(repairDisabledReason)
+    expect(text).toContain("Self-healing CI reached its limit")
     expect(text).toContain("wait for direction before changing files")
     expect(text).toContain("test: test failed\nexpected 1 to be 2")
   })
 
-  test("the repair prompt keeps validation strict and carries diagnostics", () => {
-    const text = checkRepairPrompt(run("failed"))
+  test("the continuation prompt keeps validation strict and carries diagnostics", () => {
+    const text = checkContinuationPrompt(run("failed"))
     expect(text).toContain("without weakening validation")
     expect(text).toContain("expected 1 to be 2")
   })

@@ -18,8 +18,6 @@ import {
   WorkspacePermissionReplyInput,
   WorkspaceQuestionReplyInput,
   WorkspaceRebaseResult,
-  WorkspaceRepairCheckInput,
-  WorkspaceRepairResult,
   WorkspaceRetryCheckInput,
   WorkspaceRuntimeHealth,
   WorkspaceMessagePageInput,
@@ -50,7 +48,6 @@ type WorkspaceRuntimeMethods = Pick<
   | "applyCheckUpdate"
   | "archive"
   | "retryCheck"
-  | "repairCheck"
   | "updateProject"
   | "rebase"
   | "versionControl"
@@ -130,8 +127,6 @@ const decodeCheckUpdateResult = Schema.decodeUnknownSync(
 const encodeArchiveInput = Schema.encodeSync(WorkspaceArchiveInput)
 const decodeArchiveResult = Schema.decodeUnknownSync(WorkspaceArchiveResult)
 const encodeRetryCheckInput = Schema.encodeSync(WorkspaceRetryCheckInput)
-const encodeRepairCheckInput = Schema.encodeSync(WorkspaceRepairCheckInput)
-const decodeRepairResult = Schema.decodeUnknownSync(WorkspaceRepairResult)
 const decodeSyncResult = Schema.decodeUnknownSync(WorkspaceSyncResult)
 const decodeRebaseResult = Schema.decodeUnknownSync(WorkspaceRebaseResult)
 const decodeVersionControlSnapshot = Schema.decodeUnknownSync(
@@ -205,10 +200,6 @@ export const makeWorkspaceRuntime = (stub: WorkspaceRuntimeStub) => ({
   retryCheck: (input: WorkspaceRetryCheckInput) =>
     call(async () =>
       decodeCheckRun(await stub.retryCheck(encodeRetryCheckInput(input)))
-    ),
-  repairCheck: (input: WorkspaceRepairCheckInput) =>
-    call(async () =>
-      decodeRepairResult(await stub.repairCheck(encodeRepairCheckInput(input)))
     ),
   updateProject: () =>
     call(async () => decodeSyncResult(await stub.updateProject())),

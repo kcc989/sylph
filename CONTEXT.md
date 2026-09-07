@@ -71,6 +71,9 @@ A durable commit that records the Working copy in the Workspace fork.
 **Check**:
 An evaluation of one exact Checkpoint through the Project's install, typecheck, lint, test, and build requirements. A Check may also create and test that Checkpoint's Preview.
 
+**Check continuation**:
+A normal agent Turn started automatically after a failed Check to fix its cause and run another Check. An Installation bounds consecutive Check continuations within each Workspace.
+
 **Preview**:
 An isolated deployment of one exact Checkpoint that can be inspected by a User or a browser test.
 

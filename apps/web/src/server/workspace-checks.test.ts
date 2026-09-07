@@ -7,23 +7,27 @@ import {
   WorkspaceId,
 } from "@workspace/domain"
 
-import {
-  automaticRepairIdempotencyKey,
-  checkStage,
-  maxWorkspaceAutomaticRepairs,
-  maxWorkspaceCheckAttempts,
-  maxWorkspaceRepairAttempts,
-  WorkspaceChecks,
-  WorkspaceRepairLimitReached,
-} from "./workspace-checks"
+import { checkStage, WorkspaceChecks } from "./workspace-checks"
 
 class TestSqlStorage {
   readonly #database = new Database(":memory:")
+  failCallback = false
+
+  transactionSync<T>(callback: () => T): T {
+    return this.#database.transaction(callback)()
+  }
   readonly sql = {
     exec: <Row extends Record<string, SqlStorageValue>>(
       query: string,
       ...bindings: SqlStorageValue[]
     ) => {
+      if (
+        this.failCallback &&
+        query.startsWith("INSERT INTO app_workspace_check_callback")
+      ) {
+        this.failCallback = false
+        throw new Error("Callback storage failed")
+      }
       const parameters: SQLQueryBindings[] = bindings.map((binding) =>
         binding instanceof ArrayBuffer ? new Uint8Array(binding) : binding
       )
@@ -44,8 +48,6 @@ const run = () =>
     kind: "checkpoint",
     status: "queued",
     attempt: 1,
-    repairOnFailure: true,
-    repairStatus: "available",
     previewUrl: null,
     stages: [checkStage("install", "queued", "Waiting")],
     diagnostics: [],
@@ -55,7 +57,7 @@ const run = () =>
   })
 
 describe("WorkspaceChecks", () => {
-  test("keeps legacy dependency results readable but rejects new retries and repairs", () => {
+  test("keeps legacy dependency results readable but rejects new retries", () => {
     const checks = new WorkspaceChecks(new TestSqlStorage())
     checks.initialize()
     const legacy = new WorkspaceCheckRun({
@@ -66,9 +68,6 @@ describe("WorkspaceChecks", () => {
     checks.create(legacy)
     expect(checks.get(legacy.id)?.kind).toBe("dependencies")
     expect(() => checks.retry(legacy.id, "retry-legacy")).toThrow("retired")
-    expect(() => checks.requestRepair(legacy.id, "repair-legacy")).toThrow(
-      "retired"
-    )
     expect(checks.get(legacy.id)?.attempt).toBe(legacy.attempt)
   })
 
@@ -135,168 +134,237 @@ describe("WorkspaceChecks", () => {
     expect(checks.latestPassingCheckpoint(passed.commit)?.id).toBe("check-1")
   })
 
-  test("makes retries and repair turns idempotent", () => {
+  test("makes retries idempotent and limits attempts", () => {
     const checks = new WorkspaceChecks(new TestSqlStorage())
     checks.initialize()
-    checks.create(
-      new WorkspaceCheckRun({
-        ...run(),
-        status: "failed",
-        repairOnFailure: false,
-        repairStatus: "available",
-      })
-    )
-
-    const repaired = checks.requestRepair("check-1", "repair-key")
-    expect(checks.requestRepair("check-1", "repair-key")).toEqual(repaired)
-    expect(checks.takeRepair("check-1")?.repairStatus).toBe("started")
-    expect(checks.takeRepair("check-1")).toBeNull()
-
+    checks.create(run())
     const retried = checks.retry("check-1", "retry-key")
     expect(retried.attempt).toBe(2)
     expect(checks.retry("check-1", "retry-key")).toEqual(retried)
+    checks.retry("check-1", "retry-2")
+    expect(() => checks.retry("check-1", "retry-3")).toThrow("attempt limit")
   })
 
-  test("enforces visible retry and repair limits", () => {
+  test("keeps agent evidence on the durable run", () => {
     const checks = new WorkspaceChecks(new TestSqlStorage())
     checks.initialize()
-    checks.create(
-      new WorkspaceCheckRun({
-        ...run(),
-        status: "failed",
-        attempt: maxWorkspaceCheckAttempts,
-        repairOnFailure: false,
+    checks.create(run())
+    checks.addEvidence("check-1", [
+      {
+        id: "shot",
+        kind: "screenshot",
+        label: "Preview",
+        url: "/shot",
+        createdAt: 5,
+      },
+    ])
+    expect(checks.get("check-1")?.evidence).toHaveLength(1)
+  })
+})
+
+const finish = (
+  checks: WorkspaceChecks,
+  id: string,
+  status: "passed" | "failed" = "failed",
+  attempt = 1
+) => {
+  const result = new WorkspaceCheckRun({ ...run(), id, status, attempt })
+  const update = new WorkspaceCheckUpdate({
+    callbackId: `${id}:${attempt}:${status}`,
+    run: result,
+  })
+  checks.apply(update)
+  return update
+}
+
+describe("Check completion hook", () => {
+  test("failed Checks continue the normal agent by default and passed Checks do not", async () => {
+    const checks = new WorkspaceChecks(new TestSqlStorage())
+    checks.initialize()
+    finish(checks, "failed")
+    finish(checks, "passed", "passed")
+    const delivered: { text: string; resume: boolean }[] = []
+    await checks.deliverCompletions(async (completion) => {
+      delivered.push(completion)
+    })
+    expect(delivered.map((item) => item.resume)).toEqual([true, false])
+    expect(delivered[0]?.text).toContain("without weakening validation")
+    expect(delivered[0]?.text).toContain(run().commit)
+    expect(checks.hasPendingCompletions()).toBeFalse()
+  })
+
+  test("retries durable delivery after failure and restart without spending another continuation", async () => {
+    const storage = new TestSqlStorage()
+    const checks = new WorkspaceChecks(storage)
+    checks.initialize()
+    const update = finish(checks, "failed")
+    const ids: string[] = []
+    await expect(
+      checks.deliverCompletions(async (completion) => {
+        ids.push(completion.id)
+        throw new Error("receiver accepted; acknowledgement lost")
       })
-    )
+    ).rejects.toThrow("acknowledgement lost")
+    const restarted = new WorkspaceChecks(storage)
+    restarted.initialize()
+    expect(restarted.apply(update)).toBeFalse()
+    await restarted.deliverCompletions(async (completion) => {
+      ids.push(completion.id)
+    })
+    expect(ids).toEqual([
+      "msg_check-completion:failed:1",
+      "msg_check-completion:failed:1",
+    ])
+    expect(restarted.checkContinuationsUsed()).toBe(1)
+    await restarted.deliverCompletions(async () => {
+      throw new Error("duplicate delivery")
+    })
+  })
 
-    expect(() => checks.retry("check-1", "retry-over-limit")).toThrow(
-      `${maxWorkspaceCheckAttempts}-attempt limit`
-    )
+  test("limits continuation across new Checks and resets only for a User message or passing Check", async () => {
+    const checks = new WorkspaceChecks(new TestSqlStorage())
+    checks.initialize()
+    for (let index = 0; index < 4; index += 1)
+      finish(checks, `failure-${index}`)
+    const messages: { resume: boolean; text: string }[] = []
+    await checks.deliverCompletions(async (completion) => {
+      messages.push(completion)
+    })
+    expect(messages.map((item) => item.resume)).toEqual([
+      true,
+      true,
+      true,
+      false,
+    ])
+    expect(messages[3]?.text).toContain("3-Turn limit")
+    expect(checks.checkContinuationsUsed()).toBe(3)
+    checks.resetCheckContinuations("user-message")
+    finish(checks, "after-user")
+    await checks.deliverCompletions(async () => {})
+    expect(checks.checkContinuationsUsed()).toBe(1)
+    checks.resetCheckContinuations("user-message")
+    expect(checks.checkContinuationsUsed()).toBe(1)
+    finish(checks, "passed", "passed")
+    expect(checks.checkContinuationsUsed()).toBe(0)
+  })
 
-    for (let attempt = 1; attempt <= maxWorkspaceRepairAttempts; attempt += 1) {
-      checks.requestRepair("check-1", `repair-${attempt}`)
-      checks.takeRepair("check-1")
+  test("terminal results cannot regress or spend the budget twice", async () => {
+    const checks = new WorkspaceChecks(new TestSqlStorage())
+    checks.initialize()
+    const update = finish(checks, "check-1")
+    expect(
       checks.apply(
         new WorkspaceCheckUpdate({
-          callbackId: `repair-reset-${attempt}`,
+          ...update,
+          callbackId: "different-callback",
+        })
+      )
+    ).toBeFalse()
+    expect(
+      checks.apply(
+        new WorkspaceCheckUpdate({
+          callbackId: "late-running",
+          run: new WorkspaceCheckRun({ ...update.run, status: "running" }),
+        })
+      )
+    ).toBeFalse()
+    await checks.deliverCompletions(async () => {})
+    const retried = checks.retry("check-1", "retry")
+    expect(checks.apply(update)).toBeFalse()
+    expect(checks.get("check-1")?.attempt).toBe(retried.attempt)
+    finish(checks, "check-1", "failed", 2)
+    await checks.deliverCompletions(async () => {})
+    expect(checks.checkContinuationsUsed()).toBe(2)
+  })
+
+  test("production and legacy dependency results never resume the agent", async () => {
+    const checks = new WorkspaceChecks(new TestSqlStorage())
+    checks.initialize()
+    for (const kind of ["production", "dependencies"] as const) {
+      checks.apply(
+        new WorkspaceCheckUpdate({
+          callbackId: kind,
           run: new WorkspaceCheckRun({
-            ...checks.get("check-1")!,
-            repairStatus: "available",
+            ...run(),
+            id: kind,
+            kind,
+            status: "failed",
           }),
         })
       )
     }
-
-    expect(() => checks.requestRepair("check-1", "repair-over-limit")).toThrow(
-      `${maxWorkspaceRepairAttempts}-repair limit`
-    )
+    const delivered: boolean[] = []
+    await checks.deliverCompletions(async (completion) => {
+      delivered.push(completion.resume)
+    })
+    expect(delivered).toEqual([false])
+    expect(checks.checkContinuationsUsed()).toBe(0)
   })
 
-  test("bounds automatic repair across every Check in the Workspace", () => {
+  test("concurrent callbacks share delivery without duplicate sends", async () => {
     const checks = new WorkspaceChecks(new TestSqlStorage())
     checks.initialize()
-    const failedRun = (id: string) =>
-      new WorkspaceCheckRun({
-        ...run(),
-        id,
-        checkpointId: id,
-        status: "failed",
-        repairOnFailure: true,
-        repairStatus: "available",
-      })
-
-    for (let index = 1; index <= maxWorkspaceAutomaticRepairs; index += 1) {
-      const id = `check-${index}`
-      checks.create(failedRun(id))
-      checks.requestRepair(id, automaticRepairIdempotencyKey(id), "automatic")
-      expect(checks.takeRepair(id)?.repairStatus).toBe("started")
-    }
-    expect(checks.automaticRepairsUsed()).toBe(maxWorkspaceAutomaticRepairs)
-
-    const exhausted = "check-exhausted"
-    checks.create(failedRun(exhausted))
-    expect(() =>
-      checks.requestRepair(
-        exhausted,
-        automaticRepairIdempotencyKey(exhausted),
-        "automatic"
-      )
-    ).toThrow(WorkspaceRepairLimitReached)
-    expect(checks.get(exhausted)?.repairStatus).toBe("available")
-
-    checks.requestRepair(exhausted, "manual-key")
-    expect(checks.automaticRepairsUsed()).toBe(maxWorkspaceAutomaticRepairs)
-    expect(checks.get(exhausted)?.repairStatus).toBe("requested")
-  })
-
-  test("a user prompt or a passing Check restores the automatic repair budget", () => {
-    const checks = new WorkspaceChecks(new TestSqlStorage())
-    checks.initialize()
-    checks.create(
-      new WorkspaceCheckRun({
-        ...run(),
-        status: "failed",
-        repairOnFailure: true,
-      })
-    )
-    checks.requestRepair(
-      "check-1",
-      automaticRepairIdempotencyKey("check-1"),
-      "automatic"
-    )
-    expect(checks.automaticRepairsUsed()).toBe(1)
-
-    checks.resetAutomaticRepairs("prompt:1")
-    expect(checks.automaticRepairsUsed()).toBe(0)
-
-    checks.create(
-      new WorkspaceCheckRun({ ...run(), id: "check-2", status: "failed" })
-    )
-    checks.requestRepair(
-      "check-2",
-      automaticRepairIdempotencyKey("check-2"),
-      "automatic"
-    )
-    expect(checks.automaticRepairsUsed()).toBe(1)
-    checks.apply(
-      new WorkspaceCheckUpdate({
-        callbackId: "check-2:1:run-passed",
-        run: new WorkspaceCheckRun({
-          ...run(),
-          id: "check-2",
-          status: "passed",
-        }),
-      })
-    )
-    expect(checks.automaticRepairsUsed()).toBe(0)
-  })
-
-  test("keeps repair notices and agent evidence on the durable run", () => {
-    const checks = new WorkspaceChecks(new TestSqlStorage())
-    checks.initialize()
-    checks.create(new WorkspaceCheckRun({ ...run(), status: "failed" }))
-
-    checks.recordRepairNotice("check-1", "Automatic repair reached its limit")
-    checks.apply(
-      new WorkspaceCheckUpdate({
-        callbackId: "late-callback",
-        run: new WorkspaceCheckRun({ ...run(), status: "failed" }),
-      })
-    )
-    expect(checks.get("check-1")?.repairNotice).toBe(
-      "Automatic repair reached its limit"
-    )
-
-    const updated = checks.addEvidence("check-1", [
-      {
-        id: "check-1-agent-screenshot-1",
-        kind: "screenshot",
-        label: "Agent browser /",
-        url: "/api/workspaces/workspace-1/evidence/check-1-agent-screenshot-1",
-        createdAt: 5,
-      },
+    finish(checks, "failed")
+    let count = 0
+    await Promise.all([
+      checks.deliverCompletions(async () => {
+        count += 1
+      }),
+      checks.deliverCompletions(async () => {
+        count += 1
+      }),
     ])
-    expect(updated.evidence).toHaveLength(1)
-    expect(checks.get("check-1")?.evidence[0]?.label).toBe("Agent browser /")
+    expect(count).toBe(1)
   })
+})
+
+test("completion receipt commits without spending budget before delivery", () => {
+  const storage = new TestSqlStorage()
+  const checks = new WorkspaceChecks(storage)
+  checks.initialize()
+  storage.failCallback = true
+  expect(() => finish(checks, "failed")).toThrow("Callback storage failed")
+  expect(checks.hasPendingCompletions()).toBeFalse()
+  expect(checks.checkContinuationsUsed()).toBe(0)
+  expect(checks.get("failed")).toBeNull()
+  finish(checks, "failed")
+  expect(checks.hasPendingCompletions()).toBeTrue()
+  expect(checks.checkContinuationsUsed()).toBe(0)
+})
+
+test("obsolete failures cannot exhaust the current Check continuation budget", async () => {
+  const checks = new WorkspaceChecks(new TestSqlStorage())
+  checks.initialize()
+  for (let index = 0; index < 4; index += 1) finish(checks, `check-${index}`)
+  const delivered: boolean[] = []
+  await checks.deliverCompletions(
+    async (completion) => {
+      delivered.push(completion.resume)
+    },
+    async (completion) => completion.runId === "check-3"
+  )
+  expect(delivered).toEqual([true])
+  expect(checks.checkContinuationsUsed()).toBe(1)
+})
+
+test("an uncertain prior delivery retains its reservation when the Checkpoint changes", async () => {
+  const checks = new WorkspaceChecks(new TestSqlStorage())
+  checks.initialize()
+  finish(checks, "old")
+  await expect(
+    checks.deliverCompletions(async () => {
+      throw new Error("offline")
+    })
+  ).rejects.toThrow("offline")
+  expect(checks.checkContinuationsUsed()).toBe(1)
+  for (let index = 0; index < 3; index += 1) finish(checks, `current-${index}`)
+  const delivered: boolean[] = []
+  await checks.deliverCompletions(
+    async (completion) => {
+      delivered.push(completion.resume)
+    },
+    async (completion) => completion.runId !== "old"
+  )
+  expect(delivered).toEqual([true, true, false])
+  expect(checks.checkContinuationsUsed()).toBe(3)
 })

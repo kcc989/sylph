@@ -19,7 +19,7 @@ describe("Workspace plugin", () => {
     expect(workspaceSystemPrompt).toContain("workspace_preview")
     expect(workspaceSystemPrompt).toContain("Do not poll")
     expect(workspaceSystemPrompt).toContain(
-      "system context for the next user request"
+      "Failed Checks automatically resume you to fix the cause"
     )
     expect(workspaceSystemPrompt).not.toContain("workspace_check_status")
     expect(workspaceSystemPrompt).not.toContain(

@@ -236,6 +236,7 @@ describe("Project and runtime inputs", () => {
 
   test("restarts a Workspace with a selected model", async () => {
     const restart = await decodeRestartWorkspaceInputPromise({
+      idempotencyKey: crypto.randomUUID(),
       workspaceId: "workspace-1",
       model: { providerId: "openrouter", modelId: "openrouter/auto" },
     })
@@ -307,10 +308,9 @@ describe("Project and runtime inputs", () => {
         maxTurnDurationMs: 900_000,
         maxQueuedMessages: 5,
         maxCheckAttempts: 3,
-        maxRepairAttempts: 2,
-        maxAutomaticRepairs: 3,
+        maxCheckContinuations: 3,
       },
-      automaticRepairsUsed: 0,
+      checkContinuationsUsed: 0,
       archivedAt: null,
       permissions: [
         {

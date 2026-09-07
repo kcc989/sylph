@@ -5,7 +5,7 @@ import * as Alchemy from "alchemy"
 import * as Cloudflare from "alchemy/Cloudflare"
 import type { WorkspaceDO } from "./apps/web/src/server/workspace-do"
 import type {
-  WorkspaceRequestInput,
+  WorkspaceProvisioningInput,
   WorkspaceCiInput,
   WorkspaceMessageDeliveryInput,
 } from "@workspace/domain"
@@ -140,10 +140,9 @@ export class Website extends Cloudflare.Website.Vite<Website>()(
         >("WorkspaceMessageDelivery", {
           className: "WorkspaceMessageDelivery",
         }),
-        PROVISIONING: Cloudflare.Workflow<typeof WorkspaceRequestInput.Encoded>(
-          "WorkspaceProvisioning",
-          { className: "WorkspaceProvisioning" }
-        ),
+        PROVISIONING: Cloudflare.Workflow<
+          typeof WorkspaceProvisioningInput.Encoded
+        >("WorkspaceProvisioning", { className: "WorkspaceProvisioning" }),
         MERGES: Cloudflare.Workflow<WorkspaceMergeInput>("WorkspaceMerge", {
           className: "WorkspaceMerge",
         }),

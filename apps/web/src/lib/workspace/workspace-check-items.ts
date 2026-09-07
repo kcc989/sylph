@@ -5,9 +5,7 @@ import type {
 } from "@workspace/ui/components/workspace/types"
 
 export type WorkspaceCheckActions = {
-  automaticRepairsUsed: number
   limits: WorkspaceRuntimeLimits
-  onRepair: (run: Pick<WorkspaceCheckRun, "id">) => void
   onRetry: (run: Pick<WorkspaceCheckRun, "id">) => void
   onUpdateProject: () => void
   pending: boolean
@@ -72,32 +70,6 @@ export const workspaceCheckItems = (
         }
       })
     : []
-
-  if (checkpointCheck?.status === "failed") {
-    const repairs = checkpointCheck.repairAttempt ?? 0
-    const maxRepairs =
-      checkpointCheck.maxRepairAttempts ?? actions.limits.maxRepairAttempts
-    const automatic = `${actions.automaticRepairsUsed}/${actions.limits.maxAutomaticRepairs ?? 0} automatic`
-    items.push({
-      commit: checkpointCheck.commit,
-      target: "checkpoint",
-      name: "Agent repair",
-      detail:
-        checkpointCheck.repairStatus === "started"
-          ? `Repair Turn ${repairs || 1}/${maxRepairs} · ${Math.round(actions.limits.maxTurnDurationMs / 60_000)} min limit · ${automatic}`
-          : `${repairs}/${maxRepairs} repairs used · ${automatic}`,
-      status: checkpointCheck.repairStatus === "started" ? "running" : "failed",
-      output: checkpointCheck.repairNotice,
-      action: {
-        label: "Repair",
-        disabled:
-          actions.pending ||
-          checkpointCheck.repairStatus === "started" ||
-          repairs >= maxRepairs,
-        onClick: () => actions.onRepair(checkpointCheck),
-      },
-    })
-  }
 
   if (actions.projectChanged) {
     items.unshift({
