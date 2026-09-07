@@ -607,6 +607,10 @@ try {
   record.browserTrace = await probe("trace").catch((traceError) => ({
     error: traceError.message,
   }))
+  if (/captureScreenshot/.test(error.message))
+    record.captureProbe = await probe("capture").catch((captureError) => ({
+      error: captureError.message,
+    }))
   throw error
 } finally {
   if (sessionId) {
