@@ -35,70 +35,42 @@ import {
   WorkspaceFileContent,
 } from "@workspace/domain"
 import { Schema } from "effect"
+import type { WorkspaceDO } from "./workspace-do"
 
-export interface WorkspaceRuntimeStub {
-  connectKey(
-    input: typeof OpenCodeKeySetupInput.Encoded
-  ): Promise<typeof OpenCodeConnectionResult.Encoded>
-  startSubscriptionSignIn(
-    input: typeof OpenCodeSubscriptionStartInput.Encoded
-  ): Promise<typeof OpenCodeSubscriptionAttempt.Encoded>
-  subscriptionSignInStatus(
-    input: typeof OpenCodeSubscriptionStatusInput.Encoded
-  ): Promise<typeof OpenCodeSubscriptionRuntimeStatus.Encoded>
-  cancelSubscriptionSignIn(
-    input: typeof OpenCodeSubscriptionStatusInput.Encoded
-  ): Promise<void>
-  initialize(
-    input: typeof InitializeWorkspaceRuntime.Encoded
-  ): Promise<typeof WorkspaceRuntimeHealth.Encoded>
-  checkpoint(
-    input: typeof WorkspaceCheckpointInput.Encoded
-  ): Promise<typeof WorkspaceCheckpointResult.Encoded>
-  listChecks(): Promise<typeof WorkspaceCheckRunList.Encoded>
-  readFile(
-    input: typeof WorkspaceReadFileInput.Encoded
-  ): Promise<typeof WorkspaceFileContent.Encoded>
-  applyCheckUpdate(
-    update: typeof WorkspaceCheckUpdate.Encoded
-  ): Promise<typeof WorkspaceCheckUpdateResult.Encoded>
-  archive(
-    input: typeof WorkspaceArchiveInput.Encoded
-  ): Promise<typeof WorkspaceArchiveResult.Encoded>
-  retryCheck(
-    input: typeof WorkspaceRetryCheckInput.Encoded
-  ): Promise<typeof WorkspaceCheckRun.Encoded>
-  repairCheck(
-    input: typeof WorkspaceRepairCheckInput.Encoded
-  ): Promise<typeof WorkspaceRepairResult.Encoded>
-  updateProject(): Promise<typeof WorkspaceSyncResult.Encoded>
-  rebase(): Promise<typeof WorkspaceRebaseResult.Encoded>
-  versionControl(
-    refreshProjectHead: boolean,
-    includePatches?: boolean
-  ): Promise<typeof WorkspaceVersionControlSnapshot.Encoded | null>
-  prompt(
-    input: typeof WorkspaceRuntimePromptInput.Encoded
-  ): Promise<typeof WorkspaceRuntimeHealth.Encoded>
-  cancelTurn(
-    input: typeof WorkspaceTurnCancelInput.Encoded
-  ): Promise<typeof WorkspaceTurnCancelResult.Encoded>
-  reloadSkills(): Promise<typeof WorkspaceSkillReloadResult.Encoded>
-  replyPermission(
-    input: typeof WorkspacePermissionReplyInput.Encoded
-  ): Promise<void>
-  disconnectUser(
-    input: typeof WorkspaceDisconnectUserInput.Encoded
-  ): Promise<void>
-  answerQuestion(
-    input: typeof WorkspaceQuestionReplyInput.Encoded
-  ): Promise<void>
-  discard(): Promise<void>
-  evict(): Promise<void>
-  listMessages(
-    input: typeof WorkspaceMessagePageInput.Encoded
-  ): Promise<typeof WorkspaceMessagePage.Encoded>
-  snapshot(): Promise<typeof WorkspaceRuntimeHealth.Encoded>
+type WorkspaceRuntimeMethods = Pick<
+  WorkspaceDO,
+  | "connectKey"
+  | "startSubscriptionSignIn"
+  | "subscriptionSignInStatus"
+  | "cancelSubscriptionSignIn"
+  | "initialize"
+  | "checkpoint"
+  | "listChecks"
+  | "readFile"
+  | "applyCheckUpdate"
+  | "archive"
+  | "retryCheck"
+  | "repairCheck"
+  | "updateProject"
+  | "rebase"
+  | "versionControl"
+  | "prompt"
+  | "cancelTurn"
+  | "reloadSkills"
+  | "replyPermission"
+  | "disconnectUser"
+  | "answerQuestion"
+  | "discard"
+  | "evict"
+  | "listMessages"
+  | "snapshot"
+>
+
+export type WorkspaceRuntimeStub = {
+  [Method in keyof WorkspaceRuntimeMethods]: (
+    ...args: Parameters<WorkspaceRuntimeMethods[Method]>
+  ) => Promise<Awaited<ReturnType<WorkspaceRuntimeMethods[Method]>>>
+} & {
   fetch(input: Request | string, init?: RequestInit): Promise<Response>
 }
 
@@ -108,51 +80,7 @@ export type WorkspaceSocketActor = {
   writable: boolean
 }
 
-export interface WorkspaceRuntime {
-  connectKey(
-    input: typeof OpenCodeKeySetupInput.Encoded
-  ): Promise<OpenCodeConnectionResult>
-  startSubscriptionSignIn(
-    input: OpenCodeSubscriptionStartInput
-  ): Promise<OpenCodeSubscriptionAttempt>
-  subscriptionSignInStatus(
-    input: OpenCodeSubscriptionStatusInput
-  ): Promise<OpenCodeSubscriptionRuntimeStatus>
-  cancelSubscriptionSignIn(
-    input: OpenCodeSubscriptionStatusInput
-  ): Promise<void>
-  initialize(input: InitializeWorkspaceRuntime): Promise<WorkspaceRuntimeHealth>
-  checkpoint(
-    input: WorkspaceCheckpointInput
-  ): Promise<WorkspaceCheckpointResult>
-  listChecks(): Promise<ReadonlyArray<WorkspaceCheckRun>>
-  readFile(input: WorkspaceReadFileInput): Promise<WorkspaceFileContent>
-  applyCheckUpdate(
-    update: WorkspaceCheckUpdate
-  ): Promise<WorkspaceCheckUpdateResult>
-  archive(input: WorkspaceArchiveInput): Promise<WorkspaceArchiveResult>
-  retryCheck(input: WorkspaceRetryCheckInput): Promise<WorkspaceCheckRun>
-  repairCheck(input: WorkspaceRepairCheckInput): Promise<WorkspaceRepairResult>
-  updateProject(): Promise<WorkspaceSyncResult>
-  rebase(): Promise<WorkspaceRebaseResult>
-  versionControl(
-    refreshProjectHead: boolean,
-    includePatches?: boolean
-  ): Promise<WorkspaceVersionControlSnapshot | null>
-  prompt(input: WorkspaceRuntimePromptInput): Promise<WorkspaceRuntimeHealth>
-  cancelTurn(
-    input: WorkspaceTurnCancelInput
-  ): Promise<WorkspaceTurnCancelResult>
-  reloadSkills(): Promise<WorkspaceSkillReloadResult>
-  replyPermission(input: WorkspacePermissionReplyInput): Promise<void>
-  disconnectUser(input: WorkspaceDisconnectUserInput): Promise<void>
-  answerQuestion(input: WorkspaceQuestionReplyInput): Promise<void>
-  discard(): Promise<void>
-  evict(): Promise<void>
-  listMessages(input: WorkspaceMessagePageInput): Promise<WorkspaceMessagePage>
-  snapshot(): Promise<WorkspaceRuntimeHealth>
-  socket(request: Request, actor: WorkspaceSocketActor): Promise<Response>
-}
+export type WorkspaceRuntime = ReturnType<typeof makeWorkspaceRuntime>
 
 const socketUrl = "https://workspace/socket"
 
@@ -225,20 +153,18 @@ const encodeDisconnectUserInput = Schema.encodeSync(
   WorkspaceDisconnectUserInput
 )
 
-export const makeWorkspaceRuntime = (
-  stub: WorkspaceRuntimeStub
-): WorkspaceRuntime => ({
-  connectKey: (input) =>
+export const makeWorkspaceRuntime = (stub: WorkspaceRuntimeStub) => ({
+  connectKey: (input: typeof OpenCodeKeySetupInput.Encoded) =>
     call(async () =>
       decodeConnectionResult(await stub.connectKey(encodeKeySetupInput(input)))
     ),
-  startSubscriptionSignIn: (input) =>
+  startSubscriptionSignIn: (input: OpenCodeSubscriptionStartInput) =>
     call(async () =>
       decodeSubscriptionAttempt(
         await stub.startSubscriptionSignIn(encodeSubscriptionStartInput(input))
       )
     ),
-  subscriptionSignInStatus: (input) =>
+  subscriptionSignInStatus: (input: OpenCodeSubscriptionStatusInput) =>
     call(async () =>
       decodeSubscriptionRuntimeStatus(
         await stub.subscriptionSignInStatus(
@@ -246,15 +172,15 @@ export const makeWorkspaceRuntime = (
         )
       )
     ),
-  cancelSubscriptionSignIn: (input) =>
+  cancelSubscriptionSignIn: (input: OpenCodeSubscriptionStatusInput) =>
     call(() =>
       stub.cancelSubscriptionSignIn(encodeSubscriptionStatusInput(input))
     ),
-  initialize: (input) =>
+  initialize: (input: InitializeWorkspaceRuntime) =>
     call(async () =>
       decodeRuntimeHealth(await stub.initialize(encodeInitializeInput(input)))
     ),
-  checkpoint: (input) =>
+  checkpoint: (input: WorkspaceCheckpointInput) =>
     call(async () =>
       decodeCheckpointResult(
         await stub.checkpoint(encodeCheckpointInput(input))
@@ -262,32 +188,32 @@ export const makeWorkspaceRuntime = (
     ),
   listChecks: () =>
     call(async () => decodeCheckRunList(await stub.listChecks())),
-  readFile: (input) =>
+  readFile: (input: WorkspaceReadFileInput) =>
     call(async () =>
       decodeFileContent(await stub.readFile(encodeReadFileInput(input)))
     ),
-  applyCheckUpdate: (update) =>
+  applyCheckUpdate: (update: WorkspaceCheckUpdate) =>
     call(async () =>
       decodeCheckUpdateResult(
         await stub.applyCheckUpdate(encodeCheckUpdate(update))
       )
     ),
-  archive: (input) =>
+  archive: (input: WorkspaceArchiveInput) =>
     call(async () =>
       decodeArchiveResult(await stub.archive(encodeArchiveInput(input)))
     ),
-  retryCheck: (input) =>
+  retryCheck: (input: WorkspaceRetryCheckInput) =>
     call(async () =>
       decodeCheckRun(await stub.retryCheck(encodeRetryCheckInput(input)))
     ),
-  repairCheck: (input) =>
+  repairCheck: (input: WorkspaceRepairCheckInput) =>
     call(async () =>
       decodeRepairResult(await stub.repairCheck(encodeRepairCheckInput(input)))
     ),
   updateProject: () =>
     call(async () => decodeSyncResult(await stub.updateProject())),
   rebase: () => call(async () => decodeRebaseResult(await stub.rebase())),
-  versionControl: (refreshProjectHead, includePatches) =>
+  versionControl: (refreshProjectHead: boolean, includePatches?: boolean) =>
     call(async () => {
       const snapshot = await stub.versionControl(
         refreshProjectHead,
@@ -295,11 +221,11 @@ export const makeWorkspaceRuntime = (
       )
       return snapshot ? decodeVersionControlSnapshot(snapshot) : null
     }),
-  prompt: (input) =>
+  prompt: (input: WorkspaceRuntimePromptInput) =>
     call(async () =>
       decodeRuntimeHealth(await stub.prompt(encodePromptInput(input)))
     ),
-  cancelTurn: (input) =>
+  cancelTurn: (input: WorkspaceTurnCancelInput) =>
     call(async () =>
       decodeTurnCancelResult(
         await stub.cancelTurn(encodeTurnCancelInput(input))
@@ -307,20 +233,20 @@ export const makeWorkspaceRuntime = (
     ),
   reloadSkills: () =>
     call(async () => decodeSkillReloadResult(await stub.reloadSkills())),
-  replyPermission: (input) =>
+  replyPermission: (input: WorkspacePermissionReplyInput) =>
     call(() => stub.replyPermission(encodePermissionReplyInput(input))),
-  disconnectUser: (input) =>
+  disconnectUser: (input: WorkspaceDisconnectUserInput) =>
     call(() => stub.disconnectUser(encodeDisconnectUserInput(input))),
-  answerQuestion: (input) =>
+  answerQuestion: (input: WorkspaceQuestionReplyInput) =>
     call(() => stub.answerQuestion(encodeQuestionReplyInput(input))),
   discard: () => call(() => stub.discard()),
   evict: () => call(() => stub.evict()),
-  listMessages: (input) =>
+  listMessages: (input: WorkspaceMessagePageInput) =>
     call(async () =>
       decodeMessagePage(await stub.listMessages(encodeMessagePageInput(input)))
     ),
   snapshot: () => call(async () => decodeRuntimeHealth(await stub.snapshot())),
-  socket: (request, actor) => {
+  socket: (request: Request, actor: WorkspaceSocketActor) => {
     const headers = new Headers(request.headers)
     headers.set("x-sylph-user-id", actor.userId)
     headers.set("x-sylph-user-name", actor.name)

@@ -87,7 +87,7 @@ export const useWorkspaceData = (initial: WorkspaceResult) => {
               "Live updates paused. Reconnect or reload this Workspace."
             )
         }
-      }),
+      }, 80),
     [readActivity, readChecks, readWorkspace, workspaceId]
   )
 

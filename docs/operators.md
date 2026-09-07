@@ -200,3 +200,11 @@ Delete `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` from `.env` and re-run the 
 **Deploy production fails on "Missing production secret or variable".** The wizard's production automation stage was skipped or `gh` was not authenticated. Re-run the wizard and accept the publish prompt, or set the named secret with `gh secret set NAME`.
 
 **A deploy was interrupted and the next one reports an undefined Durable Object namespace.** Re-run the same deploy. Alchemy recovers the half-created resources on the second pass.
+
+## Native execution simplification
+
+New dependency repairs run through native shell commands. Existing dependency Workflows can finish through the retained compatibility callback, but their Retry and Repair actions are retired. Correct dependency failures with `bun install`, then create a normal Checkpoint. No database migration or cleanup is needed for this upgrade.
+
+Agent and Check commands share process limits: ten minutes and eight MiB of captured output per command. Check verification does not receive deployment credentials; preview and production retain their explicit credential environment and immutable checkpoint source.
+
+New Projects use the exact template commit in `packages/domain/src/template-release.ts`. The release includes pinned dependencies, deployment runtime imports, and checkpoint identity attributes. CI checks that exact revision with its recorded Bun version. The importer uses the recorded source ref and rejects any head that differs from the release commit, including a mismatched cached import. Existing Projects are not changed. Update the release record only after the replacement template has passed its contract checks.

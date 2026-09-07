@@ -1,5 +1,6 @@
 import {
   WorkspaceRuntimeEvent,
+  isWorkspaceSessionEvent,
   WorkspaceSocketAttachment,
   type WorkspacePresenceUser,
   type WorkspaceSocketServerFrame,
@@ -20,30 +21,8 @@ const decodeWorkspaceEventSession = Schema.decodeUnknownOption(
   ])
 )
 const maxOutboundFrameBytes = 64 * 1024
-const forwardedWorkspaceEventTypes = new Set([
-  "form.cancelled",
-  "form.created",
-  "form.replied",
-  "permission.asked",
-  "permission.replied",
-  "session.execution.started",
-  "session.execution.failed",
-  "session.execution.interrupted",
-  "session.execution.succeeded",
-  "session.idle",
-  "session.inbox.cancelled",
-  "session.inbox.delivered",
-  "session.inbox.delivery.changed",
-  "session.inbox.enqueued",
-  "session.text.delta",
-  "session.text.ended",
-  "session.tool.called",
-  "session.tool.failed",
-  "session.tool.success",
-])
-
 export const shouldForwardWorkspaceEvent = (event: { type: string }) =>
-  forwardedWorkspaceEventTypes.has(event.type)
+  isWorkspaceSessionEvent(event.type)
 
 export const workspaceEventCursor = (event: WorkspaceRuntimeEvent) =>
   event.durable?.seq ?? null

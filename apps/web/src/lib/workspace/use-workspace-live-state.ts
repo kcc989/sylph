@@ -1,5 +1,4 @@
 import {
-  mergeWorkspaceRefreshScope,
   workspaceRefreshScope,
   type WorkspaceRefreshScope,
 } from "./workspace-refresh"
@@ -9,7 +8,6 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import {
   applyWorkspaceRuntimeEvent,
   emptyWorkspaceLiveState,
-  workspaceEventNeedsSnapshot,
   type WorkspaceLiveState,
 } from "@/lib/workspace-runtime-events"
 import { WorkspaceSocket } from "@/lib/workspace-socket"
@@ -35,20 +33,7 @@ export const useWorkspaceLiveState = (
     setState(stateRef.current)
     setPresence([])
     if (!sessionId) return
-    let refreshTimer: number | null = null
-
-    let pendingScope: WorkspaceRefreshScope | null = null
-    const scheduleRefresh = (scope: WorkspaceRefreshScope = "workspace") => {
-      pendingScope = mergeWorkspaceRefreshScope(pendingScope, scope)
-      if (refreshTimer !== null) return
-      refreshTimer = window.setTimeout(() => {
-        refreshTimer = null
-        const next = pendingScope
-        pendingScope = null
-        if (next) refreshSnapshot(next)
-      }, 80)
-    }
-
+    let disposed = false
     const socket = new WorkspaceSocket({
       workspaceId,
       sessionId,
@@ -58,17 +43,17 @@ export const useWorkspaceLiveState = (
         setState(stateRef.current)
       },
       onEvent: async (event) => {
-        stateRef.current = await applyWorkspaceRuntimeEvent(
-          stateRef.current,
-          event
-        )
-        setState(stateRef.current)
-        if (workspaceEventNeedsSnapshot(event))
-          scheduleRefresh(workspaceRefreshScope(event.type))
+        const next = await applyWorkspaceRuntimeEvent(stateRef.current, event)
+        if (disposed) return
+        stateRef.current = next
+        setState(next)
+        const scope = workspaceRefreshScope(event.type)
+        if (scope) refreshSnapshot(scope)
       },
       onSynced: (cursor) => {
+        if (disposed) return
         socketCursor.current.cursor = cursor
-        scheduleRefresh()
+        refreshSnapshot("workspace")
       },
       onPresence: setPresence,
     })
@@ -79,7 +64,7 @@ export const useWorkspaceLiveState = (
     socket.connect()
 
     return () => {
-      if (refreshTimer !== null) window.clearTimeout(refreshTimer)
+      disposed = true
       window.removeEventListener("pagehide", pause)
       window.removeEventListener("pageshow", resume)
       socket.close()

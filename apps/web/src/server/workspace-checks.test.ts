@@ -55,6 +55,23 @@ const run = () =>
   })
 
 describe("WorkspaceChecks", () => {
+  test("keeps legacy dependency results readable but rejects new retries and repairs", () => {
+    const checks = new WorkspaceChecks(new TestSqlStorage())
+    checks.initialize()
+    const legacy = new WorkspaceCheckRun({
+      ...run(),
+      kind: "dependencies",
+      status: "failed",
+    })
+    checks.create(legacy)
+    expect(checks.get(legacy.id)?.kind).toBe("dependencies")
+    expect(() => checks.retry(legacy.id, "retry-legacy")).toThrow("retired")
+    expect(() => checks.requestRepair(legacy.id, "repair-legacy")).toThrow(
+      "retired"
+    )
+    expect(checks.get(legacy.id)?.attempt).toBe(legacy.attempt)
+  })
+
   test("a successful dependency repair cannot authorize Acceptance", () => {
     const checks = new WorkspaceChecks(new TestSqlStorage())
     checks.initialize()

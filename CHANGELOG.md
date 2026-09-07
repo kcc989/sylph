@@ -18,10 +18,14 @@ All notable changes to Sylph are recorded here. The format follows [Keep a Chang
 
 ### Changed
 
+- Retire new dependency-repair jobs in favor of native shell installation, retaining completion support for in-flight jobs.
+- Share command environment selection, deadlines, output limits, and cancellation across agent commands and immutable Check execution.
+- Use one event policy and refresh queue for Workspace synchronization; failed socket updates retain their replay cursor.
+- Pin new Projects to template 0.1.1's verified commit and test that exact template release in CI. Existing Projects remain unchanged.
+
 - Use OpenCode native file and shell tools with the existing Cloudflare Sandbox binding. Workspace edits and commands auto-approve, and consecutive tool calls appear in expandable action summaries.
 - Reconcile active Workspace status after missed runtime events and accept steering messages when the previous Turn has just ended.
 
-- New built-in template imports use `main` instead of the `v0.1.0` tag. Existing Projects remain independent copies.
 - Preview pages must expose `data-sylph-checkpoint` and `data-sylph-deployment` on the same visible element. See the operator upgrade notes.
 
 ## [0.1.0] - 2026-09-03

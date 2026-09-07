@@ -47,3 +47,30 @@ test("a failed refresh can be retried", async () => {
   await refresh("workspace")
   expect(calls).toBe(2)
 })
+
+test("one refresh queue merges event bursts and polling into a single snapshot", async () => {
+  const scopes: WorkspaceRefreshScope[] = []
+  const refresh = createWorkspaceRefreshQueue(async (scope) => {
+    scopes.push(scope)
+  }, 10)
+  const first = refresh("runtime")
+  const second = refresh("checks")
+  const recovery = refresh("workspace")
+  expect(scopes).toEqual([])
+  await Promise.all([first, second, recovery])
+  expect(scopes).toEqual(["workspace"])
+})
+
+test("only snapshot-affecting session events request a refresh", () => {
+  for (const type of [
+    "session.execution.started",
+    "session.execution.failed",
+    "session.execution.interrupted",
+    "session.execution.succeeded",
+    "session.idle",
+  ]) {
+    expect(workspaceRefreshScope(type)).not.toBeNull()
+  }
+  expect(workspaceRefreshScope("session.text.delta")).toBeNull()
+  expect(workspaceRefreshScope("unknown.event")).toBeNull()
+})

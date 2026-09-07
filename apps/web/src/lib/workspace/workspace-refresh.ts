@@ -1,4 +1,8 @@
-export type WorkspaceRefreshScope = "checks" | "runtime" | "workspace"
+import type { WorkspaceRefreshScope } from "@workspace/domain"
+export {
+  workspaceEventRefreshScope as workspaceRefreshScope,
+  type WorkspaceRefreshScope,
+} from "@workspace/domain"
 
 export const mergeWorkspaceRefreshScope = (
   left: WorkspaceRefreshScope | null,
@@ -6,20 +10,9 @@ export const mergeWorkspaceRefreshScope = (
 ): WorkspaceRefreshScope =>
   left === null || left === right ? right : "workspace"
 
-export const workspaceRefreshScope = (type: string): WorkspaceRefreshScope => {
-  if (type === "workspace.check.updated") return "checks"
-  if (
-    type === "session.execution.started" ||
-    type.startsWith("session.inbox.") ||
-    type.startsWith("form.") ||
-    type === "session.tool.called"
-  )
-    return "runtime"
-  return "workspace"
-}
-
 export const createWorkspaceRefreshQueue = (
-  refresh: (scope: WorkspaceRefreshScope) => Promise<void>
+  refresh: (scope: WorkspaceRefreshScope) => Promise<void>,
+  debounceMs = 0
 ) => {
   let pending: WorkspaceRefreshScope | null = null
   let active: Promise<void> | null = null
@@ -28,6 +21,8 @@ export const createWorkspaceRefreshQueue = (
     if (!active) {
       active = Promise.resolve().then(async () => {
         try {
+          if (debounceMs > 0)
+            await new Promise((resolve) => setTimeout(resolve, debounceMs))
           while (pending) {
             const next = pending
             pending = null
