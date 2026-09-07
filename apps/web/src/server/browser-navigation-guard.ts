@@ -89,8 +89,7 @@ export const browserNavigationGuard = async (
         waitForDebuggerOnStart: true,
         flatten: true,
         filter: [
-          { type: "tab", exclude: false },
-          { type: "page", exclude: false },
+          { type: parent === root ? "tab" : "page", exclude: false },
           { exclude: true },
         ],
       },

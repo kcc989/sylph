@@ -25,6 +25,10 @@ const commit = spawnSync("git", ["rev-parse", "HEAD"], {
   cwd: root,
   encoding: "utf8",
 }).stdout.trim()
+const sourceStatus = spawnSync("git", ["status", "--porcelain"], {
+  cwd: root,
+  encoding: "utf8",
+}).stdout
 const sourceDiff = spawnSync("git", ["diff", "HEAD"], {
   cwd: root,
   encoding: "utf8",
@@ -49,6 +53,22 @@ const sourceManifest = await Promise.all(
 const sourceHash = createHash("sha256")
   .update(JSON.stringify(sourceManifest))
   .digest("hex")
+assert.equal(
+  spawnSync("git", ["rev-parse", "HEAD"], {
+    cwd: root,
+    encoding: "utf8",
+  }).stdout.trim(),
+  commit,
+  "HEAD changed while preparing the smoke; wait for the commit to finish and retry"
+)
+assert.equal(
+  spawnSync("git", ["status", "--porcelain"], {
+    cwd: root,
+    encoding: "utf8",
+  }).stdout,
+  sourceStatus,
+  "Source changed while preparing the smoke; finish editing and retry"
+)
 await writeFile(
   resolve(directory, "source-manifest.json"),
   JSON.stringify(sourceManifest, null, 2)
@@ -74,11 +94,7 @@ const record = {
   stage,
   commit,
   sourceHash,
-  dirty:
-    spawnSync("git", ["status", "--porcelain"], {
-      cwd: root,
-      encoding: "utf8",
-    }).stdout.trim().length > 0,
+  dirty: sourceStatus.trim().length > 0,
   auth: "disposable fixture password",
   status: "deploying",
   results: [],
