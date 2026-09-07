@@ -87,51 +87,67 @@ test("sandbox commands do not inherit host credentials or host executable paths"
   ).toEqual({ TERM: "xterm", LC_ALL: "C" })
 })
 
-test("cancelled commands retain source changes made before termination", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "sylph-cancel-"))
-  const root = join(directory, "workspace")
-  try {
-    await mkdir(root)
-    expect(
-      await Bun.spawn(["git", "init", root], {
-        stdout: "ignore",
-        stderr: "ignore",
-      }).exited
-    ).toBe(0)
-    const request = join(directory, "request.json")
-    const result = join(directory, "result.json")
-    await writeFile(
-      request,
-      JSON.stringify({
-        root,
-        previousPath: join(directory, "previous.json"),
-        result,
-        files: [],
-        command: "sh",
-        args: ["-c", "printf saved > changed.txt; sleep 60"],
-        cwd: root,
-        env: {},
-        stdin: "",
+test.each(["normal", "delayed"])(
+  "cancelled commands retain source changes with %s spawn",
+  async (spawnTiming) => {
+    const directory = await mkdtemp(join(tmpdir(), "sylph-cancel-"))
+    const root = join(directory, "workspace")
+    try {
+      await mkdir(root)
+      expect(
+        await Bun.spawn(["git", "init", root], {
+          stdout: "ignore",
+          stderr: "ignore",
+        }).exited
+      ).toBe(0)
+      const request = join(directory, "request.json")
+      const result = join(directory, "result.json")
+      await writeFile(
+        request,
+        JSON.stringify({
+          root,
+          previousPath: join(directory, "previous.json"),
+          result,
+          files: [],
+          command: "sh",
+          args: ["-c", "printf saved > changed.txt; sleep 60"],
+          cwd: root,
+          env: {},
+          stdin: "",
+        })
+      )
+      const spawnDelay =
+        spawnTiming === "delayed"
+          ? `const processes = require('node:child_process');
+const spawn = processes.spawn;
+processes.spawn = (...args) => {
+  const child = spawn(...args);
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);
+  return child;
+};`
+          : ""
+      const child = Bun.spawn(
+        ["node", "-e", `${spawnDelay}\n${workspaceCommandScript}`, request],
+        {
+          stdout: "ignore",
+          stderr: "pipe",
+        }
+      )
+      for (let attempt = 0; attempt < 50; attempt += 1) {
+        if (await Bun.file(join(root, "changed.txt")).exists()) break
+        await Bun.sleep(20)
+      }
+      expect(await Bun.file(join(root, "changed.txt")).exists()).toBe(true)
+      child.kill("SIGTERM")
+      expect(await child.exited).toBe(0)
+      const output = JSON.parse(await readFile(result, "utf8"))
+      expect(output.exitCode).toBe(137)
+      expect(output.files).toContainEqual({
+        path: "changed.txt",
+        content: Buffer.from("saved").toString("base64"),
       })
-    )
-    const child = Bun.spawn(["node", "-e", workspaceCommandScript, request], {
-      stdout: "ignore",
-      stderr: "pipe",
-    })
-    for (let attempt = 0; attempt < 50; attempt += 1) {
-      if (await Bun.file(join(root, "changed.txt")).exists()) break
-      await Bun.sleep(20)
+    } finally {
+      await rm(directory, { recursive: true, force: true })
     }
-    expect(await Bun.file(join(root, "changed.txt")).exists()).toBe(true)
-    child.kill("SIGTERM")
-    expect(await child.exited).toBe(0)
-    const output = JSON.parse(await readFile(result, "utf8"))
-    expect(output.exitCode).toBe(137)
-    expect(output.files).toContainEqual({
-      path: "changed.txt",
-      content: Buffer.from("saved").toString("base64"),
-    })
-  } finally {
-    await rm(directory, { recursive: true, force: true })
   }
-})
+)
