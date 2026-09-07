@@ -12,6 +12,7 @@ import {
   inspectWorkspaceActivity,
 } from "./workspace-shell-store"
 import type {
+  CheckItem,
   ComposerModel,
   ComposerSkill,
   ThreadEntry,
@@ -24,6 +25,8 @@ import type {
 
 export function WorkspaceChat({
   entries,
+  checks = [],
+  reviewReady = false,
   historyControls,
   permissionRequests,
   questions,
@@ -53,6 +56,8 @@ export function WorkspaceChat({
   onModelChange,
 }: {
   entries: ThreadEntry[]
+  checks?: CheckItem[]
+  reviewReady?: boolean
   historyControls?: ReactNode
   permissionRequests: ReadonlyArray<WorkspacePermissionRequest>
   questions: ReadonlyArray<WorkspaceQuestion>
@@ -119,6 +124,8 @@ export function WorkspaceChat({
         onOpenFiles={() => openWorkspaceTool(store, "files")}
         onInspectActivity={(id) => inspectWorkspaceActivity(store, id)}
         entries={entries}
+        checks={checks}
+        reviewReady={reviewReady}
         historyControls={historyControls}
         permissionRequests={permissionRequests}
         questions={questions}

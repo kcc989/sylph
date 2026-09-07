@@ -4,6 +4,7 @@ import type { ReactNode } from "react"
 
 import {
   ChevronRight,
+  Check,
   CircleAlert,
   Files,
   LoaderCircle,
@@ -31,6 +32,7 @@ import { groupToolCalls } from "@workspace/ui/lib/tool-call-summary"
 import type { WorkspaceReference } from "../workspace-shell-store"
 import { PromptComposer } from "../prompt-composer"
 import type {
+  CheckItem,
   ComposerModel,
   ComposerSkill,
   ThreadEntry,
@@ -90,18 +92,10 @@ function ThreadEntryRow({
         )}
       >
         {entry.kind === "tool" && entry.tool ? (
-          <>
-            <ToolCall part={entry.tool} />
-            {onInspect ? (
-              <Button
-                size="xs"
-                variant="ghost"
-                onClick={() => onInspect(entry.id)}
-              >
-                Inspect activity
-              </Button>
-            ) : null}
-          </>
+          <ToolCall
+            part={entry.tool}
+            onInspect={onInspect ? () => onInspect(entry.id) : undefined}
+          />
         ) : (
           <>
             {(entry.title || entry.meta) && (
@@ -220,16 +214,10 @@ function ToolCallGroup({
           {entries.map((entry) =>
             entry.tool ? (
               <div key={entry.id}>
-                <ToolCall part={entry.tool} />
-                {onInspect ? (
-                  <Button
-                    size="xs"
-                    variant="ghost"
-                    onClick={() => onInspect(entry.id)}
-                  >
-                    Inspect activity
-                  </Button>
-                ) : null}
+                <ToolCall
+                  part={entry.tool}
+                  onInspect={onInspect ? () => onInspect(entry.id) : undefined}
+                />
               </div>
             ) : null
           )}
@@ -241,6 +229,8 @@ function ToolCallGroup({
 
 export function AgentThread({
   entries,
+  checks = [],
+  reviewReady = false,
   historyControls,
   permissionRequests,
   questions,
@@ -280,6 +270,8 @@ export function AgentThread({
   onInspectActivity?: (id: string) => void
   onOpenEvidence?: (kind: "browser" | "changes" | "checks") => void
   entries: ThreadEntry[]
+  checks?: CheckItem[]
+  reviewReady?: boolean
   historyControls?: ReactNode
   permissionRequests: ReadonlyArray<WorkspacePermissionRequest>
   questions: ReadonlyArray<WorkspaceQuestion>
@@ -326,6 +318,22 @@ export function AgentThread({
     variant?: string
   }) => void
 }) {
+  const waiting = questions.length > 0 || permissionRequests.length > 0
+  const checking = checks.some(
+    (check) => check.status === "running" || check.status === "queued"
+  )
+  const failedCheck = checks.find((check) => check.status === "failed")
+  const status = waiting
+    ? "Waiting for your answer"
+    : turnActive
+      ? "Agent working"
+      : checking
+        ? "Checking changes"
+        : failedCheck
+          ? `${failedCheck.name} failed`
+          : reviewReady
+            ? "Ready for review"
+            : null
   const renderEntries = groupToolCalls(entries)
   const latestResultId = entries
     .filter((entry) => entry.kind === "result")
@@ -409,8 +417,8 @@ export function AgentThread({
                         </p>
                         <p className="mt-1 text-[9px] text-muted-foreground">
                           {message.delivery === "steer"
-                            ? "Steering active Turn"
-                            : `Queued ${index + 1} of ${runtimeLimits?.maxQueuedMessages ?? queuedMessages.length}`}
+                            ? "Received · delivering to the agent"
+                            : `Will run next · ${index + 1} in queue`}
                         </p>
                       </div>
                     </article>
@@ -454,43 +462,78 @@ export function AgentThread({
         >
           <CircleAlert className="mt-0.5 size-4 shrink-0 text-amber-300" />
           <p className="min-w-0 text-[11px] leading-4 text-foreground/80">
-            The last Turn was interrupted. Files and Conversation history are
-            safe. Send a new message to continue from the current Working copy.
+            The agent stopped. Send a message to continue with the current
+            files.
           </p>
         </div>
       ) : null}
-      {turnActive ? (
+      {status && !workspaceError ? (
         <div
-          className="mx-auto mb-2 flex w-[calc(100%-1.5rem)] max-w-3xl flex-wrap items-center gap-2 border border-white/[.09] bg-white/[.025] px-3 py-2"
+          className="mx-auto mb-2 flex w-[calc(100%-1.5rem)] max-w-3xl flex-wrap items-center gap-2 px-1 py-1"
           role="status"
         >
-          <LoaderCircle className="size-3.5 animate-spin text-[#ef9b7e] motion-reduce:animate-none" />
-          <span className="text-[11px] text-foreground/80">Agent working</span>
-          <span className="font-mono text-[9px] text-muted-foreground">
-            {runtimeLimits
-              ? `${Math.round(runtimeLimits.maxTurnDurationMs / 60_000)} min limit · ${queuedMessages.length}/${runtimeLimits.maxQueuedMessages} queued`
-              : "Turn active"}
-          </span>
-          {activeTurnStartedAt ? (
-            <span className="hidden font-mono text-[9px] text-muted-foreground sm:inline">
-              started {new Date(activeTurnStartedAt).toLocaleTimeString()}
-            </span>
+          {waiting || (!turnActive && failedCheck && !checking) ? (
+            <CircleAlert className="size-3.5 text-foreground" />
+          ) : turnActive || checking ? (
+            <LoaderCircle className="size-3.5 animate-spin text-[#ef9b7e] motion-reduce:animate-none" />
+          ) : (
+            <Check className="size-3.5 text-foreground" />
+          )}
+          <span className="text-xs text-foreground">{status}</span>
+          {turnActive ? (
+            <details className="text-xs text-muted-foreground">
+              <summary className="cursor-pointer rounded-sm focus-visible:ring-2 focus-visible:ring-ring">
+                Details
+              </summary>
+              <div className="py-2">
+                {runtimeLimits ? (
+                  <p>
+                    {Math.round(runtimeLimits.maxTurnDurationMs / 60_000)}{" "}
+                    minute limit · {queuedMessages.length}/
+                    {runtimeLimits.maxQueuedMessages} messages queued
+                  </p>
+                ) : null}
+                {activeTurnStartedAt ? (
+                  <p>
+                    Started {new Date(activeTurnStartedAt).toLocaleTimeString()}
+                  </p>
+                ) : null}
+              </div>
+            </details>
+          ) : !waiting && onOpenEvidence ? (
+            <Button
+              className="ml-auto"
+              size="xs"
+              variant="ghost"
+              onClick={() =>
+                onOpenEvidence(failedCheck || checking ? "checks" : "changes")
+              }
+            >
+              {failedCheck && !checking
+                ? "View failure"
+                : checking
+                  ? "View checks"
+                  : "Review changes"}
+            </Button>
           ) : null}
-          <Button
-            className="ml-auto"
-            disabled={cancelTurnPending}
-            onClick={onCancelTurn}
-            size="xs"
-            type="button"
-            variant="outline"
-          >
-            {cancelTurnPending ? (
-              <LoaderCircle className="animate-spin motion-reduce:animate-none" />
-            ) : (
-              <Square />
-            )}
-            Cancel Turn
-          </Button>
+          {turnActive && onCancelTurn ? (
+            <Button
+              className="ml-auto"
+              aria-label="Cancel Turn"
+              disabled={cancelTurnPending}
+              onClick={onCancelTurn}
+              size="xs"
+              type="button"
+              variant="ghost"
+            >
+              {cancelTurnPending ? (
+                <LoaderCircle className="animate-spin motion-reduce:animate-none" />
+              ) : (
+                <Square />
+              )}
+              Stop
+            </Button>
+          ) : null}
         </div>
       ) : null}
       <PromptComposer

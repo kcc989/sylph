@@ -151,7 +151,6 @@ export function WorkspaceToolPane({
             [
               ["browser", "Preview"],
               ["changes", "Changes"],
-              ["files", "Files"],
             ] as const
           ).map(([kind, label]) => (
             <Button
@@ -182,6 +181,9 @@ export function WorkspaceToolPane({
             <MoreHorizontal className="size-4" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => openWorkspaceTool(store, "files")}>
+              Files
+            </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => openWorkspaceTool(store, "checks")}
             >
@@ -250,6 +252,40 @@ export function WorkspaceToolPane({
                 </option>
               </select>
             </div>
+            {scope === "working" && review ? (
+              <Button
+                className="mx-3 my-2 self-start"
+                size="sm"
+                variant="outline"
+                onClick={() =>
+                  store.setState((state) => ({
+                    ...state,
+                    changeScope: "branch",
+                  }))
+                }
+              >
+                Review checkpoint {review.commit.slice(0, 7)}
+              </Button>
+            ) : null}
+            {scope === "branch" && review ? (
+              <div className="flex flex-wrap items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
+                <span>
+                  {browser.commit === review.commit && browser.status === "live"
+                    ? "Preview matches this checkpoint"
+                    : "No matching preview ready"}
+                </span>
+                {browser.commit === review.commit &&
+                browser.status === "live" ? (
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    onClick={() => openWorkspaceTool(store, "browser")}
+                  >
+                    View preview
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
             <div className="flex min-h-0 flex-1 flex-col">
               <WorkspacePatchSurface
                 scope={scope}
@@ -295,7 +331,13 @@ export function WorkspaceToolPane({
               </WorkspacePatchSurface>
             </div>
             {scope === "branch" && checkpointChecks.length ? (
-              <details className="max-h-48 shrink-0 overflow-auto border-t">
+              <details
+                key={review?.commit}
+                open={checkpointChecks.some(
+                  (check) => check.status === "failed"
+                )}
+                className="max-h-48 shrink-0 overflow-auto border-t"
+              >
                 <summary className="cursor-pointer px-3 py-2 text-xs focus-visible:ring-2 focus-visible:ring-ring">
                   Checkpoint checks ·{" "}
                   {
@@ -328,12 +370,13 @@ export function WorkspaceToolPane({
                 {scope === "working" ? (
                   <Button
                     size="sm"
+                    aria-label="Checkpoint"
                     disabled={
                       !onCheckpoint || checkpointDisabled || checkpointPending
                     }
                     onClick={() => void onCheckpoint?.()}
                   >
-                    {checkpointPending ? "Saving…" : "Checkpoint"}
+                    {checkpointPending ? "Saving…" : "Save checkpoint"}
                   </Button>
                 ) : (
                   <Button

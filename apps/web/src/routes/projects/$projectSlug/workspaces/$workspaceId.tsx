@@ -354,6 +354,12 @@ function WorkspaceScreen() {
           terminal={<TerminalSurface entries={entries} checks={checkItems} />}
           chat={
             <WorkspaceChat
+              checks={checkItems}
+              reviewReady={
+                checkpointCheck?.status === "passed" &&
+                checkpointCheck.commit === forkHead &&
+                workingChanges.length === 0
+              }
               activeTurnStartedAt={runtime.activeTurnStartedAt}
               answeringQuestionId={pendingWorkspaceCommandTarget(
                 actions.pending,

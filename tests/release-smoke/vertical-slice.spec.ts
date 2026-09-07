@@ -358,7 +358,8 @@ test("setup through eviction recovery", async ({ page, browser }, testInfo) => {
 
   await test.step("checkpoint and verify the Workspace", async () => {
     const inspector = page.getByRole("region", { name: "Workspace inspector" })
-    await inspector.getByRole("button", { name: "Files", exact: true }).click()
+    await openToolMenu(page)
+    await page.getByRole("menuitem", { name: "Files", exact: true }).click()
     await inspector.getByRole("button", { name: proofFile }).click()
     await expect(inspector).toContainText(proofMarker)
     await openToolMenu(page)
@@ -504,9 +505,8 @@ test("setup through eviction recovery", async ({ page, browser }, testInfo) => {
       const inspector = page.getByRole("region", {
         name: "Workspace inspector",
       })
-      await inspector
-        .getByRole("button", { name: "Files", exact: true })
-        .click()
+      await openToolMenu(page)
+      await page.getByRole("menuitem", { name: "Files", exact: true }).click()
       await inspector
         .getByRole("button", { name: proofFile, exact: true })
         .click()

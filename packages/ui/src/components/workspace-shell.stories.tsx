@@ -93,6 +93,7 @@ function WorkspaceStory(props: WorkspaceStoryProps) {
           <WorkspaceChat
             {...props}
             cancelTurnPending={false}
+            checks={checks}
             entries={props.entries ?? workspaceEntries}
             models={props.models ?? []}
             permissionRequests={props.permissionRequests ?? []}
@@ -417,7 +418,14 @@ export const CompanionWorkflow: Story = {
     await userEvent.click(
       canvas.getByRole("button", { name: "Reference preview" })
     )
-    await userEvent.click(inspector.getByRole("button", { name: "Files" }))
+    await userEvent.click(
+      inspector.getByRole("button", { name: "More inspection tools" })
+    )
+    await userEvent.click(
+      within(canvasElement.ownerDocument.body).getByRole("menuitem", {
+        name: "Files",
+      })
+    )
     await userEvent.click(canvas.getByRole("button", { name: "index.ts" }))
     await waitFor(() => {
       const viewer = canvasElement.querySelector("diffs-container")
@@ -431,7 +439,14 @@ export const CompanionWorkflow: Story = {
       tree.getBoundingClientRect().right
     )
     await userEvent.click(inspector.getByRole("button", { name: "Preview" }))
-    await userEvent.click(inspector.getByRole("button", { name: "Files" }))
+    await userEvent.click(
+      inspector.getByRole("button", { name: "More inspection tools" })
+    )
+    await userEvent.click(
+      within(canvasElement.ownerDocument.body).getByRole("menuitem", {
+        name: "Files",
+      })
+    )
     await expect(
       canvas.getByText("src/index.ts", { exact: true })
     ).toBeVisible()
@@ -475,7 +490,12 @@ export const CompanionWorkflow: Story = {
       canvas.getByRole("button", { name: "Accept checkpoint" })
     ).toBeVisible()
     await userEvent.click(
-      canvas.getByRole("button", { name: "Command output" })
+      canvas.getByRole("button", { name: "More workspace actions" })
+    )
+    await userEvent.click(
+      within(canvasElement.ownerDocument.body).getByRole("menuitem", {
+        name: "Command output",
+      })
     )
     await expect(
       canvas.getByRole("region", { name: "Command output" })
