@@ -40,6 +40,7 @@ const setup = () => {
   let reserved = false
   let assertionFails = false
   let actionFails = false
+  let screenshotAvailable = true
   let viewport: BrowserViewport = "desktop"
   let conversationId = "conversation-1"
   const journalValues = new Map<
@@ -140,7 +141,9 @@ const setup = () => {
                         url: "https://preview.example.com/todos",
                         markdown: "Todo list",
                         accessibility: "{}",
-                        screenshot: new Uint8Array([1]),
+                        screenshot: screenshotAvailable
+                          ? new Uint8Array([1])
+                          : undefined,
                         viewport,
                       }
                     },
@@ -161,6 +164,9 @@ const setup = () => {
     runtime,
     journal,
     events,
+    omitScreenshots: () => {
+      screenshotAvailable = false
+    },
     setUnavailable: () => {
       unavailable = true
     },
@@ -399,6 +405,41 @@ const startSession = async (
 }
 
 describe("Required browser journey acceptance", () => {
+  test("missing screenshots block default proof and require an explicit DOM-only policy revision", async () => {
+    const fixture = setup()
+    const runtime = fixture.runtime()
+    await configure(runtime)
+    fixture.omitScreenshots()
+    await expect(startSession(runtime)).rejects.toThrow(
+      "Screenshot evidence is required"
+    )
+    expect((await blockers(runtime)).length).toBeGreaterThan(0)
+    await runtime.runPromise(
+      Effect.flatMap(WorkspaceBrowser, (browser) =>
+        browser.configure(
+          {
+            ...policyInput,
+            captureMode: "accessibility",
+            reason:
+              "The browser platform cannot capture resumed pages; require explicit DOM proof",
+          },
+          1,
+          "user-1"
+        )
+      )
+    )
+    const id = await startSession(runtime)
+    const result = await passJourney(runtime, id)
+    expect(result.evidence.map((item) => item.kind)).toEqual(["accessibility"])
+    expect(result.session?.screenshotUrl).toBeUndefined()
+    expect(result.detail).toContain("DOM evidence only")
+    expect(await blockers(runtime)).toEqual([])
+    const snapshot = await proof(runtime)
+    expect(snapshot.policy?.revision).toBe(2)
+    expect(snapshot.policy?.actorUserId).toBe("user-1")
+    expect(snapshot.policy?.captureMode).toBe("accessibility")
+    await runtime.dispose()
+  })
   test("requires complete responsive proof and retains it after reconnect", async () => {
     const fixture = setup()
     const first = fixture.runtime()

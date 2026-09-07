@@ -467,6 +467,7 @@ export const workspaceBrowserLayer = (options: BrowserSessionOptions) =>
               allowedOrigins: policy?.allowedOrigins ?? [],
               viewport: session?.viewport ?? "desktop",
               pageId: session?.pageId,
+              captureMode: policy?.captureMode,
             })
           )
           if (!session) {
@@ -535,6 +536,14 @@ export const workspaceBrowserLayer = (options: BrowserSessionOptions) =>
             detail = failure(error).message
           }
           const observation = await browser.observe(input.fullPage ?? false)
+          if (
+            !observation.screenshot &&
+            policy?.captureMode !== "accessibility"
+          )
+            reject("Screenshot evidence is required by the browser policy.")
+          if (policy?.captureMode === "accessibility")
+            detail +=
+              " DOM evidence only, as specified by the User's browser policy."
           const createdAt = Date.now()
           const ids = browserEvidenceIds({
             runId: run.id,
@@ -542,11 +551,13 @@ export const workspaceBrowserLayer = (options: BrowserSessionOptions) =>
             sessionId: session.id,
           })
           await Promise.all([
-            options.saveEvidence(
-              `${run.workspaceId}/${ids.screenshot}`,
-              observation.screenshot,
-              "image/png"
-            ),
+            observation.screenshot
+              ? options.saveEvidence(
+                  `${run.workspaceId}/${ids.screenshot}`,
+                  observation.screenshot,
+                  "image/png"
+                )
+              : Promise.resolve(),
             options.saveEvidence(
               `${run.workspaceId}/${ids.accessibility}`,
               observation.accessibility,
@@ -554,13 +565,17 @@ export const workspaceBrowserLayer = (options: BrowserSessionOptions) =>
             ),
           ])
           const evidence = [
-            new WorkspaceCheckEvidence({
-              id: ids.screenshot,
-              kind: "screenshot",
-              label: `Browser ${session.sequence}: ${action.type} (${outcome})`,
-              url: evidenceUrl(run.workspaceId, ids.screenshot),
-              createdAt,
-            }),
+            ...(observation.screenshot
+              ? [
+                  new WorkspaceCheckEvidence({
+                    id: ids.screenshot,
+                    kind: "screenshot",
+                    label: `Browser ${session.sequence}: ${action.type} (${outcome})`,
+                    url: evidenceUrl(run.workspaceId, ids.screenshot),
+                    createdAt,
+                  }),
+                ]
+              : []),
             new WorkspaceCheckEvidence({
               id: ids.accessibility,
               kind: "accessibility",
@@ -586,7 +601,9 @@ export const workspaceBrowserLayer = (options: BrowserSessionOptions) =>
           options.addEvidence(run, evidence)
           session = new WorkspaceBrowserSession({
             ...session,
-            screenshotUrl: evidenceUrl(run.workspaceId, ids.screenshot),
+            screenshotUrl: observation.screenshot
+              ? evidenceUrl(run.workspaceId, ids.screenshot)
+              : undefined,
             currentUrl: observation.url,
             viewport: observation.viewport ?? session.viewport,
             pageId: observation.pageId ?? session.pageId,

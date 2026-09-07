@@ -59,6 +59,9 @@ export function WorkspaceBrowserPanelView({
     ReadonlyArray<BrowserJourneyRequirement>
   >([])
   const [origins, setOrigins] = useState("")
+  const [captureMode, setCaptureMode] = useState<
+    "screenshots" | "accessibility"
+  >("screenshots")
   const session = proof?.session
   const controlling =
     session?.controller === "human" && session.controllerUserId === userId
@@ -138,6 +141,7 @@ export function WorkspaceBrowserPanelView({
   const editPolicy = () => {
     setRequirements(proof?.policy?.requirements ?? [])
     setOrigins(proof?.policy?.allowedOrigins.join("\n") ?? "")
+    setCaptureMode(proof?.policy?.captureMode ?? "screenshots")
     setReason("")
     setEditing(true)
   }
@@ -325,6 +329,7 @@ export function WorkspaceBrowserPanelView({
                       policy: {
                         requirements,
                         allowedOrigins: origins.split(/\s+/).filter(Boolean),
+                        captureMode,
                         reason,
                       },
                     },
@@ -338,6 +343,32 @@ export function WorkspaceBrowserPanelView({
                 pass at each selected viewport. Saving a policy closes the
                 current session and requires new proof.
               </p>
+              <label className="flex flex-col gap-1 text-xs">
+                Required evidence
+                <select
+                  className={fieldClass}
+                  value={captureMode}
+                  onChange={(event) =>
+                    setCaptureMode(
+                      event.target.value === "accessibility"
+                        ? "accessibility"
+                        : "screenshots"
+                    )
+                  }
+                >
+                  <option value="screenshots">
+                    Screenshots and DOM assertions
+                  </option>
+                  <option value="accessibility">
+                    DOM assertions only (no screenshots)
+                  </option>
+                </select>
+                <span className="text-muted-foreground">
+                  DOM-only proof checks the real page and viewport, but does not
+                  verify its visual appearance. Explain this choice in the
+                  policy reason.
+                </span>
+              </label>
               {requirements.map((requirement) => (
                 <fieldset
                   key={requirement.id}
@@ -758,6 +789,12 @@ export function WorkspaceBrowserPanelView({
             </div>
           ) : null}
           <div aria-live="polite" className="px-3 py-2 text-xs">
+            {proof?.policy?.captureMode === "accessibility" ? (
+              <p className="mb-2 text-muted-foreground">
+                This policy requires DOM proof only. Use page text and selector
+                controls; screenshots are not captured.
+              </p>
+            ) : null}
             {pending ? (
               "Browser action running…"
             ) : error ? (
@@ -803,7 +840,10 @@ export function WorkspaceBrowserPanelView({
             </div>
           ) : null}
           {currentResult?.markdown ? (
-            <details className="p-3">
+            <details
+              className="p-3"
+              open={proof?.policy?.captureMode === "accessibility"}
+            >
               <summary className="cursor-pointer text-xs">
                 Observed page controls and text
               </summary>

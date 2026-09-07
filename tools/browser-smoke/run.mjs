@@ -312,12 +312,33 @@ const policy = {
     },
   ],
   allowedOrigins: [oauthOrigin],
-  reason: "Require durable CRUD and both authenticated viewport sizes",
+  captureMode: "accessibility",
+  reason:
+    "Require CRUD and both viewport sizes with DOM evidence. The recorded Browser Run freeze/capture limitation prevents screenshot proof.",
 }
 try {
   await expectBlocked("No policy blocks acceptance", true)
   await step("Start origin guard probe", { type: "start" })
-  await step("Reconnect frozen browser before popup", { type: "observe" })
+  try {
+    await step("Reconnect with required screenshot evidence", {
+      type: "observe",
+    })
+  } catch (error) {
+    assert.match(error.message, /captureScreenshot/)
+    record.captureLimitation =
+      "Browser Run screenshot capture fails after freeze/resume; DOM-only proof is explicitly configured below."
+  }
+  await expectBlocked("Capture failure does not pass acceptance", true)
+  await probe("policy", {
+    requirements: [],
+    allowedOrigins: [],
+    captureMode: "accessibility",
+    reason:
+      "Explicit DOM-only policy for guarded navigation testing after the reproduced capture failure",
+  })
+  sessionId = undefined
+  await step("Start DOM-only origin guard probe", { type: "start" })
+  await step("Reconnect guarded browser with DOM evidence", { type: "observe" })
   await reject(
     "Block native popup before its first external request",
     { action: { type: "click", selector: "#external-popup" } },

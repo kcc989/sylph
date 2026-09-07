@@ -34,6 +34,9 @@ export const BrowserPolicyInput = Schema.Struct({
   allowedOrigins: Schema.Array(Schema.NonEmptyString).check(
     Schema.isMaxLength(10)
   ),
+  captureMode: Schema.optional(
+    Schema.Literals(["screenshots", "accessibility"])
+  ),
   reason,
 })
 export type BrowserPolicyInput = typeof BrowserPolicyInput.Type

@@ -20,7 +20,7 @@ export type BrowserObservation = {
   url: string
   markdown: string
   accessibility: string
-  screenshot: Uint8Array
+  screenshot?: Uint8Array
   viewport?: BrowserViewport
   pageId?: string
   pages?: ReadonlyArray<{ id: string; url: string }>
@@ -40,6 +40,7 @@ export type BrowserConnectionOptions = {
   allowedOrigins: ReadonlyArray<string>
   viewport: BrowserViewport
   pageId?: string
+  captureMode?: "screenshots" | "accessibility"
 }
 
 export class BrowserRunClient extends Context.Service<
@@ -275,10 +276,6 @@ export const browserRunLayer = (
                 await guard.prepare(target)
                 target.setDefaultTimeout(actionTimeout)
                 target.setDefaultNavigationTimeout(actionTimeout)
-                if (sessionId) {
-                  const size = browserViewportSize(viewport)
-                  await target.setViewport({ ...size, width: size.width + 1 })
-                }
                 await target.setViewport(browserViewportSize(viewport))
                 await target.bringToFront()
               }
@@ -413,41 +410,44 @@ export const browserRunLayer = (
                       { timeout: actionTimeout }
                     )
                   )
-                  await trace("observe-screenshot")
-                  const bounds = fullPage
-                    ? (
-                        await evidenceSession.send(
-                          "Page.getLayoutMetrics",
-                          undefined,
-                          { timeout: actionTimeout }
-                        )
-                      ).cssContentSize
-                    : { x: 0, y: 0, ...expected }
-                  const capture = await evidenceSession.send(
-                    "Page.captureScreenshot",
-                    {
-                      format: "png",
-                      fromSurface: fullPage,
-                      captureBeyondViewport: fullPage,
-                      clip: { ...bounds, scale: 1 },
-                    },
-                    { timeout: actionTimeout }
-                  )
-                  const screenshot = Uint8Array.from(
-                    atob(capture.data),
-                    (character) => character.charCodeAt(0)
-                  )
-                  const header = new DataView(screenshot.buffer)
-                  if (
-                    screenshot.byteLength < 24 ||
-                    header.getUint32(0) !== 0x89504e47 ||
-                    (!fullPage &&
-                      (header.getUint32(16) !== expected.width ||
-                        header.getUint32(20) !== expected.height))
-                  )
-                    throw new Error(
-                      "The browser screenshot did not match the verified viewport."
+                  let screenshot: Uint8Array | undefined
+                  if (options?.captureMode !== "accessibility") {
+                    await trace("observe-screenshot")
+                    const bounds = fullPage
+                      ? (
+                          await evidenceSession.send(
+                            "Page.getLayoutMetrics",
+                            undefined,
+                            { timeout: actionTimeout }
+                          )
+                        ).cssContentSize
+                      : { x: 0, y: 0, ...expected }
+                    const capture = await evidenceSession.send(
+                      "Page.captureScreenshot",
+                      {
+                        format: "png",
+                        fromSurface: fullPage,
+                        captureBeyondViewport: fullPage,
+                        clip: { ...bounds, scale: 1 },
+                      },
+                      { timeout: actionTimeout }
                     )
+                    screenshot = Uint8Array.from(
+                      atob(capture.data),
+                      (character) => character.charCodeAt(0)
+                    )
+                    const header = new DataView(screenshot.buffer)
+                    if (
+                      screenshot.byteLength < 24 ||
+                      header.getUint32(0) !== 0x89504e47 ||
+                      (!fullPage &&
+                        (header.getUint32(16) !== expected.width ||
+                          header.getUint32(20) !== expected.height))
+                    )
+                      throw new Error(
+                        "The browser screenshot did not match the verified viewport."
+                      )
+                  }
                   await trace("observe-complete")
                   await ensureAllowed()
                   return {

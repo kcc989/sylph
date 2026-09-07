@@ -15,7 +15,11 @@ Every journey result is bound to the exact Workspace, Conversation, Check ID, at
 {"requestId":"mobile-1","sessionId":"<session>","action":{"type":"viewport","viewport":"mobile"}}
 ```
 
-Repeat the required assertions at each viewport, then call `journey_finish`. Desktop is 1440 × 900; mobile is 390 × 844. The browser checks actual viewport dimensions and saves each assertion's screenshot and accessibility Evidence with its sequence and viewport. Screenshots and observations alone cannot complete a required journey.
+Repeat the required assertions at each viewport, then call `journey_finish`. Desktop is 1440 × 900; mobile is 390 × 844. The browser checks actual viewport dimensions and saves each assertion's Evidence with its sequence and viewport. Screenshots and observations alone cannot complete a required journey.
+
+Policies require screenshots and accessibility Evidence by default. A User can explicitly select **DOM assertions only (no screenshots)** and record a reason. This creates a new policy revision and requires new proof. DOM-only mode still uses the actual browser, cookies, guarded navigation, viewport dimensions, and ordered assertions. It does not verify visual appearance. The UI shows page text and selector controls without a stale screenshot.
+
+On September 7, 2026, the deployed smoke reproduced a Browser Run limitation: `Page.captureScreenshot` timed out after `Page.setWebLifecycleState` freeze/resume, even with Cloudflare's client alone and no disconnect or Sylph guard. DOM and accessibility reads worked. Repainting the viewport did not restore capture. Required-screenshot policies fail closed; DOM-only mode is explicit policy handling for supported journeys. The diagnostic evidence is recorded in smoke stage `smoke-browser-mtrvv2f3`, commit `043cf7a`, and the repaint comparison in `smoke-browser-mtrvxu51`, commit `63df582`.
 
 A failed assertion or action invalidates that attempt. Start a new journey attempt and repeat its required proof. Failures outside a named journey also block acceptance until required proof is repeated or a User records an exception. Starting another journey, closing the browser, expiry, failed reconnect, failed Evidence storage, or interruption cannot turn incomplete proof into a pass. Results and failed attempts remain in durable storage.
 
