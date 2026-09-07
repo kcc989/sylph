@@ -298,14 +298,28 @@ export const browserRunLayer = (
                   await ensureAllowed()
                 },
                 async verify(commit) {
-                  const marker = await page.waitForSelector(
-                    browserEvidenceSelector(commit),
-                    { timeout: actionTimeout }
-                  )
-                  if (!marker)
+                  await trace("verify-identity")
+                  const marker = await page
+                    .waitForSelector(browserEvidenceSelector(commit), {
+                      timeout: actionTimeout,
+                    })
+                    .catch(() => null)
+                  if (!marker) {
+                    const actual = await page.evaluate(() => ({
+                      title: document.title,
+                      checkpoint:
+                        document
+                          .querySelector("[data-sylph-checkpoint]")
+                          ?.getAttribute("data-sylph-checkpoint") ?? null,
+                      deployment:
+                        document
+                          .querySelector("[data-sylph-deployment]")
+                          ?.getAttribute("data-sylph-deployment") ?? null,
+                    }))
                     throw new Error(
-                      "The Preview did not render the expected Checkpoint identity"
+                      `The Preview did not render Checkpoint ${commit}: ${JSON.stringify(actual)}`
                     )
+                  }
                   await marker.dispose()
                 },
                 async act(action) {
