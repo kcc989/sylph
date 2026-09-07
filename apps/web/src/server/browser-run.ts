@@ -187,7 +187,10 @@ const actOnPage = async (page: Page, action: WorkspaceBrowserAction) => {
   }
 }
 
-export const browserRunLayer = (binding: Pick<BrowserRun, "fetch">) =>
+export const browserRunLayer = (
+  binding: Pick<BrowserRun, "fetch">,
+  trace: (phase: string) => Promise<void> = async () => {}
+) =>
   Layer.succeed(BrowserRunClient, {
     close: Effect.fn("BrowserRunClient.close")((sessionId: string) =>
       Effect.tryPromise({
@@ -228,6 +231,7 @@ export const browserRunLayer = (binding: Pick<BrowserRun, "fetch">) =>
                 globalThis.fetch
               ),
             }
+            await trace("connect")
             const browser = sessionId
               ? await puppeteer.connect(endpoint, sessionId)
               : await puppeteer.launch(endpoint, {
@@ -240,7 +244,13 @@ export const browserRunLayer = (binding: Pick<BrowserRun, "fetch">) =>
                   url,
                   allowedOrigins: options?.allowedOrigins,
                 })
-              const guard = await browserNavigationGuard(browser, checkUrl)
+              await trace("guard")
+              const guard = await browserNavigationGuard(
+                browser,
+                checkUrl,
+                trace
+              )
+              await trace("pages")
               const pages = await browser.pages()
               let page = pages[0] ?? (await browser.newPage())
               const pageId = async (target: Page) => {
@@ -267,7 +277,9 @@ export const browserRunLayer = (binding: Pick<BrowserRun, "fetch">) =>
                 target.setDefaultNavigationTimeout(actionTimeout)
                 await target.setViewport(browserViewportSize(viewport))
               }
+              await trace("viewport")
               await prepare(page)
+              await trace("connected")
               const ensureAllowed = async () => {
                 await guard.check()
                 for (const target of await browser.pages()) {
@@ -328,6 +340,7 @@ export const browserRunLayer = (binding: Pick<BrowserRun, "fetch">) =>
                   await ensureAllowed()
                 },
                 async observe(fullPage) {
+                  await trace("observe-policy")
                   await ensureAllowed()
                   try {
                     await page.waitForNetworkIdle({
@@ -341,6 +354,7 @@ export const browserRunLayer = (binding: Pick<BrowserRun, "fetch">) =>
                       throw error
                   }
                   await ensureAllowed()
+                  await trace("observe-dimensions")
                   const dimensions = await page.evaluate(() => ({
                     width: innerWidth,
                     height: innerHeight,
@@ -353,6 +367,7 @@ export const browserRunLayer = (binding: Pick<BrowserRun, "fetch">) =>
                     throw new Error(
                       `Viewport verification failed: expected ${expected.width}×${expected.height}, received ${dimensions.width}×${dimensions.height}`
                     )
+                  await trace("observe-content")
                   const content = await page.evaluate(() => {
                     const fields = Array.from(
                       document.querySelectorAll(

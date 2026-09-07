@@ -604,6 +604,9 @@ try {
 } catch (error) {
   record.status = "failed"
   record.error = error.message
+  record.browserTrace = await probe("trace").catch((traceError) => ({
+    error: traceError.message,
+  }))
   throw error
 } finally {
   if (sessionId) {

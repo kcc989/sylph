@@ -46,6 +46,9 @@ const redirect = (origin: string) =>
 export class BrowserSmoke extends DurableObject<Bindings> {
   async fetch(request: Request) {
     const url = new URL(request.url)
+    if (url.pathname === "/probe/trace")
+      return Response.json((await this.ctx.storage.get("browser-trace")) ?? [])
+    const phases: string[] = []
     const runtime = ManagedRuntime.make(
       workspaceBrowserLayer({
         storage: durableBrowserSessionStore(this.ctx.storage),
@@ -80,7 +83,14 @@ export class BrowserSmoke extends DurableObject<Bindings> {
           }
         },
         addEvidence: () => {},
-      }).pipe(Layer.provide(browserRunLayer(this.env.BROWSER)))
+      }).pipe(
+        Layer.provide(
+          browserRunLayer(this.env.BROWSER, async (phase) => {
+            phases.push(phase)
+            await this.ctx.storage.put("browser-trace", phases)
+          })
+        )
+      )
     )
     try {
       if (url.pathname === "/probe/policy") {
@@ -155,6 +165,7 @@ export default {
           "/probe/policy",
           "/probe/proof",
           "/probe/context",
+          "/probe/trace",
         ].includes(url.pathname)
       )
         return env.SESSIONS.get(env.SESSIONS.idFromName("journey")).fetch(

@@ -2,8 +2,10 @@ import type { Browser, CDPSession, Page } from "@cloudflare/puppeteer"
 
 export const browserNavigationGuard = async (
   browser: Browser,
-  checkUrl: (url: string) => string
+  checkUrl: (url: string) => string,
+  trace: (phase: string) => Promise<void> = async () => {}
 ) => {
+  await trace("guard-root")
   const root = await browser.target().createCDPSession()
   const connection = root.connection()
   if (!connection) throw new Error("Browser navigation guard has no connection")
@@ -11,6 +13,7 @@ export const browserNavigationGuard = async (
   const pending = new Set<Promise<void>>()
   let blocked: string | undefined
   let unavailable = false
+  let failureDetail = ""
   const attach = (session: CDPSession) => {
     if (sessions.has(session)) return
     sessions.add(session)
@@ -42,12 +45,15 @@ export const browserNavigationGuard = async (
         })
     })
     const ready = session
-      .send("Fetch.enable", {
-        patterns: [{ resourceType: "Document", requestStage: "Request" }],
-      })
+      .send(
+        "Fetch.enable",
+        { patterns: [{ resourceType: "Document", requestStage: "Request" }] },
+        { timeout: 15_000 }
+      )
       .then(() => undefined)
-      .catch(() => {
+      .catch((error) => {
         unavailable = true
+        failureDetail = error instanceof Error ? error.message : String(error)
       })
       .finally(() => {
         pending.delete(ready)
@@ -78,8 +84,9 @@ export const browserNavigationGuard = async (
             })
           }
         })
-        .catch(() => {
+        .catch((error) => {
           unavailable = true
+          failureDetail = error instanceof Error ? error.message : String(error)
         })
     })
     await parent.send(
@@ -96,14 +103,21 @@ export const browserNavigationGuard = async (
       { timeout: 15_000 }
     )
   }
+  await trace("guard-watch")
   await watch(root)
+  await trace("guard-targets")
   for (const target of browser.targets()) {
     if (target.type() !== "page") continue
+    await trace("guard-attach-page")
     const session = await target.createCDPSession()
     attach(session)
+    await trace("guard-fetch")
     await Promise.all(pending)
     if (unavailable)
-      throw new Error("The browser could not guard a frozen page.")
+      throw new Error(
+        `The browser could not guard a frozen page: ${failureDetail}`
+      )
+    await trace("guard-resume")
     await session.send(
       "Page.setWebLifecycleState",
       { state: "active" },
@@ -119,19 +133,22 @@ export const browserNavigationGuard = async (
     await Promise.all(pending)
     if (unavailable)
       throw new Error(
-        "The browser cannot enforce navigation policy; no action is allowed."
+        `The browser cannot enforce navigation policy; no action is allowed: ${failureDetail}`
       )
     pages.set(page, session)
     await session.send("Page.setWebLifecycleState", { state: "active" })
     return session
   }
+  await trace("guard-pages")
   for (const page of await browser.pages()) await prepare(page)
   return {
     prepare,
     async check() {
       await Promise.all(pending)
       if (unavailable)
-        throw new Error("The browser navigation guard lost its connection.")
+        throw new Error(
+          `The browser navigation guard lost its connection: ${failureDetail}`
+        )
       if (blocked) {
         const message = blocked
         blocked = undefined
