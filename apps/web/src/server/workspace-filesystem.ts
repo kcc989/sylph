@@ -151,26 +151,6 @@ export class WorkspaceFilesystem implements WorkspaceGitFilesystem {
       "INSERT OR IGNORE INTO app_workspace_directory (path, updated_at) VALUES ('', ?)",
       Date.now()
     )
-    const columns = this.#storage.sql
-      .exec<{ name: string }>("PRAGMA table_info(app_workspace_file)")
-      .toArray()
-      .map((column) => column.name)
-
-    if (!columns.includes("size")) {
-      this.#storage.sql.exec(
-        "ALTER TABLE app_workspace_file ADD COLUMN size INTEGER NOT NULL DEFAULT 0"
-      )
-      const rows = this.#storage.sql
-        .exec<FileContentRow>("SELECT path, content FROM app_workspace_file")
-        .toArray()
-      for (const row of rows) {
-        this.#storage.sql.exec(
-          "UPDATE app_workspace_file SET size = ? WHERE path = ?",
-          contentBytes(row.content).byteLength,
-          row.path
-        )
-      }
-    }
   }
 
   async readFile(pathValue: string): Promise<Uint8Array>

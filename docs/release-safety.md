@@ -44,6 +44,6 @@ The version 2 repository manifest supplies temporary Git access and repository h
 
 ## Rollout and verification
 
-Apply `0024_release_safety.sql` through the existing Alchemy deployment. It adds release receipts and an index that permits one queued/running deployment per Project. If an existing database has overlapping active releases, reconcile those operations before applying the migration; the migration intentionally does not cancel them.
+The initial schema in `packages/db/migrations/0001_initial.sql` includes release receipts and an index that permits one queued/running deployment per Project. This baseline requires fresh resources; it does not upgrade earlier experimental databases.
 
 Local pipeline tests simulate CI, Browser Run, and provider receipts against SQLite. They cover ordering, incompatible migrations, missing/expired/unsaved backups, incomplete restores, mismatched journey commits, writer resume failures, and verification failures after publication. They do not prove a real provider backup or live restoration. Before production rollout, test the application's hooks in an isolated stage with real data, concurrent writers, a deliberate migration failure, complete restore, and a verified production journey. Production deployment and destructive restores require separate explicit approval.

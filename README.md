@@ -6,15 +6,13 @@ Sylph is an Apache-2.0 licensed, Cloudflare-native system for durable coding-age
 
 ## Deploy an Installation
 
-Sylph is deployed from a fork. Fork this repository, clone your fork, and run the guided setup:
+Deploy through your GitHub fork with **Actions → Deploy production**. No local tools are required. Supply your Cloudflare account ID, deploy token, and a setup code. Choose a `workers.dev` address or set an optional custom hostname.
 
-```sh
-./scripts/setup.sh
-```
+The workflow creates the resources and stable credentials, then links to `/setup`. Connect GitHub and claim your Installation there without a second deployment.
 
-The wizard checks your tools and Cloudflare account, configures Alchemy with a deploy token, mints the narrower credentials the deployed Worker uses, deploys the stack, creates a GitHub App with the callback URL pre-filled, publishes production secrets to your fork, and opens `/setup` so you can claim the Installation with your own account.
+[Deploy your own Sylph](docs/operators.md) · [Fork the repository](https://github.com/kcc989/sylph/fork)
 
-Read [docs/operators.md](docs/operators.md) for prerequisites, the resources it creates, cost drivers, upgrades, teardown, and troubleshooting. Maintainer topics such as releases, the release-smoke test system, and OAuth across preview stages live in [docs/maintainers.md](docs/maintainers.md).
+For local setup, clone your fork and run `./scripts/setup.sh` with Bun and Docker installed.
 
 ## Product direction
 

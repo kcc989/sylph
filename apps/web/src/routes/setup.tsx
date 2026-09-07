@@ -1,23 +1,30 @@
+import { InstallationStart } from "@/components/installation-start"
+import { getInstallationSetup } from "@/functions/setup"
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { useServerFn } from "@tanstack/react-start"
 import { failureMessage } from "@workspace/domain"
 import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
 import { Label } from "@workspace/ui/components/label"
-import { ArrowLeft, Code2, LoaderCircle, ShieldCheck } from "lucide-react"
+import { ArrowLeft, LoaderCircle, ShieldCheck } from "lucide-react"
 import { type FormEvent, useState } from "react"
 
 import { AppShell } from "@/components/app-shell"
-import { authClient } from "@/lib/auth-client"
 import { claimInstallation, getDashboard } from "@/functions/installation"
 
 export const Route = createFileRoute("/setup")({
-  loader: () => getDashboard(),
+  loader: async () => {
+    const [dashboard, setup] = await Promise.all([
+      getDashboard(),
+      getInstallationSetup(),
+    ])
+    return { dashboard, setup }
+  },
   component: InstallationSetupScreen,
 })
 
 function InstallationSetupScreen() {
-  const dashboard = Route.useLoaderData()
+  const { dashboard, setup } = Route.useLoaderData()
   const claim = useServerFn(claimInstallation)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -33,7 +40,7 @@ function InstallationSetupScreen() {
         data: {
           organizationName: String(form.get("organizationName")),
           confirmedEmail: String(form.get("confirmedEmail")),
-          claimSecret: String(form.get("claimSecret")),
+          claimSecret: String(form.get("claimSecret") ?? ""),
         },
       })
       window.location.assign("/admin?onboarding=1")
@@ -43,40 +50,7 @@ function InstallationSetupScreen() {
     }
   }
 
-  if (!dashboard.user) {
-    return (
-      <main className="grid min-h-svh place-items-center bg-background px-5 text-foreground">
-        <div className="max-w-md text-center">
-          <h1 className="text-xl font-semibold">Sign in before setup</h1>
-          <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            Your authenticated account becomes the first Admin when you claim
-            this Installation.
-          </p>
-          {dashboard.authentication.github ? (
-            <Button
-              className="mt-6"
-              onClick={() =>
-                authClient.signIn.social({
-                  provider: "github",
-                  callbackURL: "/setup",
-                })
-              }
-            >
-              <Code2 /> Continue with GitHub
-            </Button>
-          ) : (
-            <Button
-              nativeButton={false}
-              className="mt-6"
-              render={<Link to="/" />}
-            >
-              Return to sign in
-            </Button>
-          )}
-        </div>
-      </main>
-    )
-  }
+  if (!dashboard.user) return <InstallationStart setup={setup} />
 
   if (dashboard.installation.claimed) {
     return (
@@ -156,19 +130,26 @@ function InstallationSetupScreen() {
                   address as verified before the claim can continue.
                 </p>
               </div>
-              <div className="grid gap-2">
-                <Label htmlFor="claim-secret">Installation claim secret</Label>
-                <Input
-                  id="claim-secret"
-                  name="claimSecret"
-                  type="password"
-                  autoComplete="off"
-                  required
-                />
-                <p className="text-xs leading-5 text-muted-foreground">
-                  The deployment setup wizard generated this one-time secret.
+              {setup.unlocked ? (
+                <p className="text-sm text-muted-foreground">
+                  Your setup code has been verified.
                 </p>
-              </div>
+              ) : (
+                <div className="grid gap-2">
+                  <Label htmlFor="claim-secret">Setup code</Label>
+                  <Input
+                    id="claim-secret"
+                    name="claimSecret"
+                    type="password"
+                    autoComplete="off"
+                    required
+                  />
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    Use the code saved as INSTALLATION_CLAIM_SECRET for this
+                    deployment.
+                  </p>
+                </div>
+              )}
               {error ? (
                 <p role="alert" className="text-sm text-destructive">
                   {error}

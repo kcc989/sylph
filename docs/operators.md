@@ -1,257 +1,118 @@
-# Operating a Sylph Installation
+# Deploy your own Sylph
 
-This guide is for the person who deploys and runs one Sylph Installation in their own Cloudflare account. It covers what you need before you start, what the setup wizard creates, how to upgrade, how to tear the Installation down, and what to check when something fails.
+Deploy one Sylph Installation into your Cloudflare account. The default process runs entirely in your browser. GitHub Actions runs Bun, Docker, and Alchemy for you.
 
-## The deployment model
-
-Sylph is deployed from a fork of the repository, not from a package.
+## Before you start
 
-1. Fork `kcc989/sylph` on GitHub and clone your fork.
-2. Run `./scripts/setup.sh` from the clone.
-3. Push to your fork's `main` branch to deploy updates through the `Deploy production` GitHub Actions workflow.
-4. Upgrade by syncing your fork with upstream and pushing.
-
-Your fork holds no secrets in git. Secrets live in `.env` on the machine that ran setup and in your fork's GitHub Actions secrets. Alchemy stores deployment state in your Cloudflare account, so any machine with the deploy token and the repository can deploy.
-
-## Prerequisites
-
-Tools on the machine that runs setup:
-
-| Tool                                                 | Why                                                                                    |
-| ---------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| Bun (the version in `package.json` `packageManager`) | Runs the wizard helpers, installs dependencies, and runs Alchemy                       |
-| Docker, running                                      | Alchemy pulls the Cloudflare sandbox image and re-pushes it to your account's registry |
-| OpenSSL, curl, git                                   | Secret generation, Cloudflare API calls, and the fork itself                           |
-| GitHub CLI (`gh`), authenticated against your fork   | Optional. Publishes production secrets and variables automatically                     |
-
-Cloudflare account state:
-
-- Workers Paid plan. Durable Objects with SQLite storage, Workflows, Containers, Browser Rendering, and Workers AI are used.
-- A registered `workers.dev` subdomain. The wizard checks for one and opens the dashboard if it is missing.
-- R2 enabled on the account.
-- Access to Cloudflare Artifacts. The wizard cannot probe this. If the first deployment fails while creating the Artifacts namespace, request access for your account before retrying.
-
-GitHub:
-
-- An account, or an organization you administer, that can create and install a GitHub App.
-
-## Credentials the wizard creates
-
-| Value                                                    | Where it lives                                            | Purpose                                                                                                                                                        |
-| -------------------------------------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Deploy token (`CLOUDFLARE_API_TOKEN`)                    | `.env`, GitHub Actions secret                             | Alchemy deploys with it. It also mints the two credentials below, which is why it needs Account API Tokens Write. It is never placed in a Worker.              |
-| Runtime token (`CF_TOKEN`)                               | `.env`, GitHub Actions secret, Worker secret              | Cloudflare CI passes it into the sandbox so generated projects can deploy previews, and the runtime deletes expired previews with it. It cannot create tokens. |
-| R2 key pair (`R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`) | `.env`, GitHub Actions secrets, Worker secrets            | Cloudflare CI snapshots dependency installs to the check backup bucket.                                                                                        |
-| `BETTER_AUTH_SECRET`, `CREDENTIAL_ENCRYPTION_KEY`        | `.env`, GitHub Actions secrets, Worker secrets            | Session signing and encryption of provider credentials stored in D1.                                                                                           |
-| `INSTALLATION_CLAIM_SECRET`                              | `.env`, GitHub Actions secret, Worker secret              | Entered once at `/setup` to create the Organization.                                                                                                           |
-| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`               | `.env`, GitHub Actions variable and secret, Worker config | Sign-in and repository access through your GitHub App.                                                                                                         |
-
-If you would rather not grant Account API Tokens Write, create the runtime token and the R2 key pair yourself in the dashboard, put them in `.env` before running the wizard, and the wizard reuses them instead of minting new ones.
-
-## Production release safety upgrade
-
-Upgrades apply `0024_release_safety.sql` through Alchemy. It stores release evidence
-and permits only one queued or running production operation per Project. Reconcile
-any overlapping active deployments before upgrading; the migration does not cancel
-them automatically. No new Installation secrets or wizard steps are required.
-
-Before the next Project production release, implement and test the application's
-migration, backup, restore, journey, and writer coordination hooks described in
-[Production releases and application data](release-safety.md). Missing hooks block
-production before data capture or publication. Storage permissions depend on the
-application's provider integrations; the upgrade does not grant them automatically.
-
-Data recovery requires an Admin to confirm the paired code commit and possible
-loss of writes since the selected recovery point. It creates an undo point and
-verifies production before reporting success. Repository exports provide Git
-access only; application data, secret values, and Workspace runtime state require
-separate recovery procedures. Validate real backup and restore behavior in an
-isolated stage before production rollout.
-
-## What the first deployment creates
-
-Workspace creation saves the record before repository and runtime setup. The
-`WorkspaceProvisioning` Workflow handles that setup. Early chat messages are
-stored in D1 and delivered by `WorkspaceMessageDelivery` after the runtime is
-ready. Closing the browser does not cancel these jobs.
-
-Upgrades apply migration `0022_workspace_pending_prompt.sql` and provision the
-message delivery Workflow and a minute cron through Alchemy. The cron recovers
-records saved before a Workflow could be scheduled. No new secrets are needed.
-Setup failures retain pending messages; restart the Workspace to resume setup.
-Delivery failures or timeouts show a Retry action beside the saved message.
-
-Workspace restarts also use `WorkspaceProvisioning`. Upgrades apply migration
-`0023_workspace_restart_request.sql` automatically during deploy to retain restart
-requests across retries. No new secrets, token permissions, or wizard steps are
-required. Restart validates the selected provider credentials before evicting the
-runtime.
-
-Failed Checkpoints now resume the normal coding agent automatically, up to three
-continuations. A passing Check or a new user message resets the limit. Production
-Checks do not start automatic repairs. Completion delivery survives runtime
-restarts and does not start a second Turn for the same delivered result.
-
-Cursor connections add a private per-user Durable Object. The provider runs in
-Workerd and opens TLS sockets directly to Cursor, using a bundled HTTP/2
-transport. Cursor connections do not require a Node service, Docker image, or
-container application. CI sandboxes still use Containers.
-
-Upgrades reuse `CREDENTIAL_ENCRYPTION_KEY`; no new secret or database migration
-is required. The key encrypts per-user Cursor OAuth state in Durable Object
-storage. Users connect their own subscriptions under **User settings → Cursor
-subscription**. This uses a community Cursor provider, not an official Cursor
-API integration. The transport relies on the tested Cursor hosts accepting an
-HTTP/2 preface over TLS without explicit ALPN negotiation. Connection failures
-are reported to the caller; there is no container fallback.
-
-The Durable Object retains the deployed class name `CursorContainer` to avoid
-renaming its credential namespace. An upgrade from the experimental container
-version plans deletion of the old Cursor container application. Review the
-Alchemy plan and approve that removal before applying it. See
-[Cursor verification and limits](smoke-tests/cursor-provider.md) before enabling
-it for users.
-
-Codex subscription connections add a private `CodexContainer` binding to the
-Workspace runtime. It runs Node 24 on a `basic` Container, with up to ten
-instances and a two-minute idle timeout. HTML 403 responses from the Codex
-Responses endpoint are retried through this Container because the endpoint
-rejects the `CF-Worker` header added to Workerd requests. Credentials pass
-through the private binding and are not persisted in the Container.
+You need:
 
-Upgrading provisions this additional Container application through Alchemy.
-Existing Container deployment permissions and `CREDENTIAL_ENCRYPTION_KEY` are
-reused; no new secret or D1 migration is required. Connect through **Codex
-subscription** in the provider setup screen. See the
-[Codex smoke evidence](../tools/codex-smoke/README.md) for verified behavior and
-limitations.
+- A GitHub account that can create a repository and a GitHub App.
+- A Cloudflare account with Workers Paid, R2 enabled, and access to Artifacts and Containers.
+- A registered `workers.dev` subdomain under **Workers & Pages**.
+- For a custom hostname, an active DNS zone in the same Cloudflare account.
 
-Workspace shell commands now use OpenCode's native tools through the existing
-Sandbox binding. No new secret, D1 migration, or binding is required. Commands
-can start a dedicated sandbox per Workspace and add Container usage; idle
-sandboxes sleep after five minutes. Native file edits and shell commands
-auto-approve by default. Shell environments exclude the Worker's infrastructure
-credentials. This is sandbox-scoped automatic approval, not a separate AI command
-reviewer. See [sandbox execution limits](sandbox-agent.md).
+The first deployment can take several minutes while container images are uploaded. Model provider credentials are added inside Sylph after setup.
 
-`SYLPH_SMOKE_GROK_BUDGET` is an optional disposable-test setting and defaults to
-`false`. It restricts paid model requests to Grok 4.6 with a conservative budget
-per Workspace. It is not an Installation-wide spending limit.
+## 1. Create your repository
 
-All resources are created in your account under the Alchemy stage `prod`.
+[Fork Sylph](https://github.com/kcc989/sylph/fork). Open the fork's **Actions** tab and enable workflows if GitHub asks.
 
-| Resource                  | Notes                                                                                                   |
-| ------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `Website` Worker          | The TanStack Start app. Runs hourly provider catalog refresh and minute workspace job recovery crons.   |
-| `WorkspaceRuntime` Worker | Hosts the `WorkspaceDO` Durable Object namespace, the `CI` Workflow, and the sandbox container binding. |
-| D1 database               | Drizzle migrations in `packages/db/migrations` run on every deploy.                                     |
-| Artifacts namespace       | One fork per workspace.                                                                                 |
-| Two R2 buckets            | Check backups and check evidence.                                                                       |
-| Container application     | `cloudflare/sandbox`, instance type `standard-4`, up to ten instances.                                  |
-| Browser Rendering binding | Used by workspace browser checks.                                                                       |
-| Workflows                 | `CI`, `WorkspaceProvisioning`, `WorkspaceMessageDelivery`, `WorkspaceMerge`, and `WorkspaceRetention`.  |
+Your repository contains the deployment code. Secrets stay outside Git. Keep the repository, Cloudflare account, and `prod` stage when updating so Alchemy can reuse existing resources and credentials.
 
-## Cost drivers
+## 2. Connect Cloudflare
 
-The Workers Paid plan is the floor. Beyond it, spend scales with:
+In Cloudflare, open **Workers & Pages** and copy the Account ID. Then open **Manage Account → Account API Tokens**, create a custom account token named **Sylph deploy**, and limit it to this account.
 
-- Container minutes. Each check run starts a `standard-4` sandbox. Codex subscription fallback requests use a `basic` Container that sleeps after two idle minutes.
-- Durable Object storage and requests. One object per workspace, plus SQLite storage for its state.
-- R2 storage. Check backups are pruned by the retention Workflow, but evidence accumulates until workspaces are archived.
-- Browser Rendering minutes when browser checks run.
-- Workers AI usage if you connect the Cloudflare provider.
+Grant these account permissions:
 
-Model provider spend is separate and goes to whichever provider you connect from `/admin`.
+- Account Settings Read
+- Account API Tokens Write
+- Workers Scripts Write
+- D1 Write
+- Workers R2 Storage Write
+- Workers KV Storage Write
+- Queues Write
+- Workers Containers Write
+- Workers CI Write
+- Workers AI Read and Workers AI Write
+- Artifacts Write
+- Browser Run Write
 
-## Running setup
+For a custom domain, also grant **Zone Read** and **DNS Read**, limited to its zone. The deploy token creates narrower runtime and backup tokens. The deploy token itself is never put in the Sylph Worker.
 
-```sh
-./scripts/setup.sh
-```
+In your GitHub fork, open **Settings → Secrets and variables → Actions**. Add:
 
-The wizard is idempotent. Stop it at any stage and re-run it; values already in `.env` are offered as defaults. The stages are:
+| Tab       | Name                        | Value                                      |
+| --------- | --------------------------- | ------------------------------------------ |
+| Variables | `CLOUDFLARE_ACCOUNT_ID`     | Your Cloudflare Account ID                 |
+| Secrets   | `CLOUDFLARE_API_TOKEN`      | The deploy token                           |
+| Secrets   | `INSTALLATION_CLAIM_SECRET` | A new random setup code, 32–256 characters |
 
-1. Preflight: local tools, Docker, and whether the clone points at your fork.
-2. Cloudflare deploy token: paste the account ID and one custom token. The wizard verifies it and configures Alchemy to use it.
-3. Account readiness: probes for a `workers.dev` subdomain and R2.
-4. Runtime credentials: mints the runtime token and R2 key pair.
-5. Installation secrets: generates the random secrets.
-6. Initial deployment: deploys and captures the URL. This stage pulls and pushes the sandbox image, which can take several minutes with no visible progress on a fresh account.
-7. GitHub App: creates the App from a manifest with the callback URL and permissions pre-filled, then you install it on the repositories Sylph may access.
-8. Production automation: publishes secrets and variables to your fork with `gh`.
-9. Launch and claim: redeploys with GitHub sign-in enabled and opens `/setup`.
+Generate the setup code with your password manager and save a copy there. GitHub does not show saved secret values again. You will enter this code once in Sylph to prove you control the deployment.
 
-At `/setup`, sign in with the account that should become the first Admin, confirm the verified email address, enter an Organization name, and paste `INSTALLATION_CLAIM_SECRET` from `.env`. Only this one-time claim can create the Organization. After it, use `/admin` to connect a model provider and invite other Users.
+Use repository variables for the account ID and domain, rather than environment variables. The workflow uses the account ID to distinguish configured forks from new ones.
 
-## Deploying updates
+## 3. Choose your address
 
-Push to your fork's `main` branch. The `Deploy production` workflow runs format, lint, typecheck, tests, and build, then deploys with Alchemy. The workflow reads the same secrets the wizard published. It targets a GitHub environment named `production`; GitHub creates it on first use, and you can add required reviewers to it if you want a manual gate.
+For a Cloudflare address, do nothing. Sylph uses its `workers.dev` address.
 
-To deploy from your machine instead:
+For a custom address, add one repository variable:
 
-```sh
-bun alchemy deploy --stage prod
-```
+| Name           | Example             |
+| -------------- | ------------------- |
+| `SYLPH_DOMAIN` | `sylph.example.com` |
 
-Alchemy reads `.env` from the repository root and authenticates with the deploy token because the wizard set the default profile to the environment method.
+Enter only the hostname: no `https://`, path, or wildcard. The zone must be active in your Cloudflare account. Choose a hostname without an existing CNAME record. Alchemy attaches the custom domain; Cloudflare manages its DNS record and certificate.
 
-## Upgrading
+Sylph uses this address for authentication, GitHub callbacks, and links. Requests to the Worker's other address redirect to the primary address before sign-in.
 
-Checkpoint browser checks now wait for one visible element with both `data-sylph-checkpoint="<exact commit SHA>"` and `data-sylph-deployment="preview"`. Keep the existing visible `SYLPH_CHECKPOINT` and `SYLPH_DEPLOYMENT` text. Update existing Project preview pages before running new checks; changing the built-in template does not update an existing Project. A footer is suitable for these attributes. This update needs no new Installation secrets, token permissions, or migrations.
+## 4. Deploy
 
-New built-in Project imports use the template's `main` branch. Review the resolved template commit when creating a Project. Existing Projects retain their own code.
+Open **Actions → Deploy production → Run workflow**, select `main`, and run it.
 
-```sh
-git fetch upstream
-git merge upstream/main
-git push origin main
-```
+The workflow:
 
-Read `CHANGELOG.md` for the versions you are crossing. Entries call out when an upgrade needs a new secret, a token permission, or a re-run of the wizard. D1 migrations apply automatically during the deploy.
+1. Checks the deploy token, `workers.dev` registration, R2, Artifacts, and any custom hostname.
+2. Runs code checks and builds Sylph.
+3. Creates the resources and credentials through Alchemy.
+4. Adds **Open Sylph** and **Finish setup** links to the run summary.
 
-## Teardown
+Open **Finish setup**. If a step fails, correct the reported problem and rerun the workflow. Completed resources and saved credentials are reused. A failed deploy does not mean you need a new token or another GitHub App.
 
-```sh
-bun alchemy destroy --stage prod
-```
+## 5. Finish in Sylph
 
-This deletes every resource listed above, including the D1 database, the R2 buckets, and every workspace fork in the Artifacts namespace. There is no undo. Revoke the deploy token, the runtime token, and the R2 token in the Cloudflare dashboard afterwards, and delete the GitHub App.
+1. Enter the setup code you saved earlier.
+2. Choose **Create GitHub App**. Give it a unique name and confirm GitHub's prefilled permissions. To reuse an App, expand **Connect an existing GitHub App** instead.
+3. Follow **Install GitHub App** and select the repositories Sylph may access.
+4. Choose **Continue with GitHub**.
+5. Confirm your verified email address and name your Organization. Claim the Installation.
+6. Connect a model provider in Admin, then create your first Project and Workspace.
 
-## Troubleshooting
+GitHub App credentials are encrypted in D1. No second deployment or copying credentials to GitHub Actions is needed. Setup progress survives reloads. After an hour, re-enter the setup code to continue. Once claimed, the setup code can no longer change the GitHub connection.
 
-**Deploy fails with "Forbidden" on some resources but not others.** Alchemy is using a different credential than you think. Open `~/.alchemy/profiles.json` and check that the `default` profile's `Cloudflare` entry has `"method": "env"`. A browser-login (OAuth) profile has narrower scopes than the deploy token and silently wins over `.env`. Reset it from the repository root with `CI=true bunx alchemy login --configure`.
+## What is created
 
-**The deploy sits on "Pushing container image" with no progress.** This is the sandbox image being re-pushed to your account's registry. It takes several minutes on a fresh stage. Do not interrupt it. Later deploys reuse the pushed layers.
+- One Website Worker hosting the app, Durable Objects, Workflows, and container bindings.
+- One D1 database, initialized by `packages/db/migrations/0001_initial.sql`.
+- An Artifacts namespace for repositories and workspace forks.
+- Two R2 buckets for check backups and evidence.
+- Sandbox and Codex container applications.
+- Browser Rendering and scheduled jobs.
+- A runtime API token, an R2 backup token, and stable session and credential-encryption secrets.
 
-**"Access denied" or HTTP 403 from R2 during a check or preview.** The R2 key pair is invalid or revoked. Test it before reading Sylph code:
+Alchemy retains generated secret values and token outputs in its Cloudflare deployment state. Access to that state is privileged. Keep it when updating. Destroying state and generating new encryption keys does not recover existing encrypted data.
 
-```sh
-curl -s -o /dev/null -w '%{http_code}\n' -X PUT --data-binary @/dev/null \
-  "https://$CLOUDFLARE_ACCOUNT_ID.r2.cloudflarestorage.com/<bucket>/probe" \
-  --aws-sigv4 "aws:amz:auto:s3" --user "$R2_ACCESS_KEY_ID:$R2_SECRET_ACCESS_KEY"
-```
+This first-release baseline requires fresh resources. It does not upgrade earlier experimental databases or transfer their Durable Object state.
 
-Delete `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` from `.env` and re-run the wizard to mint a new pair.
+## Production release safety
 
-**The first deploy fails while creating the Artifacts namespace.** Your account does not have Cloudflare Artifacts enabled. Request access, then re-run the deploy. Alchemy resumes from the resources it already created.
+The initial schema stores release evidence and permits only one queued or running production operation per Project.
 
-**`bun install` fails on macOS with a workerd signature error.** The `postinstall` script re-signs the workerd binary. Run `bash scripts/prepare-workerd.sh` and retry.
+Before a Project production release, implement and test the application's migration, backup, restore, journey, and writer coordination hooks described in [Production releases and application data](release-safety.md). Missing hooks block production before data capture or publication. Storage permissions depend on the application's provider integrations; Sylph does not grant them automatically.
 
-**GitHub sign-in redirects to an error.** The App's callback URL must be exactly `<your URL>/api/auth/callback/github`. Check it on the App's settings page, and check that `GITHUB_CLIENT_ID` in your fork's variables matches the App you installed.
+Data recovery requires an Admin to confirm the paired code commit and possible loss of writes since the selected recovery point. It creates an undo point and verifies production before reporting success. Repository exports provide Git access only; application data, secret values, and Workspace runtime state require separate recovery procedures. Validate real backup and restore behavior in an isolated stage before production rollout.
 
-**Deploy production fails on "Missing production secret or variable".** The wizard's production automation stage was skipped or `gh` was not authenticated. Re-run the wizard and accept the publish prompt, or set the named secret with `gh secret set NAME`.
-
-**A deploy was interrupted and the next one reports an undefined Durable Object namespace.** Re-run the same deploy. Alchemy recovers the half-created resources on the second pass.
-
-## Native execution simplification
-
-Dependency repairs run through native shell commands. The retired dependency runner and its completion callback have been removed. Finish any active dependency Workflows before upgrading. Existing results remain readable, but resumed dependency jobs fail and their Retry and Repair actions remain disabled. Correct dependency failures with `bun install`, then run `workspace_run_checks` to create and verify a normal Checkpoint. No new secrets, database migration, or cleanup is needed for this upgrade.
-
-Agent and Check commands share process limits: ten minutes and eight MiB of captured output per command. Check verification does not receive deployment credentials; preview and production retain their explicit credential environment and immutable checkpoint source.
-
-New Projects use the exact template commit in `packages/domain/src/template-release.ts`. The release includes pinned dependencies, deployment runtime imports, and checkpoint identity attributes. CI checks that exact revision with its recorded Bun version. The importer uses the recorded source ref and rejects any head that differs from the release commit, including a mismatched cached import. Existing Projects are not changed. Update the release record only after the replacement template has passed its contract checks.
-
-## Project resource management upgrade
+## Project resource management
 
 This change is not ready for production rollout until its matching template
 revision is published and pinned. The reviewed template patch and the complete
@@ -259,11 +120,10 @@ rollout procedure are in [the resource management guide](../tools/resource-manag
 Existing Project repositories also need the new `sylph:plan` script and matching
 Alchemy resource names. Sylph does not rewrite their reviewed Checkpoints.
 
-Upgrades apply `0025_project_resources.sql` and provision the `ResourceMaintenance`
-Workflow through `alchemy.run.ts`. No new secret keys are required. The existing
-runtime token must be able to list Workers, D1 databases, KV namespaces, R2
-buckets, and Queues for ownership checks, and delete the resources and R2 objects
-owned by an expired Preview. Production custom domains also require access to
+The initial schema includes the resource inventory, and `alchemy.run.ts` provisions
+the `ResourceMaintenance` Workflow in the Website Worker. The runtime token must
+be able to list Workers, D1 databases, KV namespaces, R2 buckets, and Queues for
+ownership checks, and delete the resources and R2 objects owned by an expired Preview. Production custom domains also require access to
 the relevant account's Worker domains and zone configuration. Missing permissions
 block preflight; review the existing token before rollout.
 
@@ -277,3 +137,76 @@ their resources have been reviewed and adopted. Legacy Previews without recorded
 reservations are not deleted automatically. Do not infer ownership from a URL.
 Run disposable deployed lifecycle checks before production rollout; the local
 test suite and build do not prove live deletion or configuration behavior.
+
+## Update Sylph
+
+Review upstream changes, sync your fork, and push to `main`. The same workflow deploys the update. You can also run **Deploy production** manually.
+
+Keep the Cloudflare account, stage, and saved setup code unchanged. Generated credentials remain in Alchemy state; the GitHub connection remains in D1. Do not delete either to retry a failed update.
+
+## Add or change a custom domain later
+
+1. Open your GitHub App's settings. Add `https://new-hostname/api/auth/callback/github` to its user authorization callback URLs. Keep the current callback until you verify the new address.
+2. Ensure the new zone is active and the deploy token can read the zone and DNS records.
+3. Set `SYLPH_DOMAIN` in your repository variables, then run **Deploy production**.
+4. Open the new address and verify GitHub sign-in. Cookies belong to the old origin, so sign in again.
+5. Update the App's homepage URL. Remove the old OAuth callback after verification.
+
+A move from `workers.dev` keeps that endpoint as a redirect to the custom domain. Changing between two custom domains removes the old Alchemy-managed attachment; arrange an explicit redirect for the old custom hostname if you need one. To return to `workers.dev`, add its OAuth callback to your GitHub App first, then remove `SYLPH_DOMAIN` and redeploy. Alchemy removes the old custom-domain attachment.
+
+## Local alternative
+
+Clone your fork, install Bun and Docker, start Docker, and run:
+
+```sh
+./scripts/setup.sh
+```
+
+The five stages prepare your machine, connect Cloudflare, save a setup code, deploy, and optionally configure GitHub Actions. Finish GitHub connection and claim in the same browser setup screen. Existing `.env` values are reused. GitHub CLI authentication is needed only to publish settings automatically.
+
+To check configuration or deploy later:
+
+```sh
+bun run deploy:check
+bun alchemy deploy --stage prod
+```
+
+## Advanced configuration
+
+Existing `BETTER_AUTH_SECRET`, `CREDENTIAL_ENCRYPTION_KEY`, `CF_TOKEN`, and R2 credential overrides are supported. Supply both R2 values together. Keep overrides consistent between local deployments and Actions. Removing an override switches to Alchemy-managed credentials; do not do this for an existing Installation without planning rotation.
+
+`GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` can supply an existing connection when D1 has no saved App. A connection saved through `/setup` takes precedence.
+
+Preview OAuth proxies are optional. Configure `OAUTH_PROXY_URL`, `OAUTH_PROXY_SECRET`, and `OAUTH_PROXY_TRUSTED_ORIGINS` together only when this Installation serves previews. See [release smoke testing](../tests/release-smoke/README.md). Normal setup does not require a proxy, Playwright, or model credits.
+
+`ALLOW_TEST_MAGIC_LINKS` is disabled by production Actions. Never enable it for a public Installation. `CI_VERIFICATION_CONCURRENCY` defaults to two. See [sandbox execution limits](sandbox-agent.md), [Cursor verification](smoke-tests/cursor-provider.md), and [Codex verification](../tools/codex-smoke/README.md) for runtime details.
+
+## Workspace recovery and execution
+
+Workspace restarts use the provisioning Workflow and retain restart requests across retries. Restart validates the selected provider credentials before evicting the runtime.
+
+Eligible failed Checkpoints resume the normal coding agent automatically, up to three continuations. A passing Check or a new user message resets the limit. Production Checks do not start automatic repairs. Completion delivery survives runtime restarts and does not start a second Turn for the same delivered result.
+
+Dependency repairs use native shell commands. Correct dependency failures with `bun install`, then run `workspace_run_checks` to create and verify a normal Checkpoint. Agent and Check commands share limits of ten minutes and eight MiB of captured output per command. Check verification does not receive deployment credentials.
+
+New Projects use the exact template commit in `packages/domain/src/template-release.ts`. CI checks that revision with its recorded Bun version. The importer rejects any head that differs from the release commit. Existing Projects are not changed. Update the release record only after the replacement template passes its contract checks.
+
+## Troubleshooting
+
+**Missing configuration.** Add the named repository variable or secret. Setup codes must contain 32–256 characters.
+
+**Cloudflare returns 403.** Check the token's account and permissions. A custom domain also requires access to its zone. Artifacts must be enabled for the account.
+
+**Container creation fails.** Check Workers Paid and Containers availability. Inspect the failed Actions step; do not create a replacement Installation to retry.
+
+**GitHub App creation was interrupted.** Return to `/setup`. Reuse the App through **Connect an existing GitHub App** if GitHub already created it. Its Client ID and a client secret are available in the App's settings.
+
+**GitHub sign-in fails.** Verify that the App's callback URL matches the primary address followed by `/api/auth/callback/github`. Check the App's repository installation and OAuth settings. Before claiming, you can replace an incorrect connection in `/setup`.
+
+**Setup code expired.** The browser session expires after an hour; the saved setup code does not. Enter it again. Claimed Installations no longer accept setup changes.
+
+**The local deploy uses the wrong Cloudflare credentials.** Run `CI=true bunx alchemy login --configure` to select environment-token authentication. The wizard and Actions do this automatically.
+
+## Teardown
+
+`bun alchemy destroy --stage prod` deletes the Installation's managed resources, including databases, storage, and generated credentials. Run it only when you intend to discard the Installation. Delete the GitHub App and revoke any manually supplied deploy or runtime tokens separately.

@@ -13,7 +13,7 @@ const fixture = () => {
     import.meta.url
   )
   for (const name of readdirSync(migrations)
-    .filter((name) => name.endsWith(".sql") && name.slice(0, 4) <= "0011")
+    .filter((name) => name.endsWith(".sql"))
     .sort()) {
     sqlite.exec(readFileSync(new URL(name, migrations), "utf8"))
   }

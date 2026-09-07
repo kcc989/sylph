@@ -1,3 +1,5 @@
+import { readInstallationGithub } from "./installation-github"
+import { installationOrigin } from "./installation-address"
 import { schema } from "@workspace/db"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
 import { betterAuth } from "better-auth/minimal"
@@ -161,16 +163,21 @@ export const createAuth = (
   })
 }
 
-export const createRequestAuth = (request: Request, bindings: Cloudflare.Env) =>
-  createAuth(
+export const createRequestAuth = async (
+  request: Request,
+  bindings: Cloudflare.Env
+) => {
+  const github = await readInstallationGithub(bindings)
+  return createAuth(
     bindings.DB,
-    new URL(request.url).origin,
+    installationOrigin(request, bindings.SYLPH_URL),
     bindings.BETTER_AUTH_SECRET,
-    bindings.GITHUB_CLIENT_ID,
-    bindings.GITHUB_CLIENT_SECRET,
+    github.clientId,
+    github.clientSecret,
     {
       productionURL: bindings.OAUTH_PROXY_URL,
       secret: bindings.OAUTH_PROXY_SECRET,
       trustedOrigins: bindings.OAUTH_PROXY_TRUSTED_ORIGINS,
     }
   )
+}

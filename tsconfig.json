@@ -16,6 +16,8 @@
     "oxlint.config.ts",
     "apps/web/src/env.d.ts",
     "tools/runtime-smoke/*.test.ts",
-    "tools/browser-smoke/*.ts"
+    "tools/browser-smoke/*.ts",
+    "tools/deployment/**/*.ts",
+    "scripts/deploy-check.ts"
   ]
 }

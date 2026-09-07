@@ -165,8 +165,11 @@ function HomeScreen() {
               {!dashboard.authentication.github &&
               !dashboard.authentication.testMagicLinks ? (
                 <p className="border-y py-4 text-sm leading-6 text-muted-foreground">
-                  Authentication is not configured. Finish the Installation
-                  setup and redeploy Sylph.
+                  Your deployment is ready.{" "}
+                  <Link to="/setup" className="underline underline-offset-4">
+                    Finish setup
+                  </Link>{" "}
+                  to connect GitHub and sign in.
                 </p>
               ) : null}
             </div>

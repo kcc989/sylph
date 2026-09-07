@@ -1,3 +1,4 @@
+import { setupSessionId } from "@/server/installation-setup"
 import { createServerFn } from "@tanstack/react-start"
 import { schema } from "@workspace/db"
 import {
@@ -47,13 +48,6 @@ export const claimInstallation = createServerFn({ method: "POST" })
     const { database, session, user } = context
 
     assertInstallationClaimIdentity(user, data.confirmedEmail)
-    if (
-      !(await secretsMatch(data.claimSecret, env.INSTALLATION_CLAIM_SECRET))
-    ) {
-      throw new InstallationClaimRejected({
-        message: "The Installation claim secret is invalid",
-      })
-    }
 
     const existing = await env.DB.prepare(
       "SELECT organization_id, claimed_by_user_id FROM installation WHERE id = ?"
@@ -87,6 +81,18 @@ export const claimInstallation = createServerFn({ method: "POST" })
       })
     }
 
+    if (
+      !(
+        data.claimSecret &&
+        (await secretsMatch(data.claimSecret, env.INSTALLATION_CLAIM_SECRET))
+      ) &&
+      !(await setupSessionId(context.request, env))
+    ) {
+      throw new InstallationClaimRejected({
+        message: "The Installation claim secret is invalid",
+      })
+    }
+
     await database
       .insert(schema.organization)
       .values({
@@ -115,6 +121,7 @@ export const claimInstallation = createServerFn({ method: "POST" })
       session.session.id
     )
 
+    await env.DB.prepare("DELETE FROM installation_setup_session").run()
     return { organizationId: installationOrganizationId }
   })
 
@@ -123,7 +130,7 @@ export const getDashboard = createServerFn({ method: "GET" })
   .handler(async ({ context }) => {
     const { auth, database, request, session } = context
     const authentication = {
-      github: Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET),
+      github: Boolean(auth.options.socialProviders?.github),
       testMagicLinks: env.ALLOW_TEST_MAGIC_LINKS === "true",
     }
 
