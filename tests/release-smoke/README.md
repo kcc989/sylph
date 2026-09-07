@@ -2,7 +2,7 @@
 
 The browser suite checks a fresh Installation:
 
-`setup → claim → provider → Project → Workspace → prompt → permission → checkpoint → accept → eviction/restart`
+`setup → claim → provider → Project → Workspace → prompt → auto-approved tools → checkpoint → accept → eviction/restart`
 
 Use Node 24, the checked-in dependencies (`bun install --frozen-lockfile`), for deployment. Install Chromium (`bun run smoke:release:install`) only for the optional browser suite. Run commands from the repository root.
 
@@ -65,3 +65,23 @@ bun alchemy destroy --env-file /absolute/path/to/deploy.env --stage smoke-EXACT-
 Then remove that run's local directory. Keep the shared credential file and GitHub browser state for future runs.
 
 For manual recovery of an interrupted test, invoke Playwright directly with that run's environment and set `SYLPH_SMOKE_RESUME_CLAIMED=true`, `SYLPH_SMOKE_WORKSPACE_URL`, and optionally the exact `SYLPH_SMOKE_PROOF_MARKER`. This is recovery evidence, not a fresh-Installation test. The normal runner clears these flags so stale exports cannot skip the claim test.
+
+## Sandbox agent and D1 todo scenario
+
+Run the same fresh-stage suite with `SYLPH_SMOKE_TODO_D1=true`:
+
+```sh
+SYLPH_SMOKE_TODO_D1=true bun run smoke:release -- --run /absolute/path/to/run.json
+```
+
+The agent must build the todo app from the Project template, use native file tools and shell commands, install dependencies, and keep meaningful verification scripts. The suite opens the deployed Preview in two independent browser contexts and checks create, reload, completion, and deletion. It also queries the Preview Worker's actual D1 binding through the Cloudflare API and attaches the observed rows and a screenshot. This scenario requires funded provider access and D1 read/query permissions on the configured Cloudflare token.
+
+The local `smoke:runtime` suite uses a deterministic model and execution fixture to verify OpenCode's native shell dispatch through its workspace provider registry. It does not prove Cloudflare sandbox execution or replace the deployed D1 scenario.
+
+## Grok-only budgeted run
+
+Set `SYLPH_SMOKE_GROK_BUDGET=true` on the deploy command to pin the smoke picker, titles, and compaction to OpenRouter `x-ai/grok-4.6`. The request guard rejects other models, fallbacks, media, plugins, and unbounded outputs. It reserves a conservative maximum request cost before sending each request, persists reservations across eviction, and stops at $4 per Workspace. Reservations are not refunded. This profile is for a single-Workspace run; creating another Workspace or stage creates another budget. Do not retry in a fresh Workspace without accounting for prior spending. The calculation uses $2 per million input tokens and $6 per million output tokens, counts each request byte as an input token, and adds overhead. Recheck pricing before reuse.
+
+Use `--resume` only to continue a claimed stage. To verify an existing Workspace without generating another app, also supply `--workspace <existing URL> --proof-marker <existing marker>`. This preserves the Workspace spending ledger. Record interrupted or failed earlier attempts separately from a resumed lifecycle result.
+
+Set `SYLPH_SMOKE_VERIFY_ONLY=true` to verify the app, Checks, and runtime recovery without approving the review, accepting the checkpoint, or archiving the Workspace. The evidence records this reduced scope; it is not full acceptance lifecycle proof.

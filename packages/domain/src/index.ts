@@ -18,3 +18,6 @@ export * from "./skills"
 export * from "./acceptance"
 export * from "./dependency-repair"
 export * from "./instance-model-policy"
+export * from "./workspace-command"
+
+export * from "./workspace-smoke"

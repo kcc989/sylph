@@ -84,6 +84,18 @@ subscription** in the provider setup screen. See the
 [Codex smoke evidence](../tools/codex-smoke/README.md) for verified behavior and
 limitations.
 
+Workspace shell commands now use OpenCode's native tools through the existing
+Sandbox binding. No new secret, D1 migration, or binding is required. Commands
+can start a dedicated sandbox per Workspace and add Container usage; idle
+sandboxes sleep after five minutes. Native file edits and shell commands
+auto-approve by default. Shell environments exclude the Worker's infrastructure
+credentials. This is sandbox-scoped automatic approval, not a separate AI command
+reviewer. See [sandbox execution limits](sandbox-agent.md).
+
+`SYLPH_SMOKE_GROK_BUDGET` is an optional disposable-test setting and defaults to
+`false`. It restricts paid model requests to Grok 4.6 with a conservative budget
+per Workspace. It is not an Installation-wide spending limit.
+
 All resources are created in your account under the Alchemy stage `prod`.
 
 | Resource                  | Notes                                                                                                   |

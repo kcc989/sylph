@@ -19,12 +19,13 @@ type ToolPart = {
 type GroupableToolEntry = {
   id: string
   kind: string
-  tool?: { status: "running" | "completed" | "error" }
+  tool?: ToolPart & { status: "running" | "completed" | "error" }
 }
 
 export type ToolCallGroup<T> = {
   id: string
   kind: "tool-group"
+  summary: string
   entries: ReadonlyArray<T>
 }
 
@@ -48,11 +49,17 @@ export const toolCallFamily = (name: string): ToolCallFamily => {
 }
 
 export const toolCallLabel = ({ name, input }: ToolPart): string => {
-  const path = stringInput(input, "path")
-  if (name === "workspace_read_file") return path ? `Read ${path}` : "Read file"
-  if (name === "workspace_write_file") {
+  const path = stringInput(input, "path") ?? stringInput(input, "filePath")
+  if (name === "read" || name === "workspace_read_file")
+    return path ? `Read ${path}` : "Read file"
+  if (name === "write" || name === "workspace_write_file") {
     return path ? `Wrote ${path}` : "Wrote file"
   }
+  if (name === "edit") return path ? `Edited ${path}` : "Edited file"
+  if (name === "patch" || name === "apply_patch") return "Applied patch"
+  if (name === "grep") return "Searched file contents"
+  if (name === "glob") return "Found matching files"
+  if (name === "shell" || name === "bash") return "Ran command"
   if (name === "workspace_delete_file") {
     return path ? `Deleted ${path}` : "Deleted file"
   }
@@ -87,6 +94,50 @@ export const toolCallLabel = ({ name, input }: ToolPart): string => {
   return name.replaceAll("_", " ")
 }
 
+const toolAction = (name: string) => {
+  if (
+    [
+      "read",
+      "glob",
+      "grep",
+      "workspace_read_file",
+      "workspace_list_files",
+      "skill_read_resource",
+    ].includes(name)
+  )
+    return "inspection"
+  if (
+    [
+      "write",
+      "edit",
+      "patch",
+      "apply_patch",
+      "workspace_write_file",
+      "workspace_delete_file",
+    ].includes(name)
+  )
+    return "changes"
+  if (name === "shell" || name === "bash") return "commands"
+  return undefined
+}
+
+const summarizeTools = <T extends GroupableToolEntry>(
+  entries: ReadonlyArray<T>
+) => {
+  const action = toolAction(entries[0]?.tool?.name ?? "")
+  if (action === "commands") return `Ran ${entries.length} commands`
+  if (action === "changes") return `Made ${entries.length} file changes`
+  const reads = entries.filter((entry) =>
+    ["read", "workspace_read_file", "skill_read_resource"].includes(
+      entry.tool?.name ?? ""
+    )
+  ).length
+  const searches = entries.length - reads
+  if (searches === 0) return `Inspected files · ${reads} reads`
+  if (reads === 0) return `Searched workspace · ${searches} searches`
+  return `Inspected workspace · ${reads} ${reads === 1 ? "read" : "reads"}, ${searches} ${searches === 1 ? "search" : "searches"}`
+}
+
 export const groupToolCalls = <T extends GroupableToolEntry>(
   entries: ReadonlyArray<T>
 ): Array<T | ToolCallGroup<T>> => {
@@ -94,10 +145,11 @@ export const groupToolCalls = <T extends GroupableToolEntry>(
   let run: T[] = []
 
   const flush = () => {
-    if (run.length > 5) {
+    if (run.length >= 2) {
       grouped.push({
-        id: `tool-group:${run[0]?.id}:${run.at(-1)?.id}`,
+        id: `tool-group:${run[0]?.id}`,
         kind: "tool-group",
+        summary: summarizeTools(run),
         entries: run,
       })
     } else {
@@ -107,11 +159,14 @@ export const groupToolCalls = <T extends GroupableToolEntry>(
   }
 
   for (const entry of entries) {
+    const action = toolAction(entry.tool?.name ?? "")
     if (
       entry.kind === "tool" &&
-      entry.tool !== undefined &&
-      entry.tool.status !== "running"
+      entry.tool?.status === "completed" &&
+      action !== undefined
     ) {
+      if (run.length > 0 && action !== toolAction(run[0]?.tool?.name ?? ""))
+        flush()
       run.push(entry)
       continue
     }

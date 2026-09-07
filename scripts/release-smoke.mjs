@@ -23,6 +23,9 @@ const { values, positionals } = parseArgs({
     "github-env": { type: "string" },
     run: { type: "string" },
     headed: { type: "boolean", default: false },
+    resume: { type: "boolean", default: false },
+    workspace: { type: "string" },
+    "proof-marker": { type: "string" },
   },
 })
 const command = positionals[0] || "test"
@@ -134,6 +137,10 @@ async function main() {
       console.log(`Existing GitHub App configuration: ${resolve(githubPath)}`)
     }
     configuration = smokeConfiguration(source, path, values.auth)
+    if (process.env.SYLPH_SMOKE_GROK_BUDGET === "true") {
+      configuration.SYLPH_SMOKE_GROK_BUDGET = "true"
+      configuration.SYLPH_SMOKE_MODEL_NAME = "Grok 4.6"
+    }
   }
   if (command !== "test")
     console.log(`Configuration: ${path}; auth: ${values.auth}`)
@@ -238,7 +245,20 @@ async function main() {
     "SYLPH_SMOKE_PROOF_MARKER",
   ])
     delete environment[name]
+  if (values.workspace && (!values.resume || !values["proof-marker"]))
+    throw new Error("Resuming a Workspace requires --resume and --proof-marker")
+  if (values.resume) environment.SYLPH_SMOKE_RESUME_CLAIMED = "true"
+  if (values.workspace) {
+    environment.SYLPH_SMOKE_WORKSPACE_URL = values.workspace
+    environment.SYLPH_SMOKE_PROOF_MARKER = values["proof-marker"]
+  }
+  if (deployed.SYLPH_SMOKE_GROK_BUDGET === "true")
+    environment.SYLPH_SMOKE_MODEL_NAME = "Grok 4.6"
   record.test = {
+    scope:
+      environment.SYLPH_SMOKE_VERIFY_ONLY === "true"
+        ? "verification-only"
+        : "full-lifecycle",
     status: "running",
     startedAt: new Date().toISOString(),
     outputDir: environment.SYLPH_SMOKE_OUTPUT_DIR,

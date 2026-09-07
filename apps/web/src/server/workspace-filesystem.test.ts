@@ -413,3 +413,38 @@ test("clearing the filesystem invalidates the working revision", async () => {
   filesystem.clear()
   expect(filesystem.workingRevision).toBeGreaterThan(written)
 })
+
+test("command reconciliation saves binary edits and deletes while preserving concurrent unrelated work", async () => {
+  const fs = new WorkspaceFilesystem(new TestSqlStorage())
+  fs.initialize()
+  await fs.writeFile("old.txt", "before")
+  await fs.writeFile("deleted.txt", "remove")
+  await fs.writeFile(".git/HEAD", "ref: refs/heads/main")
+  const before = fs.commandFiles()
+  await fs.writeFile("editor.txt", "concurrent")
+  fs.applyCommandFiles(before, [
+    { path: "old.txt", content: Buffer.from([0, 255, 12]).toString("base64") },
+  ])
+  expect(await fs.readFile("old.txt")).toEqual(new Uint8Array([0, 255, 12]))
+  expect(fs.listWorkingFiles()).toEqual(["editor.txt", "old.txt"])
+  expect(await fs.readFile(".git/HEAD", "utf8")).toBe("ref: refs/heads/main")
+})
+
+test("command reconciliation rejects overlapping edits before changing any files", async () => {
+  const fs = new WorkspaceFilesystem(new TestSqlStorage())
+  fs.initialize()
+  await fs.writeFile("first.txt", "original")
+  await fs.writeFile("second.txt", "original")
+  const before = fs.commandFiles()
+  await fs.writeFile("second.txt", "editor version")
+  const after = before.map((file) => ({
+    path: file.path,
+    content: Buffer.from("shell version").toString("base64"),
+  }))
+  expect(() => fs.applyCommandFiles(before, after)).toThrow("conflict")
+  expect(await fs.readFile("first.txt", "utf8")).toBe("original")
+  expect(await fs.readFile("second.txt", "utf8")).toBe("editor version")
+  expect(() =>
+    fs.applyCommandFiles(before, [{ path: "../escape", content: "" }])
+  ).toThrow()
+})

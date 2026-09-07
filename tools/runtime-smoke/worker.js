@@ -24,12 +24,59 @@ export class Probe extends DurableObject {
         await import("../../apps/web/src/server/workspace-search")
       const { workspaceEnvironmentLayer } =
         await import("../../apps/web/src/server/workspace-environment")
+      const { Effect, Stream, Sink } = await import("effect")
+      const { ChildProcessSpawner } = await import("effect/unstable/process")
+      const { WorkspaceDriver } =
+        await import("@opencode-ai/core/workspace/driver")
+      const { Workspace } = await import("@opencode-ai/core/workspace")
+      const spawner = ChildProcessSpawner.make((command) => {
+        if (
+          command._tag !== "StandardCommand" ||
+          !command.args.includes("printf SYLPH_NATIVE_SHELL")
+        )
+          return Effect.die(new Error("Unexpected fixture command"))
+        const output = Stream.make(
+          new TextEncoder().encode("SYLPH_NATIVE_SHELL")
+        )
+        return Effect.succeed(
+          ChildProcessSpawner.makeHandle({
+            pid: ChildProcessSpawner.ProcessId(123),
+            exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(0)),
+            isRunning: Effect.succeed(false),
+            kill: () => Effect.void,
+            stdin: Sink.drain,
+            stdout: output,
+            stderr: Stream.empty,
+            all: output,
+            getInputFd: () => Sink.drain,
+            getOutputFd: () => Stream.empty,
+            unref: Effect.succeed(Effect.void),
+          })
+        )
+      })
+      const driver = WorkspaceDriver.make({
+        create: () => Effect.succeed({ binding: { fixture: true } }),
+        connect: () => Effect.succeed({ spawner }),
+        suspendForIdle: () => Effect.void,
+        destroy: () => Effect.void,
+      })
+      const connectedSpawner = Effect.gen(function* () {
+        const workspaces = yield* Workspace.Service
+        const id = yield* workspaces.create({
+          id: Workspace.ID.make("wrk_fixture"),
+          provider: "fixture",
+        })
+        return (yield* workspaces.connect(id)).spawner
+      }).pipe(Effect.orDie)
+      const { workspaceShellSelection } =
+        await import("../../apps/web/src/server/workspace-shell-selection")
       const host = await OpenCodeWorkerd.create(
         {
           storage: state.storage,
           models: { fetch: false, snapshot: false },
           config: {
             model: "probe/fixture",
+            experimental: { portable_shell_scanner: true },
             permissions: [{ action: "*", resource: "*", effect: "allow" }],
             providers: {
               openrouter: {
@@ -94,8 +141,24 @@ export class Probe extends DurableObject {
         },
         {
           overrides: [
+            workspaceShellSelection,
+            [
+              WorkspaceDriver.node,
+              WorkspaceDriver.registryNode({ fixture: driver }),
+            ],
             [Ripgrep.node, workspaceSearchLayer(this.files)],
-            [Environment.node, workspaceEnvironmentLayer(this.files, () => {})],
+            [
+              Environment.node,
+              {
+                ...Environment.node,
+                dependencies: [Workspace.node],
+                implementation: workspaceEnvironmentLayer(
+                  this.files,
+                  () => {},
+                  connectedSpawner
+                ),
+              },
+            ],
           ],
         }
       )
@@ -149,6 +212,7 @@ export class Probe extends DurableObject {
       await host.sessions.prompt({
         sessionID,
         text: "Cache fixture next turn.",
+        delivery: "steer",
       })
       await host.sessions.wait({ sessionID })
       return Response.json(await host.sessions.get({ sessionID }))

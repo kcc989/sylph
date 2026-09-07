@@ -4,6 +4,8 @@ import {
   type DependencyRepairOutput,
   isDependencyInput,
   WorkspaceEditConflict,
+  WorkspaceCommandConflict,
+  type WorkspaceCommandFile,
 } from "@workspace/domain"
 
 const workspaceRoot = "/workspace"
@@ -22,6 +24,7 @@ interface WorkspaceSql {
 }
 
 export interface WorkspaceStorage {
+  transactionSync?<T>(callback: () => T): T
   sql: WorkspaceSql
 }
 
@@ -283,6 +286,14 @@ export class WorkspaceFilesystem implements WorkspaceGitFilesystem {
   async writeFile(
     pathValue: string,
     value: string | Uint8Array | ArrayBuffer,
+    option?: EncodingOption
+  ) {
+    this.#writeFile(pathValue, value, option)
+  }
+
+  #writeFile(
+    pathValue: string,
+    value: string | Uint8Array | ArrayBuffer,
     _option?: EncodingOption
   ) {
     const path = normalizeWorkspacePath(pathValue)
@@ -327,6 +338,10 @@ export class WorkspaceFilesystem implements WorkspaceGitFilesystem {
   }
 
   async unlink(pathValue: string) {
+    this.#unlink(pathValue)
+  }
+
+  #unlink(pathValue: string) {
     const path = normalizeWorkspacePath(pathValue)
     const existing = this.#storage.sql
       .exec<{ path: string }>(
@@ -468,6 +483,89 @@ export class WorkspaceFilesystem implements WorkspaceGitFilesystem {
       .toArray()
       .map((row) => row.path)
       .filter((path) => path.startsWith(prefix))
+  }
+
+  commandFiles(): WorkspaceCommandFile[] {
+    return this.#storage.sql
+      .exec<FileContentRow>(
+        "SELECT path, content FROM app_workspace_file ORDER BY path"
+      )
+      .toArray()
+      .map((row) => ({
+        path: row.path,
+        content: Buffer.from(contentBytes(row.content)).toString("base64"),
+      }))
+  }
+
+  applyCommandFiles(
+    before: readonly WorkspaceCommandFile[],
+    after: readonly WorkspaceCommandFile[]
+  ) {
+    const original = new Map(
+      before
+        .filter((file) => !file.path.startsWith(".git/"))
+        .map((file) => [file.path, file.content])
+    )
+    const current = new Map(
+      this.commandFiles().map((file) => [file.path, file.content])
+    )
+    const next = new Map<string, string>()
+    for (const file of after) {
+      const path = normalizeWorkspacePath(file.path)
+      if (
+        !path ||
+        path !== file.path ||
+        path === ".git" ||
+        path.startsWith(".git/") ||
+        next.has(path)
+      ) {
+        throw new WorkspaceCommandConflict({
+          message: "Invalid command output path",
+        })
+      }
+      next.set(path, file.content)
+    }
+    const changes = [...new Set([...original.keys(), ...next.keys()])].filter(
+      (path) => original.get(path) !== next.get(path)
+    )
+    for (const path of changes) {
+      if (
+        current.get(path) !== original.get(path) &&
+        current.get(path) !== next.get(path)
+      ) {
+        throw new WorkspaceCommandConflict({
+          message: `Command changes conflict with a newer edit to ${path}. Sandbox files are retained.`,
+        })
+      }
+    }
+    const merged = new Map(current)
+    for (const path of changes) {
+      const content = next.get(path)
+      if (content === undefined) merged.delete(path)
+      else merged.set(path, content)
+    }
+    let total = 0
+    for (const content of merged.values()) {
+      const length = Buffer.from(content, "base64").length
+      if (length > this.#fileLimit) throw filesystemError("EFBIG", "/workspace")
+      total += length
+    }
+    if (total > this.#repositoryLimit)
+      throw filesystemError("ENOSPC", "/workspace")
+    const delta = (path: string) =>
+      Buffer.from(next.get(path) ?? "", "base64").length -
+      Buffer.from(current.get(path) ?? "", "base64").length
+    changes.sort((left, right) => delta(left) - delta(right))
+    const apply = () => {
+      for (const path of changes) {
+        const content = next.get(path)
+        if (current.get(path) === content) continue
+        if (content === undefined) this.#unlink(path)
+        else this.#writeFile(path, Buffer.from(content, "base64"))
+      }
+    }
+    if (this.#storage.transactionSync) this.#storage.transactionSync(apply)
+    else apply()
   }
 
   clear() {
