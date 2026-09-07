@@ -6,6 +6,7 @@ const fixture = () => {
   let resolutions = 0
   let transform
   let models = []
+  const aiSdkHooks = new Map()
   const dispose = async () => undefined
   const registration = async () => ({ dispose })
   const replay = () => {
@@ -54,7 +55,12 @@ const fixture = () => {
       reload: async () => replay(),
     },
     session: { hook: registration },
-    aisdk: { hook: registration },
+    aisdk: {
+      hook: async (name, callback) => {
+        aiSdkHooks.set(name, callback)
+        return { dispose }
+      },
+    },
   }
   return {
     provider,
@@ -64,6 +70,7 @@ const fixture = () => {
     },
     models: () => models,
     resolutions: () => resolutions,
+    aiSdkHooks,
   }
 }
 
@@ -100,5 +107,21 @@ test("Cursor setup does not resolve credentials while OpenCode registers plugins
     JSON.stringify({ userId: "test-user", key: "test-key" })
   )
   expect(state.resolutions()).toBe(0)
+  await cleanup()
+})
+
+test("Cursor SDK supplies the language model through the host fallback", async () => {
+  const state = fixture()
+  const cleanup = await state.provider.plugin.setup(state.context)
+  const event = {
+    model: { providerID: "cursor" },
+    package: "sylph-cursor",
+    options: {},
+  }
+  await state.aiSdkHooks.get("sdk")(event)
+  const model = event.sdk.languageModel("default")
+  expect(model.provider).toBe("cursor")
+  expect(model.modelId).toBe("default")
+  expect(state.aiSdkHooks.has("language")).toBe(false)
   await cleanup()
 })

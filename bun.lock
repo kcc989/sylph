@@ -87,7 +87,6 @@
       "dependencies": {
         "@workspace/domain": "workspace:*",
         "drizzle-orm": "^0.45.2",
-        "effect": "4.0.0-rc.112",
       },
       "devDependencies": {
         "typescript": "^6",

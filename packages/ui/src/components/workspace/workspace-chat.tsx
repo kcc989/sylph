@@ -1,115 +1,31 @@
 "use client"
 
-import type { ReactNode } from "react"
-
-import { AgentThread } from "./workspace-thread/agent-thread"
+import {
+  AgentThread,
+  type AgentThreadProps,
+} from "./workspace-thread/agent-thread"
 import {
   useWorkspaceShell,
   useWorkspaceShellStore,
 } from "./workspace-shell-provider"
 import {
-  openWorkspaceTool,
   inspectWorkspaceActivity,
+  openWorkspaceTool,
 } from "./workspace-shell-store"
-import type {
-  CheckItem,
-  ComposerModel,
-  ComposerSkill,
-  ThreadEntry,
-  WorkspacePermissionRequest,
-  WorkspaceQuestion,
-  WorkspaceQuestionValue,
-  WorkspaceQueuedMessage,
-  WorkspaceRuntimeLimits,
-} from "./types"
 
-export function WorkspaceChat({
-  entries,
-  checks = [],
-  reviewReady = false,
-  historyControls,
-  permissionRequests,
-  questions,
-  queuedMessages,
-  runtimeLimits,
-  turnActive,
-  turnInterrupted,
-  activeTurnStartedAt,
-  answeringQuestionId,
-  replyingPermissionId,
-  onPermissionReply,
-  onAnswerQuestion,
-  onCancelTurn,
-  initialPrompt,
-  onSubmitPrompt,
-  onRetryQueuedMessage,
-  onRestartWorkspace,
-  promptDisabled,
-  workspaceStarting,
-  promptError,
-  promptPending,
-  cancelTurnPending,
-  restartPending,
-  workspaceError,
-  models,
-  skills,
-  selectedModel,
-  modelNotice,
-  onModelChange,
-}: {
-  entries: ThreadEntry[]
-  checks?: CheckItem[]
-  reviewReady?: boolean
-  historyControls?: ReactNode
-  permissionRequests: ReadonlyArray<WorkspacePermissionRequest>
-  questions: ReadonlyArray<WorkspaceQuestion>
-  queuedMessages: ReadonlyArray<WorkspaceQueuedMessage>
-  runtimeLimits?: WorkspaceRuntimeLimits
-  turnActive: boolean
-  turnInterrupted: boolean
-  activeTurnStartedAt?: number | null
-  answeringQuestionId?: string | null
-  replyingPermissionId?: string | null
-  onPermissionReply?: (
-    requestId: string,
-    reply: "once" | "always" | "reject"
-  ) => Promise<void>
-  onAnswerQuestion?: (
-    questionId: string,
-    answer: Record<string, WorkspaceQuestionValue>
-  ) => Promise<void>
-  onCancelTurn?: () => Promise<void>
-  initialPrompt?: string
-  onRetryQueuedMessage?: (messageId: string) => Promise<void>
-  onSubmitPrompt?: (
-    text: string,
-    model: { providerId: string; modelId: string; variant?: string },
-    delivery?: "queue" | "steer"
-  ) => Promise<boolean | void>
-  onRestartWorkspace?: () => Promise<void>
-  workspaceStarting?: boolean
-  promptDisabled?: boolean
-  promptError?: string | null
-  promptPending?: boolean
-  cancelTurnPending?: boolean
-  restartPending?: boolean
-  workspaceError?: string | null
-  models: ReadonlyArray<ComposerModel>
-  skills: ReadonlyArray<ComposerSkill>
-  selectedModel?: {
-    providerId: string
-    modelId: string
-    variant?: string
-  } | null
-  modelNotice?: string | null
-  onModelChange?: (model: {
-    providerId: string
-    modelId: string
-    variant?: string
-  }) => void
-}) {
+type WorkspaceChatProps = Omit<
+  AgentThreadProps,
+  | "references"
+  | "onRemoveReference"
+  | "onOpenFiles"
+  | "onInspectActivity"
+  | "onOpenEvidence"
+>
+
+export function WorkspaceChat(props: WorkspaceChatProps) {
   const store = useWorkspaceShellStore()
   const references = useWorkspaceShell((state) => state.references)
+  const { onSubmitPrompt } = props
 
   return (
     <section
@@ -117,9 +33,7 @@ export function WorkspaceChat({
       className="flex size-full min-w-0 flex-col bg-background"
     >
       <AgentThread
-        workspaceStarting={workspaceStarting}
-        onRetryQueuedMessage={onRetryQueuedMessage}
-        onOpenEvidence={(kind) => openWorkspaceTool(store, kind)}
+        {...props}
         references={references}
         onRemoveReference={(text) =>
           store.setState((state) => ({
@@ -129,23 +43,7 @@ export function WorkspaceChat({
         }
         onOpenFiles={() => openWorkspaceTool(store, "files")}
         onInspectActivity={(id) => inspectWorkspaceActivity(store, id)}
-        entries={entries}
-        checks={checks}
-        reviewReady={reviewReady}
-        historyControls={historyControls}
-        permissionRequests={permissionRequests}
-        questions={questions}
-        queuedMessages={queuedMessages}
-        runtimeLimits={runtimeLimits}
-        turnActive={turnActive}
-        turnInterrupted={turnInterrupted}
-        activeTurnStartedAt={activeTurnStartedAt}
-        answeringQuestionId={answeringQuestionId}
-        replyingPermissionId={replyingPermissionId}
-        onPermissionReply={onPermissionReply}
-        onAnswerQuestion={onAnswerQuestion}
-        onCancelTurn={onCancelTurn}
-        initialPrompt={initialPrompt}
+        onOpenEvidence={(kind) => openWorkspaceTool(store, kind)}
         onSubmitPrompt={
           onSubmitPrompt
             ? async (text, model, delivery) => {
@@ -160,18 +58,6 @@ export function WorkspaceChat({
               }
             : undefined
         }
-        promptDisabled={promptDisabled}
-        promptError={promptError}
-        promptPending={promptPending}
-        cancelTurnPending={cancelTurnPending}
-        restartPending={restartPending}
-        onRestartWorkspace={onRestartWorkspace}
-        workspaceError={workspaceError}
-        models={models}
-        skills={skills}
-        selectedModel={selectedModel}
-        modelNotice={modelNotice}
-        onModelChange={onModelChange}
       />
     </section>
   )

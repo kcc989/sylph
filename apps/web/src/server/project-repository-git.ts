@@ -1,17 +1,34 @@
-import {
-  GitCommitId,
-  type PrepareProjectRepositoryInput,
-  type SyncProjectRepositoryInput,
-  SyncProjectRepositoryResult,
-} from "@workspace/domain"
+import { GitCommitId, SyncProjectRepositoryResult } from "@workspace/domain"
 import git from "isomorphic-git"
 import http from "isomorphic-git/http/web"
+import { Effect } from "effect"
 
 import { MemoryFilesystem } from "./memory-filesystem"
-import { artifactAuth, type RepositoryNamespace } from "./repository-store"
+import { artifactAuth, type RepositoryStore } from "./repository-store"
 
 const directory = "/workspace"
 const author = { name: "Sylph", email: "checkpoints@sylph.dev" }
+
+interface PrepareProjectRepositoryInput {
+  readonly repositoryName: string
+  readonly repositoryRemote: string
+  readonly defaultRef: string
+  readonly projectName: string
+  readonly source?: {
+    readonly remote: string
+    readonly ref: string
+    readonly accessToken?: string
+  }
+}
+
+interface SyncProjectRepositoryInput {
+  readonly repositoryName: string
+  readonly repositoryRemote: string
+  readonly defaultRef: string
+  readonly sourceRemote: string
+  readonly sourceRef: string
+  readonly sourceAccessToken?: string
+}
 
 export type ListRemoteRefs = (
   input: Parameters<typeof git.listServerRefs>[0]
@@ -65,12 +82,13 @@ export const projectRepositorySyncStatus = async (
 }
 
 export const prepareProjectRepository = async (
-  repositories: RepositoryNamespace,
+  repositories: Pick<RepositoryStore["Service"], "access">,
   input: PrepareProjectRepositoryInput
 ) => {
-  const repository = await repositories.get(input.repositoryName)
-  const token = await repository.createToken("write", 300)
-  const onAuth = artifactAuth(token.plaintext)
+  const access = await Effect.runPromise(
+    repositories.access(input.repositoryName, "write", 300)
+  )
+  const onAuth = () => access
   const head = await remoteHead(
     git.listServerRefs,
     input.repositoryRemote,
@@ -155,14 +173,15 @@ export const prepareProjectRepository = async (
 }
 
 export const syncProjectRepository = async (
-  repositories: RepositoryNamespace,
+  repositories: Pick<RepositoryStore["Service"], "access">,
   input: SyncProjectRepositoryInput,
   listRefs: ListRemoteRefs = git.listServerRefs,
   previous?: SyncProjectRepositoryResult
 ) => {
-  const repository = await repositories.get(input.repositoryName)
-  const token = await repository.createToken("write", 300)
-  const onAuth = artifactAuth(token.plaintext)
+  const access = await Effect.runPromise(
+    repositories.access(input.repositoryName, "write", 300)
+  )
+  const onAuth = () => access
   const sourceAuth = input.sourceAccessToken
     ? artifactAuth(input.sourceAccessToken)
     : undefined

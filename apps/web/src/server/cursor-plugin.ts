@@ -68,18 +68,9 @@ export const createCursorProvider = (namespace: DurableObjectNamespace) => {
               cursorLanguageModel(modelId, credential, send),
           }
       })
-      const language = await context.aisdk.hook("language", (event) => {
-        if (event.model.providerID === "cursor")
-          event.language = cursorLanguageModel(
-            event.model.modelID,
-            credential,
-            send
-          )
-      })
       return async () => {
         catalogs.delete(reloadCatalog)
         await request.dispose()
-        await language.dispose()
         await sdk.dispose()
         await catalog.dispose()
         await integration.dispose()

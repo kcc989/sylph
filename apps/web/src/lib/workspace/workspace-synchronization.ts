@@ -105,19 +105,18 @@ const workspaceView = (state: SynchronizationState) => {
   })
   const permissionRequests = Object.values({
     ...Object.fromEntries(
-      runtime.permissions.map((request) => [
-        request.id,
-        {
-          id: request.id,
-          action: request.action,
-          resources: [...request.resources],
-          message: request.message,
-          canSave: Boolean(request.save?.length),
-        },
-      ])
+      runtime.permissions.map((request) => [request.id, request])
     ),
     ...live.permissionRequests,
-  }).filter((request) => !live.dismissedPermissionRequests.includes(request.id))
+  })
+    .filter((request) => !live.dismissedPermissionRequests.includes(request.id))
+    .map((request) => ({
+      id: request.id,
+      action: request.action,
+      resources: [...request.resources],
+      message: request.message,
+      canSave: Boolean(request.save?.length),
+    }))
   return {
     result: {
       ...result,

@@ -1,10 +1,13 @@
 import { Database, type SQLQueryBindings } from "bun:sqlite"
 import { expect, test } from "bun:test"
 import { Environment } from "@opencode-ai/core/environment/index"
+import { EnvironmentUnavailable } from "@opencode-ai/core/environment/unavailable"
 import { Effect } from "effect"
 
 import { workspaceEnvironmentLayer } from "./workspace-environment"
 import { WorkspaceFilesystem } from "./workspace-filesystem"
+
+const unavailableSpawner = Effect.succeed(EnvironmentUnavailable.spawner)
 
 const storage = () => {
   const database = new Database(":memory:")
@@ -32,10 +35,15 @@ test("native files use the durable working copy and survive adapter recreation",
   const filesystem = new WorkspaceFilesystem(durable)
   filesystem.initialize()
   await filesystem.writeFile("src/todo.ts", "first\nsecond\n")
-  const layer = workspaceEnvironmentLayer(filesystem, () => {})
+  const layer = workspaceEnvironmentLayer(
+    filesystem,
+    () => {},
+    unavailableSpawner
+  )
   await Effect.runPromise(
     Effect.gen(function* () {
-      const { files } = yield* Environment.Service
+      const { files, spawner } = yield* Environment.Service
+      expect(spawner).toBe(EnvironmentUnavailable.spawner)
       expect(
         new TextDecoder().decode(
           (yield* files.read("/workspace/src/todo.ts")).bytes
@@ -73,7 +81,11 @@ test("native files use the durable working copy and survive adapter recreation",
       ).toBe("changed\n")
       yield* files.remove("/workspace/output")
       yield* files.remove("/workspace/missing")
-    }).pipe(Effect.provide(workspaceEnvironmentLayer(recovered, () => {})))
+    }).pipe(
+      Effect.provide(
+        workspaceEnvironmentLayer(recovered, () => {}, unavailableSpawner)
+      )
+    )
   )
   expect(recovered.listWorkingFiles()).toEqual([])
 })
@@ -83,9 +95,13 @@ test("native file errors preserve missing paths, kind checks, and mutation guard
   filesystem.initialize()
   await filesystem.writeFile("keep.txt", "keep")
   let writable = true
-  const layer = workspaceEnvironmentLayer(filesystem, () => {
-    if (!writable) throw new Error("Workspace is read-only")
-  })
+  const layer = workspaceEnvironmentLayer(
+    filesystem,
+    () => {
+      if (!writable) throw new Error("Workspace is read-only")
+    },
+    unavailableSpawner
+  )
   await Effect.runPromise(
     Effect.gen(function* () {
       const { files } = yield* Environment.Service

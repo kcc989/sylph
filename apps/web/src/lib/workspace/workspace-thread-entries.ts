@@ -6,7 +6,6 @@ import type { WorkspaceLiveState } from "@/lib/workspace-runtime-events"
 
 export type WorkspaceThreadSnapshot = {
   errorSummary?: string | null
-  files: ReadonlyArray<string>
   messages: ReadonlyArray<WorkspaceRuntimeMessage>
   status: string
 }
