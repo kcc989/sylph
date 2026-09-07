@@ -97,6 +97,19 @@ export const browserNavigationGuard = async (
     )
   }
   await watch(root)
+  for (const target of browser.targets()) {
+    if (target.type() !== "page") continue
+    const session = await target.createCDPSession()
+    attach(session)
+    await Promise.all(pending)
+    if (unavailable)
+      throw new Error("The browser could not guard a frozen page.")
+    await session.send(
+      "Page.setWebLifecycleState",
+      { state: "active" },
+      { timeout: 15_000 }
+    )
+  }
   const pages = new Map<Page, CDPSession>()
   const prepare = async (page: Page) => {
     const existing = pages.get(page)
