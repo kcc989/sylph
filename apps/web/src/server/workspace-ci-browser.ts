@@ -1,2 +1,5 @@
-export const browserEvidenceSelector = (commit: string) =>
-  `[data-sylph-checkpoint="${commit}"][data-sylph-deployment="preview"]`
+export const browserEvidenceSelector = (
+  commit: string,
+  deployment: "preview" | "production" = "preview"
+) =>
+  `[data-sylph-checkpoint="${commit}"][data-sylph-deployment="${deployment}"]`

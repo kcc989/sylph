@@ -30,6 +30,15 @@ import { and, desc, eq, isNull } from "drizzle-orm"
 import { Effect, Schema } from "effect"
 
 import { organizationMember, projectMember } from "@/functions/middleware"
+import {
+  decodeRecoveryPoint,
+  recoveryTargetCommit,
+  recoverySummary,
+} from "@/server/release-safety"
+import {
+  latestDeploymentSql,
+  reserveDeploymentSql,
+} from "@/server/release-reservation"
 import { deploymentWorkflowAlreadyStarted } from "@/server/deployment-records"
 import {
   GitHubRepositoryLive,
@@ -138,6 +147,9 @@ export const getProjectDeployments = createServerFn({ method: "GET" })
           productionUrl: schema.deployment.productionUrl,
           actorName: schema.user.name,
           failureDetails: schema.deployment.failureDetails,
+          recoveryJson: schema.deployment.recoveryJson,
+          verificationJson: schema.deployment.verificationJson,
+          recoveryDeploymentId: schema.deployment.recoveryDeploymentId,
           startedAt: schema.deployment.startedAt,
           completedAt: schema.deployment.completedAt,
           createdAt: schema.deployment.createdAt,
@@ -200,7 +212,17 @@ export const getProjectDeployments = createServerFn({ method: "GET" })
           .map((row) => [row.commit, row])
       ).values()
     )
-    return { acceptedCommits, deployments, checks }
+    return {
+      acceptedCommits,
+      deployments: deployments.map(
+        ({ recoveryJson, verificationJson, ...deployment }) => ({
+          ...deployment,
+          recovery: recoverySummary(recoveryJson),
+          verified: verificationJson !== null,
+        })
+      ),
+      checks,
+    }
   })
 
 export const deployProjectCommit = createServerFn({ method: "POST" })
@@ -242,21 +264,96 @@ export const deployProjectCommit = createServerFn({ method: "POST" })
     }
     const deploymentId = `${data.projectId}-${data.idempotencyKey}`
     const existing = await database
-      .select({ status: schema.deployment.status })
+      .select({
+        status: schema.deployment.status,
+        commit: schema.deployment.commit,
+        recoveryDeploymentId: schema.deployment.recoveryDeploymentId,
+      })
       .from(schema.deployment)
       .where(eq(schema.deployment.id, deploymentId))
       .get()
-    if (existing) return { id: deploymentId, status: existing.status }
+    if (existing) {
+      if (
+        existing.commit !== data.commit ||
+        existing.recoveryDeploymentId !== (data.recoveryDeploymentId ?? null)
+      )
+        throw new PreconditionFailed({
+          message: "This request key already identifies another deployment",
+        })
+      return { id: deploymentId, status: existing.status }
+    }
+    const baseline = await env.DB.prepare(latestDeploymentSql)
+      .bind(data.projectId)
+      .first<{
+        id: string
+        commit: string
+        status: string
+        mutation_started: number
+      }>()
+    if (baseline?.status === "queued" || baseline?.status === "running")
+      throw new PreconditionFailed({
+        message: "Another production operation is active",
+      })
+    if (
+      baseline?.status === "failed" &&
+      baseline.mutation_started &&
+      !data.recoveryDeploymentId
+    )
+      throw new PreconditionFailed({
+        message:
+          "Production data may have changed. Confirm a data recovery point before continuing",
+      })
+    if (data.recoveryDeploymentId) {
+      if (data.confirmedDataLoss !== true)
+        throw new PreconditionFailed({
+          message:
+            "Confirm that data recovery can discard writes made after the selected recovery point",
+        })
+      const source = await database
+        .select()
+        .from(schema.deployment)
+        .where(
+          and(
+            eq(schema.deployment.id, data.recoveryDeploymentId),
+            eq(schema.deployment.projectId, data.projectId)
+          )
+        )
+        .get()
+      if (!source?.recoveryJson)
+        throw new PreconditionFailed({
+          message: "The selected deployment has no saved data recovery point",
+        })
+      const point = decodeRecoveryPoint(source.recoveryJson, Date.now())
+      if (
+        point.projectId !== data.projectId ||
+        point.deploymentId !== source.id ||
+        recoveryTargetCommit(point) !== data.commit
+      )
+        throw new PreconditionFailed({
+          message:
+            "Confirm the code commit paired with this data recovery point",
+        })
+    }
     const createdAt = Date.now()
-    await database.insert(schema.deployment).values({
-      id: deploymentId,
-      projectId: data.projectId,
-      commit: data.commit,
-      status: "queued",
-      actorUserId: user.id,
-      createdAt: new Date(createdAt),
-      updatedAt: new Date(createdAt),
-    })
+    const reservation = await env.DB.prepare(reserveDeploymentSql)
+      .bind(
+        deploymentId,
+        data.projectId,
+        data.commit,
+        user.id,
+        baseline?.id ?? null,
+        data.recoveryDeploymentId ?? null,
+        Math.floor(createdAt / 1000),
+        Math.floor(createdAt / 1000),
+        data.projectId,
+        data.projectId,
+        baseline?.id ?? null
+      )
+      .run()
+    if (reservation.meta.changes !== 1)
+      throw new PreconditionFailed({
+        message: "Production changed. Refresh and confirm the deployment again",
+      })
     const params: WorkspaceCiInput = {
       provider: "cloudflare-artifacts",
       providerData: { namespace: env.REPOSITORY_NAMESPACE },
@@ -366,7 +463,14 @@ export const exportProjectRecovery = createServerFn({ method: "POST" })
       })
     )
     return {
-      version: 1 as const,
+      version: 2 as const,
+      scope: "repository-access" as const,
+      includes: ["project-repository", "workspace-repositories"],
+      excludes: [
+        "application-data",
+        "secret-values",
+        "workspace-runtime-state",
+      ],
       generatedAt: new Date().toISOString(),
       project: {
         id: project.id,

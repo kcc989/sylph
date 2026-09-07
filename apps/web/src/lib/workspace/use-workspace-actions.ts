@@ -59,7 +59,7 @@ type WorkspaceActionProps = {
   onCancelTurn: () => Promise<void>
   onCheckpoint?: () => Promise<void>
   onDiscardWorkspace: () => Promise<void>
-  onDeploy: (commit: string) => Promise<void>
+  onDeploy: (commit: string, recoveryDeploymentId?: string) => Promise<void>
   onModelChange: (model: {
     providerId: string
     modelId: string
@@ -262,7 +262,7 @@ export function useWorkspaceActions({
         { refresh: false }
       )
     },
-    onDeploy: async (commit) => {
+    onDeploy: async (commit, recoveryDeploymentId) => {
       const started = await commands.run(
         "deploy",
         async () => {
@@ -272,6 +272,8 @@ export function useWorkspaceActions({
               commit,
               confirmedCommit: commit,
               idempotencyKey: deployKey,
+              recoveryDeploymentId,
+              confirmedDataLoss: recoveryDeploymentId ? true : undefined,
             },
           })
           setDeployKey(crypto.randomUUID())
