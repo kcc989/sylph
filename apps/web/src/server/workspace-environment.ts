@@ -1,5 +1,4 @@
 import { Environment } from "@opencode-ai/core/environment/index"
-import { EnvironmentUnavailable } from "@opencode-ai/core/environment/unavailable"
 import { Effect, Layer } from "effect"
 
 import {
@@ -16,11 +15,7 @@ const readFailure = (path: string, cause: unknown) =>
 export const workspaceEnvironmentLayer = <R = never>(
   filesystem: WorkspaceFilesystem,
   assertWritable: () => void,
-  spawner: Effect.Effect<
-    Environment.Interface["spawner"],
-    never,
-    R
-  > = Effect.succeed(EnvironmentUnavailable.spawner)
+  spawner: Effect.Effect<Environment.Interface["spawner"], never, R>
 ) => {
   const assertMutation = (path: string) => {
     assertWritable()

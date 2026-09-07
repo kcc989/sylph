@@ -1,9 +1,5 @@
 import type { PromiseFsClient } from "isomorphic-git"
 import {
-  DependencyRepairConflict,
-  type DependencyRepairOutput,
-  isDependencyInput,
-  WorkspaceEditConflict,
   WorkspaceCommandConflict,
   type WorkspaceCommandFile,
 } from "@workspace/domain"
@@ -199,88 +195,6 @@ export class WorkspaceFilesystem implements WorkspaceGitFilesystem {
 
     if (!row) throw filesystemError("ENOENT", pathValue)
     return contentBytes(row.content)
-  }
-
-  async editFile(pathValue: string, oldText: string, newText: string) {
-    const path = normalizeWorkspacePath(pathValue)
-    const content = new TextDecoder("utf-8", { fatal: true }).decode(
-      this.#readBytes(path)
-    )
-    const position = content.indexOf(oldText)
-    if (
-      !oldText ||
-      position < 0 ||
-      content.indexOf(oldText, position + 1) >= 0
-    ) {
-      throw new WorkspaceEditConflict({
-        path,
-        message:
-          "oldText must match exactly once. Read the file and include unique context.",
-      })
-    }
-    return this.writeFile(
-      path,
-      content.slice(0, position) +
-        newText +
-        content.slice(position + oldText.length)
-    )
-  }
-
-  async applyDependencyRepair(output: DependencyRepairOutput) {
-    const snapshot = () =>
-      this.listWorkingFiles()
-        .filter(isDependencyInput)
-        .sort()
-        .map((path) => ({ path, content: this.#readBytes(path) }))
-    const before = snapshot()
-    const current = await Promise.all(
-      before.map(async ({ path, content }) => ({
-        path,
-        digest: Array.from(
-          new Uint8Array(
-            await crypto.subtle.digest("SHA-256", new Uint8Array(content))
-          )
-        )
-          .map((byte) => byte.toString(16).padStart(2, "0"))
-          .join(""),
-      }))
-    )
-    const after = snapshot()
-    const unchanged =
-      before.length === after.length &&
-      before.every((file, index) => {
-        const next = after[index]
-        return (
-          next?.path === file.path &&
-          next.content.length === file.content.length &&
-          file.content.every((byte, offset) => next.content[offset] === byte)
-        )
-      })
-    const lockfileUnchanged =
-      current.find((file) => file.path === "bun.lock")?.digest ===
-      output.inputs.find((file) => file.path === "bun.lock")?.digest
-    const alreadyImported = before.some(
-      (file) =>
-        file.path === "bun.lock" &&
-        new TextDecoder("utf-8", { fatal: true }).decode(file.content) ===
-          output.lockfile
-    )
-    if (
-      !current.some((file) => file.path === "package.json") ||
-      output.inputs.filter((file) => file.path === "bun.lock").length > 1 ||
-      JSON.stringify(current.filter((file) => file.path !== "bun.lock")) !==
-        JSON.stringify(
-          output.inputs.filter((file) => file.path !== "bun.lock")
-        ) ||
-      (!lockfileUnchanged && !alreadyImported) ||
-      !unchanged
-    ) {
-      throw new DependencyRepairConflict({
-        message:
-          "Dependency inputs changed while CI was running. Run bun install with the native shell tool; no files were overwritten.",
-      })
-    }
-    return this.writeFile("bun.lock", output.lockfile)
   }
 
   async writeFile(

@@ -1,10 +1,7 @@
 import { describe, expect, test } from "bun:test"
-import {
-  GitCommitId,
-  SyncProjectRepositoryInput,
-  SyncProjectRepositoryResult,
-} from "@workspace/domain"
+import { GitCommitId, SyncProjectRepositoryResult } from "@workspace/domain"
 import git from "isomorphic-git"
+import { Effect } from "effect"
 
 import { MemoryFilesystem } from "./memory-filesystem"
 import {
@@ -12,42 +9,25 @@ import {
   projectRepositorySyncStatus,
   syncProjectRepository,
 } from "./project-repository-git"
-import type { RepositoryNamespace } from "./repository-store"
+import type { RepositoryStore } from "./repository-store"
 
 const directory = "/workspace"
 const author = { name: "Sylph", email: "test@sylph.dev" }
 const projectOid = GitCommitId.make("1111111111111111111111111111111111111111")
 const upstreamOid = GitCommitId.make("2222222222222222222222222222222222222222")
 
-const repositories: RepositoryNamespace = {
-  create: async () => {
-    throw new Error("Unexpected create")
-  },
-  import: async () => {
-    throw new Error("Unexpected import")
-  },
-  delete: async () => {
-    throw new Error("Unexpected delete")
-  },
-  get: async (name) => ({
-    id: "project-id",
-    name,
-    remote: "https://repositories.example/project",
-    defaultBranch: "main",
-    createToken: async () => ({ plaintext: "token", expiresAt: "later" }),
-    fork: async () => {
-      throw new Error("Unexpected fork")
-    },
-  }),
+const repositories: Pick<RepositoryStore["Service"], "access"> = {
+  access: () =>
+    Effect.succeed({ username: "x", password: "token", expiresAt: "later" }),
 }
 
-const input = new SyncProjectRepositoryInput({
+const input = {
   repositoryName: "project",
   repositoryRemote: "https://repositories.example/project",
   defaultRef: "main",
   sourceRemote: "https://github.com/acme/project.git",
   sourceRef: "main",
-})
+}
 
 const commitFile = async (
   filesystem: MemoryFilesystem,
@@ -60,6 +40,31 @@ const commitFile = async (
 }
 
 describe("syncProjectRepository", () => {
+  test("requests five minutes of write access", async () => {
+    const requests: Array<readonly [string, "read" | "write", number]> = []
+    const repositoriesWithRecordedAccess: Pick<
+      RepositoryStore["Service"],
+      "access"
+    > = {
+      access: (name, scope, ttlSeconds) => {
+        requests.push([name, scope, ttlSeconds])
+        return Effect.succeed({
+          username: "x",
+          password: "token",
+          expiresAt: "later",
+        })
+      },
+    }
+
+    await syncProjectRepository(
+      repositoriesWithRecordedAccess,
+      input,
+      async ({ prefix }) => [{ ref: prefix ?? "", oid: projectOid }]
+    )
+
+    expect(requests).toEqual([["project", "write", 300]])
+  })
+
   test("reports an up-to-date Project without cloning when both heads match", async () => {
     const listed: string[] = []
     const listRefs: ListRemoteRefs = async ({ url, prefix }) => {

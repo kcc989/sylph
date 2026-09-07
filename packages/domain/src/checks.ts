@@ -206,10 +206,6 @@ export class WorkspaceRunChecksToolInput extends Schema.Class<WorkspaceRunChecks
   message: Schema.optional(Schema.NonEmptyString),
 }) {}
 
-export class WorkspaceCheckStatusToolInput extends Schema.Class<WorkspaceCheckStatusToolInput>(
-  "@sylph/domain/WorkspaceCheckStatusToolInput"
-)({}) {}
-
 export class WorkspaceSyncToolInput extends Schema.Class<WorkspaceSyncToolInput>(
   "@sylph/domain/WorkspaceSyncToolInput"
 )({}) {}
@@ -223,12 +219,6 @@ export class WorkspaceCheckpointToolInput extends Schema.Class<WorkspaceCheckpoi
 export const WorkspaceDiffScope = Schema.Literals(["working", "checkpoint"])
 export type WorkspaceDiffScope = typeof WorkspaceDiffScope.Type
 
-export class WorkspaceDiffToolInput extends Schema.Class<WorkspaceDiffToolInput>(
-  "@sylph/domain/WorkspaceDiffToolInput"
-)({
-  scope: Schema.optional(WorkspaceDiffScope),
-}) {}
-
 export class WorkspaceDiffResult extends Schema.Class<WorkspaceDiffResult>(
   "@sylph/domain/WorkspaceDiffResult"
 )({
@@ -238,10 +228,6 @@ export class WorkspaceDiffResult extends Schema.Class<WorkspaceDiffResult>(
   files: Schema.Array(WorkspaceFileChange),
   truncated: Schema.Boolean,
 }) {}
-
-export class WorkspaceMergeToolInput extends Schema.Class<WorkspaceMergeToolInput>(
-  "@sylph/domain/WorkspaceMergeToolInput"
-)({}) {}
 
 export class WorkspaceMergeRequest extends Schema.Class<WorkspaceMergeRequest>(
   "@sylph/domain/WorkspaceMergeRequest"
@@ -270,28 +256,6 @@ export class WorkspacePreviewResult extends Schema.Class<WorkspacePreviewResult>
   previewUrl: Schema.NullOr(Schema.NonEmptyString),
   evidence: Schema.Array(WorkspaceCheckEvidence),
   detail: Schema.NonEmptyString,
-}) {}
-
-export class WorkspaceProductionToolInput extends Schema.Class<WorkspaceProductionToolInput>(
-  "@sylph/domain/WorkspaceProductionToolInput"
-)({}) {}
-
-export class WorkspaceProductionDeployment extends Schema.Class<WorkspaceProductionDeployment>(
-  "@sylph/domain/WorkspaceProductionDeployment"
-)({
-  id: Schema.NonEmptyString,
-  commit: GitCommitId,
-  status: Schema.NonEmptyString,
-  productionUrl: Schema.NullOr(Schema.String),
-  createdAt: Schema.Number,
-}) {}
-
-export class WorkspaceProductionStatus extends Schema.Class<WorkspaceProductionStatus>(
-  "@sylph/domain/WorkspaceProductionStatus"
-)({
-  acceptedCommits: Schema.Array(GitCommitId),
-  deployments: Schema.Array(WorkspaceProductionDeployment),
-  instructions: Schema.NonEmptyString,
 }) {}
 
 export class WorkspaceBrowserToolInput extends Schema.Class<WorkspaceBrowserToolInput>(
@@ -336,26 +300,14 @@ export class WorkspaceArchiveResult extends Schema.Class<WorkspaceArchiveResult>
 export const WorkspaceRunChecksToolJsonSchema = toolJsonSchema(
   WorkspaceRunChecksToolInput
 )
-export const WorkspaceCheckStatusToolJsonSchema = toolJsonSchema(
-  WorkspaceCheckStatusToolInput
-)
 export const WorkspaceSyncToolJsonSchema = toolJsonSchema(
   WorkspaceSyncToolInput
 )
 export const WorkspaceCheckpointToolJsonSchema = toolJsonSchema(
   WorkspaceCheckpointToolInput
 )
-export const WorkspaceDiffToolJsonSchema = toolJsonSchema(
-  WorkspaceDiffToolInput
-)
-export const WorkspaceMergeToolJsonSchema = toolJsonSchema(
-  WorkspaceMergeToolInput
-)
 export const WorkspacePreviewToolJsonSchema = toolJsonSchema(
   WorkspacePreviewToolInput
-)
-export const WorkspaceProductionToolJsonSchema = toolJsonSchema(
-  WorkspaceProductionToolInput
 )
 export const WorkspaceBrowserToolJsonSchema = toolJsonSchema(
   WorkspaceBrowserToolInput

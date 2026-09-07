@@ -1,9 +1,4 @@
-import {
-  WorkspaceDiffResult,
-  WorkspaceFileChange,
-  type WorkspaceDiffScope,
-  type WorkspaceVersionControl,
-} from "@workspace/domain"
+import { WorkspaceFileChange } from "@workspace/domain"
 
 export const maxDiffPatchCharacters = 60_000
 
@@ -27,20 +22,4 @@ export const boundedFileChanges = (
     return new WorkspaceFileChange({ ...change, patch })
   })
   return { files: bounded, truncated }
-}
-
-export const workspaceDiff = (
-  versionControl: WorkspaceVersionControl,
-  scope: WorkspaceDiffScope
-) => {
-  const source =
-    scope === "working" ? versionControl.working : versionControl.branch
-  const { files, truncated } = boundedFileChanges(source)
-  return new WorkspaceDiffResult({
-    scope,
-    baseCommit: versionControl.baseCommit,
-    forkHead: versionControl.forkHead,
-    files,
-    truncated,
-  })
 }

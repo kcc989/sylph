@@ -302,7 +302,7 @@ export const getWorkspace = createServerFn({ method: "GET" })
         Date.now() - workspace.upstreamSyncedAt.getTime() > 5 * 60 * 1000)
     if (shouldSynchronize && data.includeOptions !== false) {
       waitUntil(
-        synchronizeProjectRepository(database, user.id, {
+        synchronizeProjectRepository(user.id, {
           id: workspace.projectId,
           repositoryName: workspace.repositoryName,
           repositoryRemote: workspace.repositoryRemote,
@@ -777,7 +777,7 @@ export const acceptWorkspace = createServerFn({ method: "POST" })
       })
     }
 
-    await synchronizeProjectRepository(database, user.id, {
+    await synchronizeProjectRepository(user.id, {
       id: project.id,
       repositoryName: project.repositoryName,
       repositoryRemote: project.repositoryRemote,

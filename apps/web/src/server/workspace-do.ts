@@ -69,7 +69,6 @@ import {
   WorkspaceReadFileInput,
   WorkspaceFileContent,
   WorkspaceFileNotFound,
-  WorkspaceDependencyRepair,
 } from "@workspace/domain"
 import type { OpenCodeWorkerd } from "@opencode-ai/sdk/workerd"
 import { DurableObject } from "cloudflare:workers"
@@ -464,9 +463,6 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       this.#workspaceGit.initialize()
       this.#checks.initialize()
       await this.#scheduleCheckCompletion()
-      context.storage.sql.exec(
-        "CREATE TABLE IF NOT EXISTS app_dependency_repair (run_id TEXT PRIMARY KEY NOT NULL, checkpoint_id TEXT, commit_id TEXT)"
-      )
 
       this.#database.run(sql`
         CREATE TABLE IF NOT EXISTS app_workspace_state (
@@ -870,70 +866,6 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       await this.#deliverCheckCompletions(opencode)
       return encodeCheckUpdateResult(
         new WorkspaceCheckUpdateResult({ applied })
-      )
-    })
-  }
-
-  applyDependencyRepair(input: typeof WorkspaceDependencyRepair.Encoded) {
-    return this.#run(async () => {
-      await this.#opencode
-      const data = Schema.decodeUnknownSync(WorkspaceDependencyRepair)(input)
-      this.#assertWritable()
-      const run = this.#checks.get(data.runId)
-      if (!run || run.kind !== "dependencies" || run.commit !== data.commit) {
-        throw new InvalidRequest({ message: "Unknown dependency repair Check" })
-      }
-      const receipt = this.ctx.storage.sql
-        .exec<{
-          run_id: string
-          checkpoint_id: string | null
-          commit_id: string | null
-        }>("SELECT * FROM app_dependency_repair WHERE run_id = ?", run.id)
-        .toArray()[0]
-      if (!receipt) {
-        await this.#filesystem.applyDependencyRepair(data.output)
-        this.ctx.storage.sql.exec(
-          "INSERT OR IGNORE INTO app_dependency_repair (run_id) VALUES (?)",
-          run.id
-        )
-      }
-      let checkpointId = receipt?.checkpoint_id
-      let commit = receipt?.commit_id
-      if (!checkpointId || !commit) {
-        const version = await this.#workspaceGit.versionControl()
-        if (
-          version.working.length ||
-          this.#workspaceGit.hasCheckpoint(`${run.id}-lockfile`)
-        ) {
-          const result = await this.#workspaceGit.checkpoint({
-            idempotencyKey: `${run.id}-lockfile`,
-            message: "Update dependencies with Bun",
-          })
-          checkpointId = result.checkpoint.id
-          commit = result.checkpoint.commit
-          await this.#recordVersionControl(true)
-        } else {
-          checkpointId = run.checkpointId
-          commit = run.commit
-        }
-        this.ctx.storage.sql.exec(
-          "UPDATE app_dependency_repair SET checkpoint_id = ?, commit_id = ? WHERE run_id = ?",
-          checkpointId,
-          commit,
-          run.id
-        )
-      }
-      if (!checkpointId)
-        throw new InvalidRequest({
-          message: "Dependency repair has no Checkpoint",
-        })
-      return encodeWorkspaceCheckRunSync(
-        await this.#startCheckpointCheck(
-          run.workspaceId,
-          checkpointId,
-          commit,
-          `${run.id}-verification`
-        )
       )
     })
   }
@@ -1435,7 +1367,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         previewUrl: null,
         evidence: current.evidence,
         detail:
-          "The current Checkpoint failed its Check. Read workspace_check_status, repair the failure, and run Workspace checks again.",
+          "The current Checkpoint failed its Check. Read the Check diagnostics in this conversation, repair the failure with native file and shell tools, and run workspace_run_checks again.",
       })
     }
     if (current) {

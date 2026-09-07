@@ -227,45 +227,7 @@ function ToolCallGroup({
   )
 }
 
-export function AgentThread({
-  entries,
-  checks = [],
-  reviewReady = false,
-  historyControls,
-  permissionRequests,
-  questions,
-  queuedMessages,
-  runtimeLimits,
-  turnActive,
-  turnInterrupted,
-  activeTurnStartedAt,
-  answeringQuestionId,
-  replyingPermissionId,
-  onPermissionReply,
-  onAnswerQuestion,
-  onCancelTurn,
-  initialPrompt,
-  onSubmitPrompt,
-  onRetryQueuedMessage,
-  promptDisabled,
-  workspaceStarting = false,
-  promptError,
-  promptPending,
-  cancelTurnPending,
-  restartPending,
-  onRestartWorkspace,
-  workspaceError,
-  models,
-  skills,
-  selectedModel,
-  modelNotice,
-  onModelChange,
-  references,
-  onRemoveReference,
-  onOpenFiles,
-  onInspectActivity,
-  onOpenEvidence,
-}: {
+export type AgentThreadProps = {
   workspaceStarting?: boolean
   references?: WorkspaceReference[]
   onRemoveReference?: (text: string) => void
@@ -321,7 +283,47 @@ export function AgentThread({
     modelId: string
     variant?: string
   }) => void
-}) {
+}
+
+export function AgentThread({
+  entries,
+  checks = [],
+  reviewReady = false,
+  historyControls,
+  permissionRequests,
+  questions,
+  queuedMessages,
+  runtimeLimits,
+  turnActive,
+  turnInterrupted,
+  activeTurnStartedAt,
+  answeringQuestionId,
+  replyingPermissionId,
+  onPermissionReply,
+  onAnswerQuestion,
+  onCancelTurn,
+  initialPrompt,
+  onSubmitPrompt,
+  onRetryQueuedMessage,
+  promptDisabled,
+  workspaceStarting = false,
+  promptError,
+  promptPending,
+  cancelTurnPending,
+  restartPending,
+  onRestartWorkspace,
+  workspaceError,
+  models,
+  skills,
+  selectedModel,
+  modelNotice,
+  onModelChange,
+  references,
+  onRemoveReference,
+  onOpenFiles,
+  onInspectActivity,
+  onOpenEvidence,
+}: AgentThreadProps) {
   const waiting = questions.length > 0 || permissionRequests.length > 0
   const checking = checks.some(
     (check) => check.status === "running" || check.status === "queued"

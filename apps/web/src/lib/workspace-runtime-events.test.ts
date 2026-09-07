@@ -56,7 +56,9 @@ describe("applyWorkspaceRuntimeEvent", () => {
       })
     )
 
-    expect(asked.permissionRequests["permission-1"]?.canSave).toBe(true)
+    expect(asked.permissionRequests["permission-1"]?.save).toEqual([
+      "SMOKE_TEST.md",
+    ])
 
     const replied = await applyWorkspaceRuntimeEvent(
       asked,

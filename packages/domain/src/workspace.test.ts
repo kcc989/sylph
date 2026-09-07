@@ -25,10 +25,7 @@ import {
   WorkspaceSocketServerFrame,
 } from "./conversation"
 import { InstallationClaimInput } from "./installation"
-import {
-  WorkspaceEditFileInput,
-  WorkspaceWriteFileInput,
-} from "./workspace-files"
+import {} from "./workspace-files"
 import {
   WorkspaceCheckpointInput,
   WorkspaceVersionControl,
@@ -79,9 +76,6 @@ const decodeWorkspaceSocketServerFrame = Schema.decodeUnknownPromise(
 const decodeWorkspaceSummary = Schema.decodeUnknownEffect(WorkspaceSummary)
 const decodeWorkspaceVersionControl = Schema.decodeUnknownPromise(
   WorkspaceVersionControl
-)
-const decodeWorkspaceWriteFile = Schema.decodeUnknownPromise(
-  WorkspaceWriteFileInput
 )
 
 describe("WorkspaceSummary", () => {
@@ -192,22 +186,6 @@ describe("Project and runtime inputs", () => {
     )
 
     expect(Exit.isFailure(exit)).toBe(true)
-  })
-
-  test("rejects an empty workspace file path", async () => {
-    await expect(
-      decodeWorkspaceWriteFile({ path: "", content: "hello" })
-    ).rejects.toBeDefined()
-  })
-
-  test("requires nonempty edit context and permits deleting matched text", () => {
-    const decode = Schema.decodeUnknownSync(WorkspaceEditFileInput)
-    expect(() =>
-      decode({ path: "bun.lock", oldText: "", newText: "new" })
-    ).toThrow()
-    expect(
-      decode({ path: "bun.lock", oldText: "old", newText: "" }).newText
-    ).toBe("")
   })
 
   test("decodes a Workspace for an existing Project", async () => {

@@ -57,7 +57,7 @@ export class WorkspaceProvisioning extends WorkflowEntrypoint<
           database,
           workspace.projectId
         )
-        await synchronizeProjectRepository(database, workspace.ownerUserId, {
+        await synchronizeProjectRepository(workspace.ownerUserId, {
           id: project.id,
           repositoryName: project.repositoryName,
           repositoryRemote: project.repositoryRemote,
