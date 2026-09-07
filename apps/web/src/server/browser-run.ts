@@ -423,6 +423,7 @@ export const browserRunLayer = (
                     "Page.captureScreenshot",
                     {
                       format: "png",
+                      fromSurface: fullPage,
                       captureBeyondViewport: fullPage,
                       clip: { ...bounds, scale: 1 },
                     },
@@ -432,6 +433,17 @@ export const browserRunLayer = (
                     atob(capture.data),
                     (character) => character.charCodeAt(0)
                   )
+                  const header = new DataView(screenshot.buffer)
+                  if (
+                    screenshot.byteLength < 24 ||
+                    header.getUint32(0) !== 0x89504e47 ||
+                    (!fullPage &&
+                      (header.getUint32(16) !== expected.width ||
+                        header.getUint32(20) !== expected.height))
+                  )
+                    throw new Error(
+                      "The browser screenshot did not match the verified viewport."
+                    )
                   await trace("observe-complete")
                   await ensureAllowed()
                   return {

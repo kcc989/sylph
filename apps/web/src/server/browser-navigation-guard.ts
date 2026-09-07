@@ -11,6 +11,7 @@ export const browserNavigationGuard = async (
   if (!connection) throw new Error("Browser navigation guard has no connection")
   const sessions = new Set<CDPSession>()
   const pending = new Set<Promise<void>>()
+  const targets = new Set<Promise<void>>()
   let blocked: string | undefined
   let unavailable = false
   let failureDetail = ""
@@ -68,7 +69,7 @@ export const browserNavigationGuard = async (
         return
       }
       if (event.targetInfo.type === "page") attach(session)
-      void watch(session)
+      const ready = watch(session)
         .then(async () => {
           await Promise.all(pending)
           if (unavailable) await browser.close()
@@ -88,6 +89,10 @@ export const browserNavigationGuard = async (
           unavailable = true
           failureDetail = error instanceof Error ? error.message : String(error)
         })
+        .finally(() => {
+          targets.delete(ready)
+        })
+      targets.add(ready)
     })
     await parent.send(
       "Target.setAutoAttach",
@@ -123,6 +128,9 @@ export const browserNavigationGuard = async (
       { state: "active" },
       { timeout: 15_000 }
     )
+    await session.send("Runtime.runIfWaitingForDebugger", undefined, {
+      timeout: 15_000,
+    })
   }
   const pages = new Map<Page, CDPSession>()
   const prepare = async (page: Page) => {
@@ -140,10 +148,12 @@ export const browserNavigationGuard = async (
     return session
   }
   await trace("guard-pages")
+  while (targets.size) await Promise.all(targets)
   for (const page of await browser.pages()) await prepare(page)
   return {
     prepare,
     async check() {
+      while (targets.size) await Promise.all(targets)
       await Promise.all(pending)
       if (unavailable)
         throw new Error(
