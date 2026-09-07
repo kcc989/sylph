@@ -90,3 +90,30 @@ test("production commands receive both resource ownership and release recovery c
     "reserved-plan|release-id|recovery-point|https://app.example.com"
   )
 })
+
+test("recovery hooks receive their assigned settings only in deployment commands", () => {
+  const command =
+    'printf "%s|%s|%s|%s" "$SYLPH_BASE_URL" "$SYLPH_RECOVERY_KEY" "$SYLPH_RECOVERY_SECRETS" "$SYLPH_RECOVERY_VERIFY_TOKEN"'
+  const env = {
+    ...process.env,
+    SYLPH_BASE_URL: "https://previous.example.com",
+    SYLPH_RECOVERY_KEY: "encryption-fixture",
+    SYLPH_RECOVERY_SECRETS: '{"API_KEY":"secret-fixture"}',
+    SYLPH_RECOVERY_VERIFY_TOKEN: "verification-fixture",
+  }
+  for (const planning of [false, true]) {
+    const result = Bun.spawnSync(
+      ["bash", "-c", ciCommand(command, false, planning)],
+      { env }
+    )
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout.toString()).toBe("|||")
+  }
+  const result = Bun.spawnSync(["bash", "-c", ciCommand(command, true)], {
+    env,
+  })
+  expect(result.exitCode).toBe(0)
+  expect(result.stdout.toString()).toBe(
+    'https://previous.example.com|encryption-fixture|{"API_KEY":"secret-fixture"}|verification-fixture'
+  )
+})

@@ -12,6 +12,7 @@ import {
   incidentKinds,
   incidentUpsertSql,
   repairBrief,
+  scheduledHealthProjectsSql,
 } from "./project-operations"
 import type { HealthObservation } from "@workspace/domain/project-operations"
 
@@ -56,6 +57,33 @@ const fixture = () => {
   db.exec("PRAGMA foreign_keys=OFF")
   return db
 }
+
+test("scheduled collection bounds each batch and selects the oldest eligible deployments", () => {
+  const db = fixture()
+  for (const id of ["a", "b", "c", "d", "recent", "leased", "unreleased"]) {
+    db.query(
+      "INSERT INTO project(id, organization_id, owner_user_id, name, slug, artifact_repo_id, artifact_repo, artifact_remote) VALUES (?, 'org', 'owner', ?, ?, ?, ?, 'https://example.com/repo')"
+    ).run(id, id, id, id, id)
+    if (id !== "unreleased")
+      db.query(
+        "INSERT INTO deployment(id, project_id, [commit], status, actor_user_id) VALUES (?, ?, ?, 'succeeded', 'owner')"
+      ).run(id, id, "a".repeat(40))
+  }
+  db.exec(
+    "INSERT INTO project_health(project_id, collected_at, lease_until) VALUES ('recent', 1999999, 0), ('leased', 0, 2100000), ('a', 1200000, 0)"
+  )
+  expect(db.query(scheduledHealthProjectsSql).all(1700000, 2000000)).toEqual([
+    { id: "b" },
+    { id: "c" },
+    { id: "d" },
+  ])
+  db.exec(
+    "INSERT INTO project_health(project_id, collected_at) VALUES ('b', 2000000), ('c', 2000000), ('d', 2000000)"
+  )
+  expect(db.query(scheduledHealthProjectsSql).all(1700000, 2000000)).toEqual([
+    { id: "a" },
+  ])
+})
 test("deduplicates overlapping collection windows without reopening acknowledged incidents", () => {
   const db = fixture()
   const insert = db.query(incidentUpsertSql)

@@ -42,7 +42,10 @@ import type { CiBindings } from "@cloudflare/ci/worker"
 import { checkStage, newCheckRun } from "./workspace-checks"
 import type { WorkspaceDO } from "./workspace-do"
 import { previewRetention } from "./preview-lifecycle"
-import type { ProjectResourcePlan } from "@workspace/domain/project-resources"
+import {
+  ProjectSecretValues,
+  type ProjectResourcePlan,
+} from "@workspace/domain/project-resources"
 import {
   captureProjectResources,
   finishResourceOperation,
@@ -231,13 +234,16 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
           input.projectId,
           this.env.CREDENTIAL_ENCRYPTION_KEY
         )
+        const projectSecretEnv = await projectSecretEnvironment(
+          this.env.DB,
+          input.projectId,
+          "production",
+          this.env.CREDENTIAL_ENCRYPTION_KEY
+        )
         const releaseSecrets = {
-          ...(await projectSecretEnvironment(
-            this.env.DB,
-            input.projectId,
-            "production",
-            this.env.CREDENTIAL_ENCRYPTION_KEY
-          )),
+          ...Schema.decodeUnknownSync(ProjectSecretValues)(
+            JSON.parse(projectSecretEnv.SYLPH_PROJECT_SECRETS ?? "{}")
+          ),
           BETTER_AUTH_SECRET: authSecret,
         }
         const recoverySecretEnv = { SYLPH_RECOVERY_KEY: recoveryKey }
@@ -411,7 +417,8 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
             },
             env: {
               ...releaseEnv,
-              ...releaseSecrets,
+              ...projectSecretEnv,
+              BETTER_AUTH_SECRET: authSecret,
               ...recoverySecretEnv,
               SYLPH_RECOVERY_SECRETS: JSON.stringify(releaseSecrets),
             },

@@ -31,7 +31,9 @@ mock.module("../../apps/web/src/server/project-resources.ts", () => ({
 }))
 mock.module("../../apps/web/src/server/project-configuration.ts", () => ({
   readProjectDomain: async () => null,
-  projectSecretEnvironment: async () => ({}),
+  projectSecretEnvironment: async () => ({
+    SYLPH_PROJECT_SECRETS: JSON.stringify({ API_KEY: "application-secret" }),
+  }),
 }))
 
 const { CI } = await import("../../apps/web/src/server/workspace-ci.ts")

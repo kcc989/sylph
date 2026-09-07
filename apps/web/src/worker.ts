@@ -7,6 +7,7 @@ export { CiSandbox } from "@cloudflare/ci/worker"
 export { WorkspaceDO } from "./server/workspace-do"
 export { CI } from "./server/workspace-ci"
 import { recoverWorkspaceJobs } from "./server/workspace-job-recovery"
+import { refreshScheduledOperations } from "./server/project-operations"
 export { WorkspaceMessageDelivery } from "./server/workspace-message-delivery"
 export { ProjectSynchronization } from "./server/project-synchronization"
 export { WorkspaceProvisioning } from "./server/workspace-provisioning"
@@ -23,7 +24,16 @@ export default {
     serverEntry.fetch(request),
   async scheduled(controller: ScheduledController) {
     if (controller.cron === "* * * * *") {
-      await recoverWorkspaceJobs()
+      await Promise.all([
+        recoverWorkspaceJobs(),
+        refreshScheduledOperations(env.DB, {
+          accountId: env.CLOUDFLARE_ACCOUNT_ID,
+          token: env.CF_TOKEN,
+        }).then((result) => {
+          if (result.failed > 0)
+            console.error("Scheduled health collection failed", result)
+        }),
+      ])
       return
     }
     const result = await refreshProviderCatalogs()

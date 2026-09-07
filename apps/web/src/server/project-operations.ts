@@ -36,6 +36,31 @@ export const readOperations = async (db: D1Database, projectId: string) => {
     incidents: Schema.decodeUnknownSync(Schema.Array(Incident))(rows.results),
   }
 }
+
+export const scheduledHealthProjectsSql =
+  "SELECT p.id FROM project p LEFT JOIN project_health h ON h.project_id = p.id WHERE EXISTS (SELECT 1 FROM deployment d WHERE d.project_id = p.id AND d.status = 'succeeded') AND coalesce(h.collected_at, 0) <= ? AND coalesce(h.lease_until, 0) < ? ORDER BY coalesce(h.collected_at, 0), p.id LIMIT 3"
+
+export const refreshScheduledOperations = async (
+  db: D1Database,
+  credentials: HealthCredentials,
+  now = Date.now(),
+  request: typeof fetch = fetch
+) => {
+  const projects = await db
+    .prepare(scheduledHealthProjectsSql)
+    .bind(now - 300_000, now)
+    .all<{ id: string }>()
+  const results = await Promise.allSettled(
+    projects.results.map(({ id }) =>
+      refreshOperations(db, credentials, id, now, request)
+    )
+  )
+  return {
+    collected: results.filter((result) => result.status === "fulfilled").length,
+    failed: results.filter((result) => result.status === "rejected").length,
+  }
+}
+
 export const refreshOperations = async (
   db: D1Database,
   credentials: HealthCredentials,

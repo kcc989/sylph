@@ -7,6 +7,7 @@ import { requireProject } from "./organization-access"
 import {
   readOperations,
   refreshOperations,
+  refreshScheduledOperations,
   repairWorkspaceSql,
   repairIssueSql,
   linkRepairSql,
@@ -109,16 +110,21 @@ test("D1 operations retain incidents across requests and reject non-members", as
       { preconnect: fetch.preconnect }
     )
     const credentials = { accountId: "account", token: "fixture" }
-    const first = await refreshOperations(
+    const scheduled = await refreshScheduledOperations(
       db,
       credentials,
-      "project",
       2000000,
       request
     )
+    expect(scheduled).toEqual({ collected: 1, failed: 0 })
+    const first = await readOperations(db, "project")
     expect(first.observation?.status).toBe("degraded")
     expect(first.incidents).toHaveLength(2)
     await refreshOperations(db, credentials, "project", 2000001, request)
+    expect(calls).toBe(3)
+    expect(
+      await refreshScheduledOperations(db, credentials, 2000001, request)
+    ).toEqual({ collected: 0, failed: 0 })
     expect(calls).toBe(3)
     const incident = first.incidents[0]
     await db.batch([

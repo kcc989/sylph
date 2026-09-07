@@ -201,6 +201,7 @@ test("production saves recovery before publish and journeys before resuming writ
     (command: { name: string }) => command.name === "production"
   )
   expect(JSON.parse(prepared.env.SYLPH_RECOVERY_SECRETS)).toEqual({
+    API_KEY: "application-secret",
     BETTER_AUTH_SECRET: "test-secret",
   })
   expect(atob(prepared.env.SYLPH_RECOVERY_KEY).length).toBe(32)
