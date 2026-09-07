@@ -113,6 +113,9 @@ function BrowserDetail({ part }: { part: ToolCallEntry }) {
   )
   return (
     <div className="grid min-w-0 gap-3">
+      {part.detail.result ? (
+        <Section label="Result" value={part.detail.result} />
+      ) : null}
       <a
         className="truncate text-[11px] text-[#ef9b7e] underline decoration-[#ef9b7e]/40 underline-offset-2 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
         href={part.detail.url}

@@ -102,6 +102,8 @@ The agent must build the todo app from the Project template, use native file too
 
 The local `smoke:runtime` suite uses a deterministic model and execution fixture to verify OpenCode's native shell dispatch through its workspace provider registry. It does not prove Cloudflare sandbox execution or replace the deployed D1 scenario.
 
+`bun run smoke:browser` tests the agent's persistent browser service inside Cloudflare Browser Run against a disposable authenticated D1 app. It covers interactions, assertions, reload/reconnect, and session cleanup without an external Playwright browser or model credits. See [Browser Run journey smoke](../../tools/browser-smoke/README.md).
+
 ## Grok-only budgeted run
 
 Set `SYLPH_SMOKE_GROK_BUDGET=true` on the deploy command to pin the smoke picker, titles, and compaction to OpenRouter `x-ai/grok-4.6`. The request guard rejects other models, fallbacks, media, plugins, and unbounded outputs. It reserves a conservative maximum request cost before sending each request, persists reservations across eviction, and stops at $4 per Workspace. Reservations are not refunded. This profile is for a single-Workspace run; creating another Workspace or stage creates another budget. Do not retry in a fresh Workspace without accounting for prior spending. The calculation uses $2 per million input tokens and $6 per million output tokens, counts each request byte as an input token, and adds overhead. Recheck pricing before reuse.

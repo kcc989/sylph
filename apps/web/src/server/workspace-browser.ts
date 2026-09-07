@@ -1,11 +1,4 @@
-import {
-  WorkspaceBrowserResult,
-  WorkspaceCheckEvidence,
-  type WorkspaceCheckRun,
-} from "@workspace/domain"
-
-const maxMarkdownLength = 24_000
-const maxAccessibilityLength = 24_000
+import type { WorkspaceCheckRun } from "@workspace/domain"
 
 export const browserTargetUrl = (input: {
   previewUrl: string
@@ -36,13 +29,15 @@ export const previewForBrowser = (
 ) => {
   const checkpoints = runs.filter((run) => run.kind === "checkpoint")
   const current = checkpoints.find((run) => run.commit === forkHead)
-  const preview =
-    (current ? withPreview(current) : null) ??
-    checkpoints.map(withPreview).find((candidate) => candidate !== null) ??
-    null
+  const preview = current ? withPreview(current) : null
   if (!preview) {
     throw new Error(
-      "No Preview exists yet. Run workspace_run_checks to build and preview the current Checkpoint first."
+      "No Preview exists for the current Checkpoint. Run workspace_run_checks to build and preview it first."
+    )
+  }
+  if (preview.run.status === "running" || preview.run.status === "queued") {
+    throw new Error(
+      "The current Check is still running. Wait for its result before testing the Preview."
     )
   }
   return preview
@@ -56,30 +51,11 @@ export const bounded = (value: string, limit: number) =>
 export const browserEvidenceIds = (input: {
   runId: string
   sequence: number
+  sessionId?: string
 }) => ({
-  screenshot: `${input.runId}-agent-screenshot-${input.sequence}`,
-  accessibility: `${input.runId}-agent-accessibility-${input.sequence}`,
+  screenshot: `${input.runId}-agent-screenshot-${input.sessionId ? `${input.sessionId}-` : ""}${input.sequence}`,
+  accessibility: `${input.runId}-agent-accessibility-${input.sessionId ? `${input.sessionId}-` : ""}${input.sequence}`,
 })
 
 export const evidenceUrl = (workspaceId: string, evidenceId: string) =>
   `/api/workspaces/${encodeURIComponent(workspaceId)}/evidence/${encodeURIComponent(evidenceId)}`
-
-export const browserResult = (input: {
-  url: string
-  run: WorkspaceCheckRun
-  markdown: string
-  accessibility: string
-  evidence: ReadonlyArray<WorkspaceCheckEvidence>
-}) =>
-  new WorkspaceBrowserResult({
-    url: input.url,
-    checkId: input.run.id,
-    markdown: bounded(input.markdown, maxMarkdownLength),
-    accessibility: bounded(input.accessibility, maxAccessibilityLength),
-    evidence: input.evidence,
-  })
-
-export const bytesFromBase64 = (value: string) => {
-  const decoded = atob(value.replace(/^data:image\/\w+;base64,/, ""))
-  return Uint8Array.from(decoded, (character) => character.charCodeAt(0))
-}

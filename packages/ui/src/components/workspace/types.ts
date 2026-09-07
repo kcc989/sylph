@@ -36,6 +36,8 @@ export type ToolCallDetail =
       }>
       markdown: string
       accessibility: string
+      result?: string
+      failure?: string
     }
   | {
       kind: "checks"
@@ -45,6 +47,7 @@ export type ToolCallDetail =
 export type ToolCallEntry = {
   id: string
   name: string
+  label?: string
   status: "running" | "completed" | "error"
   input: ToolCallInput
   output: string

@@ -13,6 +13,7 @@ export type ToolCallFamily =
 
 type ToolPart = {
   name: string
+  label?: string
   input: ToolCallInput
 }
 
@@ -48,7 +49,8 @@ export const toolCallFamily = (name: string): ToolCallFamily => {
   return "generic"
 }
 
-export const toolCallLabel = ({ name, input }: ToolPart): string => {
+export const toolCallLabel = ({ name, input, label }: ToolPart): string => {
+  if (label) return label
   const path = stringInput(input, "path") ?? stringInput(input, "filePath")
   if (name === "read" || name === "workspace_read_file")
     return path ? `Read ${path}` : "Read file"

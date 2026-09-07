@@ -59,6 +59,24 @@ const nativeCalls = [
     },
   },
   { name: "read", arguments: { path: "/workspace/native.txt" } },
+  { name: "workspace_browser", arguments: { action: { type: "start" } } },
+  {
+    name: "workspace_browser",
+    arguments: {
+      sessionId: "browser-fixture-session",
+      action: { type: "fill", selector: "#title", value: "Todo" },
+    },
+  },
+  {
+    name: "workspace_browser",
+    arguments: {
+      sessionId: "browser-fixture-session",
+      action: {
+        type: "assert",
+        assertion: { type: "value", selector: "#title", value: "Todo" },
+      },
+    },
+  },
 ]
 
 const patchCalls = [
@@ -248,6 +266,15 @@ try {
       ) ?? nativeTools[0]
     ).includes("SYLPH_NATIVE_SHELL")
   )
+  const browserTools = nativeTools.filter(
+    (tool) =>
+      tool.name === "workspace_browser" || tool.tool === "workspace_browser"
+  )
+  assert.equal(browserTools.length, 3)
+  assert.ok(JSON.stringify(browserTools).includes("browser-fixture-session"))
+  assert.ok(
+    JSON.stringify(browserTools).includes("Browser fixture received assert")
+  )
   assert.deepEqual(await read("native-state"), {
     files: ["native.txt"],
     content: "edited\n",
@@ -340,6 +367,7 @@ try {
         initialPluginsPresent: true,
         recoveredPluginsPresent: true,
         nativeFileTools: true,
+        browserToolDispatch: true,
         nativeShellThroughWorkspaceProvider: true,
         nativeSearchTools: true,
         nativeFilesSurviveRestart: true,

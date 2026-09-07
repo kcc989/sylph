@@ -24,6 +24,7 @@
     "prepare": "lefthook install",
     "test:opencode": "bun test tools/runtime-smoke",
     "smoke:runtime": "node tools/runtime-smoke/run.mjs",
+    "smoke:browser": "node tools/browser-smoke/run.mjs",
     "smoke:release:doctor": "node scripts/release-smoke.mjs doctor",
     "smoke:release:deploy": "node scripts/release-smoke.mjs deploy",
     "smoke:release:cleanup": "node scripts/release-smoke.mjs cleanup"
