@@ -113,6 +113,7 @@ export type WorkspaceQueuedMessage = {
   text: string
   createdAt: number
   delivery: "queue" | "steer"
+  error?: string
   notice?: { summary: string }
 }
 

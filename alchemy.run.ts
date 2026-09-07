@@ -4,7 +4,11 @@ import type { CursorConnectionObject } from "./apps/web/src/server/cursor-connec
 import * as Alchemy from "alchemy"
 import * as Cloudflare from "alchemy/Cloudflare"
 import type { WorkspaceDO } from "./apps/web/src/server/workspace-do"
-import type { WorkspaceRequestInput, WorkspaceCiInput } from "@workspace/domain"
+import type {
+  WorkspaceRequestInput,
+  WorkspaceCiInput,
+  WorkspaceMessageDeliveryInput,
+} from "@workspace/domain"
 import type { WorkspaceMergeInput } from "./apps/web/src/server/workspace-merge"
 import type { WorkspaceRetentionInput } from "./apps/web/src/server/workspace-retention"
 import type { CiSandbox } from "@cloudflare/ci/worker"
@@ -86,7 +90,7 @@ export class Website extends Cloudflare.Website.Vite<Website>()(
     return {
       rootDir: "apps/web",
       main: "src/worker.ts",
-      crons: ["15 * * * *"],
+      crons: ["15 * * * *", "* * * * *"],
       compatibility: {
         flags: ["nodejs_compat"],
       },
@@ -131,6 +135,11 @@ export class Website extends Cloudflare.Website.Vite<Website>()(
           "ProjectSynchronization",
           { className: "ProjectSynchronization" }
         ),
+        MESSAGE_DELIVERY: Cloudflare.Workflow<
+          typeof WorkspaceMessageDeliveryInput.Encoded
+        >("WorkspaceMessageDelivery", {
+          className: "WorkspaceMessageDelivery",
+        }),
         PROVISIONING: Cloudflare.Workflow<typeof WorkspaceRequestInput.Encoded>(
           "WorkspaceProvisioning",
           { className: "WorkspaceProvisioning" }

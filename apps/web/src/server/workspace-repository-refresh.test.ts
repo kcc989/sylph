@@ -30,6 +30,17 @@ const snapshot = Schema.decodeUnknownSync(WorkspaceVersionControlSnapshot)({
 })
 
 describe("Workspace Project Repository refresh", () => {
+  test("loads chat before a background repository fork has a commit", async () => {
+    expect(
+      await readWorkspaceVersionControlSnapshot(null, {
+        defaultRef: "main",
+        baseCommit: null,
+        forkHead: null,
+        syncStatus: "hydrating",
+        mergeStatus: "unreviewed",
+      })
+    ).toEqual({ versionControl: null, checkpoints: [] })
+  })
   test("decodes the runtime snapshot when version control is initialized", async () => {
     const result = await readWorkspaceVersionControlSnapshot(snapshot, {
       defaultRef: "main",

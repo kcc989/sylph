@@ -31,6 +31,8 @@ export const readWorkspaceVersionControlSnapshot = async (
   }
 
   if (!persisted.baseCommit || !persisted.forkHead) {
+    if (persisted.syncStatus === "hydrating")
+      return { versionControl: null, checkpoints: [] }
     throw new WorkspaceRuntimeFailure({
       message: "Workspace version control is not initialized",
       reason: "not_initialized",

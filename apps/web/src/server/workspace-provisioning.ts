@@ -23,6 +23,8 @@ import {
 } from "./provider-connections"
 import { requireWorkspaceProject } from "./organization-access"
 import { repositoryStore } from "./repositories"
+import { forkWorkspaceRepository } from "./workspace-repository-provisioning"
+import { synchronizeProjectRepository } from "./project-repository-sync"
 import { workspaceRuntime } from "./workspace-runtime"
 
 const decodeInput = Schema.decodeUnknownSync(WorkspaceRequestInput)
@@ -38,6 +40,34 @@ export class WorkspaceProvisioning extends WorkflowEntrypoint<
     const { workspaceId } = decodeInput(event.payload)
     const database = drizzle(this.env.DB, { schema })
     try {
+      await step.do("prepare-repository", async () => {
+        const workspace = await database
+          .select()
+          .from(schema.workspace)
+          .where(eq(schema.workspace.id, workspaceId))
+          .get()
+        if (
+          !workspace ||
+          workspace.status !== "provisioning" ||
+          workspace.baseCommit
+        )
+          return
+        const project = await requireWorkspaceProject(
+          database,
+          workspace.projectId
+        )
+        await synchronizeProjectRepository(database, workspace.ownerUserId, {
+          id: project.id,
+          repositoryName: project.repositoryName,
+          repositoryRemote: project.repositoryRemote,
+          defaultRef: project.defaultBranch,
+          sourceUrl: project.importOriginUrl,
+          sourceRef: project.importOriginBranch,
+        })
+      })
+      await step.do("fork-repository", () =>
+        forkWorkspaceRepository(database, workspaceId, repositoryStore())
+      )
       await step.do(
         "initialize-workspace",
         {

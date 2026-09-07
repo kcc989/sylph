@@ -246,7 +246,9 @@ export function AgentThread({
   onCancelTurn,
   initialPrompt,
   onSubmitPrompt,
+  onRetryQueuedMessage,
   promptDisabled,
+  workspaceStarting = false,
   promptError,
   promptPending,
   cancelTurnPending,
@@ -264,6 +266,7 @@ export function AgentThread({
   onInspectActivity,
   onOpenEvidence,
 }: {
+  workspaceStarting?: boolean
   references?: WorkspaceReference[]
   onRemoveReference?: (text: string) => void
   onOpenFiles?: () => void
@@ -292,6 +295,7 @@ export function AgentThread({
   ) => Promise<void>
   onCancelTurn?: () => Promise<void>
   initialPrompt?: string
+  onRetryQueuedMessage?: (messageId: string) => Promise<void>
   onSubmitPrompt?: (
     text: string,
     model: { providerId: string; modelId: string; variant?: string },
@@ -416,11 +420,29 @@ export function AgentThread({
                           {message.text}
                         </p>
                         <p className="mt-1 text-[9px] text-muted-foreground">
-                          {message.delivery === "steer"
-                            ? "Received · delivering to the agent"
-                            : `Will run next · ${index + 1} in queue`}
+                          {message.error
+                            ? "Delivery failed"
+                            : workspaceStarting
+                              ? "Waiting for workspace"
+                              : message.delivery === "steer"
+                                ? "Received · delivering to the agent"
+                                : `Will run next · ${index + 1} in queue`}
                         </p>
+                        {message.error ? (
+                          <p className="mt-1 text-xs text-destructive">
+                            {message.error}
+                          </p>
+                        ) : null}
                       </div>
+                      {message.error && onRetryQueuedMessage ? (
+                        <Button
+                          size="xs"
+                          variant="outline"
+                          onClick={() => onRetryQueuedMessage(message.id)}
+                        >
+                          Retry
+                        </Button>
+                      ) : null}
                     </article>
                   </MessageScrollerItem>
                 )
@@ -534,6 +556,18 @@ export function AgentThread({
               Stop
             </Button>
           ) : null}
+        </div>
+      ) : null}
+      {workspaceStarting ? (
+        <div
+          role="status"
+          className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground"
+        >
+          <LoaderCircle
+            className="size-3.5 animate-spin motion-reduce:animate-none"
+            aria-hidden="true"
+          />
+          Setting up workspace…
         </div>
       ) : null}
       <PromptComposer
