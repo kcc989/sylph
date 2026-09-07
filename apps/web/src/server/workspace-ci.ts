@@ -16,6 +16,10 @@ import { ciCommand } from "./command-execution"
 import { readWorkspaceCiLogs } from "./workspace-ci-logs"
 import { projectAuthSecret } from "./project-auth-secret"
 import {
+  projectRecoveryKey,
+  projectRecoveryVerifyToken,
+} from "./project-recovery-key"
+import {
   CIWorkflow,
   isCiRunnerFailure,
   type CiContext,
@@ -170,12 +174,13 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
         const deploymentId = input.deploymentId
         const context = await step.do("read-release-reservation", async () => {
           const row = await this.env.DB.prepare(
-            "SELECT d.[commit], d.recovery_deployment_id, (SELECT prior.[commit] FROM deployment prior WHERE prior.project_id = d.project_id AND prior.id != d.id AND (prior.mutation_started = 1 OR prior.status = 'succeeded') ORDER BY prior.created_at DESC, prior.rowid DESC LIMIT 1) AS base_commit, r.recovery_json FROM deployment d LEFT JOIN deployment r ON r.id = d.recovery_deployment_id AND r.project_id = d.project_id WHERE d.id = ? AND d.project_id = ? AND d.status = 'running'"
+            "SELECT d.[commit], d.recovery_deployment_id, (SELECT prior.[commit] FROM deployment prior WHERE prior.project_id = d.project_id AND prior.id != d.id AND (prior.mutation_started = 1 OR prior.status = 'succeeded') ORDER BY prior.created_at DESC, prior.rowid DESC LIMIT 1) AS base_commit, (SELECT prior.production_url FROM deployment prior WHERE prior.project_id = d.project_id AND prior.id != d.id AND prior.production_url IS NOT NULL ORDER BY prior.created_at DESC, prior.rowid DESC LIMIT 1) AS base_url, r.recovery_json FROM deployment d LEFT JOIN deployment r ON r.id = d.recovery_deployment_id AND r.project_id = d.project_id WHERE d.id = ? AND d.project_id = ? AND d.status = 'running'"
           )
             .bind(deploymentId, input.projectId)
             .first<{
               commit: string
               base_commit: string | null
+              base_url: string | null
               recovery_deployment_id: string | null
               recovery_json: string | null
             }>()
@@ -213,10 +218,29 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
           SYLPH_RELEASE_ID: deploymentId,
           SYLPH_PROJECT_ID: input.projectId,
           SYLPH_BASE_COMMIT: context.base_commit ?? "",
+          SYLPH_BASE_URL: context.base_url ?? "",
           SYLPH_RECOVERY_POINT: context.recovery_json ?? "",
         }
         const authSecret = await projectAuthSecret(
           this.env.DB,
+          input.projectId,
+          this.env.CREDENTIAL_ENCRYPTION_KEY
+        )
+        const recoveryKey = await projectRecoveryKey(
+          input.projectId,
+          this.env.CREDENTIAL_ENCRYPTION_KEY
+        )
+        const releaseSecrets = {
+          ...(await projectSecretEnvironment(
+            this.env.DB,
+            input.projectId,
+            "production",
+            this.env.CREDENTIAL_ENCRYPTION_KEY
+          )),
+          BETTER_AUTH_SECRET: authSecret,
+        }
+        const recoverySecretEnv = { SYLPH_RECOVERY_KEY: recoveryKey }
+        const verifyToken = await projectRecoveryVerifyToken(
           input.projectId,
           this.env.CREDENTIAL_ENCRYPTION_KEY
         )
@@ -236,6 +260,7 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
         resourcesReserved = true
         const releaseEnv = {
           ...releaseIdentityEnv,
+          SYLPH_RECOVERY_VERIFY_TOKEN: verifyToken,
           ...planned.domainEnvironment,
           SYLPH_RESOURCE_PREFIX: planned.prefix,
           SYLPH_RESOURCE_PLAN: JSON.stringify(resourcePlan),
@@ -285,7 +310,11 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
               "sylph:release:prepare",
               "coordinated data recovery capture"
             ),
-            env: releaseEnv,
+            env: {
+              ...releaseEnv,
+              ...recoverySecretEnv,
+              SYLPH_RECOVERY_SECRETS: JSON.stringify(releaseSecrets),
+            },
             cloudflareCredentials: {
               accountId: this.env.CLOUDFLARE_ACCOUNT_ID,
             },
@@ -328,7 +357,7 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
                 "sylph:release:restore",
                 "Admin-confirmed data recovery"
               ),
-              env: releaseEnv,
+              env: { ...releaseEnv, ...recoverySecretEnv },
               cloudflareCredentials: {
                 accountId: this.env.CLOUDFLARE_ACCOUNT_ID,
               },
@@ -381,13 +410,9 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
             },
             env: {
               ...releaseEnv,
-              ...(await projectSecretEnvironment(
-                this.env.DB,
-                input.projectId,
-                "production",
-                this.env.CREDENTIAL_ENCRYPTION_KEY
-              )),
-              BETTER_AUTH_SECRET: authSecret,
+              ...releaseSecrets,
+              ...recoverySecretEnv,
+              SYLPH_RECOVERY_SECRETS: JSON.stringify(releaseSecrets),
             },
           }
         )

@@ -114,6 +114,7 @@ let selector = null
 const environment = {
   DB: database,
   CLOUDFLARE_ACCOUNT_ID: "account-1",
+  CREDENTIAL_ENCRYPTION_KEY: "fixture-installation-key",
   CI_VERIFICATION_CONCURRENCY: "1",
   BROWSER: {
     quickAction: async (_action, input) => {

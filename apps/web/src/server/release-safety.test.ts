@@ -194,6 +194,34 @@ test("production saves recovery before publish and journeys before resuming writ
   )
   expect(result.selector).toContain('data-sylph-deployment="production"')
   expect(result.artifacts).toHaveLength(2)
+  const prepared = result.commands.find(
+    (command: { name: string }) => command.name === "release-prepare"
+  )
+  const published = result.commands.find(
+    (command: { name: string }) => command.name === "production"
+  )
+  expect(JSON.parse(prepared.env.SYLPH_RECOVERY_SECRETS)).toEqual({
+    BETTER_AUTH_SECRET: "test-secret",
+  })
+  expect(atob(prepared.env.SYLPH_RECOVERY_KEY).length).toBe(32)
+  expect(published.env.SYLPH_RECOVERY_KEY).toBe(prepared.env.SYLPH_RECOVERY_KEY)
+  expect(prepared.env.SYLPH_RECOVERY_KEY).not.toBe(
+    prepared.env.SYLPH_RECOVERY_VERIFY_TOKEN
+  )
+  for (const command of result.commands.filter((entry: { name: string }) =>
+    [
+      "release-review",
+      "production-journey",
+      "release-resume",
+      "production-journey-live",
+    ].includes(entry.name)
+  )) {
+    expect(command.env.SYLPH_RECOVERY_KEY).toBeUndefined()
+    expect(command.env.SYLPH_RECOVERY_SECRETS).toBeUndefined()
+  }
+  expect(JSON.stringify(result.deployment)).not.toContain(
+    prepared.env.SYLPH_RECOVERY_KEY
+  )
 })
 
 test.each([
