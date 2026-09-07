@@ -20,7 +20,12 @@ export const commandEnvironment = (
       "BETTER_AUTH_SECRET",
       "SYLPH_PROJECT",
       "SYLPH_CHECKPOINT",
-      "SYLPH_DEPLOYMENT"
+      "SYLPH_DEPLOYMENT",
+      "SYLPH_RELEASE_ID",
+      "SYLPH_PROJECT_ID",
+      "SYLPH_BASE_COMMIT",
+      "SYLPH_RECOVERY_POINT",
+      "SYLPH_PRODUCTION_URL"
     )
   return Object.fromEntries(
     names.flatMap((name) =>

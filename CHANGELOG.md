@@ -6,6 +6,8 @@ All notable changes to Sylph are recorded here. The format follows [Keep a Chang
 
 ### Added
 
+- Production release gates for migration compatibility, saved data recovery points, and production journeys; Admin-confirmed code/data recovery with an undo point. Applications must implement the release hooks before deploying.
+
 - Personal Cursor subscription connections through OpenCode, using encrypted OAuth credentials and a Worker-native HTTP/2 transport with per-user Durable Object isolation.
 
 ### Fixed
@@ -17,6 +19,8 @@ All notable changes to Sylph are recorded here. The format follows [Keep a Chang
 - Wait for an exact visible checkpoint/deployment DOM marker before collecting browser evidence.
 
 ### Changed
+
+- Apply migration `0024_release_safety.sql` to reserve one production operation per Project and retain release evidence. Repository export now declares its repository-only scope; it does not provide a full Workspace backup.
 
 - Resume the normal coding agent after eligible failed Checkpoints, with durable delivery and a three-Turn limit. Consolidate Workspace restart into the provisioning Workflow and browser state into one synchronization module. Upgrades apply migration 0023 without new secrets.
 - Open Workspace chat while repository and runtime setup run in a Workflow. Save early messages in D1 and deliver them in order after setup. Upgrades add migration 0022, a message delivery Workflow, and a minute recovery cron without new secrets.

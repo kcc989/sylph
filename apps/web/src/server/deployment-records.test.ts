@@ -12,7 +12,7 @@ import {
 const database = () => {
   const database = new Database(":memory:")
   database.exec(
-    "CREATE TABLE deployment (id TEXT PRIMARY KEY, status TEXT, production_url TEXT, failure_details TEXT, started_at INTEGER, completed_at INTEGER, updated_at INTEGER)"
+    "CREATE TABLE deployment (id TEXT PRIMARY KEY, status TEXT, production_url TEXT, failure_details TEXT, started_at INTEGER, completed_at INTEGER, updated_at INTEGER, review_json TEXT, recovery_json TEXT, verification_json TEXT, recovery_deployment_id TEXT, restore_json TEXT)"
   )
   database.exec(
     "INSERT INTO deployment (id, status) VALUES ('deployment-1', 'queued')"
@@ -24,6 +24,9 @@ describe("Deployment records", () => {
   test("records a successful production Deployment", () => {
     const store = database()
     store.query(deploymentRunningSql).run("deployment-1")
+    store.exec(
+      "UPDATE deployment SET review_json = '{}', recovery_json = '{}', verification_json = '{}'"
+    )
     store
       .query(deploymentSucceededSql)
       .run("https://project.example", "deployment-1")
@@ -68,4 +71,14 @@ describe("Deployment records", () => {
       )
     ).toBeTrue()
   })
+})
+
+test("a URL alone cannot complete a production release", () => {
+  const store = database()
+  store.query(deploymentRunningSql).run("deployment-1")
+  expect(
+    store
+      .query(deploymentSucceededSql)
+      .run("https://example.com", "deployment-1").changes
+  ).toBe(0)
 })
