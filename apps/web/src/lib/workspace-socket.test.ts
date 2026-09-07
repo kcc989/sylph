@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test"
-import { WorkspaceRuntimeEvent } from "@workspace/domain"
+import {
+  WorkspaceRuntimeEvent,
+  type WorkspaceSocketServerFrame,
+} from "@workspace/domain"
 
 import {
   advanceWorkspaceSocketCursor,
@@ -47,7 +50,7 @@ test("reconnect replays an event whose application failed and ignores the old co
       this.readyState = 3
       this.dispatchEvent(Object.assign(new Event("close"), { code }))
     }
-    receive(data: object) {
+    receive(data: WorkspaceSocketServerFrame) {
       this.dispatchEvent(
         new MessageEvent("message", { data: JSON.stringify(data) })
       )
