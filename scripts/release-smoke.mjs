@@ -3,6 +3,8 @@ import { spawnSync } from "node:child_process"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { resolve } from "node:path"
 import { parseArgs } from "node:util"
+import { cleanupAllSmokeRuns } from "../tools/release-smoke/discovery.mjs"
+import { cleanupSmokeRuns } from "../tools/release-smoke/cleanup.mjs"
 import {
   configurationPath,
   smokeConfiguration,
@@ -18,6 +20,8 @@ import {
 const { values, positionals } = parseArgs({
   allowPositionals: true,
   options: {
+    all: { type: "boolean", default: false },
+    yes: { type: "boolean", default: false },
     auth: { type: "string", default: "github" },
     stage: { type: "string" },
     "github-env": { type: "string" },
@@ -121,8 +125,13 @@ async function browserPreflight(configuration) {
 }
 
 async function main() {
+  if (command === "cleanup") {
+    if (values.all) await cleanupAllSmokeRuns(root, values, execute)
+    else await cleanupSmokeRuns(root, values, execute)
+    return
+  }
   if (!["doctor", "deploy", "test"].includes(command))
-    throw new Error("Use doctor, deploy, or test")
+    throw new Error("Use doctor, deploy, test, or cleanup")
   const path = configurationPath(process.env)
   let configuration
   if (command !== "test") {
@@ -173,6 +182,14 @@ async function main() {
     const record = {
       stage,
       commit,
+      branch:
+        execute(
+          ["git", "branch", "--show-current"],
+          environment,
+          true
+        ).trim() || null,
+      worktree: root,
+      createdAt: new Date().toISOString(),
       dirty,
       auth: values.auth,
       environmentPath,
@@ -202,7 +219,7 @@ async function main() {
     record.status = "deployed"
     await writeFile(recordPath, JSON.stringify(record, null, 2))
     console.log(
-      `Deployed: ${record.baseURL}\nTest: bun run smoke:release -- --run ${recordPath}${values.headed ? " --headed" : ""}`
+      `Deployed: ${record.baseURL}\nCleanup preview: bun run smoke:release:cleanup -- --stage ${stage}\nTest: bun run smoke:release -- --run ${recordPath}${values.headed ? " --headed" : ""}`
     )
     return
   }
