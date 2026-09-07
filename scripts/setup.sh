@@ -218,7 +218,7 @@ CLOUDFLARE_API_TOKEN=$(_existing CLOUDFLARE_API_TOKEN || true)
 if [[ -z "$CLOUDFLARE_API_TOKEN" ]]; then
   open_url "https://dash.cloudflare.com/?to=/:account/api-tokens"
   step "Create an account API token named Sylph deploy for this account."
-  step "Add Account Settings Read, Account API Tokens Write, Workers Scripts Write, D1 Write, Workers R2 Storage Write, Workers Containers Write, Workers CI Write, Workers AI Read, Workers AI Write, Artifacts Write, and Browser Run Write."
+  step "Add Account Settings Read, Account API Tokens Write, Workers Scripts Write, D1 Write, Workers R2 Storage Write, Workers KV Storage Write, Queues Write, Workers Containers Write, Workers CI Write, Workers AI Read, Workers AI Write, Artifacts Write, and Browser Run Write."
   if [[ -n "$SYLPH_DOMAIN" ]]; then
     step "Also grant Zone Read and DNS Read for the custom domain's zone."
   fi
