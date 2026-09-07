@@ -16,6 +16,9 @@ declare global {
       RESOURCE_TOKEN: string
       CLOUDFLARE_ACCOUNT_ID: string
       SYLPH_URL: string
+      SYLPH_SMOKE_SOURCE_COMMIT: string
+      SYLPH_SMOKE_TEMPLATE_COMMIT: string
+      SYLPH_SMOKE_STAGE: string
       BETTER_AUTH_SECRET: string
       ALLOW_TEST_MAGIC_LINKS: string
       CURSOR: DurableObjectNamespace<CursorConnectionObject>

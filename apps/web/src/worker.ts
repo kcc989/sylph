@@ -1,5 +1,6 @@
 export { ResourceMaintenance } from "./server/project-resource-maintenance"
 import { env } from "cloudflare:workers"
+import { smokeIdentityResponse } from "./server/smoke-identity"
 import { canonicalInstallationResponse } from "./server/installation-address"
 export { CodexContainer } from "./server/codex-container"
 export { CursorConnectionObject as CursorContainer } from "./server/cursor-connection-object"
@@ -20,6 +21,7 @@ export { WorkspaceRetention } from "./server/workspace-retention"
 
 export default {
   fetch: (request: Request) =>
+    smokeIdentityResponse(request, env) ??
     canonicalInstallationResponse(request, env.SYLPH_URL) ??
     serverEntry.fetch(request),
   async scheduled(controller: ScheduledController) {

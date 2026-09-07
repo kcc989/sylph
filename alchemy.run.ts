@@ -62,6 +62,15 @@ export class Website extends Cloudflare.Website.Vite<Website>()(
       },
       env: {
         SYLPH_URL: Cloudflare.Worker.URL,
+        SYLPH_SMOKE_SOURCE_COMMIT: Config.string(
+          "SYLPH_SMOKE_SOURCE_COMMIT"
+        ).pipe(Config.withDefault("")),
+        SYLPH_SMOKE_TEMPLATE_COMMIT: Config.string(
+          "SYLPH_SMOKE_TEMPLATE_COMMIT"
+        ).pipe(Config.withDefault("")),
+        SYLPH_SMOKE_STAGE: Config.string("SYLPH_SMOKE_STAGE").pipe(
+          Config.withDefault("")
+        ),
         CI_VERIFICATION_CONCURRENCY: Config.string(
           "CI_VERIFICATION_CONCURRENCY"
         ).pipe(Config.withDefault("2")),
