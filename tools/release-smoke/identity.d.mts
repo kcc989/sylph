@@ -22,3 +22,4 @@ export function requireDeployedIdentity(
   identity: SmokeIdentity,
   record: SmokeIdentityRecord
 ): void
+export function requirePublishedTemplate(output: string, commit: string): void

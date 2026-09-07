@@ -30,3 +30,14 @@ export function requireDeployedIdentity(identity, record) {
       "Deployed source, template, or stage identity differs from the run record"
     )
 }
+
+export function requirePublishedTemplate(output, commit) {
+  const commits = output
+    .trim()
+    .split("\n")
+    .map((line) => line.split(/\s+/)[0])
+  if (!commits.length || commits.some((published) => published !== commit))
+    throw new Error(
+      "The published template ref does not resolve to the expected immutable commit"
+    )
+}

@@ -8,6 +8,7 @@ import { cleanupSmokeRuns } from "../tools/release-smoke/cleanup.mjs"
 import {
   requireIntegratedSource,
   requireDeployedIdentity,
+  requirePublishedTemplate,
 } from "../tools/release-smoke/identity.mjs"
 import {
   configurationPath,
@@ -201,6 +202,21 @@ async function main() {
         dirty,
         template,
         values["template-commit"]
+      )
+    if (values.commit)
+      requirePublishedTemplate(
+        execute(
+          [
+            "git",
+            "ls-remote",
+            "--exit-code",
+            `https://github.com/${template.repository}.git`,
+            template.ref,
+          ],
+          environment,
+          true
+        ),
+        template.commit
       )
     configuration.SYLPH_SMOKE_SOURCE_COMMIT = commit
     configuration.SYLPH_SMOKE_TEMPLATE_COMMIT = template.commit

@@ -15,6 +15,7 @@ import {
 import {
   requireIntegratedSource,
   requireDeployedIdentity,
+  requirePublishedTemplate,
 } from "./identity.mjs"
 import { smokeIdentityResponse } from "../../apps/web/src/server/smoke-identity"
 
@@ -96,6 +97,21 @@ test("combined verification rejects a changed checkout, template, stage, or miss
   expect(() =>
     requireDeployedIdentity({ ...identity, stage: "smoke-another" }, run)
   ).toThrow("identity")
+  expect(() => requirePublishedTemplate("", run.template.commit)).toThrow(
+    "published"
+  )
+  expect(() =>
+    requirePublishedTemplate(
+      `${run.commit}\trefs/heads/starter`,
+      run.template.commit
+    )
+  ).toThrow("published")
+  expect(() =>
+    requirePublishedTemplate(
+      `${run.template.commit}\trefs/heads/starter`,
+      run.template.commit
+    )
+  ).not.toThrow()
 })
 
 test("approval is tied to the exact operation, source and target", () => {
