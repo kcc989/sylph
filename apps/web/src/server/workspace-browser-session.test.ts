@@ -374,11 +374,12 @@ const blockers = async (
 const passJourney = async (
   runtime: ReturnType<ReturnType<typeof setup>["runtime"]>,
   sessionId: string,
-  requestId: string = crypto.randomUUID()
+  requestId: string = crypto.randomUUID(),
+  requirementId = "save"
 ) => {
   await execute(runtime, {
     sessionId,
-    action: { type: "journey_begin", requirementId: "save" },
+    action: { type: "journey_begin", requirementId },
   })
   for (const viewport of policyInput.requirements[0].viewports) {
     await execute(runtime, {
@@ -405,6 +406,46 @@ const startSession = async (
 }
 
 describe("Required browser journey acceptance", () => {
+  test("an unscoped failure requires every journey to be repeated", async () => {
+    const fixture = setup()
+    const runtime = fixture.runtime()
+    await runtime.runPromise(
+      Effect.flatMap(WorkspaceBrowser, (browser) =>
+        browser.configure(
+          {
+            ...policyInput,
+            requirements: [
+              ...policyInput.requirements,
+              {
+                ...policyInput.requirements[0],
+                id: "other",
+                title: "Another required result",
+              },
+            ],
+          },
+          0,
+          "user-1"
+        )
+      )
+    )
+    const id = await startSession(runtime)
+    await passJourney(runtime, id)
+    await passJourney(runtime, id, crypto.randomUUID(), "other")
+    expect(await blockers(runtime)).toEqual([])
+    fixture.failAssertion()
+    await execute(runtime, {
+      sessionId: id,
+      action: { type: "assert", assertion: requiredAssertion },
+    })
+    fixture.restoreAssertions()
+    await passJourney(runtime, id)
+    expect((await blockers(runtime)).join(" ")).toContain(
+      "Repeat every required journey"
+    )
+    await passJourney(runtime, id, crypto.randomUUID(), "other")
+    expect(await blockers(runtime)).toEqual([])
+    await runtime.dispose()
+  })
   test("missing screenshots block default proof and require an explicit DOM-only policy revision", async () => {
     const fixture = setup()
     const runtime = fixture.runtime()

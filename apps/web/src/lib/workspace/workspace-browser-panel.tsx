@@ -5,6 +5,7 @@ import {
   type BrowserJourneySnapshot,
   type BrowserJourneyRequirement,
   type WorkspaceBrowserAction,
+  type WorkspaceBrowserAssertion,
   type WorkspaceBrowserResult,
   type WorkspaceBrowserToolInput,
   type WorkspaceHumanBrowserInput,
@@ -145,6 +146,17 @@ export function WorkspaceBrowserPanelView({
     setReason("")
     setEditing(true)
   }
+  const editAssertion = (
+    requirement: BrowserJourneyRequirement,
+    index: number,
+    assertion: WorkspaceBrowserAssertion
+  ) =>
+    editRequirement(requirement.id, {
+      ...requirement,
+      assertions: requirement.assertions.map((item, position) =>
+        position === index ? assertion : item
+      ),
+    })
   const currentResult = result?.session?.id === session?.id ? result : null
   const currentJourney = proof?.results.find(
     (item) => item.id === session?.journeyId
@@ -408,6 +420,43 @@ export function WorkspaceBrowserPanelView({
                   {requirement.assertions.map((assertion, index) => (
                     <div key={index} className="grid gap-2 sm:grid-cols-2">
                       <label className="flex min-w-0 flex-col gap-1 text-xs">
+                        Step {index + 1}: assertion
+                        <select
+                          className={fieldClass}
+                          value={assertion.type}
+                          onChange={(event) => {
+                            const type = event.target.value
+                            editAssertion(
+                              requirement,
+                              index,
+                              type === "count"
+                                ? {
+                                    type,
+                                    selector: assertion.selector,
+                                    value: 1,
+                                  }
+                                : type === "visible" || type === "checked"
+                                  ? {
+                                      type,
+                                      selector: assertion.selector,
+                                      value: true,
+                                    }
+                                  : {
+                                      type: type === "value" ? "value" : "text",
+                                      selector: assertion.selector,
+                                      value: "",
+                                    }
+                            )
+                          }}
+                        >
+                          <option value="text">Text content</option>
+                          <option value="value">Field value</option>
+                          <option value="count">Element count</option>
+                          <option value="visible">Visibility</option>
+                          <option value="checked">Checked state</option>
+                        </select>
+                      </label>
+                      <label className="flex min-w-0 flex-col gap-1 text-xs">
                         Step {index + 1}: CSS selector
                         <input
                           className={fieldClass}
@@ -428,34 +477,62 @@ export function WorkspaceBrowserPanelView({
                       </label>
                       <label className="flex min-w-0 flex-col gap-1 text-xs">
                         Expected {assertion.type}
-                        <input
-                          className={fieldClass}
-                          value={String(assertion.value)}
-                          onChange={(event) =>
-                            editRequirement(requirement.id, {
-                              ...requirement,
-                              assertions: requirement.assertions.map(
-                                (item, position) =>
-                                  position !== index
-                                    ? item
-                                    : item.type === "count"
-                                      ? {
-                                          ...item,
-                                          value: Number(event.target.value),
-                                        }
-                                      : item.type === "checked" ||
-                                          item.type === "visible"
-                                        ? {
-                                            ...item,
-                                            value:
-                                              event.target.value === "true",
-                                          }
-                                        : { ...item, value: event.target.value }
-                              ),
-                            })
-                          }
-                        />
+                        {assertion.type === "checked" ||
+                        assertion.type === "visible" ? (
+                          <select
+                            className={fieldClass}
+                            value={String(assertion.value)}
+                            onChange={(event) =>
+                              editAssertion(requirement, index, {
+                                ...assertion,
+                                value: event.target.value === "true",
+                              })
+                            }
+                          >
+                            <option value="true">True</option>
+                            <option value="false">False</option>
+                          </select>
+                        ) : (
+                          <input
+                            className={fieldClass}
+                            type={
+                              assertion.type === "count" ? "number" : "text"
+                            }
+                            min={assertion.type === "count" ? 0 : undefined}
+                            required={assertion.type === "count"}
+                            value={String(assertion.value)}
+                            onChange={(event) =>
+                              editAssertion(
+                                requirement,
+                                index,
+                                assertion.type === "count"
+                                  ? {
+                                      ...assertion,
+                                      value: Number(event.target.value),
+                                    }
+                                  : { ...assertion, value: event.target.value }
+                              )
+                            }
+                          />
+                        )}
                       </label>
+                      <Button
+                        type="button"
+                        size="xs"
+                        variant="ghost"
+                        className="self-end justify-self-start"
+                        disabled={requirement.assertions.length === 1}
+                        onClick={() =>
+                          editRequirement(requirement.id, {
+                            ...requirement,
+                            assertions: requirement.assertions.filter(
+                              (_, position) => position !== index
+                            ),
+                          })
+                        }
+                      >
+                        Remove step {index + 1}
+                      </Button>
                     </div>
                   ))}
                   <div className="flex flex-wrap items-center gap-3">

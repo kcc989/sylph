@@ -166,15 +166,17 @@ export const browserJourneyBlockers = (
     if (
       result.requirementId === "exploratory" &&
       result.status !== "passed" &&
-      !current.some(
-        (later) =>
-          later.requirementId !== "exploratory" &&
-          later.status === "passed" &&
-          later.ordinal > result.ordinal
+      !proof.policy.requirements.every((requirement) =>
+        current.some(
+          (later) =>
+            later.requirementId === requirement.id &&
+            later.status === "passed" &&
+            later.ordinal > result.ordinal
+        )
       )
     )
       blockers.push(
-        "An exploratory browser action failed or was interrupted. Complete a required journey after this failure or record a policy exception."
+        "An exploratory browser action failed or was interrupted. Repeat every required journey after this failure or record a policy exception."
       )
   }
   return blockers
