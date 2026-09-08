@@ -62,7 +62,7 @@ test("Cursor exposes explicit Max Mode through the supported provider option", (
     { id: "fixture", supportsMaxMode: true, variants: [] },
   ])
   expect(model?.variants).toContainEqual({
-    id: "Max",
+    id: "max",
     settings: { maxMode: true },
   })
   expect(model?.settings).toBeUndefined()

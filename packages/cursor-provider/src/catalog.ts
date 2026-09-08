@@ -33,7 +33,7 @@ export const cursorCatalog = (models: ModelInfo[]) => {
         })),
         ...(models.find((model) => model.id === id)?.supportsMaxMode &&
         !entry.options?.[CURSOR_VARIANT_PARAMETERS_KEY]
-          ? [{ id: "Max", settings: { maxMode: true } }]
+          ? [{ id: "max", settings: { maxMode: true } }]
           : []),
       ],
     }))
