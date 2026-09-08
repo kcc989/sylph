@@ -1,3 +1,4 @@
+import { cursorModelStream } from "./model-stream"
 import { cursorModelOptions } from "./model-options"
 import {
   CursorBridgeRequest,
@@ -70,14 +71,17 @@ export const handleCursorRequest = async (
         workspaceRoot: `${cacheDir}/workspace`,
         retry: { maxAttempts: 1 },
       })
-      const result = await provider.languageModel(input.call.modelId).doStream({
-        ...cursorModelOptions(input.call.options, model),
-        headers: { "x-opencode-session": input.call.sessionId },
-        abortSignal: request.signal,
-      })
+      const stream = cursorModelStream(
+        provider.languageModel(input.call.modelId),
+        {
+          ...cursorModelOptions(input.call.options, model),
+          headers: { "x-opencode-session": input.call.sessionId },
+          abortSignal: request.signal,
+        }
+      )
       const encoder = new TextEncoder()
       return new Response(
-        result.stream.pipeThrough(
+        stream.pipeThrough(
           new TransformStream({
             transform(part, controller) {
               if (part.type === "raw") return

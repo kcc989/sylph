@@ -84,6 +84,7 @@
     "packages/cursor-provider": {
       "name": "@workspace/cursor-provider",
       "dependencies": {
+        "@ai-sdk/provider": "3.0.8",
         "@workspace/domain": "workspace:*",
         "cursor-opencode-provider": "0.6.6",
         "effect": "4.0.0-rc.112",
