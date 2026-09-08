@@ -126,7 +126,11 @@ export async function modelNativeCommands(r: LifecycleActionRuntime) {
     .getByRole("checkbox", { name: r.options.modelName, exact: true })
     .check()
   await r.page.getByRole("button", { name: "Save models", exact: true }).click()
+  await expect(
+    r.page.locator("#instance-model-configuration")
+  ).not.toBeVisible()
   await r.page.goto("/projects/new?onboarding=1")
+  await waitForHydration(r.page)
   await r.page.getByLabel("Project name").fill(r.options.projectName)
   await r.page.getByRole("button", { name: "Create Project" }).click()
   await r.page.waitForURL(/\/projects\/[^/]+\/workspaces\/[^/?]+/, {

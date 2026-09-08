@@ -3,6 +3,7 @@ import {
   Link,
   redirect,
   useNavigate,
+  useHydrated,
 } from "@tanstack/react-router"
 import { useServerFn } from "@tanstack/react-start"
 import { failureMessage, type ProjectSource } from "@workspace/domain"
@@ -59,6 +60,7 @@ export const Route = createFileRoute("/projects/new")({
 
 function NewProjectScreen() {
   const navigate = useNavigate()
+  const hydrated = useHydrated()
   const { onboarding } = Route.useSearch()
   const { dashboard, organization, setup, catalog } = Route.useLoaderData()
   const create = useServerFn(createProject)
@@ -391,7 +393,7 @@ function NewProjectScreen() {
                   {error}
                 </p>
               ) : null}
-              <Button type="submit" disabled={pending}>
+              <Button type="submit" disabled={!hydrated || pending}>
                 {pending ? (
                   <LoaderCircle className="animate-spin" />
                 ) : (
