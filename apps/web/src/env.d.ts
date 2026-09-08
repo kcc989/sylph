@@ -13,7 +13,12 @@ import type { WorkspaceRetentionInput } from "./server/workspace-retention"
 declare global {
   namespace Cloudflare {
     interface Env {
+      RESOURCE_TOKEN: string
+      CLOUDFLARE_ACCOUNT_ID: string
       SYLPH_URL: string
+      SYLPH_SMOKE_SOURCE_COMMIT: string
+      SYLPH_SMOKE_TEMPLATE_COMMIT: string
+      SYLPH_SMOKE_STAGE: string
       BETTER_AUTH_SECRET: string
       ALLOW_TEST_MAGIC_LINKS: string
       CURSOR: DurableObjectNamespace<CursorConnectionObject>
@@ -29,6 +34,8 @@ declare global {
       REPOS: Artifacts
       CHECK_EVIDENCE: R2Bucket
       CI_WORKFLOW: Workflow<WorkspaceCiInput>
+      CLOUDFLARE_ACCOUNT_ID: string
+      CF_TOKEN: string
       RESOURCE_MAINTENANCE: Workflow<ProjectResourceMaintenance>
       REPOSITORY_NAMESPACE: string
       PROJECT_SYNCS: DurableObjectNamespace<ProjectSynchronization>

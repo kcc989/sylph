@@ -33,7 +33,11 @@ export const commandEnvironment = (
       "SYLPH_RELEASE_ID",
       "SYLPH_PROJECT_ID",
       "SYLPH_BASE_COMMIT",
+      "SYLPH_BASE_URL",
       "SYLPH_RECOVERY_POINT",
+      "SYLPH_RECOVERY_KEY",
+      "SYLPH_RECOVERY_SECRETS",
+      "SYLPH_RECOVERY_VERIFY_TOKEN",
       "SYLPH_PRODUCTION_URL"
     )
   return Object.fromEntries(

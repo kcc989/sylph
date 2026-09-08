@@ -1,3 +1,7 @@
+import {
+  browserJourneyBlockers,
+  type BrowserJourneySnapshot,
+} from "./browser-journeys"
 import type { WorkspaceCheckRun } from "./checks"
 import type { WorkspaceReviewDecision } from "./review"
 import type { WorkspaceVersionControl } from "./version-control"
@@ -11,16 +15,29 @@ export const workspaceAcceptance = (input: {
   unresolvedComments: number
   turnActive: boolean
   runtimeHealthy: boolean
+  browserProof?: typeof BrowserJourneySnapshot.Encoded
+  conversationId?: string | null
 }) => {
   const { versionControl } = input
-  const passing =
-    input.checks.find(
-      (run) =>
-        run.kind === "checkpoint" &&
-        run.commit === versionControl.forkHead &&
-        run.status === "passed"
-    ) ?? null
+  const current =
+    [...input.checks]
+      .sort((a, b) => b.createdAt - a.createdAt || b.attempt - a.attempt)
+      .find(
+        (run) =>
+          run.kind === "checkpoint" && run.commit === versionControl.forkHead
+      ) ?? null
+  const passing = current?.status === "passed" ? current : null
   const blockers: string[] = []
+  if (passing)
+    blockers.push(
+      ...browserJourneyBlockers(input.browserProof, {
+        workspaceId: passing.workspaceId,
+        conversationId: input.conversationId ?? "",
+        checkId: passing.id,
+        commit: passing.commit,
+        attempt: passing.attempt,
+      })
+    )
   if (input.workspaceStatus === "archived") {
     blockers.push("The Workspace is archived and read-only.")
   }
@@ -43,7 +60,7 @@ export const workspaceAcceptance = (input: {
   }
   if (!passing) {
     blockers.push(
-      "The latest Checkpoint has not passed its Check, Preview, and browser verification."
+      "The latest Checkpoint has not passed its Check, Preview, and homepage identity verification."
     )
   }
   if (versionControl.projectChanged) {

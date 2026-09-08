@@ -6,6 +6,10 @@ import {
   DeploymentRecoveryPoint,
 } from "@workspace/domain"
 import { Schema } from "effect"
+import type {
+  ProjectResourceKind,
+  StoredProjectResource,
+} from "@workspace/domain/project-resources"
 
 export const releaseScripts = [
   "sylph:release:review",
@@ -190,4 +194,51 @@ export const readDataRestore = (
         "Data restore did not cover the selected recovery point and all its resources",
     })
   return restored
+}
+
+const recoveryResourceKinds = {
+  d1: "database",
+  r2: "object-storage",
+  kv: "kv",
+  durable_object: "durable-object",
+  queue: "other",
+  workflow: "other",
+  worker: null,
+  domain: null,
+} satisfies Record<ProjectResourceKind, string | null>
+
+export const validateRecoveryInventory = (
+  point: DeploymentRecoveryPoint,
+  inventory: ReadonlyArray<StoredProjectResource>
+) => {
+  const expected: string[] = []
+  for (const resource of inventory) {
+    if (
+      resource.project_id !== point.projectId ||
+      resource.scope !== "production"
+    )
+      throw new DeploymentSafetyFailure({
+        message: "Recovery inventory belongs to a different Project or scope",
+      })
+    if (resource.purpose === "recovery_control" || resource.state === "deleted")
+      continue
+    const kind = recoveryResourceKinds[resource.kind]
+    if (!kind) continue
+    if (!resource.resource_id) {
+      if (resource.state === "reserved") continue
+      throw new DeploymentSafetyFailure({
+        message: "Existing application state has no verified provider identity",
+      })
+    }
+    expected.push(`${kind}:${resource.resource_id}`)
+  }
+  const actual = point.resources
+    .filter((resource) => resource.kind !== "secret")
+    .map((resource) => `${resource.kind}:${resource.id}`)
+  if (JSON.stringify(actual.sort()) !== JSON.stringify(expected.sort()))
+    throw new DeploymentSafetyFailure({
+      message:
+        "The recovery point does not cover exactly the owned application state; recovery control must remain outside application restore",
+    })
+  return point
 }

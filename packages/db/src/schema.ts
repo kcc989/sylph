@@ -307,6 +307,7 @@ export const workspace = sqliteTable(
     repositoryMode: text("repository_mode").notNull().default("base"),
     baseArtifactRepo: text("base_artifact_repo").notNull(),
     workspaceArtifactRepo: text("workspace_artifact_repo").notNull(),
+    repairCommit: text("repair_commit"),
     baseCommit: text("base_commit"),
     forkHead: text("fork_head"),
     acceptedCommit: text("accepted_commit"),
@@ -510,6 +511,7 @@ export const deployment = sqliteTable(
     commit: text("commit").notNull(),
     status: text("status").notNull().default("queued"),
     productionUrl: text("production_url"),
+    identityJson: text("identity_json"),
     baseDeploymentId: text("base_deployment_id"),
     recoveryDeploymentId: text("recovery_deployment_id"),
     reviewJson: text("review_json"),
@@ -712,6 +714,7 @@ export const projectResource = sqliteTable(
     name: text("name").notNull(),
     resourceId: text("resource_id"),
     generation: text("generation"),
+    purpose: text("purpose").notNull().default("application"),
     state: text("state")
       .$type<
         import("@workspace/domain/project-resources").StoredProjectResource["state"]
@@ -729,11 +732,11 @@ export const projectResource = sqliteTable(
     index("project_resource_project_idx").on(table.projectId, table.scope),
     check(
       "project_resource_kind_check",
-      sql`${table.kind} IN ('worker', 'd1', 'kv', 'r2', 'queue', 'domain')`
+      sql`${table.kind} IN ('worker', 'd1', 'kv', 'r2', 'queue', 'domain', 'durable_object', 'workflow')`
     ),
     check(
       "project_resource_state_check",
-      sql`${table.state} IN ('reserved', 'active', 'deleted')`
+      sql`${table.state} IN ('reserved', 'active', 'retired', 'deleted')`
     ),
   ]
 )
@@ -760,7 +763,7 @@ export const projectResourceOperation = sqliteTable(
     primaryKey({ columns: [table.accountId, table.projectId, table.scope] }),
     check(
       "project_resource_operation_status_check",
-      sql`${table.status} IN ('deploying', 'retained', 'cleanup_failed', 'deleted', 'complete')`
+      sql`${table.status} IN ('deploying', 'retained', 'cleanup_failed', 'deleted', 'complete', 'maintaining')`
     ),
   ]
 )
@@ -811,3 +814,57 @@ export const installationSetupSession = sqliteTable(
     githubOrigin: text("github_origin"),
   }
 )
+
+export const projectHealth = sqliteTable("project_health", {
+  projectId: text("project_id")
+    .primaryKey()
+    .references(() => project.id, { onDelete: "cascade" }),
+  observationJson: text("observation_json"),
+  collectedAt: integer("collected_at").notNull().default(0),
+  leaseUntil: integer("lease_until").notNull().default(0),
+})
+
+export const projectIncident = sqliteTable(
+  "project_incident",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => project.id, { onDelete: "cascade" }),
+    deploymentId: text("deployment_id")
+      .notNull()
+      .references(() => deployment.id, { onDelete: "cascade" }),
+    commit: text("commit").notNull(),
+    kind: text("kind").notNull(),
+    status: text("status").notNull().default("open"),
+    firstSeen: integer("first_seen").notNull(),
+    lastSeen: integer("last_seen").notNull(),
+    observationJson: text("observation_json").notNull(),
+    workspaceId: text("workspace_id").references(() => workspace.id, {
+      onDelete: "set null",
+    }),
+    issueId: text("issue_id").references(() => issue.id, {
+      onDelete: "set null",
+    }),
+  },
+  (table) => [
+    uniqueIndex("project_incident_deployment_kind").on(
+      table.projectId,
+      table.deploymentId,
+      table.kind
+    ),
+    index("project_incident_recent").on(table.projectId, table.lastSeen),
+  ]
+)
+export const projectResourceReview = sqliteTable("project_resource_review", {
+  id: text("id").primaryKey().notNull(),
+  projectId: text("project_id")
+    .notNull()
+    .references(() => project.id, { onDelete: "restrict" }),
+  reviewJson: text("review_json").notNull(),
+  status: text("status").notNull(),
+  error: text("error"),
+  createdAt: integer("created_at")
+    .notNull()
+    .default(sql`(unixepoch())`),
+})

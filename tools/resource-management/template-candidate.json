@@ -1,0 +1,35 @@
+{
+  "repository": "kcc989/sylph-tanstack-template",
+  "baseCommit": "bed6b52785eab6e79680041ee1367f2831f59296",
+  "candidateCommit": "36860839fb2b1536228775998f3cce730f5b028c",
+  "candidateRef": "codex/complete-release-contract",
+  "version": "0.2.0",
+  "published": true,
+  "recoverySources": [
+    {
+      "templatePath": "src/recovery/recovery.ts",
+      "platformPath": "packages/cloudflare-recovery/src/recovery.ts",
+      "sourceSha256": "002b829754fecf7c0860fa8d6a5d7b28441da0fde6b78265f18073379b997bbc",
+      "templateSha256": "2658c1278163e59e372545b669434d15d26e38b4944f7f163c556b6e6df0f417"
+    },
+    {
+      "templatePath": "src/recovery/worker.ts",
+      "platformPath": "packages/cloudflare-recovery/src/worker.ts",
+      "sourceSha256": "cb1722751a1fb792d2b4f30c56f2b6248abd664b1eb60d0eccbc4e9c3c0f159e",
+      "templateSha256": "cb1722751a1fb792d2b4f30c56f2b6248abd664b1eb60d0eccbc4e9c3c0f159e"
+    },
+    {
+      "templatePath": "src/recovery/domain.ts",
+      "platformPath": "packages/domain/src/cloudflare-recovery.ts",
+      "sourceSha256": "52b5a87c1d62d01af8a7b0786ea4c86017d0c7609cdd74f0ea713211c20f3600",
+      "templateSha256": "52b5a87c1d62d01af8a7b0786ea4c86017d0c7609cdd74f0ea713211c20f3600"
+    },
+    {
+      "templatePath": "recovery-migrations/0001-recovery.sql",
+      "platformPath": "packages/cloudflare-recovery/src/control.sql",
+      "sourceSha256": "7bd073492a5c776e150d3af23531b4b141eecb3a3126e2995459171cff125462",
+      "templateSha256": "7bd073492a5c776e150d3af23531b4b141eecb3a3126e2995459171cff125462"
+    }
+  ],
+  "recoverySourceCommit": "bebe08de412cadeddfc1459788cba97999e10182"
+}

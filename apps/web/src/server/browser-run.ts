@@ -1,10 +1,14 @@
 import type { Page } from "@cloudflare/puppeteer"
 import {
   WorkspaceBrowserFailure,
+  browserViewportSize,
+  type BrowserViewport,
   type WorkspaceBrowserAction,
   type WorkspaceBrowserAssertion,
 } from "@workspace/domain"
 import { Context, Effect, Layer } from "effect"
+
+import { browserNavigationGuard } from "./browser-navigation-guard"
 
 import { browserTargetUrl, bounded } from "./workspace-browser"
 import { browserEvidenceSelector } from "./workspace-ci-browser"
@@ -16,7 +20,10 @@ export type BrowserObservation = {
   url: string
   markdown: string
   accessibility: string
-  screenshot: Uint8Array
+  screenshot?: Uint8Array
+  viewport?: BrowserViewport
+  pageId?: string
+  pages?: ReadonlyArray<{ id: string; url: string }>
 }
 
 export type BrowserConnection = {
@@ -29,12 +36,20 @@ export type BrowserConnection = {
   close(): Promise<void>
 }
 
+export type BrowserConnectionOptions = {
+  allowedOrigins: ReadonlyArray<string>
+  viewport: BrowserViewport
+  pageId?: string
+  captureMode?: "screenshots" | "accessibility"
+}
+
 export class BrowserRunClient extends Context.Service<
   BrowserRunClient,
   {
     connect(
       previewUrl: string,
-      sessionId?: string
+      sessionId?: string,
+      options?: BrowserConnectionOptions
     ): Effect.Effect<BrowserConnection, WorkspaceBrowserFailure>
     close(sessionId: string): Effect.Effect<void, WorkspaceBrowserFailure>
   }
@@ -89,8 +104,32 @@ const uniqueElement = async (page: Page, selector: string) => {
   return elements[0]
 }
 
-const actOnPage = async (page: Page, action: WorkspaceBrowserAction) => {
+const actOnPage = async (
+  page: Page,
+  action: WorkspaceBrowserAction,
+  domOnly: boolean
+) => {
   switch (action.type) {
+    case "click_point": {
+      if (domOnly)
+        throw new Error(
+          "Pointer clicks require screenshot evidence. Use a selector under the DOM-only policy."
+        )
+      const viewport = page.viewport()
+      if (
+        !viewport ||
+        action.x >= viewport.width ||
+        action.y >= viewport.height
+      )
+        throw new Error(
+          "Click is outside the visible viewport. Scroll and observe before clicking."
+        )
+      await page.mouse.click(action.x, action.y)
+      return
+    }
+    case "type_text":
+      await page.keyboard.type(action.value)
+      return
     case "reload":
       await page.reload({
         waitUntil: "domcontentloaded",
@@ -102,7 +141,22 @@ const actOnPage = async (page: Page, action: WorkspaceBrowserAction) => {
     case "select": {
       const element = await uniqueElement(page, action.selector)
       try {
-        if (action.type === "click") await element.click()
+        if (action.type === "click") {
+          if (domOnly)
+            await element.evaluate((node) => {
+              if (
+                !(node instanceof HTMLElement) ||
+                node.matches(":disabled") ||
+                node.getClientRects().length === 0
+              )
+                throw new Error(
+                  "The selected control is not available for activation"
+                )
+              node.focus()
+              node.click()
+            })
+          else await element.click()
+        }
         if (action.type === "select") await element.select(...action.values)
         if (action.type === "fill") {
           await element.evaluate((node) => {
@@ -138,9 +192,34 @@ const actOnPage = async (page: Page, action: WorkspaceBrowserAction) => {
       await page.keyboard.press(action.key)
       return
     case "scroll":
-      await page.mouse.wheel({ deltaX: action.x, deltaY: action.y })
+      if (domOnly)
+        await page.evaluate(({ x, y }) => window.scrollBy(x, y), {
+          x: action.x,
+          y: action.y,
+        })
+      else await page.mouse.wheel({ deltaX: action.x, deltaY: action.y })
       return
     case "wait": {
+      if (domOnly) {
+        const result = await page.waitForFunction(
+          ({ selector, state }) => {
+            const node = document.querySelector(selector)
+            const visible =
+              node !== null &&
+              node.getClientRects().length > 0 &&
+              getComputedStyle(node).visibility !== "hidden"
+            return state === "hidden"
+              ? !visible
+              : state === "visible"
+                ? visible
+                : node !== null
+          },
+          { timeout: actionTimeout, polling: 100 },
+          { selector: action.selector, state: action.state }
+        )
+        await result.dispose()
+        return
+      }
       const element = await page.waitForSelector(action.selector, {
         visible: action.state === "visible",
         hidden: action.state === "hidden",
@@ -157,7 +236,10 @@ const actOnPage = async (page: Page, action: WorkspaceBrowserAction) => {
   }
 }
 
-export const browserRunLayer = (binding: Pick<BrowserRun, "fetch">) =>
+export const browserRunLayer = (
+  binding: Pick<BrowserRun, "fetch">,
+  trace: (phase: string) => Promise<void> = async () => {}
+) =>
   Layer.succeed(BrowserRunClient, {
     close: Effect.fn("BrowserRunClient.close")((sessionId: string) =>
       Effect.tryPromise({
@@ -184,7 +266,11 @@ export const browserRunLayer = (binding: Pick<BrowserRun, "fetch">) =>
       })
     ),
     connect: Effect.fn("BrowserRunClient.connect")(
-      (previewUrl: string, sessionId?: string) =>
+      (
+        previewUrl: string,
+        sessionId?: string,
+        options?: BrowserConnectionOptions
+      ) =>
         Effect.tryPromise({
           try: async () => {
             const { default: puppeteer } = await import("@cloudflare/puppeteer")
@@ -194,46 +280,61 @@ export const browserRunLayer = (binding: Pick<BrowserRun, "fetch">) =>
                 globalThis.fetch
               ),
             }
+            await trace("connect")
             const browser = sessionId
               ? await puppeteer.connect(endpoint, sessionId)
               : await puppeteer.launch(endpoint, {
                   keep_alive: browserIdleTimeout,
                 })
             try {
-              const pages = await browser.pages()
-              if (sessionId && pages.length !== 1)
-                throw new Error(
-                  "The browser page was closed or additional tabs were opened. Start a new session."
-                )
-              const page = pages[0] ?? (await browser.newPage())
-              page.setDefaultTimeout(actionTimeout)
-              page.setDefaultNavigationTimeout(actionTimeout)
-              await page.setViewport({ width: 1440, height: 900 })
-              let blocked: string | undefined
               const checkUrl = (url: string) =>
-                browserTargetUrl({ previewUrl, url })
-              await page.setRequestInterception(true)
-              page.on("request", (request) => {
-                if (request.isInterceptResolutionHandled()) return
-                if (request.isNavigationRequest()) {
-                  try {
-                    checkUrl(request.url())
-                  } catch {
-                    blocked = "Navigation outside the Preview was blocked"
-                    void request.abort().catch(() => undefined)
-                    return
-                  }
+                browserTargetUrl({
+                  previewUrl,
+                  url,
+                  allowedOrigins: options?.allowedOrigins,
+                })
+              await trace("guard")
+              const guard = await browserNavigationGuard(
+                browser,
+                checkUrl,
+                trace
+              )
+              await trace("pages")
+              const pages = await browser.pages()
+              let page = pages[0] ?? (await browser.newPage())
+              const pageId = async (target: Page) => {
+                const session = await guard.prepare(target)
+                return (await session.send("Target.getTargetInfo")).targetInfo
+                  .targetId
+              }
+              if (options?.pageId) {
+                const selected = await Promise.all(
+                  pages.map(async (candidate) => ({
+                    page: candidate,
+                    id: await pageId(candidate),
+                  }))
+                )
+                const match = selected.find(
+                  (candidate) => candidate.id === options.pageId
+                )
+                if (match) page = match.page
+              }
+              let viewport = options?.viewport ?? "desktop"
+              const prepare = async (target: Page) => {
+                await guard.prepare(target)
+                target.setDefaultTimeout(actionTimeout)
+                target.setDefaultNavigationTimeout(actionTimeout)
+                await target.setViewport(browserViewportSize(viewport))
+                await target.bringToFront()
+              }
+              await trace("viewport")
+              await prepare(page)
+              await trace("connected")
+              const ensureAllowed = async () => {
+                await guard.check()
+                for (const target of await browser.pages()) {
+                  if (target.url() !== "about:blank") checkUrl(target.url())
                 }
-                void request.continue().catch(() => undefined)
-              })
-              page.on("popup", (popup) => {
-                blocked =
-                  "Popup journeys are not supported in this browser session"
-                void popup?.close().catch(() => undefined)
-              })
-              const ensureAllowed = () => {
-                if (blocked) throw new Error(blocked)
-                checkUrl(page.url())
               }
               return {
                 id: browser.sessionId(),
@@ -243,26 +344,73 @@ export const browserRunLayer = (binding: Pick<BrowserRun, "fetch">) =>
                     waitUntil: "domcontentloaded",
                     timeout: actionTimeout,
                   })
-                  ensureAllowed()
+                  await ensureAllowed()
                 },
                 async verify(commit) {
-                  const marker = await page.waitForSelector(
-                    browserEvidenceSelector(commit),
-                    { timeout: actionTimeout }
-                  )
-                  if (!marker)
+                  await trace("verify-identity")
+                  const marker = await page
+                    .waitForSelector(browserEvidenceSelector(commit), {
+                      timeout: actionTimeout,
+                    })
+                    .catch(() => null)
+                  if (!marker) {
+                    const actual = await page.evaluate(() => ({
+                      title: document.title,
+                      checkpoint:
+                        document
+                          .querySelector("[data-sylph-checkpoint]")
+                          ?.getAttribute("data-sylph-checkpoint") ?? null,
+                      deployment:
+                        document
+                          .querySelector("[data-sylph-deployment]")
+                          ?.getAttribute("data-sylph-deployment") ?? null,
+                    }))
                     throw new Error(
-                      "The Preview did not render the expected Checkpoint identity"
+                      `The Preview did not render Checkpoint ${commit}: ${JSON.stringify(actual)}`
                     )
+                  }
                   await marker.dispose()
                 },
                 async act(action) {
-                  ensureAllowed()
-                  await actOnPage(page, action)
-                  ensureAllowed()
+                  await ensureAllowed()
+                  if (action.type === "viewport") {
+                    viewport = action.viewport
+                    await prepare(page)
+                  } else if (action.type === "popup") {
+                    checkUrl(action.url)
+                    page = await browser.newPage()
+                    await prepare(page)
+                    await page.goto(action.url, {
+                      waitUntil: "domcontentloaded",
+                      timeout: actionTimeout,
+                    })
+                  } else if (action.type === "switch_page") {
+                    const candidates = await Promise.all(
+                      (await browser.pages()).map(async (target) => ({
+                        page: target,
+                        id: await pageId(target),
+                      }))
+                    )
+                    const selected = candidates.find(
+                      (target) => target.id === action.pageId
+                    )
+                    if (!selected)
+                      throw new Error(
+                        "This browser page was closed. Observe the current pages before acting."
+                      )
+                    page = selected.page
+                    await prepare(page)
+                  } else
+                    await actOnPage(
+                      page,
+                      action,
+                      options?.captureMode === "accessibility"
+                    )
+                  await ensureAllowed()
                 },
                 async observe(fullPage) {
-                  ensureAllowed()
+                  await trace("observe-policy")
+                  await ensureAllowed()
                   try {
                     await page.waitForNetworkIdle({
                       idleTime: 300,
@@ -274,7 +422,21 @@ export const browserRunLayer = (binding: Pick<BrowserRun, "fetch">) =>
                     )
                       throw error
                   }
-                  ensureAllowed()
+                  await ensureAllowed()
+                  await trace("observe-dimensions")
+                  const dimensions = await page.evaluate(() => ({
+                    width: innerWidth,
+                    height: innerHeight,
+                  }))
+                  const expected = browserViewportSize(viewport)
+                  if (
+                    dimensions.width !== expected.width ||
+                    dimensions.height !== expected.height
+                  )
+                    throw new Error(
+                      `Viewport verification failed: expected ${expected.width}×${expected.height}, received ${dimensions.width}×${dimensions.height}`
+                    )
+                  await trace("observe-content")
                   const content = await page.evaluate(() => {
                     const fields = Array.from(
                       document.querySelectorAll(
@@ -292,29 +454,71 @@ export const browserRunLayer = (binding: Pick<BrowserRun, "fetch">) =>
                       }))
                     return `# ${document.title}\n\n${document.body.innerText.slice(0, 24_000)}\n\nControls (CSS selectors):\n${JSON.stringify(fields)}`
                   })
+                  await trace("observe-accessibility")
+                  const evidenceSession = await guard.prepare(page)
                   const accessibility = JSON.stringify(
-                    await page.accessibility.snapshot()
+                    await evidenceSession.send(
+                      "Accessibility.getFullAXTree",
+                      undefined,
+                      { timeout: actionTimeout }
+                    )
                   )
-                  const screenshot = await page.screenshot({
-                    type: "png",
-                    fullPage,
-                  })
-                  ensureAllowed()
+                  let screenshot: Uint8Array | undefined
+                  if (options?.captureMode !== "accessibility") {
+                    await trace("observe-screenshot")
+                    const bounds = fullPage
+                      ? (
+                          await evidenceSession.send(
+                            "Page.getLayoutMetrics",
+                            undefined,
+                            { timeout: actionTimeout }
+                          )
+                        ).cssContentSize
+                      : { x: 0, y: 0, ...expected }
+                    const capture = await evidenceSession.send(
+                      "Page.captureScreenshot",
+                      {
+                        format: "png",
+                        fromSurface: fullPage,
+                        captureBeyondViewport: fullPage,
+                        clip: { ...bounds, scale: 1 },
+                      },
+                      { timeout: actionTimeout }
+                    )
+                    screenshot = Uint8Array.from(
+                      atob(capture.data),
+                      (character) => character.charCodeAt(0)
+                    )
+                    const header = new DataView(screenshot.buffer)
+                    if (
+                      screenshot.byteLength < 24 ||
+                      header.getUint32(0) !== 0x89504e47 ||
+                      (!fullPage &&
+                        (header.getUint32(16) !== expected.width ||
+                          header.getUint32(20) !== expected.height))
+                    )
+                      throw new Error(
+                        "The browser screenshot did not match the verified viewport."
+                      )
+                  }
+                  await trace("observe-complete")
+                  await ensureAllowed()
                   return {
                     url: page.url(),
                     markdown: bounded(content, 24_000),
                     accessibility,
                     screenshot,
+                    viewport,
+                    pageId: await pageId(page),
+                    pages: await Promise.all(
+                      (await browser.pages()).map(async (target) => ({
+                        id: await pageId(target),
+                        url: target.url(),
+                      }))
+                    ),
                   }
                 },
-                async disconnect() {
-                  try {
-                    if (browser.connected && !page.isClosed())
-                      await page.setRequestInterception(false)
-                  } finally {
-                    await browser.disconnect()
-                  }
-                },
+                disconnect: () => guard.disconnect(),
                 close: () => browser.close(),
               } satisfies BrowserConnection
             } catch (error) {

@@ -68,6 +68,18 @@
         "vite": "^8",
       },
     },
+    "packages/cloudflare-recovery": {
+      "name": "@workspace/cloudflare-recovery",
+      "version": "0.0.0",
+      "dependencies": {
+        "@workspace/domain": "workspace:*",
+        "effect": "4.0.0-rc.112",
+      },
+      "devDependencies": {
+        "@types/bun": "1.4.0",
+        "typescript": "^6",
+      },
+    },
     "packages/cursor-provider": {
       "name": "@workspace/cursor-provider",
       "dependencies": {
@@ -1457,6 +1469,8 @@
     "@vitest/utils": ["@vitest/utils@4.1.11", "", { "dependencies": { "@vitest/pretty-format": "4.1.11", "convert-source-map": "^2.0.0", "tinyrainbow": "^3.1.0" } }, "sha512-zTCVGpyFsGWBhllOyKlTw/vnr6D9qxsfSDyfbyZmTyjHw5N/VuvzHpHoQjm2ZJzn4RJgx5w4r7V0er69CmLgPQ=="],
 
     "@webcontainer/env": ["@webcontainer/env@1.1.1", "", {}, "sha512-6aN99yL695Hi9SuIk1oC88l9o0gmxL1nGWWQ/kNy81HigJ0FoaoTXpytCj6ItzgyCEwA9kF1wixsTuv5cjsgng=="],
+
+    "@workspace/cloudflare-recovery": ["@workspace/cloudflare-recovery@workspace:packages/cloudflare-recovery"],
 
     "@workspace/cursor-provider": ["@workspace/cursor-provider@workspace:packages/cursor-provider"],
 

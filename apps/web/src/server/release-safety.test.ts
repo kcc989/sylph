@@ -159,6 +159,14 @@ test("production saves recovery before publish and journeys before resuming writ
   const result = await pipeline("success")
   expect(result.deployment.status).toBe("succeeded")
   expect(result.check.status).toBe("passed")
+  expect(result.observations).toEqual([
+    { action: "public-page", status: 503, owner: "deployment-1" },
+    { action: "private-probe", status: 200, owner: "deployment-1" },
+    { action: "resume", owner: null },
+    { action: "public-page", status: 200, owner: null },
+    { action: "private-probe", status: 200, owner: null },
+  ])
+  expect(result.gateOwner).toBeNull()
   expect(
     result.commands.map((command: { name: string }) => command.name)
   ).toEqual([
@@ -194,6 +202,35 @@ test("production saves recovery before publish and journeys before resuming writ
   )
   expect(result.selector).toContain('data-sylph-deployment="production"')
   expect(result.artifacts).toHaveLength(2)
+  const prepared = result.commands.find(
+    (command: { name: string }) => command.name === "release-prepare"
+  )
+  const published = result.commands.find(
+    (command: { name: string }) => command.name === "production"
+  )
+  expect(JSON.parse(prepared.env.SYLPH_RECOVERY_SECRETS)).toEqual({
+    API_KEY: "application-secret",
+    BETTER_AUTH_SECRET: "test-secret",
+  })
+  expect(atob(prepared.env.SYLPH_RECOVERY_KEY).length).toBe(32)
+  expect(published.env.SYLPH_RECOVERY_KEY).toBe(prepared.env.SYLPH_RECOVERY_KEY)
+  expect(prepared.env.SYLPH_RECOVERY_KEY).not.toBe(
+    prepared.env.SYLPH_RECOVERY_VERIFY_TOKEN
+  )
+  for (const command of result.commands.filter((entry: { name: string }) =>
+    [
+      "release-review",
+      "production-journey",
+      "release-resume",
+      "production-journey-live",
+    ].includes(entry.name)
+  )) {
+    expect(command.env.SYLPH_RECOVERY_KEY).toBeUndefined()
+    expect(command.env.SYLPH_RECOVERY_SECRETS).toBeUndefined()
+  }
+  expect(JSON.stringify(result.deployment)).not.toContain(
+    prepared.env.SYLPH_RECOVERY_KEY
+  )
 })
 
 test.each([
@@ -291,3 +328,82 @@ test("invalid receipts do not expose input values in diagnostics", () => {
     )
   ).toThrow("Invalid release receipt. Check the release safety schema.")
 })
+
+test("failed prepublication mutation does not replace the published recovery baseline", async () => {
+  const result = await pipeline("restore-prepublication-failure")
+  expect(result.deployment.status).toBe("succeeded")
+  const prepare = result.commands.find(
+    (command: { name: string }) => command.name === "release-prepare"
+  )
+  expect(prepare.env.SYLPH_BASE_COMMIT).toBe("a".repeat(40))
+  expect(prepare.env.SYLPH_BASE_URL).toBe(
+    "https://sylph-fixture-app.account.workers.dev"
+  )
+  expect(
+    result.commands.some(
+      (command: { name: string }) => command.name === "data-restore"
+    )
+  ).toBe(true)
+})
+
+test.each(["missing-inventory", "extra-inventory"])(
+  "rejects false recovery coverage before publishing: %s",
+  async (mode) => {
+    const result = await pipeline(mode)
+    expect(result.deployment.status).toBe("failed")
+    expect(result.deployment.recovery_json).toBeNull()
+    expect(
+      result.commands.some(
+        (command: { name: string }) => command.name === "production"
+      )
+    ).toBe(false)
+    expect(result.deployment.failure_details).toContain("exactly the owned")
+  }
+)
+
+test.each(["private-probe-failure", "wrong-commit", "resume-failure"])(
+  "keeps the real writer gate paused when pre-resume safety fails: %s",
+  async (mode) => {
+    const result = await pipeline(mode)
+    expect(result.deployment.status).toBe("failed")
+    expect(result.deployment.production_url).toBe(
+      "https://sylph-fixture-app.account.workers.dev"
+    )
+    expect(result.gateOwner).toBe("deployment-1")
+    expect(
+      result.observations.filter(
+        (observation: { action: string }) =>
+          observation.action === "public-page"
+      )
+    ).toEqual([{ action: "public-page", status: 503, owner: "deployment-1" }])
+    expect(
+      result.commands.some(
+        (command: { name: string }) =>
+          command.name === "production-journey-live"
+      )
+    ).toBe(false)
+  }
+)
+
+test.each(["browser-failure", "live-journey-failure"])(
+  "keeps a published resumed release failed when public verification fails: %s",
+  async (mode) => {
+    const result = await pipeline(mode)
+    expect(result.deployment.status).toBe("failed")
+    expect(result.deployment.production_url).toBe(
+      "https://sylph-fixture-app.account.workers.dev"
+    )
+    expect(result.gateOwner).toBeNull()
+    expect(result.observations).toContainEqual({
+      action: "public-page",
+      status: 200,
+      owner: null,
+    })
+    expect(
+      result.commands.some(
+        (command: { name: string }) =>
+          command.name === "production-journey-live"
+      )
+    ).toBe(mode === "live-journey-failure")
+  }
+)

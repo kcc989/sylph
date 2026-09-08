@@ -1,4 +1,6 @@
+import { BrowserJourneySnapshot } from "./browser-journeys"
 import { Schema } from "effect"
+import { GitCommitId } from "./version-control"
 
 import { AgentSessionId, OrganizationId, ProjectId, WorkspaceId } from "./ids"
 import {
@@ -19,6 +21,7 @@ export class InitializeWorkspaceRuntime extends Schema.Class<InitializeWorkspace
   projectRepositoryName: Schema.NonEmptyString,
   projectRepositoryRemote: Schema.NonEmptyString,
   defaultRef: Schema.NonEmptyString,
+  repairCommit: Schema.optional(GitCommitId),
   sourceRef: Schema.optional(Schema.NonEmptyString),
   baseCommit: Schema.NonEmptyString,
   providerId: Schema.NonEmptyString,
@@ -437,6 +440,7 @@ export class WorkspaceRuntimeHealth extends Schema.Class<WorkspaceRuntimeHealth>
   checkContinuationsUsed: Schema.Int,
   archivedAt: Schema.NullOr(Schema.Number),
   opencode: Schema.Struct({ healthy: Schema.Boolean }),
+  browserProof: Schema.optional(BrowserJourneySnapshot),
 }) {}
 
 export class WorkspaceTurnCancelResult extends Schema.Class<WorkspaceTurnCancelResult>(

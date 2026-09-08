@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { Database, type SQLQueryBindings } from "bun:sqlite"
 import git from "isomorphic-git"
-import { WorkspaceGit } from "./workspace-git"
+import { WorkspaceGit, checkoutRepairCommit } from "./workspace-git"
 
 import {
   normalizeWorkspacePath,
@@ -264,4 +264,40 @@ test("command reconciliation rejects overlapping edits before changing any files
   expect(() =>
     fs.applyCommandFiles(before, [{ path: "../escape", content: "" }])
   ).toThrow()
+})
+
+test("repair checkout uses deployed files when Project main has advanced", async () => {
+  const filesystem = new WorkspaceFilesystem(new TestSqlStorage())
+  filesystem.initialize()
+  await git.init({ fs: filesystem, dir: "/workspace", defaultBranch: "main" })
+  await filesystem.writeFile("app.txt", "deployed version")
+  await git.add({ fs: filesystem, dir: "/workspace", filepath: "app.txt" })
+  const deployed = await git.commit({
+    fs: filesystem,
+    dir: "/workspace",
+    message: "deployed",
+    author: { name: "Test", email: "test@example.com" },
+  })
+  await filesystem.writeFile("app.txt", "newer Project version")
+  await git.add({ fs: filesystem, dir: "/workspace", filepath: "app.txt" })
+  const latest = await git.commit({
+    fs: filesystem,
+    dir: "/workspace",
+    message: "advanced",
+    author: { name: "Test", email: "test@example.com" },
+  })
+  await checkoutRepairCommit(filesystem, "repair-incident", deployed)
+  expect(await filesystem.readFile("app.txt", "utf8")).toBe("deployed version")
+  expect(
+    await git.resolveRef({ fs: filesystem, dir: "/workspace", ref: "HEAD" })
+  ).toBe(deployed)
+  expect(
+    await git.resolveRef({ fs: filesystem, dir: "/workspace", ref: "main" })
+  ).toBe(latest)
+  await expect(
+    checkoutRepairCommit(filesystem, "missing-repair", "f".repeat(40))
+  ).rejects.toThrow()
+  expect(await git.currentBranch({ fs: filesystem, dir: "/workspace" })).toBe(
+    "repair-incident"
+  )
 })

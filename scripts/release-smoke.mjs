@@ -6,6 +6,11 @@ import { parseArgs } from "node:util"
 import { cleanupAllSmokeRuns } from "../tools/release-smoke/discovery.mjs"
 import { cleanupSmokeRuns } from "../tools/release-smoke/cleanup.mjs"
 import {
+  requireIntegratedSource,
+  requireDeployedIdentity,
+  requirePublishedTemplate,
+} from "../tools/release-smoke/identity.mjs"
+import {
   configurationPath,
   smokeConfiguration,
   serializeEnvironment,
@@ -30,6 +35,8 @@ const { values, positionals } = parseArgs({
     resume: { type: "boolean", default: false },
     workspace: { type: "string" },
     "proof-marker": { type: "string" },
+    commit: { type: "string" },
+    "template-commit": { type: "string" },
   },
 })
 const command = positionals[0] || "test"
@@ -167,10 +174,6 @@ async function main() {
     await mkdir(directory, { recursive: true, mode: 0o700 })
     const environmentPath = resolve(directory, "deploy.env")
     const environment = { ...process.env, ...configuration }
-    await writeFile(environmentPath, serializeEnvironment(configuration), {
-      mode: 0o600,
-      flag: "wx",
-    })
     const commit = execute(
       ["git", "rev-parse", "HEAD"],
       environment,
@@ -179,9 +182,54 @@ async function main() {
     const dirty =
       execute(["git", "status", "--porcelain"], environment, true).trim()
         .length > 0
+    if (dirty)
+      throw new Error("Smoke deployment requires a clean committed checkout")
+    const template = JSON.parse(
+      execute(
+        [
+          "bun",
+          "-e",
+          'import { builtInTemplateRelease } from "./packages/domain/src/template-release.ts"; console.log(JSON.stringify(builtInTemplateRelease))',
+        ],
+        environment,
+        true
+      )
+    )
+    if (values.commit || values["template-commit"])
+      requireIntegratedSource(
+        commit,
+        values.commit,
+        dirty,
+        template,
+        values["template-commit"]
+      )
+    if (values.commit)
+      requirePublishedTemplate(
+        execute(
+          [
+            "git",
+            "ls-remote",
+            "--exit-code",
+            `https://github.com/${template.repository}.git`,
+            template.ref,
+          ],
+          environment,
+          true
+        ),
+        template.commit
+      )
+    configuration.SYLPH_SMOKE_SOURCE_COMMIT = commit
+    configuration.SYLPH_SMOKE_TEMPLATE_COMMIT = template.commit
+    configuration.SYLPH_SMOKE_STAGE = stage
+    Object.assign(environment, configuration)
+    await writeFile(environmentPath, serializeEnvironment(configuration), {
+      mode: 0o600,
+      flag: "wx",
+    })
     const record = {
       stage,
       commit,
+      template,
       branch:
         execute(
           ["git", "branch", "--show-current"],
@@ -216,6 +264,14 @@ async function main() {
       resolve(directory, "deploy.log")
     )
     record.baseURL = deployedWebsite(output)
+    const identityResponse = await fetch(
+      `${record.baseURL}/__sylph/smoke-identity`,
+      { redirect: "error", signal: AbortSignal.timeout(30_000) }
+    )
+    if (!identityResponse.ok)
+      throw new Error("Deployed smoke identity endpoint is unavailable")
+    record.identity = await identityResponse.json()
+    requireDeployedIdentity(record.identity, record)
     record.status = "deployed"
     await writeFile(recordPath, JSON.stringify(record, null, 2))
     console.log(
@@ -232,6 +288,27 @@ async function main() {
   requireSmokeStage(record.stage)
   if (record.status !== "deployed")
     throw new Error("The run has no completed deployment")
+  const currentCommit = execute(
+    ["git", "rev-parse", "HEAD"],
+    process.env,
+    true
+  ).trim()
+  const currentDirty =
+    execute(["git", "status", "--porcelain"], process.env, true).trim().length >
+    0
+  if (currentCommit !== record.commit || currentDirty || record.dirty)
+    throw new Error(
+      "Smoke verification requires the clean source commit recorded by the deployment"
+    )
+  if (record.template) {
+    const response = await fetch(`${record.baseURL}/__sylph/smoke-identity`, {
+      redirect: "error",
+      signal: AbortSignal.timeout(30_000),
+    })
+    if (!response.ok)
+      throw new Error("Deployed smoke identity endpoint is unavailable")
+    requireDeployedIdentity(await response.json(), record)
+  }
   const deployed = smokeConfiguration(
     await readFile(record.environmentPath, "utf8"),
     record.environmentPath,
@@ -275,7 +352,7 @@ async function main() {
     scope:
       environment.SYLPH_SMOKE_VERIFY_ONLY === "true"
         ? "verification-only"
-        : "full-lifecycle",
+        : "setup-through-acceptance-and-runtime-recovery",
     status: "running",
     startedAt: new Date().toISOString(),
     outputDir: environment.SYLPH_SMOKE_OUTPUT_DIR,

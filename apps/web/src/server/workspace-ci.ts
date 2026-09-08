@@ -1,3 +1,4 @@
+import { captureDeploymentIdentity } from "./cloudflare-health"
 import {
   projectSecretEnvironment,
   readProjectDomain,
@@ -7,14 +8,22 @@ import {
   readMigrationReview,
   readDataRestore,
   readRecoveryPoint,
+  validateRecoveryInventory,
   readProductionJourney,
   recoveryTargetCommit,
   releasePreflightCommand,
 } from "./release-safety"
-import { releaseMutationStartedSql } from "./release-reservation"
+import {
+  releaseContextSql,
+  releaseMutationStartedSql,
+} from "./release-reservation"
 import { ciCommand } from "./command-execution"
 import { readWorkspaceCiLogs } from "./workspace-ci-logs"
 import { projectAuthSecret } from "./project-auth-secret"
+import {
+  projectRecoveryKey,
+  projectRecoveryVerifyToken,
+} from "./project-recovery-key"
 import {
   CIWorkflow,
   isCiRunnerFailure,
@@ -37,7 +46,10 @@ import type { CiBindings } from "@cloudflare/ci/worker"
 import { checkStage, newCheckRun } from "./workspace-checks"
 import type { WorkspaceDO } from "./workspace-do"
 import { previewRetention } from "./preview-lifecycle"
-import type { ProjectResourcePlan } from "@workspace/domain/project-resources"
+import {
+  ProjectSecretValues,
+  type ProjectResourcePlan,
+} from "@workspace/domain/project-resources"
 import {
   captureProjectResources,
   finishResourceOperation,
@@ -74,6 +86,7 @@ const decodeWorkspaceCiInput = Schema.decodeUnknownSync(WorkspaceCiInput)
 const encodeWorkspaceCheckUpdateSync = Schema.encodeSync(WorkspaceCheckUpdate)
 
 type WorkspaceCiBindings = CiBindings & {
+  RESOURCE_TOKEN: string
   CREDENTIAL_ENCRYPTION_KEY: string
   CI_VERIFICATION_CONCURRENCY: string
   BROWSER: BrowserRun
@@ -142,7 +155,7 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
 
     const credentials = {
       accountId: this.env.CLOUDFLARE_ACCOUNT_ID,
-      token: this.env.CF_TOKEN,
+      token: this.env.RESOURCE_TOKEN,
     }
     const owner = {
       projectId: input.projectId,
@@ -169,13 +182,12 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
           throw new Error("Production CI requires a Deployment record")
         const deploymentId = input.deploymentId
         const context = await step.do("read-release-reservation", async () => {
-          const row = await this.env.DB.prepare(
-            "SELECT d.[commit], d.recovery_deployment_id, (SELECT prior.[commit] FROM deployment prior WHERE prior.project_id = d.project_id AND prior.id != d.id AND (prior.mutation_started = 1 OR prior.status = 'succeeded') ORDER BY prior.created_at DESC, prior.rowid DESC LIMIT 1) AS base_commit, r.recovery_json FROM deployment d LEFT JOIN deployment r ON r.id = d.recovery_deployment_id AND r.project_id = d.project_id WHERE d.id = ? AND d.project_id = ? AND d.status = 'running'"
-          )
+          const row = await this.env.DB.prepare(releaseContextSql)
             .bind(deploymentId, input.projectId)
             .first<{
               commit: string
               base_commit: string | null
+              base_url: string | null
               recovery_deployment_id: string | null
               recovery_json: string | null
             }>()
@@ -213,10 +225,32 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
           SYLPH_RELEASE_ID: deploymentId,
           SYLPH_PROJECT_ID: input.projectId,
           SYLPH_BASE_COMMIT: context.base_commit ?? "",
+          SYLPH_BASE_URL: context.base_url ?? "",
           SYLPH_RECOVERY_POINT: context.recovery_json ?? "",
         }
         const authSecret = await projectAuthSecret(
           this.env.DB,
+          input.projectId,
+          this.env.CREDENTIAL_ENCRYPTION_KEY
+        )
+        const recoveryKey = await projectRecoveryKey(
+          input.projectId,
+          this.env.CREDENTIAL_ENCRYPTION_KEY
+        )
+        const projectSecretEnv = await projectSecretEnvironment(
+          this.env.DB,
+          input.projectId,
+          "production",
+          this.env.CREDENTIAL_ENCRYPTION_KEY
+        )
+        const releaseSecrets = {
+          ...Schema.decodeUnknownSync(ProjectSecretValues)(
+            JSON.parse(projectSecretEnv.SYLPH_PROJECT_SECRETS ?? "{}")
+          ),
+          BETTER_AUTH_SECRET: authSecret,
+        }
+        const recoverySecretEnv = { SYLPH_RECOVERY_KEY: recoveryKey }
+        const verifyToken = await projectRecoveryVerifyToken(
           input.projectId,
           this.env.CREDENTIAL_ENCRYPTION_KEY
         )
@@ -236,6 +270,7 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
         resourcesReserved = true
         const releaseEnv = {
           ...releaseIdentityEnv,
+          SYLPH_RECOVERY_VERIFY_TOKEN: verifyToken,
           ...planned.domainEnvironment,
           SYLPH_RESOURCE_PREFIX: planned.prefix,
           SYLPH_RESOURCE_PLAN: JSON.stringify(resourcePlan),
@@ -285,7 +320,11 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
               "sylph:release:prepare",
               "coordinated data recovery capture"
             ),
-            env: releaseEnv,
+            env: {
+              ...releaseEnv,
+              ...recoverySecretEnv,
+              SYLPH_RECOVERY_SECRETS: JSON.stringify(releaseSecrets),
+            },
             cloudflareCredentials: {
               accountId: this.env.CLOUDFLARE_ACCOUNT_ID,
             },
@@ -300,6 +339,13 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
               identity,
               Date.now()
             )
+            const inventory = await captureProjectResources(
+              this.env.DB,
+              credentials,
+              owner,
+              false
+            )
+            validateRecoveryInventory(point, inventory)
             const result = await this.env.DB.prepare(
               "UPDATE deployment SET recovery_json = ? WHERE id = ? AND status = 'running'"
             )
@@ -328,7 +374,7 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
                 "sylph:release:restore",
                 "Admin-confirmed data recovery"
               ),
-              env: releaseEnv,
+              env: { ...releaseEnv, ...recoverySecretEnv },
               cloudflareCredentials: {
                 accountId: this.env.CLOUDFLARE_ACCOUNT_ID,
               },
@@ -381,13 +427,10 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
             },
             env: {
               ...releaseEnv,
-              ...(await projectSecretEnvironment(
-                this.env.DB,
-                input.projectId,
-                "production",
-                this.env.CREDENTIAL_ENCRYPTION_KEY
-              )),
+              ...projectSecretEnv,
               BETTER_AUTH_SECRET: authSecret,
+              ...recoverySecretEnv,
+              SYLPH_RECOVERY_SECRETS: JSON.stringify(releaseSecrets),
             },
           }
         )
@@ -404,6 +447,17 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
         await step.do("inspect-production-resources", () =>
           captureProjectResources(this.env.DB, credentials, owner, true)
         )
+        await step.do("capture-production-identity", () =>
+          captureDeploymentIdentity(
+            this.env.DB,
+            credentials,
+            input.projectId,
+            deploymentId
+          ).then(
+            () => ({ captured: true }),
+            () => ({ captured: false })
+          )
+        )
         await step.do("save-published-production-url", async () => {
           await this.env.DB.prepare(
             "UPDATE deployment SET production_url = ? WHERE id = ? AND status = 'running'"
@@ -411,7 +465,6 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
             .bind(url, deploymentId)
             .run()
         })
-        run = await this.#browserEvidence(step, run, url)
         const verified = await this.#runner(
           step,
           deployment.result,
@@ -461,11 +514,12 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
           }
         )
         run = resumed.run
+        run = await this.#browserEvidence(step, run, url)
         const live = await this.#runner(
           step,
           resumed.result,
           run,
-          "production-journey",
+          "production-journey-live",
           {
             name: "production-journey-live",
             config: verificationRunnerConfig,
@@ -697,7 +751,10 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
     await step.do("reserve-project-resources", () =>
       reserveProjectResources(
         this.env.DB,
-        { accountId: this.env.CLOUDFLARE_ACCOUNT_ID, token: this.env.CF_TOKEN },
+        {
+          accountId: this.env.CLOUDFLARE_ACCOUNT_ID,
+          token: this.env.RESOURCE_TOKEN,
+        },
         owner,
         plan
       )

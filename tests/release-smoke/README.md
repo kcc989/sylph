@@ -1,10 +1,12 @@
 # Release smoke test
 
+For exact-source combined lifecycle proof, see [Combined lifecycle proof](COMBINED.md). For earlier D1 schemas and WorkspaceRuntime Installations, see [Installation preservation and transition](../../docs/installation-transition.md).
+
 The browser suite checks a fresh Installation:
 
 `setup → claim → provider → Project → Workspace → prompt → auto-approved tools → checkpoint → accept → eviction/restart`
 
-Use Node 24, the checked-in dependencies (`bun install --frozen-lockfile`), for deployment. Install Chromium (`bun run smoke:release:install`) only for the optional browser suite. Run commands from the repository root.
+Use Node 24, the checked-in dependencies (`bun install --frozen-lockfile`), for deployment. Install Chromium (`bun run smoke:release:install`) only for the optional browser suite. Run commands from a clean, committed checkout at the repository root. Deploy and test require the exact same source commit.
 
 ## Repeatable branch deployment
 

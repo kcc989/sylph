@@ -74,6 +74,15 @@ const browserLabel = (input: WorkspaceMessageToolPart["input"]) => {
   const action = decoded.value.action
   const labels = {
     start: "Started browser session",
+    journey_begin: "Started required journey",
+    journey_finish: "Finished required journey",
+    take_control: "Took browser control",
+    release_control: "Released browser control",
+    viewport: "Changed browser viewport",
+    click_point: "Clicked browser position",
+    type_text: "Typed into browser",
+    popup: "Opened browser popup",
+    switch_page: "Switched browser page",
     observe: "Observed browser",
     navigate: "Navigated Preview",
     reload: "Reloaded browser",

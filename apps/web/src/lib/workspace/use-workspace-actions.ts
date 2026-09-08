@@ -164,6 +164,8 @@ export function useWorkspaceActions({
           ).length,
           turnActive: result.runtime.status === "running",
           runtimeHealthy: result.runtime.opencode.healthy,
+          browserProof: result.runtime.browserProof,
+          conversationId: result.runtime.sessionId,
         })
       : {
           ready: false,

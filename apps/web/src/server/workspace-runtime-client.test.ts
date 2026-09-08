@@ -24,6 +24,18 @@ const unreachable = () => Promise.reject(new Error("not expected"))
 const stub = (
   overrides: Partial<WorkspaceRuntimeStub>
 ): WorkspaceRuntimeStub => ({
+  reserveBrowserAcceptance: async () => {
+    throw new Error("Unexpected acceptance")
+  },
+  browserAction: async () => {
+    throw new Error("Unexpected browser action")
+  },
+  configureBrowser: async () => {
+    throw new Error("Unexpected browser policy")
+  },
+  exceptBrowser: async () => {
+    throw new Error("Unexpected browser exception")
+  },
   connectKey: unreachable,
   startSubscriptionSignIn: unreachable,
   subscriptionSignInStatus: unreachable,

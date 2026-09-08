@@ -1,4 +1,10 @@
 import {
+  WorkspaceHumanBrowserInput,
+  WorkspaceBrowserPolicyInput,
+  WorkspaceBrowserExceptionInput,
+  WorkspaceBrowserResult,
+} from "@workspace/domain"
+import {
   savePendingWorkspacePrompt,
   pendingPromptMessages,
   pendingWorkspacePrompts,
@@ -808,58 +814,76 @@ export const acceptWorkspace = createServerFn({ method: "POST" })
       ).length,
       turnActive: snapshot.status === "running",
       runtimeHealthy: snapshot.opencode.healthy,
+      browserProof: snapshot.browserProof,
+      conversationId: snapshot.sessionId,
     })
     if (!acceptance.ready) {
       throw new PreconditionFailed({ message: acceptance.blockers.join(" ") })
     }
 
-    const operationId = `${data.workspaceId}-${data.idempotencyKey}`
-    const existing = await database
-      .select({ status: schema.repositoryOperation.status })
-      .from(schema.repositoryOperation)
-      .where(eq(schema.repositoryOperation.id, operationId))
-      .get()
-    if (!existing) {
-      await database.insert(schema.repositoryOperation).values({
-        id: operationId,
-        workspaceId: data.workspaceId,
-        kind: "merge",
-        status: "pending",
-        createdAt: new Date(),
-        updatedAt: new Date(),
+    const browserBinding = snapshot.browserProof?.binding
+    if (!browserBinding)
+      throw new PreconditionFailed({
+        message: "Current browser proof is missing",
       })
-    }
-    const params = {
-      operationId,
+    await runtime.reserveBrowserAcceptance({
       workspaceId: data.workspaceId,
-      projectRepositoryName: project.repositoryName,
-      projectRepositoryRemote: project.repositoryRemote,
-      workspaceRepositoryName: workspace.repositoryName,
-      workspaceRepositoryRemote: (
-        await Effect.runPromise(
-          repositoryStore().inspect(workspace.repositoryName)
-        )
-      ).remote,
-      defaultRef: project.defaultBranch,
-      baseCommit: versionControl.baseCommit,
-      workspaceRef: workspace.branchName ?? project.defaultBranch,
-      forkHead: versionControl.forkHead,
-      projectId: workspace.projectId,
-      actorUserId: user.id,
+      binding: browserBinding,
+    })
+    let submitted = false
+    try {
+      const operationId = `${data.workspaceId}-${data.idempotencyKey}`
+      const existing = await database
+        .select({ status: schema.repositoryOperation.status })
+        .from(schema.repositoryOperation)
+        .where(eq(schema.repositoryOperation.id, operationId))
+        .get()
+      if (!existing) {
+        await database.insert(schema.repositoryOperation).values({
+          id: operationId,
+          workspaceId: data.workspaceId,
+          kind: "merge",
+          status: "pending",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })
+      }
+      const params = {
+        operationId,
+        workspaceId: data.workspaceId,
+        projectRepositoryName: project.repositoryName,
+        projectRepositoryRemote: project.repositoryRemote,
+        workspaceRepositoryName: workspace.repositoryName,
+        workspaceRepositoryRemote: (
+          await Effect.runPromise(
+            repositoryStore().inspect(workspace.repositoryName)
+          )
+        ).remote,
+        defaultRef: project.defaultBranch,
+        baseCommit: versionControl.baseCommit,
+        workspaceRef: workspace.branchName ?? project.defaultBranch,
+        forkHead: versionControl.forkHead,
+        projectId: workspace.projectId,
+        actorUserId: user.id,
+      }
+      submitted = true
+      const instance = existing
+        ? await env.MERGES.get(operationId)
+        : await env.MERGES.create({ id: operationId, params })
+      return { operationId: instance.id, status: "merging" as const }
+    } catch (cause) {
+      if (!submitted)
+        await database
+          .update(schema.workspace)
+          .set({ status: "ready", mergeStatus: "ready", updatedAt: new Date() })
+          .where(
+            and(
+              eq(schema.workspace.id, data.workspaceId),
+              eq(schema.workspace.status, "merging")
+            )
+          )
+      throw cause
     }
-    const instance = existing
-      ? await env.MERGES.get(operationId)
-      : await env.MERGES.create({ id: operationId, params })
-    await database
-      .update(schema.workspace)
-      .set({
-        status: "merging",
-        mergeStatus: "merging",
-        errorSummary: null,
-        updatedAt: new Date(),
-      })
-      .where(eq(schema.workspace.id, data.workspaceId))
-    return { operationId: instance.id, status: "merging" as const }
   })
 
 const decodeMessagePageInput = Schema.decodeUnknownPromise(
@@ -951,3 +975,35 @@ export const readWorkspacePatch = createServerFn({ method: "GET" })
       })
     return snapshot.vcs[data.scope].map((change) => change.patch).join("\n")
   })
+
+export const controlWorkspaceBrowser = createServerFn({ method: "POST" })
+  .middleware([writableWorkspace])
+  .validator((input) =>
+    Schema.decodeUnknownSync(WorkspaceHumanBrowserInput)(input)
+  )
+  .handler(async ({ data, context }) =>
+    Schema.encodeSync(WorkspaceBrowserResult)(
+      await workspaceRuntime(data.workspaceId).browserAction(
+        data,
+        context.user.id
+      )
+    )
+  )
+
+export const configureWorkspaceBrowser = createServerFn({ method: "POST" })
+  .middleware([writableWorkspace])
+  .validator((input) =>
+    Schema.decodeUnknownSync(WorkspaceBrowserPolicyInput)(input)
+  )
+  .handler(({ data, context }) =>
+    workspaceRuntime(data.workspaceId).configureBrowser(data, context.user.id)
+  )
+
+export const exceptWorkspaceBrowser = createServerFn({ method: "POST" })
+  .middleware([writableWorkspace])
+  .validator((input) =>
+    Schema.decodeUnknownSync(WorkspaceBrowserExceptionInput)(input)
+  )
+  .handler(({ data, context }) =>
+    workspaceRuntime(data.workspaceId).exceptBrowser(data, context.user.id)
+  )

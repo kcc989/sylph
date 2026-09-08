@@ -1,0 +1,23 @@
+{
+  "name": "@workspace/cloudflare-recovery",
+  "version": "0.0.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/recovery.ts",
+    "./worker": "./src/worker.ts"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint . --deny-warnings"
+  },
+  "dependencies": {
+    "@workspace/domain": "workspace:*",
+    "effect": "4.0.0-rc.112"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.0",
+    "typescript": "^6"
+  }
+}

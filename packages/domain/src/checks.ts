@@ -1,3 +1,4 @@
+import { BrowserJourneyResult, BrowserJourneyPolicy } from "./browser-journeys"
 import { Schema } from "effect"
 import { WorkspaceBrowserAction, WorkspaceBrowserSession } from "./browser"
 
@@ -36,6 +37,7 @@ export const WorkspaceCheckStageName = Schema.Literals([
   "data-restore",
   "production-journey",
   "release-resume",
+  "production-journey-live",
 ])
 export type WorkspaceCheckStageName = typeof WorkspaceCheckStageName.Type
 
@@ -268,6 +270,10 @@ export class WorkspaceBrowserToolInput extends Schema.Class<WorkspaceBrowserTool
   "@sylph/domain/WorkspaceBrowserToolInput"
 )({
   action: Schema.optional(WorkspaceBrowserAction),
+  expectedSequence: Schema.optional(Schema.Int),
+  requestId: Schema.optional(
+    Schema.NonEmptyString.check(Schema.isMaxLength(120))
+  ),
   sessionId: Schema.optional(Schema.NonEmptyString),
   path: Schema.optional(Schema.String),
   url: Schema.optional(Schema.NonEmptyString),
@@ -283,6 +289,11 @@ export class WorkspaceBrowserResult extends Schema.Class<WorkspaceBrowserResult>
   accessibility: Schema.String,
   evidence: Schema.Array(WorkspaceCheckEvidence),
   session: Schema.optional(Schema.NullOr(WorkspaceBrowserSession)),
+  journey: Schema.optional(Schema.NullOr(BrowserJourneyResult)),
+  policy: Schema.optional(Schema.NullOr(BrowserJourneyPolicy)),
+  pages: Schema.optional(
+    Schema.Array(Schema.Struct({ id: Schema.String, url: Schema.String }))
+  ),
   outcome: Schema.optional(
     Schema.Literals(["observed", "passed", "failed", "closed"])
   ),
@@ -297,6 +308,11 @@ export class WorkspaceBrowserToolOutput extends Schema.Class<WorkspaceBrowserToo
   evidence: Schema.Array(WorkspaceCheckEvidence),
   accessibility: Schema.String,
   session: Schema.optional(Schema.NullOr(WorkspaceBrowserSession)),
+  journey: Schema.optional(Schema.NullOr(BrowserJourneyResult)),
+  policy: Schema.optional(Schema.NullOr(BrowserJourneyPolicy)),
+  pages: Schema.optional(
+    Schema.Array(Schema.Struct({ id: Schema.String, url: Schema.String }))
+  ),
   outcome: Schema.optional(
     Schema.Literals(["observed", "passed", "failed", "closed"])
   ),
@@ -353,3 +369,19 @@ export const WorkspacePreviewExpiry = Schema.Struct({
   attempt: Schema.Number,
   callbackId: Schema.NonEmptyString,
 })
+
+export const WorkspaceHumanBrowserInput = Schema.Struct({
+  workspaceId: WorkspaceId,
+  input: WorkspaceBrowserToolInput,
+})
+export class BrowserActionReceipt extends Schema.Class<BrowserActionReceipt>(
+  "@sylph/domain/BrowserActionReceipt"
+)({
+  fingerprint: Schema.String,
+  interrupted: Schema.optional(Schema.Boolean),
+  journeyId: Schema.NullOr(Schema.String),
+  actor: Schema.String,
+  action: Schema.String,
+  createdAt: Schema.Number,
+  result: Schema.NullOr(WorkspaceBrowserResult),
+}) {}

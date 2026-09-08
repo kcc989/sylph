@@ -42,6 +42,28 @@ export interface WorkspaceRepositoryNamespace {
 const directory = "/workspace"
 const author = { name: "Sylph", email: "checkpoints@sylph.dev" }
 
+export const checkoutRepairCommit = async (
+  filesystem: WorkspaceGitFilesystem,
+  branch: string,
+  commit: string
+) => {
+  const oid = Schema.decodeUnknownSync(GitCommitId)(commit)
+  await git.readCommit({ fs: filesystem, dir: directory, oid })
+  await git.writeRef({
+    fs: filesystem,
+    dir: directory,
+    ref: `refs/heads/${branch}`,
+    value: oid,
+    force: true,
+  })
+  await git.checkout({
+    fs: filesystem,
+    dir: directory,
+    ref: branch,
+    force: true,
+  })
+}
+
 interface WorkspaceGitState {
   [key: string]: SqlStorageValue
   repositoryName: string
@@ -149,6 +171,7 @@ export class WorkspaceGit {
     projectRepositoryName: string
     projectRepositoryRemote: string
     defaultRef: string
+    repairCommit?: string
     sourceRef?: string
     baseCommit: string
   }) {
@@ -194,6 +217,15 @@ export class WorkspaceGit {
         ref: refs.createRef,
         checkout: true,
       })
+    }
+    if (input.repairCommit) {
+      if (input.repairCommit !== input.baseCommit)
+        throw new Error("Repair commit does not match the deployed base")
+      await checkoutRepairCommit(
+        this.#filesystem,
+        input.defaultRef,
+        input.repairCommit
+      )
     }
     const forkHead = await git.resolveRef({
       fs: this.#filesystem,

@@ -37,6 +37,10 @@ export const forkWorkspaceRepository = async (
   )
   await database
     .update(schema.workspace)
-    .set({ baseCommit: head, forkHead: head, updatedAt: new Date() })
+    .set({
+      baseCommit: workspace.repairCommit ?? head,
+      forkHead: workspace.repairCommit ?? head,
+      updatedAt: new Date(),
+    })
     .where(activeProvisioningRequest(input))
 }

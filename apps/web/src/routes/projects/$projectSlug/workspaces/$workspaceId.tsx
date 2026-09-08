@@ -1,3 +1,4 @@
+import { WorkspaceBrowserPanel } from "@/lib/workspace/workspace-browser-panel-controller"
 import { useWorkspaceSynchronization } from "@/lib/workspace/use-workspace-synchronization"
 import {
   createFileRoute,
@@ -408,6 +409,21 @@ function WorkspaceScreen() {
             checkpointPending={isPending("checkpoint")}
 
             browser={browser}
+            previewContent={
+              <WorkspaceBrowserPanel
+                workspaceId={workspaceId}
+                userId={result.currentReviewer.id}
+                proof={runtime.browserProof}
+                previewUrl={browser.url}
+                refresh={async () => {
+                  await refreshLive("workspace")
+                }}
+                readOnly={
+                  workspace.status === "archived" ||
+                  workspace.status === "merging"
+                }
+              />
+            }
             changedFileCount={workingChanges.length}
             changeSummary={
               workingChanges.length

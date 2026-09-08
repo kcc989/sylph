@@ -1,6 +1,13 @@
 import { expect, test, type Page } from "@playwright/test"
 import { mkdir, writeFile, chmod } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
+import {
+  waitForHydration,
+  openToolMenu,
+  finishWorkspaceTurn as completeWorkspaceTurn,
+  expectExpandableToolCalls,
+  verifyMarkerJourney,
+} from "./flow-helpers"
 
 const requiredEnvironment = (name: string) => {
   const value = process.env[name]?.trim()
@@ -34,88 +41,13 @@ const proofFile = "RELEASE_SMOKE_PROOF.txt"
 const resumeProofMarker = process.env.SYLPH_SMOKE_PROOF_MARKER?.trim()
 const proofMarker = resumeProofMarker || `sylph-release-smoke-${Date.now()}`
 
-const waitForHydration = async (page: Page) => {
-  await page.waitForFunction(() => !("$_TSR" in window))
-}
-
-const openToolMenu = async (page: Page) => {
-  const openInspector = page.getByRole("button", { name: "Open inspector" })
-  if (await openInspector.isVisible()) await openInspector.click()
-  await page.getByRole("button", { name: "More inspection tools" }).click()
-}
-
 const finishWorkspaceTurn = async (page: Page) => {
-  await expect
-    .poll(
-      async () => {
-        const permission = page.getByRole("button", { name: "Always allow" })
-        if ((await permission.count()) > 0) {
-          await permission.first().click()
-          return false
-        }
-        if (
-          (await page.getByText("Agent working", { exact: true }).count()) > 0
-        ) {
-          return false
-        }
-        await page.waitForTimeout(1_000)
-        return (
-          (await permission.count()) === 0 &&
-          (await page.getByText("Agent working", { exact: true }).count()) === 0
-        )
-      },
-      { timeout: 5 * 60 * 1000 }
-    )
-    .toBe(true)
-  const assistantError = page.getByRole("article").filter({
-    has: page.getByRole("heading", { name: "Assistant error", exact: true }),
-  })
-  if (resumeWorkspaceUrl) {
+  const errors = await completeWorkspaceTurn(page, Boolean(resumeWorkspaceUrl))
+  if (resumeWorkspaceUrl)
     await test.info().attach("prior-turn-errors", {
-      body: JSON.stringify(await assistantError.allTextContents()),
+      body: JSON.stringify(errors),
       contentType: "application/json",
     })
-    return
-  }
-  await expect(
-    assistantError,
-    "The agent must complete without a provider or runtime error"
-  ).toHaveCount(0)
-}
-
-const expectExpandableToolCalls = async (page: Page) => {
-  const groupToggle = page.getByRole("button", {
-    name: /^Toggle \d+ tool calls:/,
-  })
-  const completedCalls = page.locator('button[aria-label$=", completed"]')
-  if (await groupToggle.count()) {
-    const group = groupToggle.first().locator("..")
-    const groupedCalls = group.locator('button[aria-label$=", completed"]')
-    await expect(groupedCalls.first()).toBeHidden()
-    await groupToggle.first().click()
-    await expect(groupedCalls.first()).toBeVisible()
-    expect(await groupedCalls.count()).toBeGreaterThanOrEqual(2)
-  }
-
-  for (const toggle of await groupToggle.all())
-    if ((await toggle.getAttribute("aria-expanded")) !== "true")
-      await toggle.click()
-  const writeCall = completedCalls
-    .filter({ hasText: /^(Wrote |Edited |Applied patch)/ })
-    .first()
-  await expect(writeCall).toBeVisible()
-  await writeCall.click()
-  await expect(
-    writeCall.locator("..").getByRole("heading", { name: "Input", exact: true })
-  ).toBeVisible()
-  const shellCall = completedCalls.filter({ hasText: /^Ran command$/ }).first()
-  await expect(shellCall).toBeVisible()
-  await shellCall.click()
-  await expect(
-    shellCall
-      .locator("..")
-      .getByRole("heading", { name: "Output", exact: true })
-  ).toBeVisible()
 }
 
 const expectCheckAndBrowserToolCalls = async (page: Page) => {
@@ -541,6 +473,7 @@ test("setup through eviction recovery", async ({ page, browser }, testInfo) => {
 
   if (!verificationOnly)
     await test.step("accept and archive the Workspace", async () => {
+      await verifyMarkerJourney(page, proofMarker)
       await page
         .getByRole("region", { name: "Workspace inspector" })
         .getByRole("button", { name: /^Changes/ })

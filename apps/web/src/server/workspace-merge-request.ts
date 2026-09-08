@@ -2,6 +2,7 @@ import {
   WorkspaceMergeRequest,
   workspaceAcceptance,
   type WorkspaceCheckRun,
+  type BrowserJourneySnapshot,
   type WorkspaceReviewDecision,
   type WorkspaceVersionControl,
 } from "@workspace/domain"
@@ -15,6 +16,8 @@ export const workspaceMergeRequest = (input: {
   workspaceStatus: string
   reviewDecision: WorkspaceReviewDecision
   unresolvedComments: number
+  browserProof?: BrowserJourneySnapshot
+  conversationId?: string | null
   turnActive: boolean
 }) => {
   const { versionControl } = input

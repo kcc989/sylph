@@ -1,8 +1,9 @@
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
 import { spawnSync } from "node:child_process"
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
 import { resolve } from "node:path"
+import { tmpdir } from "node:os"
 import { setTimeout } from "node:timers/promises"
 import {
   configurationPath,
@@ -24,6 +25,10 @@ const commit = spawnSync("git", ["rev-parse", "HEAD"], {
   cwd: root,
   encoding: "utf8",
 }).stdout.trim()
+const sourceStatus = spawnSync("git", ["status", "--porcelain"], {
+  cwd: root,
+  encoding: "utf8",
+}).stdout
 const sourceDiff = spawnSync("git", ["diff", "HEAD"], {
   cwd: root,
   encoding: "utf8",
@@ -48,6 +53,22 @@ const sourceManifest = await Promise.all(
 const sourceHash = createHash("sha256")
   .update(JSON.stringify(sourceManifest))
   .digest("hex")
+assert.equal(
+  spawnSync("git", ["rev-parse", "HEAD"], {
+    cwd: root,
+    encoding: "utf8",
+  }).stdout.trim(),
+  commit,
+  "HEAD changed while preparing the smoke; wait for the commit to finish and retry"
+)
+assert.equal(
+  spawnSync("git", ["status", "--porcelain"], {
+    cwd: root,
+    encoding: "utf8",
+  }).stdout,
+  sourceStatus,
+  "Source changed while preparing the smoke; finish editing and retry"
+)
 await writeFile(
   resolve(directory, "source-manifest.json"),
   JSON.stringify(sourceManifest, null, 2)
@@ -61,7 +82,10 @@ const environment = {
   SYLPH_BROWSER_SMOKE_COMMIT: commit,
   SYLPH_BROWSER_SMOKE_SOURCE: sourceHash,
 }
-const environmentPath = resolve(directory, "deploy.env")
+const deploymentDirectory = await mkdtemp(
+  resolve(tmpdir(), "sylph-browser-deploy-")
+)
+const environmentPath = resolve(deploymentDirectory, "deploy.env")
 await writeFile(environmentPath, serializeEnvironment(environment), {
   mode: 0o600,
 })
@@ -70,11 +94,7 @@ const record = {
   stage,
   commit,
   sourceHash,
-  dirty:
-    spawnSync("git", ["status", "--porcelain"], {
-      cwd: root,
-      encoding: "utf8",
-    }).stdout.trim().length > 0,
+  dirty: sourceStatus.trim().length > 0,
   auth: "disposable fixture password",
   status: "deploying",
   results: [],
@@ -119,6 +139,7 @@ record.status = "testing"
 await save()
 console.log(`Browser Run fixture: ${baseURL}`)
 let ready = false
+let oauthOrigin
 for (let attempt = 0; attempt < 30; attempt++) {
   const response = await fetch(`${baseURL}/probe/ready`, {
     headers: { authorization: `Bearer ${token}` },
@@ -130,8 +151,26 @@ for (let attempt = 0; attempt < 30; attempt++) {
   ) {
     const version = await response.json()
     if (version.commit === commit && version.sourceHash === sourceHash) {
-      ready = true
-      break
+      oauthOrigin = version.oauthOrigin
+      const proofResponse = await fetch(`${baseURL}/probe/proof`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: "{}",
+        signal: AbortSignal.timeout(30_000),
+      })
+      if (
+        proofResponse.ok &&
+        proofResponse.headers.get("content-type")?.includes("application/json")
+      ) {
+        const proof = await proofResponse.json()
+        if (proof.proof?.binding?.commit === commit) {
+          ready = true
+          break
+        }
+      }
     }
   }
   await setTimeout(2_000)
@@ -146,7 +185,12 @@ const step = async (label, action, expected = "observed", extra = {}) => {
       authorization: `Bearer ${token}`,
       "content-type": "application/json",
     },
-    body: JSON.stringify({ action, sessionId, ...extra }),
+    body: JSON.stringify({
+      action,
+      sessionId,
+      requestId: crypto.randomUUID(),
+      ...extra,
+    }),
     signal: AbortSignal.timeout(120_000),
   })
   const body = await response.text()
@@ -185,18 +229,137 @@ const reject = async (label, input, message) => {
       authorization: `Bearer ${token}`,
       "content-type": "application/json",
     },
-    body: JSON.stringify({ sessionId, ...input }),
+    body: JSON.stringify({
+      sessionId,
+      requestId: crypto.randomUUID(),
+      ...input,
+    }),
     signal: AbortSignal.timeout(60_000),
   })
   const result = await response.json()
   record.results.push({ label, httpStatus: response.status, result })
   await save()
-  assert.equal(response.status, 422, label)
-  assert.match(result.error, message)
+  assert.ok(
+    response.status === 422 ||
+      (response.status === 200 && result.outcome === "failed"),
+    label
+  )
+  assert.match(result.error ?? result.detail, message)
   console.log(`Passed: ${label}`)
 }
+const probe = async (path, input) => {
+  const response = await fetch(`${baseURL}/probe/${path}`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(input ?? {}),
+    signal: AbortSignal.timeout(120_000),
+  })
+  const body = await response.text()
+  if (!response.headers.get("content-type")?.includes("application/json")) {
+    await writeFile(
+      resolve(directory, "failed-probe.txt"),
+      body.replaceAll(token, "[redacted]")
+    )
+    throw new Error(
+      `${path}: unexpected HTTP ${response.status}; see failed-probe.txt`
+    )
+  }
+  const result = JSON.parse(body)
+  assert.equal(response.status, 200, JSON.stringify(result))
+  return result
+}
+const expectBlocked = async (label, expected) => {
+  const result = await probe("proof")
+  assert.equal(
+    result.blockers.length > 0,
+    expected,
+    `${label}: ${result.blockers.join(" ")}`
+  )
+  record.results.push({ label, proof: result })
+  await save()
+  console.log(`Passed: ${label}`)
+  return result.proof
+}
+const policy = {
+  requirements: [
+    {
+      id: "crud",
+      title: "Create, reload, edit, complete, and delete",
+      viewports: ["desktop"],
+      assertions: [
+        { type: "text", selector: "#signed-in", value: "Signed in" },
+        {
+          type: "text",
+          selector: ".title",
+          value: "Browser Run persisted this",
+        },
+        { type: "count", selector: ".todo", value: 1 },
+        { type: "text", selector: ".title", value: "Edited in Browser Run" },
+        { type: "checked", selector: ".completed", value: true },
+        { type: "count", selector: ".todo", value: 0 },
+      ],
+    },
+    {
+      id: "responsive",
+      title: "Authenticated responsive view",
+      viewports: ["desktop", "mobile"],
+      assertions: [
+        { type: "text", selector: "#signed-in", value: "Signed in" },
+      ],
+    },
+  ],
+  allowedOrigins: [oauthOrigin],
+  captureMode: "accessibility",
+  reason:
+    "Require CRUD and both viewport sizes with DOM evidence. The recorded Browser Run freeze/capture limitation prevents screenshot proof.",
+}
 try {
+  await expectBlocked("No policy blocks acceptance", true)
+  await step("Start origin guard probe", { type: "start" })
+  try {
+    await step("Reconnect with required screenshot evidence", {
+      type: "observe",
+    })
+  } catch (error) {
+    assert.match(error.message, /captureScreenshot/)
+    record.captureLimitation =
+      "Browser Run screenshot capture fails after freeze/resume; DOM-only proof is explicitly configured below."
+  }
+  await expectBlocked("Capture failure does not pass acceptance", true)
+  await probe("policy", {
+    requirements: [],
+    allowedOrigins: [],
+    captureMode: "accessibility",
+    reason:
+      "Explicit DOM-only policy for guarded navigation testing after the reproduced capture failure",
+  })
+  sessionId = undefined
+  await step("Start DOM-only origin guard probe", { type: "start" })
+  await step("Reconnect guarded browser with DOM evidence", { type: "observe" })
+  await reject(
+    "Block native popup before its first external request",
+    { action: { type: "click", selector: "#external-popup" } },
+    /Preview|configured|navigation/
+  )
+  const visits = await fetch(`${oauthOrigin}/probe/count`, {
+    headers: { authorization: `Bearer ${token}` },
+  }).then((response) => response.json())
+  assert.equal(
+    visits.count,
+    0,
+    "A blocked popup reached its unconfigured origin"
+  )
+  record.blockedPopupRequests = visits.count
+  await probe("policy", policy)
+  sessionId = undefined
   await step("Start exact Checkpoint", { type: "start" })
+  await step("Begin required CRUD journey", {
+    type: "journey_begin",
+    requirementId: "crud",
+  })
   await check("Rendered source identity", {
     type: "count",
     selector: `[data-sylph-browser-source="${sourceHash}"]`,
@@ -232,7 +395,18 @@ try {
     selector: "#title",
     value: "Browser Run persisted this",
   })
-  await step("Create todo", { type: "click", selector: "#create" })
+  await step(
+    "Create todo",
+    { type: "click", selector: "#create" },
+    "observed",
+    { requestId: "create-once" }
+  )
+  await step(
+    "Duplicate create does not replay",
+    { type: "click", selector: "#create" },
+    "observed",
+    { requestId: "create-once" }
+  )
   await step("Wait for created todo", {
     type: "wait",
     selector: ".todo",
@@ -294,14 +468,6 @@ try {
   ])
   record.d1 = rows
   await step("Scroll page", { type: "scroll", x: 0, y: 500 })
-  await step(
-    "Failed assertion stays failed",
-    {
-      type: "assert",
-      assertion: { type: "count", selector: ".todo", value: 2 },
-    },
-    "failed"
-  )
   const screenshot = await fetch(`${baseURL}/probe/evidence/${screenshotId}`, {
     headers: { authorization: `Bearer ${token}` },
   })
@@ -322,6 +488,121 @@ try {
     selector: ".todo",
     value: 0,
   })
+  await step("Complete CRUD proof", { type: "journey_finish" }, "passed")
+  await expectBlocked("Missing responsive journey blocks acceptance", true)
+  await step("Begin responsive failure attempt", {
+    type: "journey_begin",
+    requirementId: "responsive",
+  })
+  await step(
+    "Failed assertion stays failed",
+    {
+      type: "assert",
+      assertion: { type: "count", selector: ".todo", value: 2 },
+    },
+    "failed"
+  )
+  await expectBlocked("Failed assertion blocks acceptance", true)
+  await step("Begin responsive retry", {
+    type: "journey_begin",
+    requirementId: "responsive",
+  })
+  for (const viewport of ["desktop", "mobile"]) {
+    await step(`Set ${viewport} viewport`, { type: "viewport", viewport })
+    await check(`Verify authenticated ${viewport} view`, {
+      type: "text",
+      selector: "#signed-in",
+      value: "Signed in",
+    })
+  }
+  await step("Complete responsive retry", { type: "journey_finish" }, "passed")
+  const proved = await expectBlocked(
+    "Exact journey proof permits browser acceptance",
+    false
+  )
+  await probe("context", { ...proved.binding, attempt: 2 })
+  await expectBlocked("Changed Check attempt blocks old proof", true)
+  await probe("context", proved.binding)
+  const human = async (label, action) => {
+    const result = await probe("human", {
+      action,
+      sessionId,
+      requestId: crypto.randomUUID(),
+    })
+    assert.notEqual(result.outcome, "failed", label)
+    record.results.push({ label, result })
+    await save()
+    return result
+  }
+  await human("Human takeover", { type: "take_control" })
+  await reject(
+    "Agent cannot act during human control",
+    { action: { type: "reload" } },
+    /User controls/
+  )
+  await human("Human observes same authenticated session", {
+    type: "assert",
+    assertion: { type: "text", selector: "#signed-in", value: "Signed in" },
+  })
+  await human("Human releases control", { type: "release_control" })
+  const popup = await step("Open configured external popup", {
+    type: "click",
+    selector: "#oauth-popup",
+  })
+  const externalPage = popup.pages.find((page) =>
+    page.url.startsWith(oauthOrigin)
+  )
+  assert.ok(externalPage, "Configured popup was not retained")
+  const applicationPage = popup.pages.find((page) =>
+    page.url.startsWith(baseURL)
+  )
+  await step("Select external page", {
+    type: "switch_page",
+    pageId: externalPage.id,
+  })
+  await step("Fill external fixture password", {
+    type: "fill",
+    selector: "#external-password",
+    value: token,
+  })
+  await step("Submit external sign-in", {
+    type: "click",
+    selector: "#external-sign-in",
+  })
+  await check("OAuth callback validates state and one-time code", {
+    type: "text",
+    selector: "#oauth-authenticated",
+    value: "OAuth callback completed",
+  })
+  await step("Return to application page", {
+    type: "switch_page",
+    pageId: applicationPage.id,
+  })
+  await step("Reload original page after OAuth", { type: "reload" })
+  await check("OAuth session is shared with original page", {
+    type: "text",
+    selector: "#oauth-authenticated",
+    value: "OAuth callback completed",
+  })
+  await check("Application cookies remain in shared context", {
+    type: "text",
+    selector: "#signed-in",
+    value: "Signed in",
+  })
+  await step("Begin interrupted journey", {
+    type: "journey_begin",
+    requirementId: "responsive",
+  })
+  await step("Close unfinished journey", { type: "close" }, "closed")
+  await expectBlocked("Interrupted journey blocks acceptance", true)
+  sessionId = undefined
+  await step("Start for final navigation checks", { type: "start" })
+  await step("Sign in again", {
+    type: "fill",
+    selector: "#password",
+    value: token,
+  })
+  await step("Submit sign-in again", { type: "press", key: "Enter" })
   await reject(
     "Reject external URL",
     { action: { type: "navigate" }, url: "https://example.com" },
@@ -330,7 +611,7 @@ try {
   await reject(
     "Block external link navigation",
     { action: { type: "click", selector: "#external" } },
-    /outside the Preview/
+    /Preview|configured|navigation/
   )
   await step("Close authenticated session", { type: "close" }, "closed")
   sessionId = undefined
@@ -344,6 +625,13 @@ try {
 } catch (error) {
   record.status = "failed"
   record.error = error.message
+  record.browserTrace = await probe("trace").catch((traceError) => ({
+    error: traceError.message,
+  }))
+  if (/captureScreenshot/.test(error.message))
+    record.captureProbe = await probe("capture").catch((captureError) => ({
+      error: captureError.message,
+    }))
   throw error
 } finally {
   if (sessionId) {

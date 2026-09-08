@@ -48,9 +48,10 @@ const productionStages: ReadonlyArray<WorkspaceCheckStageName> = [
   "release-prepare",
   "data-restore",
   "production",
-  "browser",
   "production-journey",
   "release-resume",
+  "browser",
+  "production-journey-live",
 ]
 
 export const checkStages = (kind: WorkspaceCheckKind) =>

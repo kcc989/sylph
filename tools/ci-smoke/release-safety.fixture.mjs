@@ -1,5 +1,6 @@
 import { mock } from "bun:test"
 import { Database } from "bun:sqlite"
+import { withRecoveryGate } from "../../packages/cloudflare-recovery/src/worker.ts"
 
 mock.module("@cloudflare/ci", () => ({
   CIWorkflow: class {
@@ -26,12 +27,36 @@ mock.module("../../apps/web/src/server/project-resources.ts", () => ({
       throw new Error("Resource already belongs to another Project")
     resourcesReserved = true
   },
-  captureProjectResources: async () => {},
+  captureProjectResources: async () => [
+    {
+      account_id: "account-1",
+      project_id: "project-1",
+      scope: "production",
+      kind: "d1",
+      name: "sylph-fixture-db",
+      resource_id: "db-1",
+      generation: null,
+      state: "active",
+    },
+    {
+      account_id: "account-1",
+      project_id: "project-1",
+      scope: "production",
+      kind: "d1",
+      name: "sylph-fixture-recovery",
+      resource_id: "control-1",
+      generation: null,
+      state: "active",
+      purpose: "recovery_control",
+    },
+  ],
   finishResourceOperation: async () => {},
 }))
 mock.module("../../apps/web/src/server/project-configuration.ts", () => ({
   readProjectDomain: async () => null,
-  projectSecretEnvironment: async () => ({}),
+  projectSecretEnvironment: async () => ({
+    SYLPH_PROJECT_SECRETS: JSON.stringify({ API_KEY: "application-secret" }),
+  }),
 }))
 
 const { CI } = await import("../../apps/web/src/server/workspace-ci.ts")
@@ -78,13 +103,20 @@ const point = {
 if (recovering) {
   store
     .query(
-      "INSERT INTO deployment (id, project_id, [commit], status, actor_user_id, recovery_json, created_at) VALUES ('baseline', 'project-1', ?, 'succeeded', 'admin', ?, 1)"
+      "INSERT INTO deployment (id, project_id, [commit], status, actor_user_id, recovery_json, production_url, created_at) VALUES ('baseline', 'project-1', ?, 'succeeded', 'admin', ?, 'https://sylph-fixture-app.account.workers.dev', 1)"
     )
     .run(commit, JSON.stringify({ ...point, deploymentId: "baseline" }))
 }
+if (mode === "restore-prepublication-failure") {
+  store
+    .query(
+      "INSERT INTO deployment (id, project_id, [commit], status, actor_user_id, mutation_started, created_at) VALUES ('failed-before-publish', 'project-1', ?, 'failed', 'admin', 1, 2)"
+    )
+    .run("b".repeat(40))
+}
 store
   .query(
-    "INSERT INTO deployment (id, project_id, [commit], status, actor_user_id, base_deployment_id, recovery_deployment_id, created_at) VALUES ('deployment-1', 'project-1', ?, 'queued', 'admin', ?, ?, 2)"
+    "INSERT INTO deployment (id, project_id, [commit], status, actor_user_id, base_deployment_id, recovery_deployment_id, created_at) VALUES ('deployment-1', 'project-1', ?, 'queued', 'admin', ?, ?, 3)"
   )
   .run(commit, recovering ? "baseline" : null, recovering ? "baseline" : null)
 const database = {
@@ -108,16 +140,90 @@ const database = {
     }
   },
 }
+const gate = new Database(":memory:")
+gate.exec(
+  await Bun.file(
+    new URL(
+      "../../packages/cloudflare-recovery/src/control.sql",
+      import.meta.url
+    )
+  ).text()
+)
+const gateEnvironment = {
+  SYLPH_RECOVERY_VERIFY_TOKEN: "",
+  SYLPH_RECOVERY_CONTROL: {
+    prepare(sql) {
+      return {
+        first: async () => gate.query(sql).get(),
+        run: async () => gate.query(sql).run(),
+      }
+    },
+  },
+}
+const gateContext = { props: {}, exports: {}, tracing: {} }
+const gatedApplication = withRecoveryGate(
+  async () =>
+    new Response(
+      `<main data-sylph-checkpoint="${commit}" data-sylph-deployment="production">Application</main>`,
+      { headers: { "Content-Type": "text/html" } }
+    ),
+  async () =>
+    mode === "private-probe-failure"
+      ? new Response("Verification unavailable", { status: 503 })
+      : Response.json({
+          checkpoint: commit,
+          deployment: "production",
+          releaseId: identity.deploymentId,
+        })
+)
+const observations = []
+const gateOwner = () =>
+  gate.query("SELECT owner FROM sylph_recovery_gate WHERE id = 1").get().owner
+const probeApplication = async (privateProbe) => {
+  const response = await gatedApplication(
+    new Request(
+      privateProbe
+        ? "https://sylph-fixture-app.account.workers.dev/__sylph/release-verify"
+        : "https://sylph-fixture-app.account.workers.dev/",
+      privateProbe
+        ? {
+            headers: {
+              Authorization: `Bearer ${gateEnvironment.SYLPH_RECOVERY_VERIFY_TOKEN}`,
+            },
+          }
+        : {}
+    ),
+    gateEnvironment,
+    gateContext
+  )
+  observations.push({
+    action: privateProbe ? "private-probe" : "public-page",
+    status: response.status,
+    owner: gateOwner(),
+  })
+  return response
+}
 const commands = []
 const artifacts = []
 let selector = null
 const environment = {
   DB: database,
   CLOUDFLARE_ACCOUNT_ID: "account-1",
+  CREDENTIAL_ENCRYPTION_KEY: "fixture-installation-key",
   CI_VERIFICATION_CONCURRENCY: "1",
   BROWSER: {
     quickAction: async (_action, input) => {
       selector = input.waitForSelector.selector
+      const response = await probeApplication(false)
+      const html = await response.text()
+      if (
+        !response.ok ||
+        !html.includes(`data-sylph-checkpoint="${commit}"`) ||
+        !html.includes('data-sylph-deployment="production"')
+      )
+        throw new Error(
+          "The public application page is not available with the required deployment identity"
+        )
       if (mode === "browser-failure")
         throw new Error("Production marker missing")
       return Response.json({
@@ -147,6 +253,34 @@ const runner = async (options) => {
     throw new Error("Restore failed")
   if (mode === "resume-failure" && options.name === "release-resume")
     throw new Error("Resume failed")
+  if (options.name === "release-prepare") {
+    gateEnvironment.SYLPH_RECOVERY_VERIFY_TOKEN =
+      options.env.SYLPH_RECOVERY_VERIFY_TOKEN
+    gate
+      .query("UPDATE sylph_recovery_gate SET owner = ? WHERE id = 1")
+      .run(identity.deploymentId)
+    const blocked = await probeApplication(false)
+    if (blocked.status !== 503)
+      throw new Error("Application gate did not pause ordinary requests")
+  }
+  if (options.name.startsWith("production-journey")) {
+    const response = await probeApplication(true)
+    if (!response.ok) throw new Error("Private application verification failed")
+    const actual = await response.json()
+    if (
+      actual.checkpoint !== commit ||
+      actual.releaseId !== identity.deploymentId
+    )
+      throw new Error("Private deployment identity mismatch")
+  }
+  if (options.name === "release-resume") {
+    gate
+      .query(
+        "UPDATE sylph_recovery_gate SET owner = NULL WHERE id = 1 AND owner = ?"
+      )
+      .run(identity.deploymentId)
+    observations.push({ action: "resume", owner: gateOwner() })
+  }
   let stdout = ""
   if (options.name === "resource-plan")
     stdout = `SYLPH_RESOURCE_PLAN=${JSON.stringify([{ kind: "worker", name: "sylph-fixture-app" }])}`
@@ -156,7 +290,7 @@ const runner = async (options) => {
     stdout =
       mode === "missing-backup"
         ? ""
-        : `SYLPH_RECOVERY_POINT=${JSON.stringify({ ...point, expiresAt: mode === "expired-backup" ? now - 1 : point.expiresAt })}`
+        : `SYLPH_RECOVERY_POINT=${JSON.stringify({ ...point, resources: mode === "missing-inventory" ? [] : mode === "extra-inventory" ? [...point.resources, { ...point.resources[0], id: "extra-db" }] : point.resources, expiresAt: mode === "expired-backup" ? now - 1 : point.expiresAt })}`
   if (options.name === "production") stdout = `SYLPH_PRODUCTION_URL=${url}`
   if (options.name.startsWith("production-journey"))
     stdout = `SYLPH_PRODUCTION_JOURNEY=${JSON.stringify({ deploymentId: identity.deploymentId, commit: mode === "wrong-commit" ? "b".repeat(40) : commit, url, passed: true, journeys: ["Create, read, update, and delete an authenticated record"] })}`
@@ -199,6 +333,8 @@ console.log(
     commands,
     artifacts,
     selector,
+    observations,
+    gateOwner: gateOwner(),
     deployment: store
       .query("SELECT * FROM deployment WHERE id = 'deployment-1'")
       .get(),

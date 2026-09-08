@@ -1,5 +1,9 @@
 import {
   CloudflareObjects,
+  CloudflareDurableObjects,
+  CloudflareContainerApplications,
+  CloudflareWorkflows,
+  type ProjectResourcePlan,
   CloudflareDomains,
   CloudflareBuckets,
   CloudflareDatabases,
@@ -24,6 +28,10 @@ export interface ResourceCredentials {
 
 export const resourceCollectionPath = (kind: ProjectResourceKind) => {
   switch (kind) {
+    case "durable_object":
+      return "workers/durable_objects/namespaces"
+    case "workflow":
+      return "workflows"
     case "worker":
       return "workers/scripts"
     case "d1":
@@ -61,8 +69,12 @@ export const cloudflareResourceRequest = async (
     throw new Error(
       `Cloudflare resource ${method} failed with HTTP ${response.status}`
     )
+  if (method === "DELETE" && response.status === 204)
+    return { success: true, result: null }
+  const raw = await response.text()
+  if (method === "DELETE" && !raw) return { success: true, result: null }
   const body = Schema.decodeUnknownSync(CloudflareResourceResponse)(
-    await response.json()
+    JSON.parse(raw)
   )
   if (!body.success)
     throw new Error(`Cloudflare resource ${method} was unsuccessful`)
@@ -79,6 +91,7 @@ export const listCloudflareResources = async (
     name: string
     service?: string
     generation?: string
+    className?: string
   }> = []
   let cursor = ""
   for (let page = 1; page <= 1000; page++) {
@@ -100,6 +113,7 @@ export const listCloudflareResources = async (
           name: domain.hostname,
           service: domain.service,
           generation: undefined,
+          className: undefined,
         })
       )
     if (kind === "r2") {
@@ -119,24 +133,47 @@ export const listCloudflareResources = async (
       continue
     }
     const items =
-      kind === "worker"
-        ? Schema.decodeUnknownSync(CloudflareWorkers)(body.result).map(
-            ({ id, created_on }) => ({ id, name: id, generation: created_on })
+      kind === "durable_object"
+        ? Schema.decodeUnknownSync(CloudflareDurableObjects)(body.result).map(
+            (item) => ({
+              id: item.id,
+              name: `${item.script}/${item.class}`,
+              service: item.script,
+              className: item.class,
+            })
           )
-        : kind === "d1"
-          ? Schema.decodeUnknownSync(CloudflareDatabases)(body.result).map(
-              ({ uuid, name }) => ({ id: uuid, name })
+        : kind === "workflow"
+          ? Schema.decodeUnknownSync(CloudflareWorkflows)(body.result).map(
+              (item) => ({
+                id: item.id,
+                name: item.name,
+                service: item.script_name,
+                className: item.class_name,
+                generation: item.created_on,
+              })
             )
-          : kind === "kv"
-            ? Schema.decodeUnknownSync(CloudflareNamespaces)(body.result).map(
-                ({ id, title }) => ({ id, name: title })
-              )
-            : Schema.decodeUnknownSync(CloudflareQueues)(body.result).map(
-                ({ queue_id, queue_name }) => ({
-                  id: queue_id,
-                  name: queue_name,
+          : kind === "worker"
+            ? Schema.decodeUnknownSync(CloudflareWorkers)(body.result).map(
+                ({ id, created_on }) => ({
+                  id,
+                  name: id,
+                  generation: created_on,
                 })
               )
+            : kind === "d1"
+              ? Schema.decodeUnknownSync(CloudflareDatabases)(body.result).map(
+                  ({ uuid, name }) => ({ id: uuid, name })
+                )
+              : kind === "kv"
+                ? Schema.decodeUnknownSync(CloudflareNamespaces)(
+                    body.result
+                  ).map(({ id, title }) => ({ id, name: title }))
+                : Schema.decodeUnknownSync(CloudflareQueues)(body.result).map(
+                    ({ queue_id, queue_name }) => ({
+                      id: queue_id,
+                      name: queue_name,
+                    })
+                  )
     resources.push(...items)
     if (
       kind === "worker" ||
@@ -149,51 +186,200 @@ export const listCloudflareResources = async (
   throw new Error("Cloudflare resource pagination exceeded its limit")
 }
 
+export const readWorkerSettings = async (
+  credentials: ResourceCredentials,
+  worker: string,
+  request: ResourceRequest = fetch
+) => {
+  const body = await cloudflareResourceRequest(
+    credentials,
+    `workers/scripts/${encodeURIComponent(worker)}/settings`,
+    request
+  )
+  return Schema.decodeUnknownSync(CloudflareWorkerBindings)(body.result)
+}
+
+export const readWorkerBindings = async (
+  credentials: ResourceCredentials,
+  worker: string,
+  request: ResourceRequest = fetch
+) => (await readWorkerSettings(credentials, worker, request)).bindings
+
+type WorkerBinding = (typeof CloudflareWorkerBindings.Type.bindings)[number]
+
+export const bindingReferencesResource = (
+  binding: WorkerBinding,
+  resource: StoredProjectResource,
+  worker: string
+) => {
+  switch (binding.type) {
+    case "d1":
+      return resource.kind === "d1" && resource.resource_id === binding.id
+    case "kv_namespace":
+      return (
+        resource.kind === "kv" && resource.resource_id === binding.namespace_id
+      )
+    case "r2_bucket":
+      return resource.kind === "r2" && resource.name === binding.bucket_name
+    case "queue":
+      return resource.kind === "queue" && resource.name === binding.queue_name
+    case "service":
+      return resource.kind === "worker" && resource.name === binding.service
+    case "workflow":
+      return (
+        resource.kind === "workflow" && resource.name === binding.workflow_name
+      )
+    case "durable_object_namespace":
+      return (
+        resource.kind === "durable_object" &&
+        (resource.resource_id === binding.namespace_id ||
+          resource.name ===
+            `${binding.script_name ?? worker}/${binding.class_name}`)
+      )
+    default:
+      return false
+  }
+}
+
 export const verifyWorkerResources = async (
+  credentials: ResourceCredentials,
+  resources: ReadonlyArray<StoredProjectResource>,
+  request: ResourceRequest = fetch,
+  plan: ProjectResourcePlan = []
+) => {
+  await rejectContainerNamespaces(credentials, resources, request)
+  for (const worker of resources.filter(
+    (resource) => resource.kind === "worker" && resource.state === "active"
+  )) {
+    const settings = await readWorkerSettings(credentials, worker.name, request)
+    if (settings.containers?.length || settings.tail_consumers?.length)
+      throw new Error(
+        `Worker ${worker.name} has Containers or tail consumers outside supported management; detach them first`
+      )
+    const bindings = settings.bindings
+    const declared =
+      plan.find(
+        (resource) =>
+          resource.kind === "worker" && resource.name === worker.name
+      )?.bindings ?? []
+    for (const binding of bindings) {
+      if (
+        binding.name === "SYLPH_RECOVERY_CONTROL" &&
+        (binding.type !== "d1" ||
+          !resources.some(
+            (resource) =>
+              resource.kind === "d1" &&
+              resource.resource_id === binding.id &&
+              resource.purpose === "recovery_control"
+          ))
+      )
+        throw new Error(
+          "SYLPH_RECOVERY_CONTROL requires a separate D1 claim with purpose recovery_control; update the resource plan before deployment"
+        )
+      if (["plain_text", "secret_text", "assets"].includes(binding.type))
+        continue
+      if (
+        binding.environment ||
+        binding.namespace ||
+        binding.dispatch_namespace ||
+        binding.jurisdiction
+      )
+        throw new Error(
+          `Binding ${binding.name} uses an unsupported environment, dispatch namespace, or jurisdiction; use same-account default resources`
+        )
+      const reference = declared.find(
+        (item) => item.name === binding.name && item.type === binding.type
+      )
+      if (binding.type === "ai" && reference) continue
+      const owned = resources.find(
+        (resource) =>
+          resource.state === "active" &&
+          bindingReferencesResource(binding, resource, worker.name)
+      )
+      if (!owned)
+        throw new Error(
+          `Worker binding ${binding.name} (${binding.type}) is unsupported or outside the reserved resource plan; declare a supported owned resource`
+        )
+      if (
+        ["durable_object_namespace", "workflow", "service"].includes(
+          binding.type
+        )
+      ) {
+        if (
+          !reference ||
+          reference.target !== owned.name ||
+          (reference.entrypoint ?? undefined) !==
+            (binding.entrypoint ?? undefined)
+        )
+          throw new Error(
+            `Binding ${binding.name} does not match the reviewed target or entrypoint`
+          )
+        const target = plan.find(
+          (item) => item.kind === owned.kind && item.name === owned.name
+        )
+        if (
+          binding.type === "durable_object_namespace" &&
+          (binding.namespace_id !== owned.resource_id ||
+            (binding.script_name ?? worker.name) !== target?.worker ||
+            (binding.class_name !== undefined &&
+              binding.class_name !== target?.className))
+        )
+          throw new Error(
+            `Durable Object binding ${binding.name} has a different namespace, host, or class`
+          )
+        if (
+          binding.type === "workflow" &&
+          ((binding.script_name ?? worker.name) !== target?.worker ||
+            (binding.class_name !== undefined &&
+              binding.class_name !== target?.className))
+        )
+          throw new Error(
+            `Workflow binding ${binding.name} has a different host or class`
+          )
+      }
+    }
+    for (const binding of declared) {
+      if (
+        !bindings.some(
+          (item) => item.name === binding.name && item.type === binding.type
+        )
+      )
+        throw new Error(
+          `Declared binding ${binding.name} was not deployed on ${worker.name}`
+        )
+    }
+  }
+}
+
+export const rejectContainerNamespaces = async (
   credentials: ResourceCredentials,
   resources: ReadonlyArray<StoredProjectResource>,
   request: ResourceRequest = fetch
 ) => {
-  for (const worker of resources.filter(
-    (resource) => resource.kind === "worker"
-  )) {
-    const body = await cloudflareResourceRequest(
-      credentials,
-      `workers/scripts/${encodeURIComponent(worker.name)}/settings`,
-      request
+  const namespaces = resources.filter(
+    (item) => item.kind === "durable_object" && item.state !== "deleted"
+  )
+  if (!namespaces.length) return
+  const response = await request(
+    `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(credentials.accountId)}/containers/applications`,
+    { headers: { authorization: `Bearer ${credentials.token}` } }
+  )
+  if (!response.ok)
+    throw new Error(
+      `Container attachment inspection failed with HTTP ${response.status}; resource inspection needs Workers Containers Read permission`
     )
-    const settings = Schema.decodeUnknownSync(CloudflareWorkerBindings)(
-      body.result
+  const applications = Schema.decodeUnknownSync(
+    CloudflareContainerApplications
+  )(await response.json())
+  for (const application of applications) {
+    if (
+      namespaces.some(
+        (item) => item.resource_id === application.durable_objects?.namespace_id
+      )
     )
-    for (const binding of settings.bindings) {
-      if (["plain_text", "secret_text", "assets"].includes(binding.type))
-        continue
-      const owned = resources.some((resource) => {
-        switch (binding.type) {
-          case "d1":
-            return resource.kind === "d1" && resource.resource_id === binding.id
-          case "kv_namespace":
-            return (
-              resource.kind === "kv" &&
-              resource.resource_id === binding.namespace_id
-            )
-          case "r2_bucket":
-            return (
-              resource.kind === "r2" && resource.name === binding.bucket_name
-            )
-          case "queue":
-            return (
-              resource.kind === "queue" && resource.name === binding.queue_name
-            )
-          default:
-            return false
-        }
-      })
-      if (!owned)
-        throw new Error(
-          `Worker binding ${binding.name} is unsupported or outside the reserved resource plan`
-        )
-    }
+      throw new Error(
+        `Container application ${application.id} is attached to a selected Durable Object; Containers are outside supported Project resource management`
+      )
   }
 }
 

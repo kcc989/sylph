@@ -28,6 +28,7 @@ Grant these account permissions:
 - Account Settings Read
 - Account API Tokens Write
 - Workers Scripts Write
+- Workers Observability Write
 - D1 Write
 - Workers R2 Storage Write
 - Workers KV Storage Write
@@ -93,43 +94,43 @@ GitHub App credentials are encrypted in D1. No second deployment or copying cred
 ## What is created
 
 - One Website Worker hosting the app, Durable Objects, Workflows, and container bindings.
-- One D1 database, initialized by `packages/db/migrations/0001_initial.sql`.
+- One D1 database, initialized and updated by the ordered migrations in `packages/db/migrations`.
 - An Artifacts namespace for repositories and workspace forks.
 - Two R2 buckets for check backups and evidence.
 - Sandbox and Codex container applications.
 - Browser Rendering and scheduled jobs.
-- A runtime API token, an R2 backup token, and stable session and credential-encryption secrets.
+- A runtime API token, a separate resource-maintenance token, an R2 backup token, and stable session and credential-encryption secrets.
 
 Alchemy retains generated secret values and token outputs in its Cloudflare deployment state. Access to that state is privileged. Keep it when updating. Destroying state and generating new encryption keys does not recover existing encrypted data.
 
-This first-release baseline requires fresh resources. It does not upgrade earlier experimental databases or transfer their Durable Object state.
+The first-release baseline requires fresh resources. This update applies `0002_project_operations.sql` and then `0003_resource_lifecycle.sql` to that baseline. The migrations preserve existing resource claims and add production observations, repair references, and resource lifecycle reviews. They do not convert earlier experimental schemas or transfer Durable Object state. Use [Installation transition and preservation](installation-transition.md) to preserve an earlier Installation, and keep its original Worker and Durable Object namespaces available.
 
 ## Production release safety
 
 The initial schema stores release evidence and permits only one queued or running production operation per Project.
 
-Before a Project production release, implement and test the application's migration, backup, restore, journey, and writer coordination hooks described in [Production releases and application data](release-safety.md). Missing hooks block production before data capture or publication. Storage permissions depend on the application's provider integrations; Sylph does not grant them automatically.
+Before a Project production release, implement and test the application's migration, backup, restore, journey, and writer coordination hooks described in [Production releases and application data](release-safety.md). The pinned `0.2.0` starter supplies these hooks for one Worker and one application D1 database, with a separate retained recovery-control D1 database. Its first release also requires a real provider restore drill for the application schema. Other stateful topologies need tested adapters. Missing hooks or drill evidence block production; storage permissions depend on those adapters.
 
 Data recovery requires an Admin to confirm the paired code commit and possible loss of writes since the selected recovery point. It creates an undo point and verifies production before reporting success. Repository exports provide Git access only; application data, secret values, and Workspace runtime state require separate recovery procedures. Validate real backup and restore behavior in an isolated stage before production rollout.
 
 ## Project resource management
 
-This change is not ready for production rollout until its matching template
-revision is published and pinned. The reviewed template patch and the complete
-rollout procedure are in [the resource management guide](../tools/resource-management/README.md).
+The matching template `0.2.0` is published and pinned. Complete the live lifecycle
+checks before production rollout. The reviewed template patch and rollout
+procedure are in [the resource management guide](../tools/resource-management/README.md).
 Existing Project repositories also need the new `sylph:plan` script and matching
 Alchemy resource names. Sylph does not rewrite their reviewed Checkpoints.
 
 The initial schema includes the resource inventory, and `alchemy.run.ts` provisions
-the `ResourceMaintenance` Workflow in the Website Worker. The runtime token must
-be able to list Workers, D1 databases, KV namespaces, R2 buckets, and Queues for
+the `ResourceMaintenance` Workflow in the Website Worker. The separate resource-maintenance token must
+be able to inspect Workers, D1 databases, KV namespaces, R2 buckets, Queues, and hosted Durable Objects and Workflows for
 ownership checks, and delete the resources and R2 objects owned by an expired Preview. Production custom domains also require access to
 the relevant account's Worker domains and zone configuration. Missing permissions
 block preflight; review the existing token before rollout.
 
 Project settings shows resource ownership, inspection results, cleanup failures,
-and Admin controls for cleanup retries, application secrets, and the production
-custom domain. Application secrets are encrypted and separated between Preview
+and Admin controls for reviewed adoption, retirement, removal, cleanup retries,
+application secrets, and the production custom domain. Application secrets are encrypted and separated between Preview
 and production. Configuration changes apply on the next deployment.
 
 Existing successful production deployments without an inventory are blocked until
@@ -137,6 +138,14 @@ their resources have been reviewed and adopted. Legacy Previews without recorded
 reservations are not deleted automatically. Do not infer ownership from a URL.
 Run disposable deployed lifecycle checks before production rollout; the local
 test suite and build do not prove live deletion or configuration behavior.
+
+## Production observations and browser acceptance
+
+Alchemy adds Workers Observability Write to its managed runtime token. A manually supplied `CF_TOKEN` needs that permission and Worker script access before health collection can work. Application Workers must enable invocation logs. The pinned starter does so; older deployed applications require a new reviewed release with logging and recorded deployment identity.
+
+The minute schedule collects up to three eligible Projects, starting with the oldest observation, at least five minutes apart per Project. Manual collection is limited to once a minute. Production health tracks the latest published release, including releases that fail after publication. Release failures remain actionable when telemetry is unknown; they do not turn unknown telemetry into a health result. Members can acknowledge incidents and create a repair Workspace at the recorded deployed commit. Notifications remain inside Sylph. See [production operations](verification/project-operations.md) for sampling limits.
+
+Browser acceptance can require ordered application assertions at desktop and mobile sizes. The saved policy, current Check attempt, evidence, and any human exception are recorded together. Set allowed origins explicitly for application authentication. See [browser testing](browser-testing.md) for browser control, evidence requirements, and service limits.
 
 ## Update Sylph
 
@@ -173,7 +182,7 @@ bun alchemy deploy --stage prod
 
 ## Advanced configuration
 
-Existing `BETTER_AUTH_SECRET`, `CREDENTIAL_ENCRYPTION_KEY`, `CF_TOKEN`, and R2 credential overrides are supported. Supply both R2 values together. Keep overrides consistent between local deployments and Actions. Removing an override switches to Alchemy-managed credentials; do not do this for an existing Installation without planning rotation.
+Existing `BETTER_AUTH_SECRET`, `CREDENTIAL_ENCRYPTION_KEY`, `CF_TOKEN`, `RESOURCE_TOKEN`, and R2 credential overrides are supported. Supply both R2 values together. Keep overrides consistent between local deployments and Actions. Removing an override switches to Alchemy-managed credentials; do not do this for an existing Installation without planning rotation. Without a `RESOURCE_TOKEN` override, Alchemy creates the resource token automatically; no new manual credential is required. Both resource and CI tokens remain account-scoped, not isolated per Project. Application recovery and verification keys are derived from the retained Installation encryption key; changing that key breaks access to saved recovery secrets.
 
 `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` can supply an existing connection when D1 has no saved App. A connection saved through `/setup` takes precedence.
 

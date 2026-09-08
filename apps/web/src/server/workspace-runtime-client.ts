@@ -1,4 +1,11 @@
 import {
+  WorkspaceBrowserAcceptanceInput,
+  WorkspaceHumanBrowserInput,
+  WorkspaceBrowserPolicyInput,
+  WorkspaceBrowserExceptionInput,
+  WorkspaceBrowserResult,
+} from "@workspace/domain"
+import {
   InitializeWorkspaceRuntime,
   OpenCodeConnectionResult,
   OpenCodeKeySetupInput,
@@ -61,6 +68,10 @@ type WorkspaceRuntimeMethods = Pick<
   | "evict"
   | "listMessages"
   | "snapshot"
+  | "browserAction"
+  | "reserveBrowserAcceptance"
+  | "configureBrowser"
+  | "exceptBrowser"
 >
 
 export type WorkspaceRuntimeStub = {
@@ -149,6 +160,46 @@ const encodeDisconnectUserInput = Schema.encodeSync(
 )
 
 export const makeWorkspaceRuntime = (stub: WorkspaceRuntimeStub) => ({
+  reserveBrowserAcceptance: (
+    input: typeof WorkspaceBrowserAcceptanceInput.Type
+  ) =>
+    call(() =>
+      stub.reserveBrowserAcceptance(
+        Schema.encodeSync(WorkspaceBrowserAcceptanceInput)(input)
+      )
+    ),
+  browserAction: (
+    input: typeof WorkspaceHumanBrowserInput.Type,
+    userId: string
+  ) =>
+    call(async () =>
+      Schema.decodeUnknownSync(WorkspaceBrowserResult)(
+        await stub.browserAction(
+          Schema.encodeSync(WorkspaceHumanBrowserInput)(input),
+          userId
+        )
+      )
+    ),
+  configureBrowser: (
+    input: typeof WorkspaceBrowserPolicyInput.Type,
+    userId: string
+  ) =>
+    call(() =>
+      stub.configureBrowser(
+        Schema.encodeSync(WorkspaceBrowserPolicyInput)(input),
+        userId
+      )
+    ),
+  exceptBrowser: (
+    input: typeof WorkspaceBrowserExceptionInput.Type,
+    userId: string
+  ) =>
+    call(() =>
+      stub.exceptBrowser(
+        Schema.encodeSync(WorkspaceBrowserExceptionInput)(input),
+        userId
+      )
+    ),
   connectKey: (input: typeof OpenCodeKeySetupInput.Encoded) =>
     call(async () =>
       decodeConnectionResult(await stub.connectKey(encodeKeySetupInput(input)))
