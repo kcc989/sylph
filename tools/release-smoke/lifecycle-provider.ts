@@ -1,7 +1,12 @@
+import {
+  TelemetryResponse,
+  type TelemetryQuery,
+} from "@workspace/domain/project-operations"
 import { Schema } from "effect"
 import { RecoveryQueryResponse } from "@workspace/domain/cloudflare-recovery"
 import {
   LifecycleWorkflowResponse,
+  LifecycleR2Listing,
   type LifecycleProviderEvidence,
 } from "@workspace/domain/lifecycle-actions"
 import { listCloudflareResources } from "../../apps/web/src/server/cloudflare-resources"
@@ -47,6 +52,82 @@ export class LifecycleProvider {
         `Cloudflare read failed: ${path} (HTTP ${response.status})`
       )
     return body
+  }
+
+  async telemetry(query: TelemetryQuery) {
+    const path = "workers/observability/telemetry/query"
+    const response = await this.request(
+      `https://api.cloudflare.com/client/v4/accounts/${this.accountId}/${path}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(query),
+        redirect: "error",
+        signal: AbortSignal.timeout(30_000),
+      }
+    )
+    const body = Schema.decodeUnknownSync(Schema.Json)(await response.json())
+    this.requests.push({ path, status: response.status, body })
+    if (!response.ok || jsonPointer(body, "/success") !== true)
+      throw new Error("Cloudflare telemetry read failed")
+    return Schema.decodeUnknownSync(TelemetryResponse)(
+      jsonPointer(body, "/result")
+    )
+  }
+
+  async object(bucket: string, key: string) {
+    if (
+      !/^[a-z0-9][a-z0-9-]{1,62}$/.test(bucket) ||
+      !/^[a-zA-Z0-9_.-]+$/.test(key)
+    )
+      throw new Error("Use an exact R2 fixture bucket and simple object key")
+    const base = `r2/buckets/${bucket}/objects`
+    const get = async (path: string) => {
+      const response = await this.request(
+        `https://api.cloudflare.com/client/v4/accounts/${this.accountId}/${path}`,
+        {
+          method: "GET",
+          headers: { Authorization: `Bearer ${this.token}` },
+          redirect: "error",
+          signal: AbortSignal.timeout(30_000),
+        }
+      )
+      if (!response.ok)
+        throw new Error(`R2 object read failed (HTTP ${response.status})`)
+      return response
+    }
+    const response = await get(`${base}/${key}`)
+    const body = await response.text()
+    this.requests.push({
+      path: `${base}/${key}`,
+      status: response.status,
+      body: { body, headers: Object.fromEntries(response.headers) },
+    })
+    let cursor: string | undefined
+    const seen = new Set<string>()
+    do {
+      const path = `${base}?prefix=${key}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`
+      const page = await get(path)
+      const raw = Schema.decodeUnknownSync(Schema.Json)(await page.json())
+      this.requests.push({ path, status: page.status, body: raw })
+      const listing = Schema.decodeUnknownSync(LifecycleR2Listing)(raw)
+      const object = listing.result.find((item) => item.key === key)
+      if (object)
+        return {
+          body,
+          customMetadata: object.custom_metadata ?? {},
+          httpMetadata: object.http_metadata ?? {},
+        }
+      if (!listing.result_info?.is_truncated) break
+      cursor = listing.result_info.cursor
+      if (!cursor || seen.has(cursor))
+        throw new Error("R2 listing has an invalid pagination cursor")
+      seen.add(cursor)
+    } while (cursor)
+    throw new Error("R2 fixture missing from provider listing")
   }
 
   async rows<S extends Schema.Top & { readonly DecodingServices: never }>(

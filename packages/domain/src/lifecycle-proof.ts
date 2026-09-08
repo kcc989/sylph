@@ -24,6 +24,7 @@ export const lifecyclePaths = [
   "deliberate-failure",
   "application-restore",
   "restore-undo",
+  "telemetry-repair",
   "concurrent-previews",
   "ownership-conflict",
   "partial-failure-cleanup",
@@ -112,6 +113,7 @@ export const LifecycleScenario = Schema.Struct({
   identity: DeployedSmokeIdentity,
   accountId: Schema.String.check(Schema.isPattern(/^[a-f0-9]{32}$/)),
   modelBudgetUsd: Schema.Literal(4),
+  modelWorkspaceLimit: Schema.Literal(2),
   options: Schema.optional(LifecycleActionOptions),
   phases: Schema.Array(LifecyclePhase),
 })

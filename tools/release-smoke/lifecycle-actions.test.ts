@@ -118,7 +118,9 @@ test("create command writes a private usable scenario and refuses to overwrite e
     const child = Bun.spawn(args, { cwd: root, stdout: "pipe", stderr: "pipe" })
     const stderr = await new Response(child.stderr).text()
     expect(await child.exited, stderr).toBe(0)
-    expect(JSON.parse(await readFile(scenario, "utf8")).phases).toHaveLength(12)
+    expect(JSON.parse(await readFile(scenario, "utf8")).phases).toHaveLength(
+      lifecyclePaths.length
+    )
     const retry = Bun.spawn(args, { cwd: root, stdout: "pipe", stderr: "pipe" })
     await new Response(retry.stderr).text()
     expect(await retry.exited).not.toBe(0)
@@ -372,4 +374,76 @@ test("browser failure messages cannot echo saved credentials", () => {
       ["fixture-password", "fixture-token", ""]
     )
   ).toBe('locator.fill("[redacted]"): failed for [redacted]')
+})
+
+test("R2 proof reads actual bytes and metadata across paginated results", async () => {
+  const paths: string[] = []
+  const provider = new LifecycleProvider(
+    "c".repeat(32),
+    "fixture",
+    requestAdapter(async (input) => {
+      const url = new URL(String(input))
+      paths.push(url.pathname + url.search)
+      if (url.pathname.endsWith("/lifecycle-proof.txt"))
+        return new Response("actual-body")
+      return Response.json({
+        success: true,
+        result: url.searchParams.has("cursor")
+          ? [
+              {
+                key: "lifecycle-proof.txt",
+                custom_metadata: { version: "actual-version" },
+                http_metadata: { contentType: "text/plain" },
+              },
+            ]
+          : [],
+        result_info: url.searchParams.has("cursor")
+          ? { is_truncated: false }
+          : { is_truncated: true, cursor: "page+2" },
+      })
+    })
+  )
+  expect(
+    await provider.object("fixture-bucket", "lifecycle-proof.txt")
+  ).toEqual({
+    body: "actual-body",
+    customMetadata: { version: "actual-version" },
+    httpMetadata: { contentType: "text/plain" },
+  })
+  expect(paths).toHaveLength(3)
+  expect(paths[2]).toContain("cursor=page%2B2")
+  expect(provider.requests[0]?.body).toMatchObject({ body: "actual-body" })
+  await expect(
+    provider.object("../../foreign", "lifecycle-proof.txt")
+  ).rejects.toThrow()
+  await expect(
+    provider.object("fixture-bucket", "../foreign")
+  ).rejects.toThrow()
+})
+
+test("R2 proof refuses inaccessible objects and malformed pagination", async () => {
+  const denied = new LifecycleProvider(
+    "c".repeat(32),
+    "fixture",
+    requestAdapter(async () => new Response("denied", { status: 403 }))
+  )
+  await expect(
+    denied.object("fixture-bucket", "lifecycle-proof.txt")
+  ).rejects.toThrow("403")
+  const missing = new LifecycleProvider(
+    "c".repeat(32),
+    "fixture",
+    requestAdapter(async (input) =>
+      String(input).includes("?")
+        ? Response.json({
+            success: true,
+            result: [],
+            result_info: { is_truncated: true },
+          })
+        : new Response("bytes")
+    )
+  )
+  await expect(
+    missing.object("fixture-bucket", "lifecycle-proof.txt")
+  ).rejects.toThrow("pagination")
 })

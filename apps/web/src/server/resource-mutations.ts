@@ -1,6 +1,8 @@
+import { requireNamespaceAbsent } from "./resource-retirement"
 import { Context, Effect, Layer, Schema } from "effect"
 import {
   ProjectResourceOperation,
+  ProjectResourcePlan,
   ResourceMutationConfirmation,
   ResourceMutationInput,
   ResourceMutationReview,
@@ -79,6 +81,11 @@ const buildReview = async (
           "Adoption is for an untracked production inventory; existing claims must not be replaced",
       })
   }
+  const recordedPlan = operation
+    ? Schema.decodeUnknownSync(ProjectResourcePlan)(
+        JSON.parse(operation.plan_json)
+      )
+    : []
   const inventory: StoredProjectResource[] = []
   for (const resource of input.resources) {
     const claim = claims.find(
@@ -156,10 +163,23 @@ const buildReview = async (
         throw new ResourcePolicyError({
           message: `Resource identity changed for ${resource.name}`,
         })
-      if (!existing && input.action === "retire")
+      const retirement = recordedPlan.find(
+        (item) => item.kind === resource.kind && item.name === resource.name
+      )?.retirement
+      if (
+        !existing &&
+        input.action === "retire" &&
+        !(
+          resource.kind === "durable_object" &&
+          retirement?.resourceId === claim.resource_id &&
+          retirement?.generation === claim.generation
+        )
+      )
         throw new ResourcePolicyError({
           message: `Resource ${resource.name} is missing; inspect it before retirement`,
         })
+      if (!existing && resource.kind === "durable_object" && claim.resource_id)
+        await requireNamespaceAbsent(credentials, claim.resource_id, request)
       inventory.push(claim)
     }
   }
@@ -176,7 +196,14 @@ const buildReview = async (
     projectId: input.projectId,
     scope: input.scope,
     action: input.action,
-    resources: input.resources,
+    resources: input.resources.map((item) => {
+      const descriptor = recordedPlan.find(
+        (resource) => resource.kind === item.kind && resource.name === item.name
+      )
+      return descriptor?.retirement
+        ? { ...item, retirement: descriptor.retirement }
+        : item
+    }),
     inventory: Schema.decodeUnknownSync(Schema.Array(StoredProjectResource))(
       inventory
     ),
@@ -388,7 +415,26 @@ export const ProjectResourceMutationsLayer = (
                   throw new ResourcePolicyError({
                     message: `Resource identity changed for ${item.name}`,
                   })
-                if (!live && review.action !== "remove")
+                if (!live && item.kind === "durable_object" && item.resource_id)
+                  await requireNamespaceAbsent(
+                    credentials,
+                    item.resource_id,
+                    request
+                  )
+                const retirement = review.resources.find(
+                  (resource) =>
+                    resource.kind === item.kind && resource.name === item.name
+                )?.retirement
+                if (
+                  !live &&
+                  review.action !== "remove" &&
+                  !(
+                    item.kind === "durable_object" &&
+                    review.action === "retire" &&
+                    retirement?.resourceId === item.resource_id &&
+                    retirement?.generation === item.generation
+                  )
+                )
                   throw new ResourcePolicyError({
                     message: `Resource ${item.name} disappeared after confirmation`,
                   })

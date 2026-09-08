@@ -15,6 +15,8 @@ export type ProjectResourceKind = typeof ProjectResourceKind.Type
 export const ProjectResourceBinding = Schema.Struct({
   type: Schema.Literals([
     "r2_bucket",
+    "kv_namespace",
+    "queue",
     "durable_object_namespace",
     "workflow",
     "service",
@@ -37,6 +39,12 @@ export const PlannedProjectResource = Schema.Struct({
   className: Schema.optional(Schema.NonEmptyString),
   entrypoint: Schema.optional(Schema.Boolean),
   adopted: Schema.optional(Schema.Boolean),
+  retirement: Schema.optional(
+    Schema.Struct({
+      resourceId: Schema.NonEmptyString,
+      generation: Schema.NullOr(Schema.String),
+    })
+  ),
   purpose: Schema.optional(ProjectResourcePurpose),
   bindings: Schema.optional(Schema.Array(ProjectResourceBinding)),
 })
@@ -64,6 +72,10 @@ export const CloudflareResourceResponse = Schema.Struct({
   result_info: Schema.optional(
     Schema.Struct({
       total_pages: Schema.optional(Schema.Number),
+      page: Schema.optional(Schema.Number),
+      per_page: Schema.optional(Schema.Number),
+      count: Schema.optional(Schema.Number),
+      total_count: Schema.optional(Schema.Number),
       cursor: Schema.optional(Schema.NullOr(Schema.String)),
     })
   ),
@@ -244,4 +256,31 @@ export const ResourceMutationConfirmation = Schema.Struct({
   projectId: Schema.NonEmptyString,
   reviewId: Schema.NonEmptyString,
   confirmation: Schema.NonEmptyString,
+})
+
+export const ResourceRemovalSelection = Schema.Struct({
+  projectId: Schema.NonEmptyString,
+  resources: Schema.Array(
+    Schema.Struct({
+      kind: Schema.Literals(["queue", "durable_object"]),
+      name: Schema.NonEmptyString,
+      resourceId: Schema.NonEmptyString,
+      generation: Schema.NullOr(Schema.String),
+    })
+  ).check(Schema.isMinLength(1), Schema.isMaxLength(20)),
+})
+export type ResourceRemovalSelection = typeof ResourceRemovalSelection.Type
+export const ResourceRemovalPreparation = Schema.Struct({
+  projectId: Schema.NonEmptyString,
+  baseCommit: Schema.NonEmptyString,
+  deploymentId: Schema.NonEmptyString,
+  operationRunId: Schema.NonEmptyString,
+  resources: ProjectResourcePlan,
+  inventory: Schema.Array(StoredProjectResource),
+  blockers: Schema.Array(Schema.String),
+})
+export type ResourceRemovalPreparation = typeof ResourceRemovalPreparation.Type
+export const ResourceRemovalPreparationRequest = Schema.Struct({
+  projectId: Schema.NonEmptyString,
+  preparation: ResourceRemovalPreparation,
 })

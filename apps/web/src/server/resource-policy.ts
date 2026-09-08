@@ -36,6 +36,15 @@ export const validateResourceTopology = (plan: ProjectResourcePlan) => {
         message: `Duplicate resource ${resource.name}`,
       })
     keys.add(resourceKey(resource))
+    if (
+      resource.retirement &&
+      (resource.kind !== "durable_object" ||
+        resource.purpose === "recovery_control")
+    )
+      throw new ResourcePolicyError({
+        message:
+          "Only application Durable Object namespaces support a source retirement descriptor",
+      })
     if (resource.purpose === "recovery_control" && resource.kind !== "d1")
       throw new ResourcePolicyError({
         message: "Recovery control must use a separate D1 database",
@@ -82,6 +91,11 @@ export const validateResourceTopology = (plan: ProjectResourcePlan) => {
           message: `Duplicate binding ${binding.name}`,
         })
       bindings.add(binding.name)
+      if (plan.some((item) => item.name === binding.target && item.retirement))
+        throw new ResourcePolicyError({
+          message:
+            "Remove every binding to a namespace before its class retirement",
+        })
       if (binding.type === "ai") {
         if (binding.target || binding.entrypoint)
           throw new ResourcePolicyError({
@@ -93,11 +107,15 @@ export const validateResourceTopology = (plan: ProjectResourcePlan) => {
       const kind =
         binding.type === "service"
           ? "worker"
-          : binding.type === "workflow"
-            ? "workflow"
-            : binding.type === "r2_bucket"
-              ? "r2"
-              : "durable_object"
+          : binding.type === "kv_namespace"
+            ? "kv"
+            : binding.type === "queue"
+              ? "queue"
+              : binding.type === "workflow"
+                ? "workflow"
+                : binding.type === "r2_bucket"
+                  ? "r2"
+                  : "durable_object"
       if (
         !plan.some((item) => item.kind === kind && item.name === binding.target)
       )

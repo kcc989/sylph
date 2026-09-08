@@ -13,7 +13,10 @@ export default { fetch: withRecoveryGate(async (request, env, context) => {
     context.waitUntil(new Promise(resolve => setTimeout(resolve, 80)).then(() => env.SYLPH_RECOVERY_CONTROL.prepare('INSERT INTO completed VALUES (1)').run()))
   }
   return new Response('application')
-}, async () => new Response('verified-read-only')) }
+}, async () => new Response('verified-read-only')),
+queue: withRecoveryQueueGate(async (batch, env, context) => {
+  context.waitUntil(new Promise(resolve => setTimeout(resolve, 20)).then(() => env.SYLPH_RECOVERY_CONTROL.prepare('INSERT INTO completed VALUES (2)').run()))
+}) }
 `
   const worker = new Miniflare({
     modules: true,
@@ -84,6 +87,42 @@ test("waitUntil application work completes before the writer lease is released",
         .prepare("SELECT active FROM sylph_recovery_gate")
         .first<{ active: number }>()
     ).toEqual({ active: 0 })
+  } finally {
+    await worker.dispose()
+  }
+})
+
+test("the Workerd queue callback retries while paused and drains admitted background work", async () => {
+  const { worker, database } = await setup()
+  try {
+    const entrypoint = await worker.getWorker()
+    await database
+      .prepare("UPDATE sylph_recovery_gate SET owner = 'release'")
+      .run()
+    const paused = await entrypoint.queue("jobs", [
+      { id: "one", timestamp: new Date(), body: { id: "one" }, attempts: 1 },
+    ])
+    expect(paused.retryBatch.retry).toBe(true)
+    expect(
+      await database
+        .prepare("SELECT COUNT(*) AS count FROM completed")
+        .first<number>("count")
+    ).toBe(0)
+    await database.prepare("UPDATE sylph_recovery_gate SET owner = NULL").run()
+    const resumed = await entrypoint.queue("jobs", [
+      { id: "one", timestamp: new Date(), body: { id: "one" }, attempts: 2 },
+    ])
+    expect(resumed.outcome).toBe("ok")
+    expect(
+      await database
+        .prepare("SELECT COUNT(*) AS count FROM completed")
+        .first<number>("count")
+    ).toBe(1)
+    expect(
+      await database
+        .prepare("SELECT active FROM sylph_recovery_gate")
+        .first<number>("active")
+    ).toBe(0)
   } finally {
     await worker.dispose()
   }

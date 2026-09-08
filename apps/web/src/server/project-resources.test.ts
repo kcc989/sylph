@@ -178,6 +178,14 @@ const setup = async (scope = "preview:check:1") => {
     if (path.endsWith("/workers/durable_objects/namespaces"))
       return Response.json({
         success: true,
+        result_info: {
+          page: 1,
+          per_page: 100,
+          count: live.filter((item) => item.kind === "durable_object").length,
+          total_count: live.filter((item) => item.kind === "durable_object")
+            .length,
+          total_pages: 1,
+        },
         result: live
           .filter((item) => item.kind === "durable_object")
           .map((item) => ({
@@ -1280,4 +1288,398 @@ test("R2 plan bindings require exact application bucket ownership", () => {
         "owned"
       )
     ).toThrow()
+})
+
+test("managed KV and Queue bindings require exact same-Project resource kinds", () => {
+  for (const [type, kind] of [
+    ["kv_namespace", "kv"],
+    ["queue", "queue"],
+  ]) {
+    const worker = {
+      kind: "worker",
+      name: "owned-app",
+      bindings: [{ type, name: "DATA", target: "owned-data" }],
+    }
+    const plan = [worker, { kind, name: "owned-data" }]
+    expect(
+      readResourcePlan(`SYLPH_RESOURCE_PLAN=${JSON.stringify(plan)}`, "owned")
+    ).toHaveLength(2)
+    for (const other of [
+      { kind, name: "owned-other" },
+      { kind: "r2", name: "owned-data" },
+    ]) {
+      expect(() =>
+        readResourcePlan(
+          `SYLPH_RESOURCE_PLAN=${JSON.stringify([worker, other])}`,
+          "owned"
+        )
+      ).toThrow()
+    }
+  }
+})
+
+test("removal Workspace review binds accepted source, live identity and recovery compatibility", async () => {
+  const {
+    inspectResourceRemoval,
+    requireCurrentRemovalPreparation,
+    removalPreparationPrompt,
+  } = await import("./resource-removal-preparation")
+  const f = await setup("production")
+  const worker = f.plan.find((item) => item.kind === "worker")
+  if (!worker) throw new Error("Worker fixture missing")
+  const object = {
+    kind: "durable_object" as const,
+    name: `${worker.name}/Counter`,
+    worker: worker.name,
+    className: "Counter",
+  }
+  const plan = [...f.plan, object]
+  await reserveProjectResources(
+    f.database,
+    f.credentials,
+    f.owner,
+    plan,
+    f.request
+  )
+  f.deploy()
+  f.live.push({ ...object, id: "namespace-a" })
+  await captureProjectResources(
+    f.database,
+    f.credentials,
+    f.owner,
+    true,
+    f.request
+  )
+  await finishResourceOperation(f.database, f.credentials, f.owner, "complete")
+  const commit = "a".repeat(40)
+  f.sqlite
+    .query(
+      "INSERT INTO deployment (id, project_id, [commit], status, actor_user_id) VALUES ('release-a', 'one', ?, 'succeeded', 'admin')"
+    )
+    .run(commit)
+  const selection = {
+    projectId: "one",
+    resources: [
+      {
+        kind: "durable_object" as const,
+        name: object.name,
+        resourceId: "namespace-a",
+        generation: null,
+      },
+    ],
+  }
+  const reviewed = await inspectResourceRemoval(
+    f.database,
+    f.credentials,
+    selection,
+    commit,
+    f.request
+  )
+  expect(reviewed.baseCommit).toBe(commit)
+  expect(reviewed.resources[0]?.retirement).toEqual({
+    resourceId: "namespace-a",
+    generation: null,
+  })
+  expect(removalPreparationPrompt(reviewed)).toContain("Second checkpoint")
+  await expect(
+    inspectResourceRemoval(
+      f.database,
+      f.credentials,
+      selection,
+      "b".repeat(40),
+      f.request
+    )
+  ).rejects.toThrow("accepted commit")
+  const snapshot = {
+    deploymentId: "release-a",
+    projectId: "one",
+    commit,
+    baseCommit: null,
+    capturedAt: 1,
+    expiresAt: 9999999999999,
+    writesPaused: true,
+    inventoryComplete: true,
+    resources: [
+      {
+        id: "namespace-a",
+        kind: "durable-object",
+        backupRef: "actual-fixture-reference",
+        restoreVerifiedAt: 1,
+      },
+    ],
+  }
+  f.sqlite
+    .query("UPDATE deployment SET recovery_json = ? WHERE id = 'release-a'")
+    .run(JSON.stringify(snapshot))
+  const blocked = await inspectResourceRemoval(
+    f.database,
+    f.credentials,
+    selection,
+    commit,
+    f.request
+  )
+  expect(blocked.blockers).toHaveLength(1)
+  expect(() => requireCurrentRemovalPreparation(reviewed, blocked)).toThrow(
+    "recovery points changed"
+  )
+  await expect(
+    reserveProjectResources(
+      f.database,
+      f.credentials,
+      { ...f.owner, runId: "retire" },
+      [
+        ...f.plan,
+        {
+          ...object,
+          retirement: { resourceId: "namespace-a", generation: null },
+        },
+      ],
+      f.request
+    )
+  ).rejects.toThrow("invalidate saved recovery points")
+  const live = f.live.find((item) => item.kind === "durable_object")
+  if (!live) throw new Error("Namespace fixture missing")
+  live.id = "replacement"
+  await expect(
+    inspectResourceRemoval(
+      f.database,
+      f.credentials,
+      selection,
+      commit,
+      f.request
+    )
+  ).rejects.toThrow("Provider resource identity changed")
+})
+
+test("a source-retired namespace requires confirmed absence before retirement and removal", async () => {
+  const f = await setup("production")
+  const worker = f.plan.find((item) => item.kind === "worker")
+  if (!worker) throw new Error("Worker fixture missing")
+  const object = {
+    kind: "durable_object" as const,
+    name: `${worker.name}/Counter`,
+    worker: worker.name,
+    className: "Counter",
+  }
+  await reserveProjectResources(
+    f.database,
+    f.credentials,
+    f.owner,
+    [...f.plan, object],
+    f.request
+  )
+  f.deploy()
+  f.live.push({ ...object, id: "namespace-a" })
+  await captureProjectResources(
+    f.database,
+    f.credentials,
+    f.owner,
+    true,
+    f.request
+  )
+  await finishResourceOperation(f.database, f.credentials, f.owner, "complete")
+  const retirement = {
+    ...object,
+    retirement: { resourceId: "namespace-a", generation: null },
+  }
+  const next = { ...f.owner, runId: "retirement-release" }
+  await reserveProjectResources(
+    f.database,
+    f.credentials,
+    next,
+    [...f.plan, retirement],
+    f.request
+  )
+  const namespace = f.live.find((item) => item.kind === "durable_object")
+  if (!namespace) throw new Error("Namespace fixture missing")
+  namespace.name = `${worker.name}/Renamed`
+  namespace.className = "Renamed"
+  await expect(
+    captureProjectResources(f.database, f.credentials, next, true, f.request)
+  ).rejects.toThrow()
+  f.live.splice(f.live.indexOf(namespace), 1)
+  await captureProjectResources(
+    f.database,
+    f.credentials,
+    next,
+    true,
+    f.request
+  )
+  await finishResourceOperation(f.database, f.credentials, next, "complete")
+  const service = mutationService(f)
+  const review = await service.review({
+    projectId: "one",
+    scope: "production",
+    action: "retire",
+    resources: [object],
+  })
+  await service.confirm(review)
+  await service.execute(review)
+  expect(
+    (await readProjectResources(f.database, "one")).find(
+      (item) => item.kind === "durable_object"
+    )?.state
+  ).toBe("retired")
+  const removal = await service.review({
+    projectId: "one",
+    scope: "production",
+    action: "remove",
+    resources: [object],
+  })
+  await service.confirm(removal)
+  await service.execute(removal)
+  expect(
+    (await readProjectResources(f.database, "one")).find(
+      (item) => item.kind === "durable_object"
+    )?.state
+  ).toBe("deleted")
+  expect(f.deletes).toEqual([])
+})
+
+test("namespace absence requires a complete consistent unique provider inventory", async () => {
+  const credentials = { accountId: "account", token: "test" }
+  const namespace = { id: "namespace", script: "worker", class: "State" }
+  const info = {
+    page: 1,
+    per_page: 100,
+    count: 0,
+    total_count: 0,
+    total_pages: 0,
+  }
+  for (const total_pages of [0, 1, undefined]) {
+    const result = await listCloudflareResources(
+      credentials,
+      "durable_object",
+      async () =>
+        Response.json({
+          success: true,
+          result: [],
+          result_info: { ...info, total_pages },
+        })
+    )
+    expect(result).toEqual([])
+  }
+  for (const malformed of [
+    undefined,
+    { total_pages: 1 },
+    { ...info, total_count: 1, total_pages: 1 },
+    { ...info, page: 0 },
+    { ...info, count: 1 },
+    { ...info, per_page: 0 },
+    { ...info, total_count: -1 },
+    { ...info, total_pages: 2 },
+    { ...info, per_page: 1.5 },
+  ]) {
+    await expect(
+      listCloudflareResources(credentials, "durable_object", async () =>
+        Response.json({
+          success: true,
+          result: [],
+          result_info: malformed,
+        })
+      )
+    ).rejects.toThrow()
+  }
+  const pages: number[] = []
+  const complete: ResourceRequest = async (input) => {
+    const page = Number(new URL(String(input)).searchParams.get("page"))
+    pages.push(page)
+    return Response.json({
+      success: true,
+      result: [{ ...namespace, id: `namespace-${page}` }],
+      result_info: {
+        page,
+        per_page: 1,
+        count: 1,
+        total_count: 2,
+        total_pages: 2,
+      },
+    })
+  }
+  expect(
+    await listCloudflareResources(credentials, "durable_object", complete)
+  ).toHaveLength(2)
+  expect(pages).toEqual([1, 2])
+  for (const second of [
+    { id: "namespace-1", total_count: 2, page: 2 },
+    { id: "namespace-2", total_count: 3, page: 2 },
+    { id: "namespace-2", total_count: 2, page: 1 },
+    { id: "", total_count: 2, page: 2 },
+  ]) {
+    const request: ResourceRequest = async (input) => {
+      const page = Number(new URL(String(input)).searchParams.get("page"))
+      if (page === 1) return complete(input)
+      return Response.json({
+        success: true,
+        result: [{ ...namespace, id: second.id }],
+        result_info: {
+          page: second.page,
+          per_page: 1,
+          count: 1,
+          total_count: second.total_count,
+          total_pages: 2,
+        },
+      })
+    }
+    await expect(
+      listCloudflareResources(credentials, "durable_object", request)
+    ).rejects.toThrow()
+  }
+})
+
+test("namespace pagination accepts live provider totals without total_pages", async () => {
+  const credentials = { accountId: "account", token: "test" }
+  const namespaces = Array.from({ length: 153 }, (_, index) => ({
+    id: `namespace-${index}`,
+    name: `State-${index}`,
+    script: "worker",
+    class: `State${index}`,
+    use_sqlite: true,
+  }))
+  const visited: number[] = []
+  const request: ResourceRequest = async (input) => {
+    const page = Number(new URL(String(input)).searchParams.get("page"))
+    visited.push(page)
+    const result = namespaces.slice((page - 1) * 100, page * 100)
+    return Response.json({
+      success: true,
+      result,
+      result_info: {
+        page,
+        per_page: 100,
+        count: result.length,
+        total_count: 153,
+      },
+    })
+  }
+  expect(
+    await listCloudflareResources(credentials, "durable_object", request)
+  ).toHaveLength(153)
+  expect(visited).toEqual([1, 2])
+  for (const defect of ["truncated", "duplicate", "count", "total", "pages"]) {
+    const invalid: ResourceRequest = async (input) => {
+      const page = Number(new URL(String(input)).searchParams.get("page"))
+      if (page === 1) return request(input)
+      const result =
+        defect === "truncated"
+          ? namespaces.slice(100, 152)
+          : defect === "duplicate"
+            ? namespaces.slice(0, 53)
+            : namespaces.slice(100)
+      return Response.json({
+        success: true,
+        result,
+        result_info: {
+          page,
+          per_page: 100,
+          count: defect === "count" ? 52 : result.length,
+          total_count: defect === "total" ? 154 : 153,
+          total_pages: defect === "pages" ? 1 : undefined,
+        },
+      })
+    }
+    await expect(
+      listCloudflareResources(credentials, "durable_object", invalid)
+    ).rejects.toThrow()
+  }
 })

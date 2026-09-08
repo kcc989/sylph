@@ -31,5 +31,11 @@ export class DeploymentBrokerFailure extends Schema.TaggedError<DeploymentBroker
 
 export const BrokerCollectionPage = Schema.Struct({
   total_pages: Schema.optional(Schema.Number),
+  total_count: Schema.optional(Schema.Number),
   cursor: Schema.optional(Schema.NullOr(Schema.String)),
 })
+
+export const BrokerQueueMessage = Schema.Union([
+  Schema.Struct({ body: Schema.Json, content_type: Schema.Literal("json") }),
+  Schema.Struct({ body: Schema.String, content_type: Schema.Literal("text") }),
+])

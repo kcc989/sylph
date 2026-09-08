@@ -1,3 +1,4 @@
+import { namespaceRecoveryBlockers } from "./resource-retirement"
 import { Schema } from "effect"
 import {
   BrokerJson,
@@ -111,6 +112,9 @@ export const deploymentBrokerStore = (
       result.results
     )
   },
+  retirementAllowed: async (lease, namespaceId) =>
+    (await namespaceRecoveryBlockers(database, lease.projectId, [namespaceId]))
+      .length === 0,
   created: async (lease, resource) => {
     await database
       .prepare(

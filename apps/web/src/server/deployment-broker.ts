@@ -1,3 +1,10 @@
+import {
+  listCloudflareResources,
+  rejectContainerNamespaces,
+  readWorkerSettings,
+  bindingReferencesResource,
+  type ResourceRequest,
+} from "./cloudflare-resources"
 import { Context, Effect, Layer, Schema } from "effect"
 import {
   BrokerJson,
@@ -21,6 +28,10 @@ export interface DeploymentBrokerStore {
     lease: DeploymentCapability,
     resource: BrokerResource
   ) => Promise<void>
+  retirementAllowed?: (
+    lease: DeploymentCapability,
+    namespaceId: string
+  ) => Promise<boolean>
   state: (
     lease: DeploymentCapability,
     method: string,
@@ -37,6 +48,92 @@ export class ProjectDeploymentBroker extends Context.Service<
     ) => Effect.Effect<Response, DeploymentBrokerFailure>
   }
 >()("@sylph/ProjectDeploymentBroker") {}
+
+const scopedQueues = (
+  values: readonly (typeof BrokerJson.Type)[],
+  plan: typeof BrokerPlan.Type,
+  resources: readonly BrokerResource[]
+) => {
+  const workers = new Set(
+    plan.filter((item) => item.kind === "worker").map((item) => item.name)
+  )
+  const ownedQueues = resources.filter((item) => item.kind === "queue")
+  const result = []
+  for (const value of values) {
+    const id = Schema.decodeUnknownSync(Schema.NonEmptyString)(value.queue_id)
+    const consumers = Schema.decodeUnknownSync(Schema.Array(BrokerJson))(
+      value.consumers
+    ).map((item) => {
+      if (
+        item.script !== undefined &&
+        item.script_name !== undefined &&
+        item.script !== item.script_name
+      )
+        brokerDenied("Queue consumer host fields disagree")
+      return Schema.decodeUnknownSync(BrokerJson)({
+        ...item,
+        script: item.script ?? item.script_name,
+      })
+    })
+    if (value.consumers_total_count !== consumers.length)
+      brokerDenied("Queue consumer inventory is incomplete")
+    const owned = ownedQueues.find((item) => item.id === id)
+    if (!owned) {
+      if (
+        consumers.some(
+          (item) =>
+            Schema.is(Schema.String)(item.script) && workers.has(item.script)
+        )
+      )
+        brokerDenied("Undeclared Queue consumes from an approved Worker")
+      continue
+    }
+    if (value.queue_name !== owned.name)
+      brokerDenied("Queue identity differs from the approved resource")
+    const producers = Schema.decodeUnknownSync(Schema.Array(BrokerJson))(
+      value.producers
+    )
+    if (value.producers_total_count !== producers.length)
+      brokerDenied("Queue producer inventory is incomplete")
+    if (
+      consumers.some(
+        (item) =>
+          item.type !== "worker" ||
+          !Schema.is(Schema.String)(item.script) ||
+          !workers.has(item.script)
+      )
+    )
+      brokerDenied("Queue has an unapproved consumer")
+    if (
+      producers.some(
+        (item) =>
+          item.type !== "worker" ||
+          !Schema.is(Schema.String)(item.script) ||
+          !workers.has(item.script)
+      )
+    )
+      brokerDenied("Queue has an unapproved producer")
+    result.push({
+      queue_id: id,
+      queue_name: owned.name,
+      created_on: value.created_on,
+      modified_on: value.modified_on,
+      settings: value.settings,
+      consumers_total_count: consumers.length,
+      producers_total_count: producers.length,
+      consumers: consumers.map((item) => ({
+        type: item.type,
+        consumer_id: item.consumer_id,
+        script: item.script,
+      })),
+      producers: producers.map((item) => ({
+        type: item.type,
+        script: item.script,
+      })),
+    })
+  }
+  return result
+}
 
 export const capabilityHash = async (value: string) =>
   Array.from(
@@ -300,6 +397,148 @@ export const ProjectDeploymentBrokerLive = (configuration: {
               if (observed.status !== 404)
                 brokerDenied("Reserved bucket absence is not verified")
             }
+            if (authorization.worker && parsed.migrations) {
+              const migrations = Schema.decodeUnknownSync(BrokerJson)(
+                parsed.migrations
+              )
+              for (const migration of Schema.decodeUnknownSync(
+                Schema.Array(BrokerJson)
+              )(migrations.steps ?? [])) {
+                for (const className of Schema.decodeUnknownSync(
+                  Schema.Array(Schema.String)
+                )(migration.deleted_classes ?? [])) {
+                  const descriptor = plan.find(
+                    (item) =>
+                      item.kind === "durable_object" &&
+                      item.className === className &&
+                      item.worker === relative.split("/")[3]
+                  )
+                  if (
+                    lease.scope !== "production" ||
+                    !descriptor?.retirement ||
+                    !(await configuration.store.retirementAllowed?.(
+                      lease,
+                      descriptor.retirement.resourceId
+                    ))
+                  )
+                    brokerDenied(
+                      "Namespace retirement would invalidate saved recovery points"
+                    )
+                  await rejectContainerNamespaces(
+                    { accountId: lease.accountId, token: configuration.token },
+                    [
+                      {
+                        account_id: lease.accountId,
+                        project_id: lease.projectId,
+                        scope: lease.scope,
+                        kind: "durable_object",
+                        name: descriptor.name,
+                        resource_id: descriptor.retirement.resourceId,
+                        generation: descriptor.retirement.generation,
+                        purpose: "application",
+                        state: "active",
+                      },
+                    ],
+                    (input, options) =>
+                      fetcher(new Request(input, options).url, options ?? {})
+                  )
+                  const credentials = {
+                    accountId: lease.accountId,
+                    token: configuration.token,
+                  }
+                  const providerRequest: ResourceRequest = (input, options) =>
+                    fetcher(new Request(input, options).url, options ?? {})
+                  for (const worker of await listCloudflareResources(
+                    credentials,
+                    "worker",
+                    providerRequest
+                  )) {
+                    if (worker.name === descriptor.worker) continue
+                    const settings = await readWorkerSettings(
+                      credentials,
+                      worker.name,
+                      providerRequest
+                    )
+                    if (
+                      settings.bindings.some((binding) =>
+                        bindingReferencesResource(
+                          binding,
+                          {
+                            account_id: lease.accountId,
+                            project_id: lease.projectId,
+                            scope: lease.scope,
+                            kind: "durable_object",
+                            name: descriptor.name,
+                            resource_id:
+                              descriptor.retirement?.resourceId ?? null,
+                            generation:
+                              descriptor.retirement?.generation ?? null,
+                            purpose: "application",
+                            state: "active",
+                          },
+                          worker.name
+                        )
+                      )
+                    )
+                      brokerDenied(
+                        "Namespace still has a binding from another Worker"
+                      )
+                  }
+                  const namespaces = await listCloudflareResources(
+                    { accountId: lease.accountId, token: configuration.token },
+                    "durable_object",
+                    (input, options) =>
+                      fetcher(new Request(input, options).url, options ?? {})
+                  )
+                  if (
+                    !namespaces.some(
+                      (item) =>
+                        item.id === descriptor.retirement?.resourceId &&
+                        item.name === descriptor.name &&
+                        item.service === descriptor.worker &&
+                        item.className === className &&
+                        (item.generation ?? null) ===
+                          descriptor.retirement.generation
+                    )
+                  )
+                    brokerDenied(
+                      "Namespace retirement provider identity changed"
+                    )
+                }
+              }
+            }
+            if (authorization.consumerRemoval) {
+              const consumerId = relative.split("/")[4]
+              const observe = async () => {
+                const existing = await fetcher(upstreamUrl.href, {
+                  method: "GET",
+                  headers,
+                  redirect: "error",
+                  signal: AbortSignal.timeout(60_000),
+                })
+                if (!existing.ok)
+                  brokerDenied("Queue consumer identity cannot be verified")
+                const envelope = Schema.decodeUnknownSync(BrokerJson)(
+                  await existing.json()
+                )
+                if (envelope.success !== true)
+                  brokerDenied("Queue consumer identity cannot be verified")
+                return Schema.decodeUnknownSync(BrokerJson)(envelope.result)
+              }
+              const consumer = await observe()
+              const script = consumer.script ?? consumer.script_name
+              if (
+                consumer.consumer_id !== consumerId ||
+                consumer.type !== "worker" ||
+                (consumer.script !== undefined &&
+                  consumer.script_name !== undefined &&
+                  consumer.script !== consumer.script_name) ||
+                !resources.some(
+                  (item) => item.kind === "worker" && item.name === script
+                )
+              )
+                brokerDenied("Queue consumer belongs to another Worker")
+            }
             const upstream = await fetcher(upstreamUrl.href, {
               method: request.method,
               headers,
@@ -349,6 +588,47 @@ export const ProjectDeploymentBrokerLive = (configuration: {
                 },
                 { status: upstream.status }
               )
+            }
+            if (authorization.consumerRemoval) {
+              const consumerId = relative.split("/")[4]
+              const collection = new URL(upstreamUrl.href)
+              collection.pathname = collection.pathname.slice(
+                0,
+                collection.pathname.lastIndexOf("/")
+              )
+              collection.searchParams.set("per_page", "100")
+              for (let page = 1; ; page++) {
+                if (page > 1000)
+                  brokerDenied("Queue consumer absence could not be verified")
+                collection.searchParams.set("page", String(page))
+                const observed = await fetcher(collection.href, {
+                  method: "GET",
+                  headers,
+                  redirect: "error",
+                  signal: AbortSignal.timeout(60_000),
+                })
+                if (!observed.ok)
+                  brokerDenied("Queue consumer absence could not be verified")
+                const result = Schema.decodeUnknownSync(BrokerJson)(
+                  await observed.json()
+                )
+                if (result.success !== true)
+                  brokerDenied("Queue consumer absence could not be verified")
+                const consumers = Schema.decodeUnknownSync(
+                  Schema.Array(BrokerJson)
+                )(result.result)
+                if (consumers.some((item) => item.consumer_id === consumerId))
+                  brokerDenied("Queue consumer is still attached")
+                const info = Schema.decodeUnknownSync(BrokerCollectionPage)(
+                  result.result_info ?? {}
+                )
+                if (
+                  info.total_pages !== undefined
+                    ? page >= info.total_pages
+                    : consumers.length < 100
+                )
+                  break
+              }
             }
             const responseType = upstream.headers.get("Content-Type") ?? ""
             if (authorization.objectData && request.method === "GET") {
@@ -431,6 +711,19 @@ export const ProjectDeploymentBrokerLive = (configuration: {
                 const info = Schema.decodeUnknownSync(BrokerCollectionPage)(
                   pageResult.result_info ?? {}
                 )
+                if (
+                  authorization.kind === "queue" &&
+                  info.total_pages !== undefined &&
+                  (!Number.isInteger(info.total_pages) ||
+                    (info.total_pages < page &&
+                      !(
+                        page === 1 &&
+                        info.total_pages === 0 &&
+                        info.total_count === 0 &&
+                        values.length === 0
+                      )))
+                )
+                  brokerDenied("Queue provider pagination is incomplete")
                 if (authorization.kind === "r2") {
                   if (!info.cursor) break
                   if (cursors.has(info.cursor))
@@ -471,31 +764,64 @@ export const ProjectDeploymentBrokerLive = (configuration: {
                 values.push(...items)
                 pageLength = items.length
               }
-              const allowed = values.filter((value) => {
-                if (authorization.kind === "durable_object")
-                  return plan.some(
-                    (item) =>
-                      item.kind === "durable_object" &&
-                      item.worker === value.script &&
-                      item.className === value.class
+              const allowed =
+                authorization.kind === "queue"
+                  ? scopedQueues(values, plan, resources)
+                  : values.filter((value) => {
+                      if (authorization.kind === "durable_object")
+                        return plan.some(
+                          (item) =>
+                            item.kind === "durable_object" &&
+                            item.worker === value.script &&
+                            item.className === value.class &&
+                            resources.some(
+                              (owned) =>
+                                owned.kind === "worker" &&
+                                owned.name === item.worker
+                            )
+                        )
+                      return resources.some(
+                        (resource) =>
+                          resource.kind === authorization.kind &&
+                          [
+                            value.id,
+                            value.uuid,
+                            value.queue_id,
+                            value.name,
+                          ].includes(resource.id)
+                      )
+                    })
+              if (authorization.kind === "durable_object") {
+                for (const row of allowed) {
+                  const namespace = Schema.decodeUnknownSync(BrokerJson)(row)
+                  const id = Schema.decodeUnknownSync(Schema.NonEmptyString)(
+                    namespace.id
                   )
-                return resources.some(
-                  (resource) =>
-                    resource.kind === authorization.kind &&
-                    [value.id, value.uuid, value.queue_id, value.name].includes(
-                      resource.id
-                    )
-                )
-              })
+                  const name = `${Schema.decodeUnknownSync(Schema.NonEmptyString)(namespace.script)}/${Schema.decodeUnknownSync(Schema.NonEmptyString)(namespace.class)}`
+                  const previous = resources.find(
+                    (item) =>
+                      item.kind === "durable_object" && item.name === name
+                  )
+                  if (previous && previous.id !== id)
+                    brokerDenied("Namespace provider identity changed")
+                  await configuration.store.created(lease, {
+                    kind: "durable_object",
+                    name,
+                    id,
+                  })
+                }
+              }
+              const resultInfo = {
+                page: 1,
+                per_page: allowed.length,
+                count: allowed.length,
+                total_count: allowed.length,
+                total_pages: authorization.kind === "queue" ? 1 : undefined,
+              }
               return Response.json({
                 success: true,
                 result: wrappedBuckets ? { buckets: allowed } : allowed,
-                result_info: {
-                  page: 1,
-                  per_page: allowed.length,
-                  count: allowed.length,
-                  total_count: allowed.length,
-                },
+                result_info: resultInfo,
               })
             }
             if (authorization.createName && result.success === true) {

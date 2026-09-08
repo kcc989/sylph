@@ -15,6 +15,7 @@ export const LifecycleWorkspaceRow = Schema.Struct({
   status: Schema.NonEmptyString,
   fork_head: Schema.NullOr(LifecycleCommit),
   accepted_commit: Schema.NullOr(LifecycleCommit),
+  repair_commit: Schema.optional(Schema.NullOr(LifecycleCommit)),
 })
 export const LifecycleProjectRow = Schema.Struct({
   id: Schema.NonEmptyString,
@@ -69,6 +70,7 @@ export const LifecycleActionState = Schema.Struct({
   recovery: Schema.optional(DeploymentRecoveryPoint),
   productionDatabaseId: Schema.optional(Schema.String),
   productionWorker: Schema.optional(Schema.String),
+  productionBucket: Schema.optional(Schema.String),
   marker: Schema.NonEmptyString,
 })
 export type LifecycleActionState = typeof LifecycleActionState.Type
@@ -129,3 +131,22 @@ export const LifecycleWireScalar = Schema.Union([
   Schema.Struct({ t: Schema.Literal(1), s: Schema.String }),
   Schema.Struct({ t: Schema.Literal(2), s: Schema.Literals([1, 2, 3]) }),
 ])
+
+export const LifecycleR2Listing = Schema.Struct({
+  success: Schema.Literal(true),
+  result: Schema.Array(
+    Schema.Struct({
+      key: Schema.String,
+      custom_metadata: Schema.optional(
+        Schema.Record(Schema.String, Schema.String)
+      ),
+      http_metadata: Schema.optional(Schema.JsonObject),
+    })
+  ),
+  result_info: Schema.optional(
+    Schema.Struct({
+      is_truncated: Schema.optional(Schema.Boolean),
+      cursor: Schema.optional(Schema.String),
+    })
+  ),
+})

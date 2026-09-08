@@ -5,6 +5,8 @@ import { Effect, Schema } from "effect"
 import {
   RecoveryBinding,
   RecoveryQueryInput,
+  RecoveryQueuesResponse,
+  type RecoveryTopology,
 } from "@workspace/domain/cloudflare-recovery"
 import { CloudflareD1Recovery, CloudflareD1RecoveryLive } from "../src/recovery"
 
@@ -17,6 +19,7 @@ class Provider {
   time = Date.now()
   corruptRestore = false
   failRestore = false
+  queues: Array<(typeof RecoveryQueuesResponse.Type.result)[number]> = []
   bindings: Array<typeof RecoveryBinding.Type> = [
     { name: "DB", type: "d1", id: "app" },
     { name: "SYLPH_RECOVERY_CONTROL", type: "d1", id: "control" },
@@ -35,6 +38,16 @@ class Provider {
     )
     expect(init.redirect).toBe("error")
     const path = new URL(url)
+    if (path.pathname.endsWith("/queues"))
+      return Response.json({
+        success: true,
+        result: this.queues,
+        result_info: {
+          page: 1,
+          total_pages: 1,
+          total_count: this.queues.length,
+        },
+      })
     if (path.pathname.endsWith("/settings"))
       return Response.json({
         success: true,
@@ -403,4 +416,172 @@ test("D1 restore rejects data changes after the saved undo point before provider
       .query("SELECT phase FROM sylph_recovery_resource_operation")
       .get()
   ).toBeNull()
+})
+
+test("managed KV and Queue inventory requires exact journal and consumer ownership", async () => {
+  const provider = new Provider()
+  provider.bindings.push(
+    { name: "CACHE", type: "kv_namespace", namespace_id: "kv" },
+    { name: "JOBS", type: "queue", queue_name: "jobs" }
+  )
+  provider.queues = [
+    {
+      queue_id: "queue",
+      queue_name: "jobs",
+      producers_total_count: 1,
+      consumers_total_count: 1,
+      producers: [{ type: "worker", script: "app-worker" }],
+      consumers: [{ type: "worker", script_name: "app-worker" }],
+    },
+  ]
+  const topology: RecoveryTopology = {
+    workers: [
+      {
+        workerName: "app-worker",
+        databaseIds: ["app"],
+        secretNames: [],
+        serviceTargets: [],
+        managedKv: [
+          { bindingName: "CACHE", namespaceId: "kv", databaseId: "app" },
+        ],
+        managedQueues: [
+          {
+            bindingName: "JOBS",
+            queueId: "queue",
+            queueName: "jobs",
+            databaseId: "app",
+          },
+        ],
+        queueConsumers: [
+          { queueId: "queue", queueName: "jobs", databaseId: "app" },
+        ],
+      },
+    ],
+  }
+  await run(provider, (service) => service.inventoryTopology(topology))
+  for (const changes of [
+    { managedKv: [] },
+    { managedQueues: [] },
+    { queueConsumers: [] },
+    {
+      managedKv: [
+        { bindingName: "CACHE", namespaceId: "kv", databaseId: "uncovered" },
+      ],
+    },
+  ]) {
+    await expect(
+      run(provider, (service) =>
+        service.inventoryTopology({
+          workers: topology.workers.map((worker) => ({
+            ...worker,
+            ...changes,
+          })),
+        })
+      )
+    ).rejects.toThrow()
+  }
+  provider.queues = provider.queues.map((queue) => ({
+    ...queue,
+    producers: [...queue.producers, { type: "worker", script: "outside" }],
+  }))
+  await expect(
+    run(provider, (service) => service.inventoryTopology(topology))
+  ).rejects.toThrow()
+})
+
+test("consumer-only Workers cannot bypass the recovery inventory", async () => {
+  const provider = new Provider()
+  provider.queues = [
+    {
+      queue_id: "hidden",
+      queue_name: "hidden",
+      producers_total_count: 0,
+      consumers_total_count: 1,
+      producers: [],
+      consumers: [{ type: "worker", script_name: "app-worker" }],
+    },
+  ]
+  await expect(
+    run(provider, (service) =>
+      service.inventory({
+        workerName: "app-worker",
+        databaseId: "app",
+        secretNames: [],
+      })
+    )
+  ).rejects.toThrow()
+})
+
+test("managed Queue consumer detachment preserves inventory identity and rejects invalid actors", async () => {
+  const provider = new Provider()
+  provider.bindings.push({ name: "JOBS", type: "queue", queue_name: "jobs" })
+  const topology: RecoveryTopology = {
+    workers: [
+      {
+        workerName: "app-worker",
+        databaseIds: ["app"],
+        secretNames: [],
+        serviceTargets: [],
+        managedQueues: [
+          {
+            bindingName: "JOBS",
+            queueId: "queue",
+            queueName: "jobs",
+            databaseId: "app",
+          },
+        ],
+        queueConsumers: [
+          { queueId: "queue", queueName: "jobs", databaseId: "app" },
+        ],
+      },
+    ],
+  }
+  const detached = {
+    queue_id: "queue",
+    queue_name: "jobs",
+    producers_total_count: 1,
+    consumers_total_count: 0,
+    producers: [{ type: "worker", script: "app-worker" }],
+    consumers: [],
+  }
+  provider.queues = [detached]
+  await run(provider, (service) => service.inventoryTopology(topology))
+  provider.queues = [
+    {
+      ...detached,
+      consumers_total_count: 1,
+      consumers: [{ type: "worker", script: "app-worker" }],
+    },
+  ]
+  await run(provider, (service) => service.inventoryTopology(topology))
+  for (const invalid of [
+    { consumers_total_count: 1 },
+    { producers_total_count: 2 },
+    {
+      consumers_total_count: 1,
+      consumers: [{ type: "worker", script: "outside" }],
+    },
+    { consumers_total_count: 1, consumers: [{ type: "http_pull" }] },
+    {
+      consumers_total_count: 2,
+      consumers: [
+        { type: "worker", script: "app-worker" },
+        { type: "worker", script: "app-worker" },
+      ],
+    },
+    {
+      producers_total_count: 2,
+      producers: [
+        { type: "worker", script: "app-worker" },
+        { type: "worker", script: "app-worker" },
+      ],
+    },
+    { producers: [{ type: "worker", script: "outside" }] },
+    { queue_id: "replacement" },
+  ]) {
+    provider.queues = [{ ...detached, ...invalid }]
+    await expect(
+      run(provider, (service) => service.inventoryTopology(topology))
+    ).rejects.toThrow()
+  }
 })

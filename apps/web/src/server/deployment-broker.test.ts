@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { Effect } from "effect"
+import { Effect, Schema } from "effect"
 import {
   ProjectDeploymentBroker,
   ProjectDeploymentBrokerLive,
@@ -418,7 +418,8 @@ test("Worker bindings cannot expose independently retained restore drill data", 
 const protocolFixture = async (
   provider: (request: Request) => Promise<Response>,
   resources = owned,
-  frozenPlan: typeof BrokerPlan.Type = plan
+  frozenPlan: typeof BrokerPlan.Type = plan,
+  retirementAllowed = async (_namespaceId: string) => false
 ) => {
   const hash = await capabilityHash(token)
   const created: Array<{ kind: string; name: string; id: string }> = []
@@ -443,6 +444,8 @@ const protocolFixture = async (
         created.push(resource)
       },
       state: async () => Response.json(null),
+      retirementAllowed: async (_, namespaceId) =>
+        retirementAllowed(namespaceId),
     },
     fetch: async (url, options) => {
       const request = new Request(url, options)
@@ -1182,4 +1185,561 @@ test("known missing CORS configuration preserves its driver code without provide
   const result = await response.text()
   expect(result).toContain("10059")
   expect(result).not.toContain("provider-private-credential")
+})
+
+const queueInventory = (id: string, name: string) => ({
+  queue_id: id,
+  queue_name: name,
+  consumers: [],
+  producers: [],
+  consumers_total_count: 0,
+  producers_total_count: 0,
+})
+const queuePlan = [...plan, { kind: "queue" as const, name: "queue-a" }]
+const queueResources = [
+  ...owned,
+  { kind: "queue", name: "queue-a", id: "queue-id-a" },
+]
+
+test("Queue collection traverses the full account and reports one complete scoped page", async () => {
+  const ownQueue = {
+    ...queueInventory("queue-id-a", "queue-a"),
+    consumers_total_count: 1,
+    producers_total_count: 1,
+    consumers: [
+      {
+        type: "worker",
+        consumer_id: "consumer-a",
+        script: "project-a-web",
+        provider_private: "not-exposed",
+      },
+    ],
+    producers: [
+      {
+        type: "worker",
+        script: "project-a-web",
+        provider_private: "not-exposed",
+      },
+    ],
+    unrelated_provider_field: "not-exposed",
+  }
+  const f = await protocolFixture(
+    async (request) =>
+      Response.json({
+        success: true,
+        result:
+          new URL(request.url).searchParams.get("page") === "1"
+            ? [queueInventory("queue-b", "foreign-queue")]
+            : [ownQueue],
+        result_info: { total_pages: 2, total_count: 500 },
+      }),
+    queueResources,
+    queuePlan
+  )
+  const result = await (await f.run("/queues?page=9&per_page=1")).json()
+  expect(result).toEqual({
+    success: true,
+    result: [
+      {
+        ...queueInventory("queue-id-a", "queue-a"),
+        consumers_total_count: 1,
+        producers_total_count: 1,
+        consumers: [
+          {
+            type: "worker",
+            consumer_id: "consumer-a",
+            script: "project-a-web",
+          },
+        ],
+        producers: [{ type: "worker", script: "project-a-web" }],
+      },
+    ],
+    result_info: {
+      page: 1,
+      per_page: 1,
+      count: 1,
+      total_pages: 1,
+      total_count: 1,
+    },
+  })
+  expect(f.calls.map((request) => new URL(request.url).search)).toEqual([
+    "?page=1&per_page=100",
+    "?page=2&per_page=100",
+  ])
+})
+
+test("an undeclared Queue attached to an approved Worker fails without leaking foreign metadata", async () => {
+  const f = await protocolFixture(
+    async (request) =>
+      Response.json({
+        success: true,
+        result:
+          new URL(request.url).searchParams.get("page") === "1"
+            ? [queueInventory("queue-id-a", "queue-a")]
+            : [
+                {
+                  ...queueInventory("foreign-id", "private-foreign-queue"),
+                  consumers_total_count: 1,
+                  consumers: [{ type: "worker", script: "project-a-web" }],
+                },
+              ],
+        result_info: { total_pages: 2 },
+      }),
+    queueResources,
+    queuePlan
+  )
+  await expect(f.run("/queues?page=1&per_page=100")).rejects.toThrow(
+    "capability denied"
+  )
+  try {
+    await f.run("/queues")
+  } catch (cause) {
+    expect(String(cause)).not.toContain("private-foreign-queue")
+    expect(String(cause)).not.toContain("foreign-id")
+  }
+  expect(f.calls).toHaveLength(4)
+})
+
+test("Queue collection fails closed on external actors and incomplete inventories", async () => {
+  for (const value of [
+    { ...queueInventory("queue-id-a", "queue-a"), consumers_total_count: 1 },
+    { ...queueInventory("queue-id-a", "queue-a"), producers_total_count: 1 },
+    {
+      ...queueInventory("queue-id-a", "queue-a"),
+      consumers_total_count: 1,
+      consumers: [{ type: "worker", script_name: "foreign-web" }],
+    },
+    {
+      ...queueInventory("queue-id-a", "queue-a"),
+      producers_total_count: 1,
+      producers: [{ type: "worker", script: "foreign-web" }],
+    },
+    {
+      ...queueInventory("queue-id-a", "queue-a"),
+      producers_total_count: 1,
+      producers: [{ type: "r2_bucket", bucket_name: "foreign-bucket" }],
+    },
+    {
+      ...queueInventory("foreign-id", "foreign-queue"),
+      consumers_total_count: 1,
+    },
+    { ...queueInventory("queue-id-a", "renamed-queue") },
+    {
+      ...queueInventory("foreign-id", "foreign-queue"),
+      consumers_total_count: 1,
+      consumers: [
+        { type: "worker", script: "foreign-web", script_name: "project-a-web" },
+      ],
+    },
+  ]) {
+    const f = await protocolFixture(
+      async () =>
+        Response.json({
+          success: true,
+          result: [value],
+          result_info: { total_pages: 1 },
+        }),
+      queueResources,
+      queuePlan
+    )
+    await expect(f.run("/queues")).rejects.toThrow("capability denied")
+  }
+})
+
+test("new planned Queue remains absent until creation records its provider identity", async () => {
+  let created = false
+  const f = await protocolFixture(
+    async (request) => {
+      if (request.method === "POST") {
+        created = true
+        return Response.json({
+          success: true,
+          result: { queue_id: "queue-id-a", queue_name: "queue-a" },
+        })
+      }
+      return Response.json({
+        success: true,
+        result: created ? [queueInventory("queue-id-a", "queue-a")] : [],
+        result_info: { total_pages: 1 },
+      })
+    },
+    owned,
+    queuePlan
+  )
+  expect(
+    Schema.decodeUnknownSync(BrokerJson)(await (await f.run("/queues")).json())
+      .result
+  ).toEqual([])
+  await f.run("/queues", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ queue_name: "queue-a" }),
+  })
+  expect(
+    Schema.decodeUnknownSync(BrokerJson)(await (await f.run("/queues")).json())
+      .result
+  ).toEqual([queueInventory("queue-id-a", "queue-a")])
+  expect(f.created).toEqual([
+    { kind: "queue", name: "queue-a", id: "queue-id-a" },
+  ])
+})
+
+test("Queue replay sends standard messages only to the exact owned planned Queue", async () => {
+  const f = await protocolFixture(
+    async () => Response.json({ success: true, result: {} }),
+    queueResources,
+    queuePlan
+  )
+  const body = {
+    body: { version: 1, queue: "queue-a", id: "journal-entry" },
+    content_type: "json",
+  }
+  const send = (path: string, value: typeof BrokerJson.Type) =>
+    f.run(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(value),
+    })
+  expect((await send("/queues/queue-id-a/messages", body)).status).toBe(200)
+  const sent = f.calls[0]
+  if (!sent) throw new Error("Queue request missing")
+  expect(Schema.decodeUnknownSync(BrokerJson)(await sent.json())).toEqual(body)
+  expect(f.calls[0]?.headers.get("Authorization")).toBe(
+    "Bearer server-owner-secret"
+  )
+  for (const [path, value] of [
+    ["/queues/foreign-id/messages", body],
+    ["/queues/queue-a/messages", body],
+    ["/queues/queue-id-a/messages/batch", { messages: [body] }],
+    ["/queues/queue-id-a/messages", { ...body, queue_id: "foreign-id" }],
+    [
+      "/queues/queue-id-a/messages",
+      { ...body, url: "https://foreign.example" },
+    ],
+    ["/queues/queue-id-a/messages", { ...body, delay_seconds: 1 }],
+    ["/queues/queue-id-a/messages", { body: {}, content_type: "text" }],
+    [
+      "/queues/queue-id-a/messages",
+      { body: "x".repeat(128 * 1024 + 1), content_type: "text" },
+    ],
+    ["/queues/queue-id-a/messages", { content_type: "json" }],
+    ["/queues/queue-id-a/messages", { ...body, content_type: "v8" }],
+  ] satisfies Array<[string, typeof BrokerJson.Type]>)
+    await expect(send(path, value)).rejects.toThrow("capability denied")
+  expect(f.calls).toHaveLength(1)
+  const notOwned = await protocolFixture(
+    async () => Response.json({ success: true }),
+    owned,
+    queuePlan
+  )
+  await expect(
+    notOwned.run("/queues/queue-id-a/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+  ).rejects.toThrow("capability denied")
+  expect(notOwned.calls).toHaveLength(0)
+})
+
+test("source-owned Queue consumer removal verifies host and provider absence", async () => {
+  const f = await protocolFixture(
+    async (request) => {
+      if (request.method === "DELETE")
+        return Response.json({ success: true, result: null })
+      if (new URL(request.url).pathname.endsWith("/consumer-a"))
+        return Response.json({
+          success: true,
+          result: {
+            consumer_id: "consumer-a",
+            type: "worker",
+            script: "project-a-web",
+          },
+        })
+      return Response.json({
+        success: true,
+        result: [],
+        result_info: { total_pages: 1 },
+      })
+    },
+    queueResources,
+    queuePlan
+  )
+  expect(
+    (
+      await f.run("/queues/queue-id-a/consumers/consumer-a", {
+        method: "DELETE",
+      })
+    ).status
+  ).toBe(200)
+  expect(f.calls.map((request) => request.method)).toEqual([
+    "GET",
+    "DELETE",
+    "GET",
+  ])
+  for (const script of ["foreign-web", undefined]) {
+    const denied = await protocolFixture(
+      async () =>
+        Response.json({
+          success: true,
+          result: { consumer_id: "consumer-a", type: "worker", script },
+        }),
+      queueResources,
+      queuePlan
+    )
+    await expect(
+      denied.run("/queues/queue-id-a/consumers/consumer-a", {
+        method: "DELETE",
+      })
+    ).rejects.toThrow("capability denied")
+    expect(denied.calls.map((request) => request.method)).toEqual(["GET"])
+  }
+  const stale = await protocolFixture(
+    async (request) =>
+      request.method === "DELETE"
+        ? Response.json({ success: true, result: null })
+        : Response.json({
+            success: true,
+            result: new URL(request.url).pathname.endsWith("/consumer-a")
+              ? {
+                  consumer_id: "consumer-a",
+                  type: "worker",
+                  script: "project-a-web",
+                }
+              : [{ consumer_id: "consumer-a" }],
+          }),
+    queueResources,
+    queuePlan
+  )
+  await expect(
+    stale.run("/queues/queue-id-a/consumers/consumer-a", { method: "DELETE" })
+  ).rejects.toThrow("capability denied")
+})
+
+test("class retirement requires exact owned prior namespace, no snapshots and real provider identity", async () => {
+  const descriptor = {
+    kind: "durable_object" as const,
+    name: "project-a-web/Counter",
+    worker: "project-a-web",
+    className: "Counter",
+    retirement: { resourceId: "namespace-a", generation: null },
+  }
+  const topology = [...plan, descriptor]
+  const resources = [
+    ...owned,
+    { kind: "durable_object", name: descriptor.name, id: "namespace-a" },
+  ]
+  const command = (field = "deleted_classes") => ({
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      main_module: "index.js",
+      bindings: [],
+      migrations: {
+        new_tag: "retire-counter",
+        steps: [{ [field]: ["Counter"] }],
+      },
+    }),
+  })
+  for (const [allowed, providerId, succeeds] of [
+    [true, "namespace-a", true],
+    [false, "namespace-a", false],
+    [true, "namespace-b", false],
+  ] as const) {
+    const f = await protocolFixture(
+      async (request) =>
+        new URL(request.url).pathname.endsWith("/containers/applications")
+          ? Response.json([])
+          : new URL(request.url).pathname.endsWith("/workers/scripts")
+            ? Response.json({
+                success: true,
+                result: [{ id: "project-a-web", created_on: "2026-09-07" }],
+              })
+            : request.method === "GET"
+              ? Response.json({
+                  success: true,
+                  result: [
+                    {
+                      id: providerId,
+                      script: "project-a-web",
+                      class: "Counter",
+                    },
+                  ],
+                  result_info: {
+                    page: 1,
+                    per_page: 100,
+                    count: 1,
+                    total_count: 1,
+                    total_pages: 1,
+                  },
+                })
+              : Response.json({
+                  success: true,
+                  result: { id: "project-a-web" },
+                }),
+      resources,
+      topology,
+      async () => allowed
+    )
+    if (succeeds)
+      expect(
+        (await f.run("/workers/scripts/project-a-web", command())).status
+      ).toBe(200)
+    else {
+      await expect(
+        f.run("/workers/scripts/project-a-web", command())
+      ).rejects.toThrow("capability denied")
+      expect(f.calls.some((request) => request.method === "PUT")).toBe(false)
+    }
+    await expect(
+      f.run("/workers/scripts/project-a-web", command("new_classes"))
+    ).rejects.toThrow("capability denied")
+  }
+  const newClass = await protocolFixture(
+    async () => Response.json({ success: true }),
+    owned,
+    topology,
+    async () => true
+  )
+  await expect(
+    newClass.run("/workers/scripts/project-a-web", command())
+  ).rejects.toThrow("capability denied")
+  expect(newClass.calls).toHaveLength(0)
+})
+
+test("object ID inventory is read-only and limited to an owned namespace", async () => {
+  const topology = [
+    ...plan,
+    {
+      kind: "durable_object" as const,
+      name: "project-a-web/Counter",
+      worker: "project-a-web",
+      className: "Counter",
+    },
+  ]
+  const resources = [
+    ...owned,
+    {
+      kind: "durable_object",
+      name: "project-a-web/Counter",
+      id: "namespace-a",
+    },
+  ]
+  const f = await protocolFixture(
+    async () =>
+      Response.json({
+        success: true,
+        result: [{ id: "object-a", hasStoredData: true }],
+        result_info: { cursor: "next" },
+      }),
+    resources,
+    topology
+  )
+  expect(
+    (
+      await f.run(
+        "/workers/durable_objects/namespaces/namespace-a/objects?limit=100&cursor=previous"
+      )
+    ).status
+  ).toBe(200)
+  await expect(
+    f.run("/workers/durable_objects/namespaces/foreign/objects?limit=100")
+  ).rejects.toThrow("capability denied")
+  await expect(
+    f.run("/workers/durable_objects/namespaces/namespace-a/objects", {
+      method: "DELETE",
+    })
+  ).rejects.toThrow("capability denied")
+  await expect(
+    f.run(
+      "/workers/durable_objects/namespaces/namespace-a/objects?sql=SELECT+1"
+    )
+  ).rejects.toThrow("capability denied")
+  expect(f.calls).toHaveLength(1)
+})
+
+test("namespace discovery records only the frozen class on its owned Worker before object enumeration", async () => {
+  const topology = [
+    ...plan,
+    {
+      kind: "durable_object" as const,
+      name: "project-a-web/Counter",
+      worker: "project-a-web",
+      className: "Counter",
+    },
+  ]
+  const provider = async (request: Request) =>
+    Response.json({
+      success: true,
+      result: new URL(request.url).pathname.endsWith("/objects")
+        ? []
+        : [
+            { id: "namespace-a", script: "project-a-web", class: "Counter" },
+            { id: "foreign", script: "project-b-web", class: "Counter" },
+            { id: "unplanned", script: "project-a-web", class: "Other" },
+          ],
+      result_info: { total_pages: 1 },
+    })
+  const f = await protocolFixture(provider, owned, topology)
+  await expect(
+    f.run("/workers/durable_objects/namespaces/namespace-a/objects?limit=1000")
+  ).rejects.toThrow("capability denied")
+  const discovery = await f.run("/workers/durable_objects/namespaces")
+  expect(await discovery.text()).not.toContain("foreign")
+  expect(f.created).toEqual([
+    {
+      kind: "durable_object",
+      name: "project-a-web/Counter",
+      id: "namespace-a",
+    },
+  ])
+  expect(
+    (
+      await f.run(
+        "/workers/durable_objects/namespaces/namespace-a/objects?limit=1000"
+      )
+    ).status
+  ).toBe(200)
+  const replacement = await protocolFixture(
+    provider,
+    [
+      ...owned,
+      { kind: "durable_object", name: "project-a-web/Counter", id: "previous" },
+    ],
+    topology
+  )
+  await expect(
+    replacement.run("/workers/durable_objects/namespaces")
+  ).rejects.toThrow("capability denied")
+  expect(replacement.created).toEqual([])
+  const foreignHost = await protocolFixture(
+    provider,
+    owned.filter((item) => item.kind !== "worker"),
+    topology
+  )
+  await foreignHost.run("/workers/durable_objects/namespaces")
+  expect(foreignHost.created).toEqual([])
+})
+
+test("an account with no Queues returns a complete empty scoped inventory", async () => {
+  const f = await protocolFixture(async () =>
+    Response.json({
+      success: true,
+      result: [],
+      result_info: { page: 1, total_pages: 0, total_count: 0 },
+    })
+  )
+  const response = await f.run("/queues?page=1&per_page=100")
+  expect(Schema.decodeUnknownSync(BrokerJson)(await response.json())).toEqual({
+    success: true,
+    result: [],
+    result_info: {
+      page: 1,
+      per_page: 0,
+      count: 0,
+      total_count: 0,
+      total_pages: 1,
+    },
+  })
+  expect(f.calls).toHaveLength(1)
 })

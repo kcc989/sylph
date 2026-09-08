@@ -229,3 +229,11 @@ New Projects use the exact template commit in `packages/domain/src/template-rele
 ## Teardown
 
 `bun alchemy destroy --stage prod` deletes the Installation's managed resources, including databases, storage, and generated credentials. Run it only when you intend to discard the Installation. Delete the GitHub App and revoke any manually supplied deploy or runtime tokens separately.
+
+## Managed state and source resource changes
+
+The external starter can opt into managed KV and Queue journals and registered SQLite Durable Objects. Review the [managed state contract](../packages/cloudflare-recovery/MANAGED-STATE.md) and [object recovery boundary](../packages/cloudflare-recovery/README.md). Ordinary object capture requires a completed restore drill, not merely a saved snapshot. Unsupported storage or uncertain mutation keeps the recovery gate paused.
+
+Use [source resource removal](resource-removal.md) to prepare an exact reviewed Workspace. Detaching a Queue consumer does not retire the Queue while its Worker binding remains. A Durable Object namespace referenced by a saved recovery point cannot be deleted through the normal recoverable release path.
+
+The [partial cleanup experiment](../tools/release-smoke/cleanup-lock.md) uses a temporary lock on an exact disposable Preview object. It requires real provider failure and product retry evidence; it does not manufacture failed operations.
