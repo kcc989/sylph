@@ -65,17 +65,6 @@ export const handleCursorRequest = async (
       const model = models.find((model) => model.id === input.call.modelId)
       if (!model)
         throw new Error("The selected Cursor model is no longer available")
-      console.info("Cursor model request", {
-        modelId: model.id,
-        context: model.maxContext,
-        maxContext: model.maxContextForMaxMode,
-        compaction:
-          input.call.options.providerOptions?.cursor?.opencodeCompaction,
-        maxDefault: model.variants.some((variant) => variant.isDefaultMax),
-        nonMaxDefault: model.variants.some(
-          (variant) => variant.isDefaultNonMax
-        ),
-      })
       const provider = createCursor({
         name: "cursor",
         accessToken: input.accessToken,
@@ -98,13 +87,6 @@ export const handleCursorRequest = async (
             transform(rawPart, controller) {
               const part = cursorToolInput(rawPart)
               if (part.type === "raw") return
-              if (part.type === "finish")
-                console.info("Cursor model usage", {
-                  modelId: model.id,
-                  input: part.usage.inputTokens,
-                  output: part.usage.outputTokens,
-                  reason: part.finishReason.unified,
-                })
               const value =
                 part.type === "error"
                   ? {
