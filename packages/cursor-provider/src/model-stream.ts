@@ -58,11 +58,6 @@ export const cursorModelStream = (
         if (next.done) controller.close()
         else controller.enqueue(next.value)
       } catch (error) {
-        if (error instanceof CursorServerError)
-          console.error("Cursor model rejected request", {
-            code: error.code,
-            message: error.message.slice(0, 1000),
-          })
         controller.enqueue({ type: "error", error })
         controller.close()
       }

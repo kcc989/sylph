@@ -86,7 +86,7 @@ export class Website extends Cloudflare.Website.Vite<Website>()(
           {
             context: ".",
             dockerfile: "packages/cursor-provider/Dockerfile",
-            observability: { logs: { enabled: true } },
+            observability: { logs: { enabled: false } },
             className: "CursorRuntimeContainer",
             instanceType: "basic",
             maxInstances: 10,
