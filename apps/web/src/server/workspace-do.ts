@@ -392,7 +392,9 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       }).pipe(Layer.provide(browserRunLayer(bindings.BROWSER)))
     )
     this.#opencode = context.blockConcurrencyWhile(async () => {
+      console.info("Workspace bootstrap", { phase: "start" })
       await this.#cursor.restore()
+      console.info("Workspace bootstrap", { phase: "catalog-restored" })
       const { createOpenCodeRuntime } = await import("./opencode-runtime")
       const { Environment } =
         await import("@opencode-ai/core/environment/index")
@@ -413,6 +415,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         () => this.#assertWritable(),
         `agent-${context.id.toString().slice(0, 56)}`
       )
+      console.info("Workspace bootstrap", { phase: "modules-loaded" })
       const opencode = await createOpenCodeRuntime(
         {
           storage: context.storage,
@@ -501,6 +504,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         }
       )
 
+      console.info("Workspace bootstrap", { phase: "runtime-created" })
       this.#filesystem.initialize()
       this.#workspaceGit.initialize()
       this.#checks.initialize()
@@ -522,6 +526,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           archived_at INTEGER
         )
       `)
+      console.info("Workspace bootstrap", { phase: "ready" })
       return opencode
     })
     const credentialLayer = WorkspaceCredentials.layer(
