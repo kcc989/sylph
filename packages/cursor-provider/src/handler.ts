@@ -1,4 +1,5 @@
 import { syncCursorWorkspace } from "./workspace"
+import { cursorToolNames } from "./tool-names"
 import { cursorToolInput } from "./tool-input"
 import { cursorModelStream } from "./model-stream"
 import { cursorCatalog } from "./catalog"
@@ -62,10 +63,11 @@ export const handleCursorRequest = async (
         cacheDir,
         workspaceRoot: "/workspace",
       })
+      const names = cursorToolNames(input.call.options)
       const stream = cursorModelStream(
         provider.languageModel(input.call.modelId),
         {
-          ...input.call.options,
+          ...names.options,
           headers: { "x-opencode-session": input.call.sessionId },
           abortSignal: request.signal,
         }
@@ -75,7 +77,7 @@ export const handleCursorRequest = async (
         stream.pipeThrough(
           new TransformStream({
             transform(rawPart, controller) {
-              const part = cursorToolInput(rawPart)
+              const part = cursorToolInput(names.output(rawPart))
               if (part.type === "raw") return
               const value =
                 part.type === "error"
