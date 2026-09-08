@@ -182,9 +182,16 @@ if (process.argv.includes("--owner-probe")) {
     signal: AbortSignal.timeout(120_000),
   })
   record.ownerProbe = await response.json()
-  record.status = response.ok ? "owner_probe_passed" : "owner_probe_failed"
+  record.status =
+    response.ok && !record.ownerProbe.some((entry) => entry.error)
+      ? "owner_probe_passed"
+      : "owner_probe_failed"
   await save()
-  assert.ok(response.ok, JSON.stringify(record.ownerProbe))
+  assert.equal(
+    record.status,
+    "owner_probe_passed",
+    JSON.stringify(record.ownerProbe)
+  )
   console.log(JSON.stringify(record.ownerProbe))
   process.exit(0)
 }

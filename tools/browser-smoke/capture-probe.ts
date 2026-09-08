@@ -25,7 +25,7 @@ export const ownedContextProbe = async (binding: BrowserRun, url: string) => {
     await root.send("Target.createTarget", { url, browserContextId })
     phase = "page-find"
     const target = await browser.waitForTarget(
-      (target) => target.url() === url,
+      (target) => target.url() === new URL(url).href,
       {
         timeout: 15_000,
       }
