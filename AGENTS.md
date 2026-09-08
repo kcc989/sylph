@@ -10,6 +10,12 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - Use Oxlint for linting and Oxfmt for formatting. Do not add ESLint, Prettier, or competing formatter configuration.
 - The anti-slop rules are vendored in `tools/oxlint/anti-slop`. Treat them as owned source: read a rule before changing it and add focused coverage for semantic changes.
 
+## Third-party dependencies
+
+- Do not patch third-party libraries or runtimes. The `patches` directory and package-manager patch configuration are prohibited.
+- Do not modify installed dependency source or binaries, rewrite dependency code during builds, or copy dependency internals into Sylph to work around this rule.
+- Use supported public interfaces from unmodified releases. If a dependency cannot support the required runtime, change the integration or runtime, or contribute the fix upstream and wait for a release.
+
 ## Code comments
 
 - Do not add or leave comments in authored source code, including explanatory comments, documentation comments, TODOs, FIXMEs, commented-out code, lint suppressions, or safety comments.

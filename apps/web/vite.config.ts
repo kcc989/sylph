@@ -1,4 +1,3 @@
-import { cursorProtocolPlugin } from "../../tools/build/cursor-protocol.mjs"
 import { defineConfig } from "vite"
 import { devtools } from "@tanstack/devtools-vite"
 import { tanstackStart } from "@tanstack/react-start/plugin/vite"
@@ -16,13 +15,7 @@ const config = defineConfig({
     dedupe: ["effect", "react", "react-dom", "@tanstack/react-router"],
     tsconfigPaths: true,
   },
-  plugins: [
-    cursorProtocolPlugin(),
-    devtools(),
-    tailwindcss(),
-    tanstackStart(),
-    viteReact(),
-  ],
+  plugins: [devtools(), tailwindcss(), tanstackStart(), viteReact()],
 })
 
 export default config
