@@ -395,6 +395,20 @@ const createRecovery = (
       )
     )
       throw new Error("Database inventory mismatch")
+    const bucketBindings = response.result.bindings.filter(
+      (binding) => binding.type === "r2_bucket"
+    )
+    if (
+      bucketBindings.some(
+        (binding) => !binding.bucket_name || binding.jurisdiction
+      ) ||
+      JSON.stringify(
+        bucketBindings.map((binding) => binding.bucket_name).sort()
+      ) !== JSON.stringify([...(input.bucketNames ?? [])].sort())
+    )
+      throw new Error(
+        "R2 bucket inventory mismatch or unsupported jurisdiction"
+      )
     const declaredSecrets = [...input.secretNames].sort()
     const actualSecrets = response.result.bindings
       .filter((binding) => binding.type === "secret_text")
@@ -404,6 +418,7 @@ const createRecovery = (
       throw new Error("Secret inventory mismatch")
     const safeBindings = new Set([
       "d1",
+      "r2_bucket",
       "secret_text",
       "plain_text",
       "json",

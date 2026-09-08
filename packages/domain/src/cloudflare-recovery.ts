@@ -1,4 +1,5 @@
 import { Schema } from "effect"
+import { R2RecoveryManifest } from "./cloudflare-r2-recovery"
 
 export class CloudflareRecoveryFailure extends Schema.TaggedError<CloudflareRecoveryFailure>()(
   "CloudflareRecoveryFailure",
@@ -48,6 +49,8 @@ export const RecoveryBinding = Schema.Struct({
   service: Schema.optional(Schema.String),
   environment: Schema.optional(Schema.String),
   entrypoint: Schema.optional(Schema.String),
+  bucket_name: Schema.optional(Schema.String),
+  jurisdiction: Schema.optional(Schema.String),
 })
 export const RecoverySettingsResponse = Schema.Struct({
   success: Schema.Boolean,
@@ -113,6 +116,12 @@ export const RecoveryWorkerInventory = Schema.Struct({
   databaseIds: Schema.Array(Schema.NonEmptyString).check(
     Schema.isMaxLength(20)
   ),
+  bucketNames: Schema.optional(
+    Schema.Array(Schema.NonEmptyString).check(
+      Schema.isMaxLength(20),
+      Schema.isUnique()
+    )
+  ),
   secretNames: Schema.Array(Schema.NonEmptyString).check(
     Schema.isMaxLength(100),
     Schema.isUnique()
@@ -138,6 +147,8 @@ export const RecoveryTopology = Schema.Struct({
       names.size === value.workers.length &&
       databases.size > 0 &&
       databases.size <= 20 &&
+      new Set(value.workers.flatMap((worker) => worker.bucketNames ?? []))
+        .size <= 20 &&
       value.workers.every((worker) =>
         worker.serviceTargets.every((target) => names.has(target))
       )
@@ -153,6 +164,16 @@ export const D1RecoveryGroup = Schema.Struct({
   capturedAt: Schema.Number,
   expiresAt: Schema.Number,
   topology: RecoveryTopology,
+  buckets: Schema.optional(
+    Schema.Array(R2RecoveryManifest).check(
+      Schema.isMaxLength(20),
+      Schema.makeFilter(
+        (values) =>
+          new Set(values.map((value) => value.bucketName)).size ===
+          values.length
+      )
+    )
+  ),
   databases: Schema.Array(D1RecoveryManifest).check(
     Schema.isMinLength(1),
     Schema.isMaxLength(20)

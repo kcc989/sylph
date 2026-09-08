@@ -2,7 +2,10 @@ import { Database } from "bun:sqlite"
 import { readFileSync } from "node:fs"
 import { describe, expect, test } from "bun:test"
 import { Effect, Schema } from "effect"
-import { RecoveryQueryInput } from "@workspace/domain/cloudflare-recovery"
+import {
+  RecoveryBinding,
+  RecoveryQueryInput,
+} from "@workspace/domain/cloudflare-recovery"
 import { CloudflareD1Recovery, CloudflareD1RecoveryLive } from "../src/recovery"
 
 class Provider {
@@ -14,7 +17,7 @@ class Provider {
   time = Date.now()
   corruptRestore = false
   failRestore = false
-  bindings = [
+  bindings: Array<typeof RecoveryBinding.Type> = [
     { name: "DB", type: "d1", id: "app" },
     { name: "SYLPH_RECOVERY_CONTROL", type: "d1", id: "control" },
   ]
@@ -310,5 +313,71 @@ describe("Cloudflare D1 recovery", () => {
     provider.application.exec("UPDATE acfb_notes SET value = 'after'")
     const after = await run(provider, (service) => service.fingerprint("app"))
     expect(after.fingerprint).not.toBe(before.fingerprint)
+  })
+  test("R2 inventory requires every exact declared bucket and default jurisdiction", async () => {
+    const provider = new Provider()
+    const topology = {
+      workers: [
+        {
+          workerName: "app-worker",
+          databaseIds: ["app"],
+          bucketNames: ["owned-bucket"],
+          secretNames: [],
+          serviceTargets: [],
+        },
+      ],
+    }
+    provider.bindings.push({
+      name: "BUCKET",
+      type: "r2_bucket",
+      bucket_name: "owned-bucket",
+    })
+    await run(provider, (service) => service.inventoryTopology(topology))
+    await expect(
+      run(provider, (service) =>
+        service.inventoryTopology({
+          workers: [{ ...topology.workers[0], bucketNames: [] }],
+        })
+      )
+    ).rejects.toThrow()
+    provider.bindings[2] = {
+      name: "BUCKET",
+      type: "r2_bucket",
+      bucket_name: "different-bucket",
+    }
+    await expect(
+      run(provider, (service) => service.inventoryTopology(topology))
+    ).rejects.toThrow()
+    provider.bindings[2] = {
+      name: "BUCKET",
+      type: "r2_bucket",
+      bucket_name: "owned-bucket",
+      jurisdiction: "eu",
+    }
+    await expect(
+      run(provider, (service) => service.inventoryTopology(topology))
+    ).rejects.toThrow()
+  })
+  test("R2 declared duplicate and oversized inventories fail before querying providers", async () => {
+    const provider = new Provider()
+    for (const bucketNames of [
+      ["owned-bucket", "owned-bucket"],
+      Array.from({ length: 21 }, (_, index) => `bucket-${index}`),
+    ])
+      await expect(
+        run(provider, (service) =>
+          service.inventoryTopology({
+            workers: [
+              {
+                workerName: "app-worker",
+                databaseIds: ["app"],
+                bucketNames,
+                secretNames: [],
+                serviceTargets: [],
+              },
+            ],
+          })
+        )
+      ).rejects.toThrow()
   })
 })
