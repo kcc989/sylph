@@ -6,6 +6,10 @@ import {
 } from "@workspace/domain/cloudflare-recovery"
 import {
   R2RecoveryChunk,
+  R2RecoveryLifecycleResponse,
+  R2RecoveryLocksResponse,
+  R2RecoverySippyResponse,
+  R2RecoveryNotificationsResponse,
   R2RecoveryListResponse,
   R2RecoveryManifest,
   R2RecoveryMutationResponse,
@@ -30,6 +34,7 @@ export interface R2RecoveryConfiguration extends RecoveryConfiguration {
 export class CloudflareR2Recovery extends Context.Service<
   CloudflareR2Recovery,
   {
+    verifyConfiguration: (bucketName: string) => Result<void>
     capture: (input: Capture) => Result<R2RecoveryManifest>
     captureForDrill: (input: Capture) => Result<R2RecoveryManifest>
     readManifest: (id: string) => Result<R2RecoveryManifest>
@@ -204,6 +209,46 @@ const createRecovery = (
       throw new Error("Bucket is outside the owned inventory")
     return `/r2/buckets/${encodeURIComponent(bucketName)}/objects`
   }
+  const verifyConfiguration = async (bucketName: string) => {
+    bucketPath(bucketName)
+    const bucket = `/r2/buckets/${encodeURIComponent(bucketName)}`
+    const [lifecycle, locks, sippy, notifications] = await Promise.all([
+      request(`${bucket}/lifecycle`).then(async (response) =>
+        Schema.decodeUnknownSync(R2RecoveryLifecycleResponse)(
+          await response.json()
+        )
+      ),
+      request(`${bucket}/lock`).then(async (response) =>
+        Schema.decodeUnknownSync(R2RecoveryLocksResponse)(await response.json())
+      ),
+      request(`${bucket}/sippy`).then(async (response) =>
+        Schema.decodeUnknownSync(R2RecoverySippyResponse)(await response.json())
+      ),
+      request(
+        `/event_notifications/r2/${encodeURIComponent(bucketName)}/configuration`
+      ).then(async (response) =>
+        Schema.decodeUnknownSync(R2RecoveryNotificationsResponse)(
+          await response.json()
+        )
+      ),
+    ])
+    if (
+      lifecycle.result.rules.some(
+        (rule) =>
+          rule.enabled &&
+          (rule.abortMultipartUploadsTransition?.condition === undefined ||
+            rule.deleteObjectsTransition !== undefined ||
+            (rule.storageClassTransitions?.length ?? 0) !== 0)
+      ) ||
+      locks.result.rules.some((rule) => rule.enabled) ||
+      sippy.result.enabled ||
+      notifications.result.bucketName !== bucketName ||
+      notifications.result.queues.some((queue) => queue.rules.length !== 0)
+    )
+      throw new Error(
+        "Bucket has uncontrolled lifecycle, lock, Sippy or notification behavior"
+      )
+  }
   const list = async (bucketName: string) => {
     const objects: Array<(typeof R2RecoveryListResponse.Type.result)[number]> =
       []
@@ -272,6 +317,7 @@ const createRecovery = (
     return bytes
   }
   const snapshot = async (bucketName: string): Promise<R2RecoverySnapshot> => {
+    await verifyConfiguration(bucketName)
     const before = await list(bucketName)
     const objects: R2RecoveryObject[] = []
     for (const item of before) {
@@ -496,6 +542,7 @@ const createRecovery = (
     return manifest
   }
   const put = async (bucketName: string, object: R2RecoveryObject) => {
+    await verifyConfiguration(bucketName)
     const headers = objectHeaders(object)
     const response = await request(
       `${bucketPath(bucketName)}/${objectPath(object.key)}`,
@@ -510,6 +557,7 @@ const createRecovery = (
     releaseId: string
   ) => {
     await paused(releaseId)
+    await verifyConfiguration(input.bucketName)
     const manifest = await readManifest(input.id)
     if (JSON.stringify(manifest) !== JSON.stringify(input))
       throw new Error("Immutable manifest differs")
@@ -558,6 +606,7 @@ const createRecovery = (
       for (const object of current.objects) {
         if (keys.has(object.key)) continue
         await paused(releaseId)
+        await verifyConfiguration(manifest.bucketName)
         const response = await request(
           `${bucketPath(manifest.bucketName)}/${objectPath(object.key)}`,
           "DELETE"
@@ -604,6 +653,10 @@ const createRecovery = (
     }
   }
   return CloudflareR2Recovery.of({
+    verifyConfiguration: (bucketName) =>
+      attempt("Inspect R2 mutation configuration", () =>
+        verifyConfiguration(bucketName)
+      ),
     capture: (input) =>
       attempt("Capture complete R2 recovery point", () => capture(input, true)),
     captureForDrill: (input) =>

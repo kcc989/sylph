@@ -55,6 +55,7 @@ export const verifyR2RecoveryDrill = Effect.fn(
     const state = yield* gate.gate()
     if (state.owner !== input.releaseId || state.active !== 0)
       return yield* failure()
+    yield* recovery.verifyConfiguration(input.bucketName)
     yield* Effect.tryPromise({
       try: async () => {
         const response = await (configuration.fetch ?? fetch)(

@@ -93,3 +93,120 @@ export type R2RestoreEvidence = typeof R2RestoreEvidence.Type
 export const R2RecoveryMutationResponse = Schema.Struct({
   success: Schema.Literal(true),
 })
+
+const R2RecoveryLifecycleAge = Schema.Struct({
+  type: Schema.Literal("Age"),
+  maxAge: Schema.Number.check(Schema.isGreaterThanOrEqualTo(0)),
+})
+const R2RecoveryLifecycleCondition = Schema.Union([
+  R2RecoveryLifecycleAge,
+  Schema.Struct({ type: Schema.Literal("Date"), date: Schema.NonEmptyString }),
+])
+export const R2RecoveryLifecycleResponse = Schema.Struct({
+  success: Schema.Literal(true),
+  result: Schema.Struct({
+    rules: Schema.Array(
+      Schema.Struct({
+        id: Schema.NonEmptyString,
+        conditions: Schema.Struct({ prefix: Schema.String }),
+        enabled: Schema.Boolean,
+        abortMultipartUploadsTransition: Schema.optional(
+          Schema.Struct({ condition: Schema.optional(R2RecoveryLifecycleAge) })
+        ),
+        deleteObjectsTransition: Schema.optional(
+          Schema.Struct({
+            condition: Schema.optional(R2RecoveryLifecycleCondition),
+          })
+        ),
+        storageClassTransitions: Schema.optional(
+          Schema.Array(
+            Schema.Struct({
+              condition: R2RecoveryLifecycleCondition,
+              storageClass: Schema.Literal("InfrequentAccess"),
+            })
+          )
+        ),
+      }).annotate({ parseOptions: { onExcessProperty: "error" } })
+    ),
+  }),
+})
+export const R2RecoveryLocksResponse = Schema.Struct({
+  success: Schema.Literal(true),
+  result: Schema.Struct({
+    rules: Schema.Array(
+      Schema.Struct({
+        id: Schema.NonEmptyString,
+        enabled: Schema.Boolean,
+        prefix: Schema.optional(Schema.String),
+        condition: Schema.Union([
+          Schema.Struct({
+            type: Schema.Literal("Age"),
+            maxAgeSeconds: Schema.Number.check(
+              Schema.isGreaterThanOrEqualTo(0)
+            ),
+          }),
+          Schema.Struct({
+            type: Schema.Literal("Date"),
+            date: Schema.NonEmptyString,
+          }),
+          Schema.Struct({ type: Schema.Literal("Indefinite") }),
+        ]),
+      })
+    ),
+  }),
+})
+export const R2RecoverySippyResponse = Schema.Struct({
+  success: Schema.Literal(true),
+  result: Schema.Struct({
+    enabled: Schema.Boolean,
+    source: Schema.optional(
+      Schema.Struct({
+        bucket: Schema.optional(Schema.String),
+        bucketUrl: Schema.optional(Schema.String),
+        container: Schema.optional(Schema.String),
+        provider: Schema.optional(
+          Schema.Literals(["aws", "gcs", "s3", "azure"])
+        ),
+        region: Schema.optional(Schema.String),
+      })
+    ),
+    destination: Schema.optional(
+      Schema.Struct({
+        accessKeyId: Schema.optional(Schema.String),
+        account: Schema.optional(Schema.String),
+        bucket: Schema.optional(Schema.String),
+        provider: Schema.optional(Schema.Literal("r2")),
+      })
+    ),
+  }),
+})
+export const R2RecoveryNotificationsResponse = Schema.Struct({
+  success: Schema.Literal(true),
+  result: Schema.Struct({
+    bucketName: Schema.NonEmptyString,
+    queues: Schema.Array(
+      Schema.Struct({
+        queueId: Schema.NonEmptyString,
+        queueName: Schema.NonEmptyString,
+        rules: Schema.Array(
+          Schema.Struct({
+            actions: Schema.Array(
+              Schema.Literals([
+                "PutObject",
+                "CopyObject",
+                "DeleteObject",
+                "CompleteMultipartUpload",
+                "LifecycleDeletion",
+              ])
+            ),
+            createdAt: Schema.optional(Schema.String),
+            description: Schema.optional(Schema.String),
+            prefix: Schema.optional(Schema.String),
+            ruleId: Schema.optional(Schema.String),
+            suffix: Schema.optional(Schema.String),
+          })
+        ),
+      })
+    ),
+  }),
+})

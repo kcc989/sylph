@@ -35,6 +35,11 @@ export class R2Provider {
   mutationRequests: Array<{ bucketName: string; key: string; method: string }> =
     []
   afterMutation: (() => void) | undefined
+  policyResponses = new Map<string, unknown>()
+  policyStatuses = new Map<string, number>()
+  policyRequests: Array<{ bucketName: string; kind: string; method: string }> =
+    []
+  afterPolicy: ((bucketName: string, kind: string) => void) | undefined
   generation = 0
   time = Date.now()
   mutations = 0
@@ -115,6 +120,36 @@ export class R2Provider {
       return Response.json({
         success: true,
         result: [{ success: true, results }],
+      })
+    }
+    const policy = path.pathname.match(
+      /\/r2\/buckets\/([a-z0-9-]+)\/(lifecycle|lock|sippy)$/
+    )
+    const notification = path.pathname.match(
+      /\/event_notifications\/r2\/([a-z0-9-]+)\/configuration$/
+    )
+    if (policy || notification) {
+      const bucketName = policy?.[1] ?? notification?.[1] ?? ""
+      const kind = policy?.[2] ?? "notifications"
+      if (!this.buckets.has(bucketName))
+        throw new Error("Unexpected policy bucket")
+      this.policyRequests.push({
+        bucketName,
+        kind,
+        method: init.method ?? "GET",
+      })
+      const fallback =
+        kind === "sippy"
+          ? { enabled: false }
+          : kind === "notifications"
+            ? { bucketName, queues: [] }
+            : { rules: [] }
+      const result = this.policyResponses.has(kind)
+        ? this.policyResponses.get(kind)
+        : { success: true, result: fallback }
+      this.afterPolicy?.(bucketName, kind)
+      return Response.json(result, {
+        status: this.policyStatuses.get(kind) ?? 200,
       })
     }
     this.paths.push(path.pathname)

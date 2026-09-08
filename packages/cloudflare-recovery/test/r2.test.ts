@@ -332,4 +332,252 @@ describe("complete R2 recovery", () => {
     await run(provider, (r2) => r2.restore(target, "restore"))
     expect(provider.objects.get(value.key)).toEqual(value)
   })
+  test("allows explicitly disabled configuration and the documented incomplete multipart default", async () => {
+    const provider = new Provider()
+    provider.policyResponses.set("lifecycle", {
+      success: true,
+      result: {
+        rules: [
+          {
+            id: "default-multipart",
+            conditions: { prefix: "" },
+            enabled: true,
+            abortMultipartUploadsTransition: {
+              condition: { type: "Age", maxAge: 604800 },
+            },
+          },
+          {
+            id: "inactive-expiration",
+            conditions: { prefix: "" },
+            enabled: false,
+            deleteObjectsTransition: {
+              condition: { type: "Age", maxAge: 86400 },
+            },
+          },
+        ],
+      },
+    })
+    provider.policyResponses.set("lock", {
+      success: true,
+      result: {
+        rules: [
+          {
+            id: "inactive-lock",
+            enabled: false,
+            condition: { type: "Indefinite" },
+          },
+        ],
+      },
+    })
+    await capture(provider)
+    expect(
+      new Set(provider.policyRequests.map((request) => request.kind))
+    ).toEqual(new Set(["lifecycle", "lock", "sippy", "notifications"]))
+    expect(
+      provider.policyRequests.every(
+        (request) =>
+          request.method === "GET" && request.bucketName === "owned-bucket"
+      )
+    ).toBe(true)
+    expect(provider.mutations).toBe(0)
+  })
+  test.each([
+    [
+      "lifecycle",
+      {
+        rules: [
+          {
+            id: "delete",
+            conditions: { prefix: "unrelated/" },
+            enabled: true,
+            deleteObjectsTransition: {
+              condition: { type: "Age", maxAge: 86400 },
+            },
+          },
+        ],
+      },
+    ],
+    [
+      "lifecycle",
+      {
+        rules: [
+          {
+            id: "transition",
+            conditions: { prefix: "" },
+            enabled: true,
+            storageClassTransitions: [
+              {
+                condition: { type: "Age", maxAge: 86400 },
+                storageClass: "InfrequentAccess",
+              },
+            ],
+          },
+        ],
+      },
+    ],
+    [
+      "lock",
+      {
+        rules: [
+          { id: "retention", enabled: true, condition: { type: "Indefinite" } },
+        ],
+      },
+    ],
+    [
+      "sippy",
+      { enabled: true, source: { provider: "aws", bucket: "external" } },
+    ],
+    [
+      "notifications",
+      {
+        bucketName: "owned-bucket",
+        queues: [
+          {
+            queueId: "queue",
+            queueName: "writer",
+            rules: [{ actions: ["PutObject"], prefix: "unrelated/" }],
+          },
+        ],
+      },
+    ],
+  ] as const)(
+    "blocks uncontrolled %s before any object GET or snapshot publication",
+    async (kind, result) => {
+      const provider = new Provider()
+      provider.policyResponses.set(kind, { success: true, result })
+      await expect(capture(provider)).rejects.toThrow()
+      expect(provider.reads).toBe(0)
+      expect(provider.pages).toBe(0)
+      expect(provider.mutations).toBe(0)
+      expect(
+        provider.control
+          .query("SELECT id FROM sylph_recovery_r2_manifest")
+          .all()
+      ).toEqual([])
+      expect(
+        provider.control.query("SELECT owner FROM sylph_recovery_gate").get()
+      ).toEqual({ owner: "target" })
+    }
+  )
+  test.each([
+    ["lifecycle", {}],
+    [
+      "lifecycle",
+      {
+        rules: [
+          {
+            id: "default",
+            conditions: { prefix: "" },
+            enabled: true,
+            abortMultipartUploadsTransition: {
+              condition: { type: "Age", maxAge: 604800 },
+            },
+            unknownAction: { enabled: true },
+          },
+        ],
+      },
+    ],
+    ["lifecycle", { rules: [{ id: "incomplete", enabled: false }] }],
+    [
+      "lifecycle",
+      {
+        rules: [
+          {
+            id: "malformed",
+            conditions: { prefix: "" },
+            enabled: true,
+            abortMultipartUploadsTransition: {
+              condition: { type: "Age", maxAge: "604800" },
+            },
+          },
+        ],
+      },
+    ],
+    ["lock", { rules: [{ id: "incomplete", enabled: false }] }],
+    ["sippy", {}],
+    ["sippy", { enabled: "false" }],
+    ["sippy", { enabled: false, source: "private-provider-configuration" }],
+    ["notifications", { bucketName: "foreign", queues: [] }],
+    ["notifications", { bucketName: "owned-bucket" }],
+    [
+      "notifications",
+      {
+        bucketName: "owned-bucket",
+        queues: [{ queueId: "queue", queueName: "unknown-rules" }],
+      },
+    ],
+  ] as const)(
+    "rejects missing or malformed %s configuration",
+    async (kind, result) => {
+      const provider = new Provider()
+      provider.policyResponses.set(kind, { success: true, result })
+      const outcome = await run(provider, (r2) =>
+        Effect.result(r2.verifyConfiguration("owned-bucket"))
+      )
+      expect(JSON.stringify(outcome)).not.toContain(
+        "private-provider-configuration"
+      )
+      await expect(capture(provider)).rejects.toThrow()
+      expect(provider.reads).toBe(0)
+      expect(provider.mutations).toBe(0)
+    }
+  )
+  test.each(["lifecycle", "lock", "sippy", "notifications"])(
+    "unavailable %s evidence is not inferred to be disabled",
+    async (kind) => {
+      for (const status of [403, 404, 500]) {
+        const provider = new Provider()
+        provider.policyStatuses.set(kind, status)
+        await expect(capture(provider)).rejects.toThrow()
+        expect(provider.mutations).toBe(0)
+        expect(provider.reads).toBe(0)
+      }
+    }
+  )
+  test("group restore preflight rechecks bucket policy before any resource mutation", async () => {
+    const provider = new Provider()
+    const { target } = await prepare(provider)
+    provider.policyResponses.set("sippy", {
+      success: true,
+      result: { enabled: true },
+    })
+    await expect(
+      run(provider, (r2) => r2.preflightRestore(target, "restore"))
+    ).rejects.toThrow()
+    await expect(
+      run(provider, (r2) => r2.restore(target, "restore"))
+    ).rejects.toThrow()
+    expect(provider.mutations).toBe(0)
+    expect(provider.phase()).toBeNull()
+  })
+  test.each([1, 2])(
+    "configuration change after mutation %i blocks the next PUT or DELETE",
+    async (after) => {
+      const provider = new Provider()
+      const { target } = await prepare(provider)
+      provider.afterMutation = () => {
+        if (provider.mutations === after)
+          provider.policyResponses.set("lock", {
+            success: true,
+            result: {
+              rules: [
+                {
+                  id: "new-lock",
+                  enabled: true,
+                  condition: { type: "Indefinite" },
+                },
+              ],
+            },
+          })
+      }
+      await expect(
+        run(provider, (r2) => r2.restore(target, "restore"))
+      ).rejects.toThrow()
+      expect(provider.mutations).toBe(after)
+      expect(provider.phase()).toEqual({ phase: "uncertain" })
+      await expect(
+        run(provider, (_, gate) => gate.resume("restore"))
+      ).rejects.toThrow()
+    }
+  )
 })

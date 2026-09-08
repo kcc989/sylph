@@ -200,4 +200,17 @@ describe("R2 recovery drill", () => {
       )
     ).toBe(true)
   })
+  test("configuration enabled during the drill blocks the next direct fixture PUT", async () => {
+    const provider = fixture()
+    provider.afterMutation = () => {
+      if (provider.mutations === 2)
+        provider.policyResponses.set("sippy", {
+          success: true,
+          result: { enabled: true },
+        })
+    }
+    await expect(run(provider)).rejects.toThrow()
+    expect(provider.mutations).toBe(2)
+    expect(owner(provider)).toEqual({ owner: "r2-drill" })
+  })
 })
