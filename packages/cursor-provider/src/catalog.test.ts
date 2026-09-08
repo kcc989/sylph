@@ -56,3 +56,14 @@ test("Cursor catalog excludes models without agent support", () => {
     cursorCatalog([{ id: "chat-only", supportsAgent: false, variants: [] }])
   ).toEqual([])
 })
+
+test("Cursor exposes explicit Max Mode through the supported provider option", () => {
+  const [model] = cursorCatalog([
+    { id: "fixture", supportsMaxMode: true, variants: [] },
+  ])
+  expect(model?.variants).toContainEqual({
+    id: "Max",
+    settings: { maxMode: true },
+  })
+  expect(model?.settings).toBeUndefined()
+})

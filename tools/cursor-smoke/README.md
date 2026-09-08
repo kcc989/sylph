@@ -26,3 +26,17 @@ Node v24.16.0, unmodified cursor-opencode-provider 0.6.6, model grok-4.6, browse
 The incoming Connect envelope in both cases contained code `invalid_argument` and message `Error`. This reproduces the rejection without Sylph, OpenCode, or Cloudflare. It does not yet distinguish a provider protocol defect from model/account/backend behavior. Authentication and model discovery succeeded.
 
 A no-tool request intentionally omits the OpenCode session header. With that header, the upstream provider waits for a sibling request to publish the session's tool catalog; that is not a standalone text probe. Read-tool continuations retain one session identity.
+
+## Controlled Max Mode result, 2026-09-08
+
+The latest published provider remains 0.6.6. Setting the supported `CURSOR_CLIENT_VERSION=cli-2026.09.02-c22c1a3` alone did not repair inference. With that version and one OAuth session, `--compare-max-mode` produced:
+
+| Probe | Result |
+| --- | --- |
+| Text, Max Mode false | `invalid_argument`, raw message `Error` |
+| Text, Max Mode true | Exact `CURSOR_LOCAL_OK` |
+| File read, Max Mode true | One read; correct `cursor-local-proof` package name |
+
+Use `--max-mode` for both successful probes, or `--compare-max-mode` to repeat the negative control and two positive controls. Comparison exits nonzero when the negative control fails. Diagnostics also report the outgoing client-version header, without other request headers.
+
+This establishes that Max Mode changes the outcome for this account/model. It does not establish the account's billing-plan type. [Cursor's SDK documentation](https://cursor.com/docs/sdk/typescript) describes automatic Max Mode for models that require it on legacy request-based plans. [Oh My Pi](https://github.com/can1357/oh-my-pi/blob/main/packages/ai/src/providers/cursor.ts) sends Max Mode in model details and the requested model. [cursor-api-proxy](https://github.com/anyrobert/cursor-api-proxy) and [CliCursorProxyAPI](https://github.com/ThewindMom/CliCursorProxyAPI) instead wrap the official CLI through ACP. Sylph retains OpenCode and the unmodified provider.

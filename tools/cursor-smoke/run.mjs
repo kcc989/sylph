@@ -75,8 +75,17 @@ const provider = createCursor({
 })
 const model = provider.languageModel(entry.options?.cursorModelId ?? modelId)
 let failed = false
-for (const withTool of [false, true]) {
-  const test = withTool ? "read-tool" : "text-only"
+for (const [withTool, maxMode] of process.argv.includes("--compare-max-mode")
+  ? [
+      [false, false],
+      [false, true],
+      [true, true],
+    ]
+  : [
+      [false, process.argv.includes("--max-mode")],
+      [true, process.argv.includes("--max-mode")],
+    ]) {
+  const test = `${withTool ? "read-tool" : "text-only"}-max-${maxMode}`
   const sessionId = `local-${test}-${crypto.randomUUID()}`
   const prompt = [
     {
@@ -101,7 +110,12 @@ for (const withTool of [false, true]) {
         prompt,
         abortSignal,
         headers: withTool ? { "x-opencode-session": sessionId } : undefined,
-        providerOptions: { cursor: entry.options ?? {} },
+        providerOptions: {
+          cursor: {
+            ...entry.options,
+            maxMode,
+          },
+        },
         tools: withTool
           ? [
               {

@@ -13,7 +13,13 @@ const decodeEnvelope = Schema.decodeUnknownSync(
   })
 )
 
-subscribe("http2.client.stream.created", ({ stream }) => {
+subscribe("http2.client.stream.created", ({ stream, headers }) => {
+  console.log(
+    JSON.stringify({
+      diagnostic: "cursor-request-version",
+      version: headers["x-cursor-client-version"],
+    })
+  )
   let pending = Buffer.alloc(0)
   const observe = (chunk) => {
     pending = Buffer.concat([pending, Buffer.from(chunk)])

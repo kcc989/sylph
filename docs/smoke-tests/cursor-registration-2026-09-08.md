@@ -55,3 +55,7 @@ CI passed on the main minimal-bridge commit `b1ee2f3d140ca41bb954898878db602eaf8
 `tools/cursor-smoke/run.mjs` now reproduces the error directly through the unmodified provider, without the Sylph bridge, OpenCode, Workerd, or Cloudflare. On Node v24.16.0 with Cursor provider 0.6.6 and grok-4.6, both a standalone text request and a package.json read-tool request returned `invalid_argument`. Browser OAuth and model discovery succeeded. Node's read-only HTTP/2 diagnostic observer saw the incoming Connect error message `Error` in both cases. Credentials stayed in process memory and the only workspace was a synthetic temporary package fixture. The deployed fixture was not changed.
 
 The failure therefore does not require the Sylph bridge. The exact provider/model/account/backend cause remains unresolved. See the local probe README for the reproduction command and important session-header behavior.
+
+## Max Mode control experiment
+
+The local same-login comparison with provider 0.6.6 and client version cli-2026.09.02-c22c1a3 rejected text with Max Mode false, then passed exact text and a real fixture read with Max Mode true. This isolates a usable public provider option; the account plan itself is not confirmed. The catalog now exposes an explicit Max variant for supported base models without overriding exact upstream variant parameters. Live deployment verification follows; local success alone does not complete the E2E.
