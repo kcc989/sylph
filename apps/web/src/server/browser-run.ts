@@ -430,6 +430,7 @@ export const browserRunLayer = (
                 async observe(fullPage) {
                   await trace("observe-policy")
                   await ensureAllowed()
+                  await page.bringToFront()
                   try {
                     await page.waitForNetworkIdle({
                       idleTime: 300,
