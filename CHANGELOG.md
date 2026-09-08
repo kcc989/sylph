@@ -6,11 +6,16 @@ All notable changes to Sylph are recorded here. The format follows [Keep a Chang
 
 ### Added
 
+- Project-scoped deployment capabilities and broker-backed Alchemy state keep account credentials out of Project commands.
+- Coordinated multi-Worker D1/R2 recovery with complete preflight, encrypted bucket snapshots, isolated first-release drills, and replay refusal after uncertain restores.
+- Verified conversion of the pinned earlier Installation D1 schema and complete Workspace SQLite/KV transfer to a separate target.
+- Reviewed starter v0.3.0 candidate with exact full and incremental upgrade patches; external publication and the new built-in pin remain pending approval.
+
 - Production health collection on the existing schedule, release and telemetry incidents, and repair Workspaces created from the published commit.
 - D1 Time Travel recovery, a drained writer gate, encrypted secret versions, and the pinned starter with all five release hooks. A real restore drill remains required before rollout.
 - Multiple-Worker resource plans, hosted Durable Object and Workflow identities, service/AI bindings, and reviewed adoption, retirement, and removal.
 - Browser journey requirements tied to the current Check attempt, ordered assertions, desktop/mobile viewports, allowed authentication origins, and human control.
-- Concrete combined lifecycle verification actions and encrypted Installation D1 preservation with local import verification. Earlier Durable Objects remain in the retained original Installation.
+- Concrete combined lifecycle verification actions and encrypted Installation D1 preservation with local import verification. The original preservation flow retains earlier Durable Objects; the separate migration tool now supports the pinned earlier Workspace schema.
 
 - Browser deployment through GitHub Actions with optional custom domains, account preflight checks, stable Alchemy-managed credentials, and setup links.
 - Protected browser setup for GitHub App creation or reuse, encrypted credential storage, and Installation claim without a second deployment.
@@ -20,6 +25,9 @@ All notable changes to Sylph are recorded here. The format follows [Keep a Chang
 - Personal Cursor subscription connections through OpenCode, using encrypted OAuth credentials and a Worker-native HTTP/2 transport with per-user Durable Object isolation.
 
 ### Fixed
+
+- Keep guarded Browser Run ownership across actions, dispose contexts on transport loss and restore page focus for screenshot evidence. The separate 79-step live fixture passes screenshots and pointer actions.
+- Let Admins confirm immediate retained Preview cleanup with exact run identity, terminal Workflow verification, an audit record and resumable dispatch.
 
 - Clean up Preview Workers and their owned D1, KV, R2, and Queue resources after failed deployments or checks. Retain deletion progress for retries and clear expired URLs without changing newer Check attempts.
 
