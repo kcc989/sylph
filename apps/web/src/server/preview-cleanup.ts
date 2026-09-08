@@ -217,6 +217,15 @@ export const requestPreviewCleanup = async (
   } catch (cause) {
     const existing = await workflows.maintenance.get(requestId)
     const status = await existing.status()
+    if (["errored", "terminated"].includes(status.status)) {
+      await database
+        .prepare(
+          "UPDATE project_preview_cleanup_request SET status = 'failed', updated_at = unixepoch() WHERE id = ? AND status = 'preparing'"
+        )
+        .bind(requestId)
+        .run()
+      throw cause
+    }
     if (
       !["queued", "running", "waiting", "paused", "complete"].includes(
         status.status

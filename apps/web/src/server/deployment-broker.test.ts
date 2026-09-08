@@ -567,9 +567,9 @@ test("new Worker name collisions and uncertain probes cannot publish or expose e
         ),
       []
     )
-    const existing = await f.run("/workers/scripts/project-a-web")
-    expect(existing.status).toBe(404)
-    expect(await existing.text()).not.toContain("foreign-worker-code")
+    await expect(f.run("/workers/scripts/project-a-web")).rejects.toThrow(
+      "capability denied"
+    )
     await expect(
       f.run("/workers/scripts/project-a-web", {
         method: "PUT",
@@ -577,7 +577,7 @@ test("new Worker name collisions and uncertain probes cannot publish or expose e
         body: JSON.stringify({ bindings: [] }),
       })
     ).rejects.toThrow("capability denied")
-    expect(f.calls).toHaveLength(1)
+    expect(f.calls).toHaveLength(2)
     expect(f.calls[0]?.method).toBe("GET")
     expect(f.created).toEqual([])
   }
@@ -826,4 +826,20 @@ test("R2 bucket cursor traversal filters foreign buckets and refuses repeated cu
   )
   await expect(repeated.run("/r2/buckets")).rejects.toThrow("capability denied")
   expect(repeated.calls).toHaveLength(2)
+})
+
+test("first-release Worker absence requires a real Cloudflare lookup before any 404 receipt", async () => {
+  const f = await protocolFixture(async (request) => {
+    expect(request.method).toBe("GET")
+    expect(new URL(request.url).pathname).toBe(
+      "/client/v4/accounts/account/workers/scripts/project-a-web/settings"
+    )
+    return Response.json({ errors: [{ code: 10007 }] }, { status: 404 })
+  }, [])
+  for (const tail of ["", "/settings", "/script-settings"]) {
+    const response = await f.run(`/workers/scripts/project-a-web${tail}`)
+    expect(response.status).toBe(404)
+  }
+  expect(f.calls).toHaveLength(3)
+  expect(f.created).toEqual([])
 })

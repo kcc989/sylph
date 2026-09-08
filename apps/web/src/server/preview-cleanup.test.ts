@@ -318,3 +318,28 @@ test("saved pending confirmation resumes after refresh with the same dispatch id
     f.sql.close()
   }
 })
+
+test("a lost dispatch response followed by an errored Workflow does not strand the cleanup confirmation", async () => {
+  const f = await fixture()
+  try {
+    f.loseResponse()
+    f.setMaintenance("errored")
+    await expect(
+      requestPreviewCleanup(f.database, f.input(), "admin", f.workflows)
+    ).rejects.toThrow("lost response")
+    expect(
+      f.sql.query("SELECT status FROM project_preview_cleanup_request").get()
+    ).toEqual({ status: "failed" })
+    f.sql.exec(
+      "UPDATE project_resource_operation SET status = 'cleanup_failed'"
+    )
+    f.setMaintenance("queued")
+    const retry = f.input()
+    expect(
+      await requestPreviewCleanup(f.database, retry, "admin", f.workflows)
+    ).toEqual({ workflowId: retry.requestId })
+    expect(f.created).toHaveLength(2)
+  } finally {
+    f.sql.close()
+  }
+})

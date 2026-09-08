@@ -153,19 +153,32 @@ export const ProjectDeploymentBrokerLive = (configuration: {
                 !resources.some(
                   (item) => item.kind === "worker" && item.name === name
                 )
-              )
+              ) {
+                const existing = await (configuration.fetch ?? fetch)(
+                  `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(lease.accountId)}/workers/scripts/${encodeURIComponent(name ?? "")}/settings`,
+                  {
+                    method: "GET",
+                    headers: { Authorization: `Bearer ${configuration.token}` },
+                    redirect: "error",
+                    signal: AbortSignal.timeout(60_000),
+                  }
+                )
+                if (existing.status !== 404)
+                  brokerDenied("reserved Worker absence is not verified")
                 return Response.json(
                   {
                     success: false,
                     errors: [
                       {
                         code: 10007,
-                        message: "Reserved Worker is not created yet",
+                        message:
+                          "Reserved Worker absence verified with Cloudflare",
                       },
                     ],
                   },
                   { status: 404 }
                 )
+              }
             }
             const authorization = authorizeBrokerRequest(
               relative,
