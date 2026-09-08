@@ -1,35 +1,141 @@
 {
   "repository": "kcc989/sylph-tanstack-template",
   "baseCommit": "bed6b52785eab6e79680041ee1367f2831f59296",
-  "candidateCommit": "36860839fb2b1536228775998f3cce730f5b028c",
-  "candidateRef": "codex/complete-release-contract",
-  "version": "0.2.0",
-  "published": true,
+  "previousCommit": "36860839fb2b1536228775998f3cce730f5b028c",
+  "candidateCommit": "6450aa6b0bcd19873d09c2471ad9a359ed307a4f",
+  "candidateRef": "codex/project-capability-broker",
+  "version": "0.3.0",
+  "published": false,
+  "recoverySourceCommit": "3947bb48b5923272c0b680ebe27ba2c038e4757d",
+  "sourceMapSha256": "b9853816e3d62d9f3cfd2c4e3169710723be62bb68868b841437d315a36b3e61",
+  "importRewrites": [
+    ["@workspace/domain/cloudflare-recovery", "./domain"],
+    ["@workspace/domain/cloudflare-r2-recovery", "./r2-domain"],
+    ["./cloudflare-r2-recovery", "./r2-domain"]
+  ],
+  "controlSchemas": [
+    {
+      "path": "packages/cloudflare-recovery/src/control.sql",
+      "sourceCommit": "3947bb48b5923272c0b680ebe27ba2c038e4757d",
+      "sha256": "0aa3117d77671955840afa9daa18fe01d841264f60a2bb119e1c2533fbff67bd"
+    },
+    {
+      "path": "packages/cloudflare-recovery/src/r2-control.sql",
+      "sourceCommit": "3947bb48b5923272c0b680ebe27ba2c038e4757d",
+      "sha256": "e0df2e5ede6a1d61a897ee93a4bd1ad3824cf60a79cfe1c60f268cc11b7a29a8"
+    }
+  ],
   "recoverySources": [
     {
       "templatePath": "src/recovery/recovery.ts",
       "platformPath": "packages/cloudflare-recovery/src/recovery.ts",
-      "sourceSha256": "002b829754fecf7c0860fa8d6a5d7b28441da0fde6b78265f18073379b997bbc",
-      "templateSha256": "2658c1278163e59e372545b669434d15d26e38b4944f7f163c556b6e6df0f417"
+      "sourceCommit": "3947bb48b5923272c0b680ebe27ba2c038e4757d",
+      "sourceSha256": "cd1f1fddbf40d08b50cc8b3f17c59576060a128a77d5eccee517162c76264f3d",
+      "templateSha256": "27337ce046a1d9443cd8a0c196c596b7d207ee046ea3dd8c9a34fe08456ba54b"
     },
     {
       "templatePath": "src/recovery/worker.ts",
       "platformPath": "packages/cloudflare-recovery/src/worker.ts",
+      "sourceCommit": "3947bb48b5923272c0b680ebe27ba2c038e4757d",
       "sourceSha256": "cb1722751a1fb792d2b4f30c56f2b6248abd664b1eb60d0eccbc4e9c3c0f159e",
       "templateSha256": "cb1722751a1fb792d2b4f30c56f2b6248abd664b1eb60d0eccbc4e9c3c0f159e"
     },
     {
       "templatePath": "src/recovery/domain.ts",
       "platformPath": "packages/domain/src/cloudflare-recovery.ts",
-      "sourceSha256": "52b5a87c1d62d01af8a7b0786ea4c86017d0c7609cdd74f0ea713211c20f3600",
-      "templateSha256": "52b5a87c1d62d01af8a7b0786ea4c86017d0c7609cdd74f0ea713211c20f3600"
+      "sourceCommit": "3947bb48b5923272c0b680ebe27ba2c038e4757d",
+      "sourceSha256": "2cf0ac462e6f9f49acd63f1a4b5b60b39b8c3f1757d10a0f4cda011d54c34460",
+      "templateSha256": "9fd6fa63cc4d119cc65f7d12156741e8bd073de724ac40e4744172110f22c251"
+    },
+    {
+      "templatePath": "src/recovery/group.ts",
+      "platformPath": "packages/cloudflare-recovery/src/group.ts",
+      "sourceCommit": "3947bb48b5923272c0b680ebe27ba2c038e4757d",
+      "sourceSha256": "68d853ba79ed7507d8b4a228535b9ac02fb8f4de3dc5241f630f58975a94cb56",
+      "templateSha256": "b74bd2acdf46c441b80942674111a645b5c70c6fa4c0b675fa25dbee38129b6e"
+    },
+    {
+      "templatePath": "src/recovery/drill.ts",
+      "platformPath": "packages/cloudflare-recovery/src/drill.ts",
+      "sourceCommit": "3947bb48b5923272c0b680ebe27ba2c038e4757d",
+      "sourceSha256": "099f21108b4ad0ce763525627225a90dbde41b26e6453b7b30030a589a3db598",
+      "templateSha256": "17cd6856d857b1ee8b68e581eae40a08d543af536929a73fcc72600245e4258f"
     },
     {
       "templatePath": "recovery-migrations/0001-recovery.sql",
       "platformPath": "packages/cloudflare-recovery/src/control.sql",
+      "platformRef": "bebe08de412cadeddfc1459788cba97999e10182",
+      "sourceCommit": "bebe08de412cadeddfc1459788cba97999e10182",
       "sourceSha256": "7bd073492a5c776e150d3af23531b4b141eecb3a3126e2995459171cff125462",
       "templateSha256": "7bd073492a5c776e150d3af23531b4b141eecb3a3126e2995459171cff125462"
+    },
+    {
+      "templatePath": "recovery-migrations/0002-recovery-group.sql",
+      "platformPath": "packages/cloudflare-recovery/src/control-upgrade.sql",
+      "sourceCommit": "3947bb48b5923272c0b680ebe27ba2c038e4757d",
+      "sourceSha256": "610149151a3e9f5c0a248d538a463dfdd8724e8e777fb3c35acd16e0b58482cb",
+      "templateSha256": "610149151a3e9f5c0a248d538a463dfdd8724e8e777fb3c35acd16e0b58482cb"
+    },
+    {
+      "templatePath": "scripts/sylph-broker.ts",
+      "platformPath": "tools/project-deployment/template/sylph-broker.ts",
+      "sourceCommit": "3947bb48b5923272c0b680ebe27ba2c038e4757d",
+      "sourceSha256": "5647b79fe847c7fb34a2d1b0a8fe534b00d7237ac5611f7323f721adbd809e10",
+      "templateSha256": "5647b79fe847c7fb34a2d1b0a8fe534b00d7237ac5611f7323f721adbd809e10"
+    },
+    {
+      "templatePath": "src/recovery/r2.ts",
+      "platformPath": "packages/cloudflare-recovery/src/r2.ts",
+      "sourceCommit": "3947bb48b5923272c0b680ebe27ba2c038e4757d",
+      "sourceSha256": "d04cd883b72eb8df617dbba40c102205bace4bbc7c191dec86aaf2e5905a4f7f",
+      "templateSha256": "4fc6ea37c188b80be664f6ef869ddc00cdf270be21d5820566a7ff809b21d890"
+    },
+    {
+      "templatePath": "src/recovery/r2-domain.ts",
+      "platformPath": "packages/domain/src/cloudflare-r2-recovery.ts",
+      "sourceCommit": "3947bb48b5923272c0b680ebe27ba2c038e4757d",
+      "sourceSha256": "727ef6b81fc0862c2dc07127d6a1a5ff8588ecaf1b2bf1e0b8d0ea2c8718f7ff",
+      "templateSha256": "727ef6b81fc0862c2dc07127d6a1a5ff8588ecaf1b2bf1e0b8d0ea2c8718f7ff"
+    },
+    {
+      "templatePath": "src/recovery/r2-drill.ts",
+      "platformPath": "packages/cloudflare-recovery/src/r2-drill.ts",
+      "sourceCommit": "3947bb48b5923272c0b680ebe27ba2c038e4757d",
+      "sourceSha256": "8e2c798aadf1b06da3d28d17e81d3d769bf64fd1e1a9a6220e3bf4b7ffc7a689",
+      "templateSha256": "973c8b3be858d1308c5e4b7e19c4b959777accc75b25c1fead8458d26f75bd7b"
+    },
+    {
+      "templatePath": "recovery-migrations/0003-recovery-r2.sql",
+      "platformPath": "packages/cloudflare-recovery/src/r2-control.sql",
+      "sourceCommit": "3947bb48b5923272c0b680ebe27ba2c038e4757d",
+      "sourceSha256": "e0df2e5ede6a1d61a897ee93a4bd1ad3824cf60a79cfe1c60f268cc11b7a29a8",
+      "templateSha256": "e0df2e5ede6a1d61a897ee93a4bd1ad3824cf60a79cfe1c60f268cc11b7a29a8"
     }
   ],
-  "recoverySourceCommit": "bebe08de412cadeddfc1459788cba97999e10182"
+  "patches": [
+    {
+      "name": "template.patch",
+      "baseCommit": "bed6b52785eab6e79680041ee1367f2831f59296",
+      "sha256": "b52bd55039e4ac26865495301db1dc6e719480a6c11716e0e578d979229a1c44"
+    },
+    {
+      "name": "template-upgrade.patch",
+      "baseCommit": "36860839fb2b1536228775998f3cce730f5b028c",
+      "sha256": "d519280c7eba643e51bd69d9a59bd2a5cb15c08341271efd3fa3b2b029edb282"
+    }
+  ],
+  "recoveryMigrations": [
+    {
+      "path": "recovery-migrations/0001-recovery.sql",
+      "sha256": "7bd073492a5c776e150d3af23531b4b141eecb3a3126e2995459171cff125462"
+    },
+    {
+      "path": "recovery-migrations/0002-recovery-group.sql",
+      "sha256": "610149151a3e9f5c0a248d538a463dfdd8724e8e777fb3c35acd16e0b58482cb"
+    },
+    {
+      "path": "recovery-migrations/0003-recovery-r2.sql",
+      "sha256": "e0df2e5ede6a1d61a897ee93a4bd1ad3824cf60a79cfe1c60f268cc11b7a29a8"
+    }
+  ]
 }
