@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/recovery.ts",
     "./worker": "./src/worker.ts",
-    "./group": "./src/group.ts"
+    "./group": "./src/group.ts",
+    "./drill": "./src/drill.ts"
   },
   "scripts": {
     "test": "bun test",

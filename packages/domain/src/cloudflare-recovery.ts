@@ -114,10 +114,12 @@ export const RecoveryWorkerInventory = Schema.Struct({
     Schema.isMaxLength(20)
   ),
   secretNames: Schema.Array(Schema.NonEmptyString).check(
-    Schema.isMaxLength(100)
+    Schema.isMaxLength(100),
+    Schema.isUnique()
   ),
   serviceTargets: Schema.Array(Schema.NonEmptyString).check(
-    Schema.isMaxLength(4)
+    Schema.isMaxLength(4),
+    Schema.isUnique()
   ),
 })
 export type RecoveryWorkerInventory = typeof RecoveryWorkerInventory.Type
@@ -126,7 +128,22 @@ export const RecoveryTopology = Schema.Struct({
     Schema.isMinLength(1),
     Schema.isMaxLength(4)
   ),
-})
+}).check(
+  Schema.makeFilter((value) => {
+    const names = new Set(value.workers.map((worker) => worker.workerName))
+    const databases = new Set(
+      value.workers.flatMap((worker) => worker.databaseIds)
+    )
+    return (
+      names.size === value.workers.length &&
+      databases.size > 0 &&
+      databases.size <= 20 &&
+      value.workers.every((worker) =>
+        worker.serviceTargets.every((target) => names.has(target))
+      )
+    )
+  })
+)
 export type RecoveryTopology = typeof RecoveryTopology.Type
 export const D1RecoveryGroup = Schema.Struct({
   version: Schema.Literal(1),
@@ -142,3 +159,11 @@ export const D1RecoveryGroup = Schema.Struct({
   ),
 })
 export type D1RecoveryGroup = typeof D1RecoveryGroup.Type
+
+export const RecoveryDatabaseResponse = Schema.Struct({
+  success: Schema.Literal(true),
+  result: Schema.Struct({
+    uuid: Schema.NonEmptyString,
+    name: Schema.NonEmptyString,
+  }),
+})

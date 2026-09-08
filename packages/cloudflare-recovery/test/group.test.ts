@@ -7,6 +7,7 @@ import {
   type RecoveryTopology,
 } from "@workspace/domain/cloudflare-recovery"
 import { CloudflareD1Recovery, CloudflareD1RecoveryLive } from "../src/recovery"
+import { verifyRecoveryDrill } from "../src/drill"
 import {
   CloudflareRecoveryGroup,
   CloudflareRecoveryGroupLive,
@@ -21,6 +22,7 @@ class Provider {
   revision = 1
   restored: string[] = []
   failDatabase = ""
+  settingsStatus = 200
   loseResponse = false
   topology: RecoveryTopology = {
     workers: [
@@ -90,6 +92,8 @@ class Provider {
     const path = new URL(url)
     const pieces = path.pathname.split("/")
     const workerName = pieces[5] ?? ""
+    if (path.pathname.endsWith("/settings") && this.settingsStatus !== 200)
+      return new Response(null, { status: this.settingsStatus })
     if (path.pathname.endsWith("/settings"))
       return Response.json({
         success: true,
@@ -103,14 +107,11 @@ class Provider {
       const input = Schema.decodeUnknownSync(RecoveryQueryInput)(
         JSON.parse(String(init.body))
       )
+      const results = database.query(input.sql).all(...input.params)
+      if (id !== "control" && !/^SELECT/i.test(input.sql)) this.revision++
       return Response.json({
         success: true,
-        result: [
-          {
-            success: true,
-            results: database.query(input.sql).all(...input.params),
-          },
-        ],
+        result: [{ success: true, results }],
       })
     }
     if (path.pathname.endsWith("/bookmark")) {
@@ -132,10 +133,15 @@ class Provider {
         result: { bookmark: `${id}-restored`, previous_bookmark: `${id}-undo` },
       })
     }
+    if (path.pathname.endsWith(`/database/${id}`))
+      return Response.json({
+        success: true,
+        result: { uuid: id, name: `sylph-${"a".repeat(24)}-recovery-drill` },
+      })
     throw new Error("Unexpected fixture API request")
   }
-  layer() {
-    const configuration = {
+  configuration() {
+    return {
       accountId: "account",
       apiToken: "project-capability",
       apiBaseUrl: "https://broker.example/accounts/account",
@@ -146,8 +152,10 @@ class Provider {
       topology: this.topology,
       drainTimeoutMs: 0,
     }
-    return CloudflareRecoveryGroupLive(configuration).pipe(
-      Layer.provideMerge(CloudflareD1RecoveryLive(configuration))
+  }
+  layer() {
+    return CloudflareRecoveryGroupLive(this.configuration()).pipe(
+      Layer.provideMerge(CloudflareD1RecoveryLive(this.configuration()))
     )
   }
 }
@@ -321,4 +329,108 @@ describe("coordinated application recovery", () => {
       provider.control.query("SELECT phase FROM sylph_recovery_operation").get()
     ).toEqual({ phase: "uncertain" })
   })
+})
+
+describe("first-release recovery drill", () => {
+  test("changes and restores only the named scratch database, then establishes matching schema proof", async () => {
+    const provider = new Provider()
+    const input = {
+      databaseId: "two",
+      applicationDatabaseId: "one",
+      expectedName: `sylph-${"a".repeat(24)}-recovery-drill`,
+      releaseId: "bootstrap-drill",
+    }
+    const evidence = await Effect.runPromise(
+      verifyRecoveryDrill(provider.configuration(), input).pipe(
+        Effect.provide(provider.layer())
+      )
+    )
+    expect(provider.restored).toEqual(["two"])
+    expect(provider.bodies()).toEqual([
+      { body: "original-one" },
+      { body: "original-two" },
+    ])
+    expect(
+      provider
+        .database("two")
+        .query(
+          "SELECT name FROM sqlite_schema WHERE name = 'sylph_recovery_drill_probe'"
+        )
+        .all()
+    ).toEqual([])
+    const proof = await run(provider, (_group, recovery) =>
+      recovery.restoreProof(evidence.schemaFingerprint)
+    )
+    expect(proof.databaseId).toBe("two")
+    expect(
+      provider.control.query("SELECT owner FROM sylph_recovery_gate").get()
+    ).toEqual({ owner: null })
+  })
+
+  test("rejects application identity, foreign name, and mismatched schema before any restore", async () => {
+    const provider = new Provider()
+    for (const input of [
+      {
+        databaseId: "one",
+        applicationDatabaseId: "one",
+        expectedName: `sylph-${"a".repeat(24)}-recovery-drill`,
+        releaseId: "drill",
+      },
+      {
+        databaseId: "two",
+        applicationDatabaseId: "one",
+        expectedName: `sylph-${"b".repeat(24)}-recovery-drill`,
+        releaseId: "drill",
+      },
+    ])
+      await expect(
+        Effect.runPromise(
+          verifyRecoveryDrill(provider.configuration(), input).pipe(
+            Effect.provide(provider.layer())
+          )
+        )
+      ).rejects.toThrow()
+    provider.database("two").exec("CREATE TABLE extra (id INTEGER)")
+    await expect(
+      Effect.runPromise(
+        verifyRecoveryDrill(provider.configuration(), {
+          databaseId: "two",
+          applicationDatabaseId: "one",
+          expectedName: `sylph-${"a".repeat(24)}-recovery-drill`,
+          releaseId: "drill",
+        }).pipe(Effect.provide(provider.layer()))
+      )
+    ).rejects.toThrow()
+    expect(provider.restored).toEqual([])
+  })
+})
+
+test("initial group capture requires a verified schema drill and independently absent Workers", async () => {
+  const provider = new Provider()
+  await Effect.runPromise(
+    verifyRecoveryDrill(provider.configuration(), {
+      databaseId: "two",
+      applicationDatabaseId: "one",
+      expectedName: `sylph-${"a".repeat(24)}-recovery-drill`,
+      releaseId: "drill",
+    }).pipe(Effect.provide(provider.layer()))
+  )
+  await run(provider, (_group, recovery) => recovery.pause("initial"))
+  for (const status of [200, 403, 500]) {
+    provider.settingsStatus = status
+    await expect(
+      run(provider, (group) => group.captureInitial({ releaseId: "initial" }))
+    ).rejects.toThrow()
+  }
+  expect(
+    provider.control.query("SELECT id FROM sylph_recovery_group").all()
+  ).toEqual([])
+  provider.settingsStatus = 404
+  const group = await run(provider, (group) =>
+    group.captureInitial({ releaseId: "initial" })
+  )
+  expect(group.databases.map((database) => database.databaseId)).toEqual([
+    "one",
+    "two",
+  ])
 })

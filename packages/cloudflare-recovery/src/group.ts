@@ -14,6 +14,7 @@ export class CloudflareRecoveryGroup extends Context.Service<
   CloudflareRecoveryGroup,
   {
     capture: (input: Capture) => Result<D1RecoveryGroup>
+    captureInitial: (input: Capture) => Result<D1RecoveryGroup>
     captureForDrill: (input: Capture) => Result<D1RecoveryGroup>
     restore: (id: string, releaseId: string) => Result<D1RecoveryGroup>
     read: (id: string) => Result<D1RecoveryGroup>
@@ -41,8 +42,20 @@ export const CloudflareRecoveryGroupLive = (
       const ids = [
         ...new Set(topology.workers.flatMap((worker) => worker.databaseIds)),
       ].sort()
+      if (ids.includes(configuration.controlDatabaseId))
+        throw new Error(
+          "Recovery control cannot be restored as application data"
+        )
       const now = configuration.now ?? Date.now
-      const topologyJson = JSON.stringify(topology)
+      const topologyIdentity = (value: RecoveryTopology) =>
+        JSON.stringify(
+          value.workers.map(({ workerName, databaseIds, serviceTargets }) => ({
+            workerName,
+            databaseIds,
+            serviceTargets,
+          }))
+        )
+      const topologyJson = topologyIdentity(topology)
       const fail = (operation: string) =>
         new CloudflareRecoveryFailure({
           operation,
@@ -108,7 +121,7 @@ export const CloudflareRecoveryGroupLive = (
           if (
             group.id !== id ||
             group.projectId !== configuration.projectId ||
-            JSON.stringify(group.topology) !== topologyJson
+            topologyIdentity(group.topology) !== topologyJson
           )
             throw new Error("Group identity or topology differs")
           if (
@@ -131,10 +144,30 @@ export const CloudflareRecoveryGroupLive = (
       })
       const capture = Effect.fn("RecoveryGroup.capture")(function* (
         input: Capture,
-        drill: boolean
+        drill: boolean,
+        initial = false
       ) {
         yield* paused(input.releaseId)
-        yield* recovery.inventoryTopology(topology)
+        if (initial) {
+          for (const worker of topology.workers)
+            yield* attempt("Require absent initial Worker", async () => {
+              const root =
+                configuration.apiBaseUrl ??
+                `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(configuration.accountId)}`
+              const response = await (configuration.fetch ?? fetch)(
+                `${root}/workers/scripts/${encodeURIComponent(worker.workerName)}/settings`,
+                {
+                  headers: {
+                    Authorization: `Bearer ${configuration.apiToken}`,
+                  },
+                  redirect: "error",
+                  signal: AbortSignal.timeout(60000),
+                }
+              )
+              if (response.status !== 404)
+                throw new Error("Initial capture requires an absent Worker")
+            })
+        } else yield* recovery.inventoryTopology(topology)
         const databases: Array<D1RecoveryGroup["databases"][number]> = []
         for (const databaseId of ids)
           databases.push(
@@ -172,7 +205,6 @@ export const CloudflareRecoveryGroupLive = (
         releaseId: string
       ) {
         yield* paused(releaseId)
-        yield* recovery.inventoryTopology(topology)
         const target = yield* read(id)
         if (target.expiresAt <= now() || target.capturedAt > now())
           return yield* fail("Require unexpired recovery group")
@@ -184,6 +216,7 @@ export const CloudflareRecoveryGroupLive = (
           rows[0]?.id
         ).pipe(Effect.mapError(() => fail("Require complete undo group")))
         const undo = yield* read(undoId)
+        yield* recovery.inventoryTopology(undo.topology)
         if (
           undo.expiresAt <= now() ||
           undo.capturedAt < now() - 15 * 60000 ||
@@ -238,6 +271,7 @@ export const CloudflareRecoveryGroupLive = (
       })
       return CloudflareRecoveryGroup.of({
         capture: (input) => capture(input, false),
+        captureInitial: (input) => capture(input, false, true),
         captureForDrill: (input) => capture(input, true),
         restore,
         read,
