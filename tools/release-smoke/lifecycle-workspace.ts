@@ -29,7 +29,9 @@ export async function freshSetup(r: LifecycleActionRuntime) {
     Schema.JsonObject
   )
   r.assert("Fresh Installation is unclaimed", prior.length, 0, true)
-  await r.page.goto("/setup")
+  await r.page.goto(
+    environment("SYLPH_SMOKE_AUTH_MODE") === "magic" ? "/" : "/setup"
+  )
   await waitForHydration(r.page)
   if (environment("SYLPH_SMOKE_AUTH_MODE") === "magic") {
     await r.page
@@ -58,7 +60,7 @@ export async function freshSetup(r: LifecycleActionRuntime) {
     .getByLabel("Confirm Admin email")
     .fill(environment("SYLPH_SMOKE_ADMIN_EMAIL"))
   await r.page
-    .getByLabel("Installation claim secret")
+    .getByLabel("Setup code", { exact: true })
     .fill(environment("INSTALLATION_CLAIM_SECRET"))
   await r.page.getByRole("button", { name: "Claim Installation" }).click()
   await r.page.waitForURL(/\/admin\?onboarding=1$/)
