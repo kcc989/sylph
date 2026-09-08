@@ -1,5 +1,8 @@
 # Cursor subscription through OpenCode
 
+For current deployed verification status and continuation steps, read the
+[E2E handoff](e2e-handoff-2026-09-08.md).
+
 Sylph registers `cursor-opencode-provider@0.6.6` through its public provider API.
 The unmodified provider runs in a Node 24 Cloudflare Container. OpenCode runs in
 the Workspace Durable Object and owns conversation history, tools, permissions,
