@@ -59,3 +59,11 @@ The failure therefore does not require the Sylph bridge. The exact provider/mode
 ## Max Mode control experiment
 
 The local same-login comparison with provider 0.6.6 and client version cli-2026.09.02-c22c1a3 rejected text with Max Mode false, then passed exact text and a real fixture read with Max Mode true. This isolates a usable public provider option; the account plan itself is not confirmed. The catalog now exposes an explicit Max variant for supported base models without overriding exact upstream variant parameters. Live deployment verification follows; local success alone does not complete the E2E.
+
+## Live Max Mode verification
+
+Deployed source `c9e712b125ff9be33adad0d1395eca6735a9a1a5` to the preserved stage. Exact Cloudflare application read confirmed version 11, image digest `efb56ee979510fa8f47c5c61b1f3713587e2e627b653f8030244030e4fee230c`, with container logs disabled. The application list lagged behind the exact application read.
+
+Selected Cursor Grok 4.6 > Max in the in-app model picker. The existing Conversation completed `read /workspace/package.json` and returned `sylph-tanstack-template`. A second Turn wrote `cursor-unpatched-proof.txt`, edited `CURSOR_MAX_WRITE_OK` to `CURSOR_MAX_EDIT_OK`, read it, and ran OpenCode shell. Expanded tool output confirmed the marker, package name, and exit code 0. Cursor's initial native Shell attempts reported unavailable `bash`; it recovered through the exposed OpenCode `shell` tool. This limitation remains distinct from the resolved inference rejection.
+
+The proof file is the only added working change. Existing fixture files remain preserved. All four PR CI checks passed for c9e712b. Checks were requested next; preview and release lifecycle are not proven by these provider results.
