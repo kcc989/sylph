@@ -2,7 +2,9 @@
 
 Do not deploy the reset `0001_initial.sql` over an earlier Installation. The current release also places WorkspaceDO in Website. A new namespace does not contain the old WorkspaceRuntime namespace's files, transcripts or pending operations.
 
-The supported transition is parallel operation: retain the earlier Installation and its resource identities, preserve its D1 database and encryption keys, verify a local import, then create a separate Installation. This release does **not** convert arbitrary earlier D1 schemas or clone Durable Object storage. Do not direct the new Installation at old resources or replay its baseline into the old D1 database.
+The preservation-only transition is parallel operation: retain the earlier Installation and its resource identities, preserve its D1 database and encryption keys, verify a local import, then create a separate Installation. The preservation command does **not** convert earlier D1 schemas or clone Durable Object storage. Do not direct the new Installation at old resources or replay its baseline into the old D1 database.
+
+A separate [verified migration path](../tools/installation-migration/README.md) now supports D1 conversion and full Workspace SQLite/KV copy from exact pre-PR69 commit `5311a147464946a7f0b781737166ea81d9c91f78` with the pinned SDK bootstrap schema. It retains the original copy, rejects active or unsupported state, and requires reviewed bridge deployment and a new target. Its local tests do not establish deployed migration proof. The remaining instructions on this page describe the preservation-only command.
 
 ## Capture and verify D1
 
@@ -62,4 +64,4 @@ Cloudflare supports [moving a Durable Object namespace between Workers](https://
 
 Use a new Alchemy stage and resources. Keep the earlier domain and Installation available. Import only repositories through a currently supported repository source; retain local verified clones when no supported import source is available. This procedure does not publish repositories or reconstruct old Workspace sessions inside new Workspaces.
 
-The restored SQLite file is an inspection and recovery artifact for the **old schema**. Do not treat it as an importable database for the reset release. A future conversion must declare supported source schema hashes, map every table/identity, preserve unmapped data, verify encryption key continuity, and pass a disposable target round trip. Unsupported schema conversions must stop. Replacing a live Installation, moving namespaces, deleting old resources or applying a remote restore requires a separate reviewed target and explicit approval.
+The restored SQLite file is an inspection and recovery artifact for the **old schema**. Do not treat it as an importable database for the reset release. Conversions outside the pinned migration path must declare supported source schema hashes, map every table/identity, preserve unmapped data, verify encryption key continuity, and pass a disposable target round trip. Unsupported schema conversions must stop. Replacing a live Installation, moving namespaces, deleting old resources or applying a remote restore requires a separate reviewed target and explicit approval.

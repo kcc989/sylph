@@ -1,0 +1,11 @@
+{
+  "sourceCommit": "5311a147464946a7f0b781737166ea81d9c91f78",
+  "sdk": "@opencode-ai/core@0.0.0-dev-18308",
+  "files": {
+    "apps/web/src/server/workspace-filesystem.ts": "b946c36c9414ea71bfcb15a93a523273faed492549d249d844070a6de1fff5d6",
+    "apps/web/src/server/workspace-git.ts": "5083d7754762f6a2ba84e7dd67f589b30a6bf0a7a4963232202a1e15383c5a7d",
+    "apps/web/src/server/workspace-checks.ts": "674b8e7bbc772b20ddc106faacbc6403badc437e3513d4a503cd5c3fc6b3ed91",
+    "apps/web/src/server/workspace-do.ts": "6a16d0e83fbacb3cb7c6d4b72a0595d83237dc8bb5ace308159758cddfdc3735"
+  },
+  "workspaceSqlHash": "03f83ca80d6f92737d64f313b0e85066b64c2edc96e35e7d2daf813a49320e1c"
+}

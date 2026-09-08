@@ -15,7 +15,7 @@
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
     "typecheck": "turbo typecheck && tsc --noEmit",
-    "test": "bun test tools/oxlint/anti-slop/tests tools/wizard/tests tools/deployment tools/release-smoke tools/template-contract && turbo test && bun run test:opencode",
+    "test": "bun test tools/oxlint/anti-slop/tests tools/wizard/tests tools/deployment tools/release-smoke tools/template-contract && turbo test && bun run test:opencode && bun run test:installation-migration",
     "smoke:release": "node scripts/release-smoke.mjs test",
     "smoke:lifecycle": "bun scripts/lifecycle-proof.ts",
     "installation:preserve": "bun scripts/installation-preserve.ts",
@@ -30,7 +30,10 @@
     "smoke:browser": "node tools/browser-smoke/run.mjs",
     "smoke:release:doctor": "node scripts/release-smoke.mjs doctor",
     "smoke:release:deploy": "node scripts/release-smoke.mjs deploy",
-    "smoke:release:cleanup": "node scripts/release-smoke.mjs cleanup"
+    "smoke:release:cleanup": "node scripts/release-smoke.mjs cleanup",
+    "installation:migrate": "bun scripts/installation-migrate.ts",
+    "installation:migrate:prepare": "bun tools/installation-migration/prepare-bridge.mjs",
+    "test:installation-migration": "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tools/installation-migration/tests -p '*_test.py' && bun test tools/installation-migration/tests"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20260901.1",
