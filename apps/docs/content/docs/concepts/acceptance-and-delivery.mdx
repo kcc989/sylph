@@ -1,0 +1,36 @@
+---
+title: Acceptance and delivery
+description: How work leaves a Workspace and reaches production.
+---
+
+## Acceptance
+
+**Acceptance** is the User's decision to merge a checked Checkpoint from a
+Workspace fork into the Project Repository. The result is an **Accepted
+commit**.
+
+Acceptance requires a passing, policy-selected Check on that exact commit. The
+review surface shows the base-to-head diff, so the decision is made against the
+same commit the Check ran on.
+
+After Acceptance, the Workspace is marked merged and its fork is retained for
+`WORKSPACE_FORK_RETENTION_SECONDS`, seven days by default.
+
+## Deployment
+
+A **Deployment** is a durable record of one attempt to publish an Accepted
+commit to production. A Deployment belongs to a Project and does not change its
+Project Repository.
+
+A **Rollback** is a new Deployment of an earlier Accepted commit. A Rollback
+does not move or rewrite the Project Repository, so history stays linear and
+auditable.
+
+Production deploys require explicit confirmation. The agent can read production
+history; an Admin confirms the deploy.
+
+## Delivery to GitHub
+
+**Delivery** is the publication of an Accepted commit to a connected Upstream
+Repository, by direct push or by pull request. Delivery is separate from
+Deployment: one publishes source, the other publishes a running product.

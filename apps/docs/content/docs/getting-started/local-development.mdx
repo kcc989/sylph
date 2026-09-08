@@ -1,0 +1,65 @@
+---
+title: Local development
+description: Run the Installation on your own machine with Bun, Docker, and Alchemy.
+---
+
+Local development runs the same Worker, Durable Objects, and container
+bindings that production runs. Bun and Docker must be installed, and Docker
+must be running: Alchemy pulls the CI sandbox image for local development and
+for deploys.
+
+## Set up
+
+```sh
+git clone https://github.com/<your-account>/sylph.git
+cd sylph
+./scripts/setup.sh
+```
+
+Copy `.env.example` to `.env` and provide the required secrets.
+
+Configure a GitHub App with read and write **Contents**, read and write **Pull
+requests**, read-only **Email addresses**, user authorization during
+installation, and this callback URL:
+
+```text
+http://localhost:1337/api/auth/callback/github
+```
+
+## Run
+
+```sh
+bun install --frozen-lockfile
+bun run dev:cloudflare -- --stage dev
+```
+
+When `ALLOW_TEST_MAGIC_LINKS=true`, local development stores requested
+magic-link URLs in `magic_link_outbox` and shows the latest link on the sign-in
+screen. Production setup disables this seam and uses GitHub authentication.
+
+## Monorepo tasks
+
+Sylph is a Bun monorepo managed with Turborepo.
+
+```sh
+bun run dev         # every app in watch mode
+bun run build       # turbo build
+bun run typecheck   # turbo typecheck, then the root tsc project
+bun run lint        # oxlint, warnings denied
+bun run format      # oxfmt
+bun run test        # tool tests, then turbo test
+```
+
+Use Bun for installation, scripts, tests, and the lockfile. Commit one root
+`bun.lock`; do not add another package manager's lockfile.
+
+## This documentation site
+
+The marketing and documentation site is its own app.
+
+```sh
+bun --cwd apps/docs dev
+```
+
+Pages are MDX files under `apps/docs/content/docs`, loaded by Fumadocs. Adding a
+page is adding a file; the sidebar order comes from the `meta.json` beside it.

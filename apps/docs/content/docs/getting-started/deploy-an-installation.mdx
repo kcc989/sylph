@@ -1,0 +1,86 @@
+---
+title: Deploy an Installation
+description: Fork the repository and run one GitHub Actions workflow. No local toolchain is required.
+---
+
+The default deployment runs entirely in your browser. GitHub Actions runs Bun,
+Docker, and Alchemy for you.
+
+## 1. Create your repository
+
+Fork [the Sylph repository](https://github.com/kcc989/sylph/fork). Open the
+fork's **Actions** tab and enable workflows if GitHub asks.
+
+Your repository holds the deployment code. Secrets stay outside Git. Keep the
+repository, the Cloudflare account, and the `prod` stage when you update, so
+Alchemy can reuse the existing resources and credentials.
+
+## 2. Connect Cloudflare
+
+Copy your account ID from **Workers & Pages**, then create the deploy token
+described in [Requirements](/docs/getting-started/requirements).
+
+In your fork, open **Settings → Secrets and variables → Actions** and add:
+
+| Tab       | Name                        | Value                                      |
+| --------- | --------------------------- | ------------------------------------------ |
+| Variables | `CLOUDFLARE_ACCOUNT_ID`     | Your Cloudflare account ID                 |
+| Secrets   | `CLOUDFLARE_API_TOKEN`      | The deploy token                           |
+| Secrets   | `INSTALLATION_CLAIM_SECRET` | A new random setup code, 32–256 characters |
+
+Generate the setup code with your password manager and keep a copy. GitHub does
+not show a saved secret again. You enter this code once in Sylph to prove that
+you control the deployment.
+
+## 3. Choose your address
+
+For a Cloudflare address, do nothing. Sylph uses its `workers.dev` address.
+
+For a custom address, add one repository variable:
+
+| Name           | Example             |
+| -------------- | ------------------- |
+| `SYLPH_DOMAIN` | `sylph.example.com` |
+
+Enter the hostname only: no scheme, path, or wildcard. The zone must be active
+in the same Cloudflare account, and the hostname must not already have a CNAME
+record. Requests to the Worker's other address redirect to the primary address
+before sign-in.
+
+## 4. Deploy
+
+Open **Actions → Deploy production → Run workflow**, select `main`, and run it.
+
+The workflow:
+
+1. Checks the deploy token, the `workers.dev` registration, R2, Artifacts, and
+   any custom hostname.
+2. Runs the code checks and builds Sylph.
+3. Creates the resources and credentials through Alchemy.
+4. Adds **Open Sylph** and **Finish setup** links to the run summary.
+
+The first deployment can take several minutes while container images upload.
+
+<Callout title="Reruns are safe">
+  If a step fails, correct the reported problem and rerun the workflow.
+  Completed resources and saved credentials are reused. A failed deploy does not
+  mean you need a new token or another GitHub App.
+</Callout>
+
+## What the deployment creates
+
+- One Website Worker hosting the app, the Durable Objects, the Workflows, and
+  the container bindings.
+- One D1 database, initialized and updated by the ordered migrations in
+  `packages/db/migrations`.
+- An Artifacts namespace for Project Repositories and Workspace forks.
+- Two R2 buckets, for Check backups and for Evidence.
+- Sandbox and agent container applications.
+- Browser Rendering and the scheduled jobs.
+- A runtime API token, a separate resource-maintenance token, an R2 backup
+  token, and stable session and credential-encryption secrets.
+
+Alchemy keeps generated secret values and token outputs in its Cloudflare
+deployment state. Access to that state is privileged. Keep it when you update.
+Destroying the state and generating new encryption keys does not recover data
+that was already encrypted.

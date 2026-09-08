@@ -1,0 +1,12 @@
+{
+  "title": "Cloudflare platform",
+  "pages": [
+    "architecture",
+    "workers-and-durable-objects",
+    "artifacts",
+    "cloudflare-ci",
+    "storage",
+    "browser-rendering",
+    "infrastructure-as-code"
+  ]
+}

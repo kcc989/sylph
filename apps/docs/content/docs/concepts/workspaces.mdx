@@ -1,0 +1,58 @@
+---
+title: Workspaces
+description: The durable place where a user works with an agent.
+---
+
+A **Workspace** is the durable place where a user works with an agent in an
+isolated Workspace fork. It is the core unit of the product.
+
+One Workspace means:
+
+- One Durable Object that owns the live state.
+- One agent host that lives for the lifetime of that object instance.
+- One Artifacts fork that stores the Workspace's code.
+- One or more agent sessions working inside it.
+- Cloudflare CI running builds, tests, previews, and deployments outside the
+  agent runtime.
+
+## The parts
+
+| Term               | Meaning                                                                                    |
+| ------------------ | ------------------------------------------------------------------------------------------ |
+| **Workspace fork** | The independent source history owned by one Workspace, created from the Project Repository |
+| **Working copy**   | The mutable files inside the Workspace, including work not yet saved as a Checkpoint       |
+| **Checkpoint**     | A durable commit that records the Working copy in the Workspace fork                       |
+| **Base commit**    | The exact Project Repository commit the fork was created from                              |
+| **Fork head**      | The latest Checkpoint commit in the fork                                                   |
+
+## Why forks
+
+Forks fit parallel agent work better than shared mutable branches. They isolate
+credentials, CI events, retention, and failed experiments. Two Workspaces on the
+same Project never contend for one working tree.
+
+## Lifecycle
+
+A Workspace is provisioned, becomes ready, then moves between running, waiting,
+and idle as turns start and finish.
+
+An **archived** Workspace is retained with its history but is read-only.
+**Discard** is the irreversible removal of a Workspace, its Workspace fork, and
+its Working copy.
+
+## Presence and terminals
+
+**Presence** is the set of Users currently connected to one Workspace. It counts
+browser tabs from Durable Object WebSocket attachments; it does not rely on
+client heartbeat messages.
+
+A **Terminal** is a shell connected to a Cloudflare CI sandbox. A Terminal is
+not part of the agent's Workerd host and uses a separate sandbox WebSocket for
+input and output.
+
+<Callout title="Process-heavy work leaves the object">
+  The agent can reason, read, search, and edit inside the Durable Object. It
+  must send installs, builds, tests, and arbitrary commands to Cloudflare CI.
+  This keeps `node_modules`, build output, and long-running processes out of
+  Durable Object storage.
+</Callout>

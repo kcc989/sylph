@@ -1,0 +1,48 @@
+---
+title: Deployments and rollbacks
+description: Publishing an Accepted commit, and going back safely.
+---
+
+A **Deployment** records one attempt to publish an Accepted commit to
+production. It belongs to a Project and never changes the Project Repository.
+
+## Order of operations
+
+1. A Check passes on an exact Checkpoint.
+2. A User Accepts, and the Checkpoint becomes an Accepted commit.
+3. An Admin confirms the production Deployment.
+4. The Project's `sylph:deploy` script runs in CI and prints its production URL.
+
+Only one queued or running production operation is permitted per Project. This
+prevents two releases from racing over the same application data.
+
+## Rollback
+
+A **Rollback** is a new Deployment of an earlier Accepted commit. It does not
+move or rewrite the Project Repository, so the history stays linear and every
+production state is reproducible from a commit.
+
+## Release safety for stateful Projects
+
+Before a Project's first production release, implement and test the
+application's migration, backup, restore, journey, and writer-coordination
+hooks. The pinned starter template supplies these hooks for one Worker and one
+application D1 database, with a separate retained recovery-control database.
+
+Its first release also requires a real provider restore drill for the
+application schema. Other stateful topologies need tested adapters.
+
+<Callout type="warn" title="Missing evidence blocks production">
+  Missing hooks or missing drill evidence block a production release. Storage
+  permissions depend on those adapters.
+</Callout>
+
+## Data recovery
+
+Data recovery requires an Admin to confirm the paired code commit and to accept
+the possible loss of writes since the selected recovery point. Recovery creates
+an undo point and verifies production before it reports success.
+
+Repository exports give Git access only. Application data, secret values, and
+Workspace runtime state need separate recovery procedures. Validate real backup
+and restore behavior in an isolated stage before a production rollout.

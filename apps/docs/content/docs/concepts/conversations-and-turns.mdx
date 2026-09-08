@@ -1,0 +1,37 @@
+---
+title: Conversations and turns
+description: How a Workspace records direction, work, and questions.
+---
+
+A **Conversation** is the durable sequence of user and agent turns inside a
+Workspace. A Conversation may select a model independently of the User and
+Organization preferences.
+
+## Turn
+
+A **Turn** is one agent execution inside a Conversation. A Turn ends when it
+succeeds, fails, or is interrupted. One Turn is active at a time.
+
+## Messages during a Turn
+
+| Term                 | Behavior                                                                                     |
+| -------------------- | -------------------------------------------------------------------------------------------- |
+| **Queued message**   | A durable User message that starts a new Turn after the active Turn ends                     |
+| **Steering message** | A durable User message delivered to the agent during the active Turn to change its direction |
+| **Agent question**   | A durable request for structured User input during a Turn                                    |
+
+An Agent question stays answerable after the User leaves or reloads the
+Workspace. Direction is never lost because a tab closed.
+
+## Conversation model selection
+
+**Conversation model selection** is the model used for the next agent Turn in
+one Conversation. It overrides the User and Organization preferences without
+changing them and without rewriting earlier turns.
+
+## Check continuation
+
+A **Check continuation** is a normal agent Turn started automatically after a
+failed Check, to fix its cause and run another Check. An Installation bounds
+consecutive Check continuations within each Workspace, so a failing Check cannot
+loop without end. See [Checks and Previews](/docs/concepts/checks-and-previews).

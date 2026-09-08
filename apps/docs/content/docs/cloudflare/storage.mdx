@@ -1,0 +1,47 @@
+---
+title: D1 and R2
+description: What the control plane stores, and what goes to object storage.
+---
+
+## D1: the control plane
+
+D1 stores the data the app must query across users, Projects, and Workspaces.
+
+D1 is the right place for:
+
+- Better Auth users, sessions, accounts, and verification records.
+- Project and Workspace lists.
+- Workspace status snapshots.
+- Lightweight agent-session indexes.
+- Check-run and Deployment indexes.
+- User and Project settings.
+- Encrypted GitHub App and Provider credentials.
+
+D1 does not store full agent transcripts, file contents, build logs, or plain
+secret values.
+
+The schema is defined with Drizzle. Migrations in `packages/db/migrations` run
+in order during deployment.
+
+### Notable tables
+
+| Table            | Purpose                                                                          |
+| ---------------- | -------------------------------------------------------------------------------- |
+| `projects`       | Project identity, Artifacts namespace and repository, defaults, lifecycle        |
+| `workspaces`     | Workspace identity and Durable Object routing key, base and head commits, status |
+| `agent_sessions` | A lightweight index over the agent host's own sessions                           |
+| `ci_runs`        | Workflow identity, exact commit, kind, status, and a small redacted summary      |
+| `deployments`    | Environment, exact commit, status, and URL                                       |
+
+A Durable Object ID is never stored. The object name is derived from the
+Workspace ID, so routing is deterministic.
+
+## R2: bulk and evidence
+
+Two buckets are created for an Installation:
+
+- **Check backups**, including the dependency snapshots the CI SDK writes.
+- **Check evidence**, including the screenshots captured while testing a
+  Preview.
+
+R2 access uses a dedicated backup token that is separate from the deploy token.

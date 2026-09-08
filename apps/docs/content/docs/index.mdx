@@ -1,0 +1,80 @@
+---
+title: Introduction
+description: Sylph is a full stack development product that runs end to end on the Cloudflare developer platform.
+---
+
+Sylph gives people durable cloud Workspaces for coding agents. You deploy one
+Installation into your own Cloudflare account, claim it, and invite your team.
+Every part of the product — the interface, the source history, the build, the
+preview, and the production deploy — runs on Cloudflare services.
+
+## What "full stack on Cloudflare" means here
+
+Most agent products keep the agent in a container and treat the cloud as a
+deploy target. Sylph does the opposite. Each product concept maps onto the
+Cloudflare primitive that fits it:
+
+<Cards>
+  <Card title="Workers" href="/docs/cloudflare/workers-and-durable-objects">
+    Serves the TanStack Start interface, the authenticated server functions, and
+    the deployment broker.
+  </Card>
+  <Card
+    title="Durable Objects"
+    href="/docs/cloudflare/workers-and-durable-objects"
+  >
+    One object owns one Workspace, its agent host, and its working copy.
+  </Card>
+  <Card title="D1" href="/docs/cloudflare/storage">
+    The control plane that lists Organizations, Projects, Workspaces, and runs.
+  </Card>
+  <Card title="Artifacts" href="/docs/cloudflare/artifacts">
+    The canonical Git store: one repository per Project, one fork per Workspace.
+  </Card>
+  <Card title="Cloudflare CI" href="/docs/cloudflare/cloudflare-ci">
+    Runs install, typecheck, lint, test, build, preview, and deploy in
+    sandboxes.
+  </Card>
+  <Card title="Browser Rendering" href="/docs/cloudflare/browser-rendering">
+    Lets the agent open its own Preview and capture Evidence.
+  </Card>
+</Cards>
+
+## The shape of the product
+
+An **Installation** is one deployment of Sylph. It is one security and data
+boundary, and it contains one **Organization**. The Organization owns
+**Projects**. A Project has one **Project Repository** and one or more
+**Workspaces**.
+
+A Workspace is where work happens. It holds an isolated fork of the Project
+Repository, a live agent, and a durable Conversation. When the agent has
+something to show, it writes a **Checkpoint**, runs a **Check** on that exact
+commit, and deploys a **Preview**. You review the result and **Accept** it,
+which merges the Checkpoint into the Project Repository.
+
+<Callout title="Nothing is accepted on trust">
+  A Checkpoint becomes acceptable only after a Check passes on that exact
+  commit. Previews and browser Evidence are attached to the Check that produced
+  them.
+</Callout>
+
+## Where to go next
+
+<Cards>
+  <Card
+    title="Deploy an Installation"
+    href="/docs/getting-started/deploy-an-installation"
+  >
+    Fork the repository and run one GitHub Actions workflow.
+  </Card>
+  <Card title="Architecture" href="/docs/cloudflare/architecture">
+    How the Worker, the Durable Objects, CI, and the data stores fit together.
+  </Card>
+  <Card title="Workspaces" href="/docs/concepts/workspaces">
+    The core unit of work, and what lives inside it.
+  </Card>
+  <Card title="Project scripts" href="/docs/reference/project-scripts">
+    The contract a Project repository must satisfy.
+  </Card>
+</Cards>

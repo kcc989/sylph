@@ -1,0 +1,38 @@
+---
+title: Infrastructure as code
+description: Alchemy owns every Cloudflare resource an Installation needs.
+---
+
+Cloudflare resources are declared in `alchemy.run.ts` and deployed with Alchemy.
+There is no Wrangler-owned infrastructure and no `@cloudflare/vite-plugin`.
+
+## What the stack declares
+
+- The Website Workers that host the product and this documentation site.
+- The `WorkspaceDO` namespace with SQLite storage, plus the other Durable
+  Object namespaces.
+- The D1 database and its ordered Drizzle migrations.
+- The Artifacts namespace for Project Repositories and Workspace forks.
+- The Workflow classes for provisioning, CI, message delivery, merge,
+  retention, and resource maintenance.
+- The Sandbox and agent container applications.
+- The R2 buckets for Check backups and Evidence.
+- Browser Rendering and the scheduled jobs.
+- Secrets for Better Auth, credential encryption, GitHub OAuth, and the claim.
+
+## Stages
+
+Use one Alchemy stage per platform environment. A Project Preview created by CI
+is application data, not a new Alchemy stage for the platform.
+
+## Deployment state
+
+Alchemy keeps generated secret values and token outputs in its Cloudflare
+deployment state. That state is privileged, and it must be kept across updates.
+Destroying it and generating new encryption keys does not recover data that was
+already encrypted.
+
+<Callout type="warn" title="Destructive operations need a person">
+  Production deploys and destructive Alchemy operations require explicit
+  approval. They are never triggered by an agent on its own.
+</Callout>

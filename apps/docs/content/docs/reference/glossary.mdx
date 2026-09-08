@@ -1,0 +1,48 @@
+---
+title: Glossary
+description: The words Sylph uses, and what each one means exactly.
+---
+
+| Term                             | Meaning                                                                                       |
+| -------------------------------- | --------------------------------------------------------------------------------------------- |
+| **Installation**                 | A deployed Sylph system operated as one security and data boundary. Contains one Organization |
+| **Installation claim**           | The one-time act that creates the Organization and makes the claimant its first Admin         |
+| **Organization**                 | A membership boundary that owns Projects. Members are Admins or Users                         |
+| **Admin**                        | A member who can invite Users and manage shared settings and Provider connections             |
+| **Invitation**                   | An Admin-issued authorization for one email address to become a User                          |
+| **User**                         | A member who can work in Projects and manage their own Personal connections                   |
+| **Project**                      | The product a user creates inside an Organization                                             |
+| **Issue**                        | A durable, numbered unit of work inside a Project. Open or closed                             |
+| **Skill**                        | Reusable instructions and resources that guide an agent                                       |
+| **Skill Installation**           | A durable attachment of a Skill to an Installation or a Project                               |
+| **Project Repository**           | The accepted source history for a Project. Exactly one per Project                            |
+| **Template Repository**          | An imported source history, pinned to one commit, that a Project can fork from                |
+| **Template origin**              | The Template Repository and commit a Project Repository was forked from                       |
+| **Upstream Repository**          | An external GitHub repository connected for synchronization and delivery                      |
+| **Delivery**                     | Publication of an Accepted commit to an Upstream Repository                                   |
+| **Recovery export**              | A manifest of every Git repository needed to recover a Project                                |
+| **Workspace**                    | The durable place where a user works with an agent in an isolated fork                        |
+| **Discard**                      | The irreversible removal of a Workspace, its fork, and its Working copy                       |
+| **Workspace fork**               | The independent source history owned by one Workspace                                         |
+| **Working copy**                 | The mutable files inside a Workspace, including unsaved work                                  |
+| **Checkpoint**                   | A durable commit that records the Working copy in the Workspace fork                          |
+| **Check**                        | An evaluation of one exact Checkpoint through install, typecheck, lint, test, and build       |
+| **Check continuation**           | An agent Turn started automatically after a failed Check, within a bound                      |
+| **Preview**                      | An isolated deployment of one exact Checkpoint                                                |
+| **Evidence**                     | A durable observation captured while testing a Preview, linked to its Check                   |
+| **Acceptance**                   | The User's decision to merge a checked Checkpoint into the Project Repository                 |
+| **Base commit**                  | The Project Repository commit a Workspace fork was created from                               |
+| **Fork head**                    | The latest Checkpoint commit in a Workspace fork                                              |
+| **Accepted commit**              | The Project Repository commit containing accepted Workspace work                              |
+| **Deployment**                   | A durable record of one attempt to publish an Accepted commit to production                   |
+| **Rollback**                     | A new Deployment of an earlier Accepted commit                                                |
+| **Provider connection**          | Authorization for one AI provider and its available models                                    |
+| **Model preference**             | A preferred provider model chosen for an Organization or a User                               |
+| **Conversation**                 | The durable sequence of user and agent turns inside a Workspace                               |
+| **Turn**                         | One agent execution inside a Conversation                                                     |
+| **Queued message**               | A durable User message that starts a new Turn after the active Turn ends                      |
+| **Steering message**             | A durable User message delivered during the active Turn                                       |
+| **Agent question**               | A durable request for structured User input during a Turn                                     |
+| **Presence**                     | The Users currently connected to one Workspace                                                |
+| **Terminal**                     | A shell connected to a Cloudflare CI sandbox                                                  |
+| **Conversation model selection** | The model used for the next Turn in one Conversation                                          |

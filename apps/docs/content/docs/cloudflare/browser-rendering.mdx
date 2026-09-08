@@ -1,0 +1,38 @@
+---
+title: Browser Rendering
+description: How the agent sees the product it just changed.
+---
+
+A Check that only compiles proves very little. Sylph gives the agent a real
+browser through Cloudflare Browser Rendering, pointed at the Preview built from
+the exact Checkpoint under test.
+
+## What the agent gets
+
+`workspace_browser` opens a path on the current Preview and returns:
+
+- The rendered page as markdown.
+- The accessibility tree.
+
+It stores a screenshot as Check **Evidence**, linked to the Check that produced
+it.
+
+## The origin rule
+
+<Callout type="warn" title="The Preview and nothing else">
+  The browser tool refuses every origin other than the current Preview. An agent
+  cannot use it to reach the public internet, another Installation, or the
+  Cloudflare API.
+</Callout>
+
+## Why the accessibility tree
+
+The accessibility tree is a stable, structural description of the page. It
+gives the agent something to reason about that does not change when a class name
+changes, and it makes accessibility problems visible in the same pass that
+verifies behavior.
+
+## Evidence in review
+
+Evidence is attached to the Check, so review shows the diff, the Check result,
+and what the running product looked like, in one place and for one commit.

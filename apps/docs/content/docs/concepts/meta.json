@@ -1,0 +1,12 @@
+{
+  "title": "Concepts",
+  "pages": [
+    "installations-and-organizations",
+    "projects-and-repositories",
+    "workspaces",
+    "conversations-and-turns",
+    "checks-and-previews",
+    "acceptance-and-delivery",
+    "providers-and-models"
+  ]
+}

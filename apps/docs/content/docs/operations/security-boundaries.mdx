@@ -1,0 +1,41 @@
+---
+title: Security boundaries
+description: The rules that decide what may cross which line.
+---
+
+## Authentication and authority
+
+- The app Worker authenticates before it calls a Durable Object.
+- It passes a signed, short-lived actor context to the object. User IDs from
+  request bodies are never trusted.
+- Project and Workspace ownership is validated again before a destructive
+  action.
+
+## Secrets
+
+- Provider keys and deployment credentials stay in Worker secrets or in
+  Cloudflare Secrets Store.
+- Credentials in D1 are encrypted with the Installation's credential encryption
+  key.
+- A secret is never written into a Workspace filesystem, a Conversation, D1 in
+  plain form, a CI log, or an Artifacts repository.
+- CI output is redacted before it enters an agent message.
+
+## Limits
+
+Explicit limits exist for file size, total working-tree size, event payload
+size, agent Turn duration, CI retries, and automatic repair loops. The repair
+loop has two independent bounds; see
+[Checks and Previews](/docs/concepts/checks-and-previews).
+
+## Confirmation
+
+Production deploys and destructive Cloudflare operations require user
+confirmation. The agent may read production history and propose a Deployment; an
+Admin confirms it.
+
+## Agent reach
+
+The browser tool refuses every origin other than the current Preview. The agent
+cannot open arbitrary network destinations from the Workspace runtime, and it
+cannot mint infrastructure credentials for itself.

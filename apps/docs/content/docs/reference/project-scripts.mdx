@@ -1,0 +1,58 @@
+---
+title: Project scripts
+description: The contract a Project repository must satisfy for Checks, Previews, and Deployments.
+---
+
+Sylph owns the Check lifecycle. A Project repository only has to expose
+recognizable package scripts.
+
+## Required scripts
+
+```json title="package.json"
+{
+  "scripts": {
+    "typecheck": "…",
+    "lint": "…",
+    "test": "…",
+    "build": "…",
+    "sylph:preview": "…",
+    "sylph:deploy": "…"
+  }
+}
+```
+
+## Environment
+
+Sylph sets two variables for every run:
+
+| Variable           | Value                           |
+| ------------------ | ------------------------------- |
+| `SYLPH_CHECKPOINT` | The exact commit SHA under test |
+| `SYLPH_DEPLOYMENT` | `preview` or `production`       |
+
+## What the Preview must render
+
+The Preview page must render these values and expose them on the same visible
+element:
+
+```html
+<div data-sylph-checkpoint="<exact commit SHA>" data-sylph-deployment="preview">
+  …
+</div>
+```
+
+## What the scripts must print
+
+- `sylph:preview` must print `SYLPH_PREVIEW_URL=https://...` after the
+  deployment is reachable.
+- `sylph:deploy` must print `SYLPH_PRODUCTION_URL=https://...`.
+
+<Callout type="warn" title="A missing script fails the Check">
+  A missing script or a missing URL fails its Check. It never silently weakens
+  Acceptance or the Deployment history.
+</Callout>
+
+## Install
+
+CI installs with `bun install --frozen-lockfile`, then runs each check in an
+isolated step.

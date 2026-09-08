@@ -1,0 +1,39 @@
+---
+title: Deployed smoke tests
+description: Proving a release against a real Installation.
+---
+
+Release smoke tests run against a deployed stage, not a local mock.
+
+## Run one
+
+```sh
+bun run smoke:release:doctor -- --auth magic
+bun run smoke:release:deploy -- --auth magic
+```
+
+Open the printed URL for manual verification. The printed
+`smoke:release -- --run ...` command runs the optional Playwright regression
+suite. Deployment itself needs neither a browser session nor provider credits.
+
+For GitHub OAuth proof, omit `--auth magic` and use `--headed` when a human
+login is needed. A `gh auth` session does not sign Playwright in.
+
+## Configuration
+
+The runner loads `~/.config/sylph/release-smoke.env`, or the file named by
+`SYLPH_SMOKE_ENV_FILE`. Reuse an existing GitHub App and proxy with
+`SYLPH_SMOKE_GITHUB_ENV_FILE` or `--github-env` when their settings live in
+another file.
+
+<Callout type="warn" title="Handling of smoke credentials">
+  Do not source the env file into a shell, print secrets, or copy credentials
+  into the checkout. Report missing values by key name rather than creating
+  another GitHub App.
+</Callout>
+
+## Stages
+
+Use a new stage for each fresh claim test. Keep the run record, and report the
+deployment, the auth mode, and the lifecycle results separately. Stage
+destruction requires explicit approval.

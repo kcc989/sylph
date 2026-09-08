@@ -1,0 +1,49 @@
+---
+title: Workers and Durable Objects
+description: One Worker for the product, one Durable Object per Workspace.
+---
+
+## The app Worker
+
+One Worker serves the TanStack Start interface, the authenticated server
+functions, the scheduled jobs, and the deployment broker. It authenticates every
+request before it calls a Durable Object, and passes a signed, short-lived actor
+context to the object. User identity is never read from a request body.
+
+## WorkspaceDO
+
+One `WorkspaceDO` owns one Workspace. It is the single writer for live state:
+
+- Agent sessions and their durable events.
+- The virtual working filesystem.
+- Prompt ordering, with one active Turn per session.
+- Live approvals and durable Agent questions.
+- Workspace-local jobs and idempotency keys.
+- An outbox for Artifacts, CI, and D1 side effects.
+- Browser WebSockets, accepted through the Hibernatable WebSocket API, with
+  durable-sequence replay and Presence attachments.
+
+Product-owned tables use the Drizzle Durable SQLite driver and an `app_` prefix,
+so they never collide with the agent host's private schema.
+
+## Workflows
+
+Long, retryable work runs in Cloudflare Workflows rather than inside a request:
+
+| Workflow             | Drives                                                          |
+| -------------------- | --------------------------------------------------------------- |
+| Provisioning         | Creating the fork, booting the host, hydrating the working tree |
+| CI                   | Install, typecheck, lint, test, build, preview, deploy          |
+| Message delivery     | Durable delivery of Conversation messages                       |
+| Merge                | Acceptance into the Project Repository                          |
+| Retention            | Archived and merged Workspace fork retention                    |
+| Resource maintenance | Project resource lifecycle review                               |
+
+A Durable Object request is never held open while a Workflow runs. The tool
+returns a run ID, and the Workflow calls back when it finishes.
+
+<Callout title="Workerd-safe by rule">
+  Anything that needs a process, a package manager, or a real filesystem belongs
+  in Cloudflare CI. The Durable Object stays inside what Workerd can do well:
+  reasoning, reading, searching, and editing.
+</Callout>

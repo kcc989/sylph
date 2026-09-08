@@ -25,7 +25,9 @@ export default defineConfig({
     "**/.output/**",
     "**/.tanstack/**",
     "**/.turbo/**",
+    "**/.source/**",
     "apps/web/src/routeTree.gen.ts",
+    "apps/docs/src/routeTree.gen.ts",
   ],
   jsPlugins: [
     {

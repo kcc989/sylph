@@ -1,0 +1,12 @@
+@import "@workspace/ui/globals.css";
+@import "fumadocs-ui/css/shadcn.css";
+@import "fumadocs-ui/css/preset.css";
+
+@source "../../../../node_modules/fumadocs-ui/dist/**/*.js";
+
+:root {
+  --fd-nav-height: 3.5rem;
+  --primary: oklch(0.52 0.16 38);
+  --primary-foreground: oklch(0.99 0.005 80);
+  --ring: oklch(0.62 0.14 38);
+}

@@ -182,6 +182,33 @@ export class Website extends Cloudflare.Website.Vite<Website>()(
 
 export type WebsiteEnv = Cloudflare.InferEnv<typeof Website>
 
+export class Documentation extends Cloudflare.Website.Vite<Documentation>()(
+  "Documentation",
+  Effect.gen(function* () {
+    const domain = normalizeDomain(
+      yield* Config.string("SYLPH_DOCS_DOMAIN").pipe(
+        Config.withDefault(""),
+        Effect.orDie
+      )
+    )
+
+    return {
+      domain: domain || null,
+      rootDir: "apps/docs",
+      main: "src/worker.ts",
+      compatibility: {
+        flags: ["nodejs_compat"],
+      },
+      memo: {
+        include: ["**/*", "../../packages/ui/src/**"],
+        lockfile: true,
+      },
+    }
+  })
+) {}
+
+export type DocumentationEnv = Cloudflare.InferEnv<typeof Documentation>
+
 export default Alchemy.Stack(
   "Sylph",
   {
@@ -190,9 +217,11 @@ export default Alchemy.Stack(
   },
   Effect.gen(function* () {
     const website = yield* Website
+    const documentation = yield* Documentation
 
     return {
       websiteUrl: website.url.as<string>(),
+      documentationUrl: documentation.url.as<string>(),
     }
   })
 )

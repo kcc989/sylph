@@ -1,0 +1,9 @@
+{
+  "title": "Getting started",
+  "pages": [
+    "requirements",
+    "deploy-an-installation",
+    "claim-your-installation",
+    "local-development"
+  ]
+}

@@ -1,0 +1,49 @@
+---
+title: Cloudflare CI
+description: Where installs, builds, tests, previews, and deploys actually run.
+---
+
+The agent host must not depend on a long-lived local process or a terminal.
+Shell-oriented work is replaced by typed tools, and those tools run in
+Cloudflare CI.
+
+## The typed tools
+
+| Tool                      | Does                                                                |
+| ------------------------- | ------------------------------------------------------------------- |
+| `workspace_run_checks`    | Install, typecheck, lint, test, build, preview, and verify a commit |
+| `workspace_check_status`  | Read the current run state and its concise diagnostics              |
+| `workspace_checkpoint`    | Write the working tree and create a commit, without CI              |
+| `workspace_diff`          | Compare the working copy or the fork head with the base             |
+| `workspace_request_merge` | Report acceptance readiness; a User performs the merge              |
+| `workspace_preview`       | Find or build the Preview for the current Checkpoint                |
+| `workspace_production`    | Read production history; an Admin confirms deploys                  |
+| `workspace_browser`       | Drive the Preview in a Cloudflare browser and capture Evidence      |
+
+## CI as code
+
+Sylph's pipeline is built on `@cloudflare/ci` and lives in application code, not
+in a per-repository manifest. Project Repositories do not need a Sylph-specific
+execution file. They expose recognizable package scripts, and Sylph owns the
+surrounding Check lifecycle: credential scoping, diagnostics, repair, Preview
+identity, and browser Evidence.
+
+An execution adapter seam will be added only when more than one real Project
+execution model exists.
+
+## Idempotency
+
+Each command runs in a Sandbox-backed, retryable Workflow step, and dependency
+snapshots are stored in R2 through the CI SDK. Because a step can retry, every
+side effect is keyed:
+
+- The checkpoint commit is keyed by the working-tree state.
+- The CI callback is keyed by the Workflow instance ID and attempt number.
+- Processed callbacks are recorded, so a duplicate can never resume an agent
+  twice.
+
+## Diagnostics
+
+Raw command logs stay in Cloudflare's CI and observability systems. Only
+bounded, redacted diagnostics reach the agent and D1, and output is redacted
+before it enters an agent message.

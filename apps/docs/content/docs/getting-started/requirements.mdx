@@ -1,0 +1,50 @@
+---
+title: Requirements
+description: What you need before you deploy a Sylph Installation.
+---
+
+Sylph runs in your own Cloudflare account. Nothing is hosted for you, so the
+account must have the services the product uses.
+
+## Accounts
+
+- A GitHub account that can create a repository and a GitHub App.
+- A Cloudflare account with Workers Paid, R2 enabled, and access to Artifacts
+  and Containers.
+- A registered `workers.dev` subdomain under **Workers & Pages**.
+- For a custom hostname, an active DNS zone in the same Cloudflare account.
+
+## Cloudflare token permissions
+
+Create a custom account API token limited to the account you deploy into, and
+grant these account permissions:
+
+| Permission                  | Used for                                           |
+| --------------------------- | -------------------------------------------------- |
+| Account Settings Read       | Resource discovery                                 |
+| Account API Tokens Write    | Minting the narrower runtime and backup tokens     |
+| Workers Scripts Write       | The Website Worker, Durable Objects, and Workflows |
+| Workers Observability Write | Worker logs and metrics                            |
+| D1 Write                    | The control-plane database and its migrations      |
+| Workers R2 Storage Write    | Check backups and Evidence buckets                 |
+| Workers KV Storage Write    | Alchemy state                                      |
+| Queues Write                | Background delivery                                |
+| Workers Containers Write    | The CI sandbox and agent container images          |
+| Workers CI Write            | Cloudflare CI runs                                 |
+| Workers AI Read and Write   | Model access through the platform                  |
+| Artifacts Write             | Project Repositories and Workspace forks           |
+| Browser Run Write           | Preview inspection and Evidence capture            |
+
+For a custom domain, also grant **Zone Read** and **DNS Read**, limited to that
+zone.
+
+<Callout type="warn" title="The deploy token stays out of the Worker">
+  The deploy token creates narrower runtime and backup tokens. The deploy token
+  itself is never written into the Sylph Worker.
+</Callout>
+
+## Model providers
+
+Provider credentials are not part of deployment. You connect a provider inside
+Sylph after you claim the Installation, either as an Organization connection
+shared with members or as a Personal connection.

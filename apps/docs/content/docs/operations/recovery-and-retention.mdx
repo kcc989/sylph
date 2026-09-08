@@ -1,0 +1,31 @@
+---
+title: Recovery and retention
+description: What is kept, for how long, and how to get it out.
+---
+
+## Recovery export
+
+A **Recovery export** is a manifest containing every Git repository needed to
+recover a Project, including its Project Repository and its retained Workspace
+forks. It is the answer to "how do I leave, or rebuild elsewhere".
+
+An export gives Git access. It does not carry application data, secret values,
+or Workspace runtime state; those need the procedures in
+[Deployments and rollbacks](/docs/operations/deployments-and-rollbacks).
+
+## Retention
+
+| State               | Kept                                                                          |
+| ------------------- | ----------------------------------------------------------------------------- |
+| Accepted Workspace  | Fork retained for `WORKSPACE_FORK_RETENTION_SECONDS`, seven days by default   |
+| Archived Workspace  | History retained and read-only; same retention through the retention Workflow |
+| Discarded Workspace | Nothing: the Workspace, its fork, and its Working copy are removed            |
+
+Archiving locks the Workspace runtime read-only. Discard is irreversible.
+
+## Scheduled maintenance
+
+The Installation runs scheduled jobs that refresh provider catalogs, recover
+interrupted Workspace jobs, clean up expired Previews, and review Project
+resource lifecycle. They run in the Worker's cron handlers and in the resource
+maintenance Workflow.

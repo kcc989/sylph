@@ -1,0 +1,47 @@
+---
+title: Claim your Installation
+description: Connect GitHub, confirm your email, and become the first Admin.
+---
+
+A fresh Installation is unclaimed. The claim is the one-time act that creates
+the Organization and makes you its first Admin. Open the **Finish setup** link
+from the deployment run, or go to `/setup` on your Installation address.
+
+## Steps
+
+1. Enter the setup code you saved during deployment.
+2. Choose **Create GitHub App**. Give it a unique name and confirm the
+   prefilled permissions. To reuse an App, expand **Connect an existing GitHub
+   App** instead.
+3. Follow **Install GitHub App** and select the repositories Sylph may access.
+4. Choose **Continue with GitHub**.
+5. Confirm your verified email address, name your Organization, and claim the
+   Installation.
+6. Connect a model provider in Admin, then create your first Project and
+   Workspace.
+
+GitHub App credentials are encrypted in D1. No second deployment is needed, and
+you never copy credentials into GitHub Actions.
+
+Setup progress survives a reload. After an hour, re-enter the setup code to
+continue.
+
+<Callout type="warn" title="The claim is final">
+  Once the Installation is claimed, the setup code can no longer change the
+  GitHub connection.
+</Callout>
+
+## GitHub App permissions
+
+The App needs read and write **Contents**, read and write **Pull requests**, and
+read-only **Email addresses**. Enable user authorization during installation and
+let each installation choose its repositories. The resulting user access token
+is repository-scoped, and it powers private import, synchronization, push
+delivery, and pull-request delivery without a personal access token.
+
+## After the claim
+
+Only an Admin can invite Users. After the Installation is claimed, a new User
+can exist only when a current Invitation authorizes their email address. Admins
+also manage shared settings and Organization Provider connections; each User can
+add their own Personal connections.

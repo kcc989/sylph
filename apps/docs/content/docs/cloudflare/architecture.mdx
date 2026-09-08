@@ -1,0 +1,57 @@
+---
+title: Architecture
+description: How the Worker, the Durable Objects, CI, and the data stores fit together.
+---
+
+Sylph is one Worker, one Durable Object per Workspace, one Artifacts repository
+per Project, and Cloudflare CI for everything that needs a real machine.
+
+```text
+  Browser
+     |
+     v
+  App Worker  ──────────────►  D1 control plane
+     |
+     v
+  WorkspaceDO  ─────────────►  Agent host
+     |                          (Workerd-safe)
+     v
+  Artifacts Workspace fork
+     |  push
+     v
+  Cloudflare CI Workflow  ───►  Preview or production deploy
+     |  callback
+     v
+  WorkspaceDO
+```
+
+## Control plane
+
+The Worker serves the product interface and the authenticated server routes. It
+uses Better Auth with magic links and GitHub login. D1 stores the data the app
+must query across users, Projects, and Workspaces.
+
+## Data plane
+
+The Durable Object is the single writer for live Workspace state. Its name is
+derived from the immutable Workspace ID, so routing is deterministic and no
+Durable Object ID is stored anywhere.
+
+## Execution plane
+
+Cloudflare CI runs each command in a Sandbox-backed, retryable Workflow step.
+Because steps retry, every side effect is idempotent and keyed.
+
+## The rule that shapes everything
+
+Three stores, three jobs:
+
+| Store                 | Holds                                                            | Never holds                                             |
+| --------------------- | ---------------------------------------------------------------- | ------------------------------------------------------- |
+| D1                    | Lists, indexes, status snapshots, settings                       | Transcripts, file contents, build logs, secret values   |
+| Durable Object SQLite | The live Workspace: sessions, events, working filesystem, queues | Dependency trees, build output, a second transcript log |
+| Artifacts             | The canonical Git history                                        | Anything that is not source                             |
+
+There is no second product event log in D1. The agent's durable event stream
+already lives in the Durable Object. D1 stores only enough derived state to
+render lists without waking every Workspace.

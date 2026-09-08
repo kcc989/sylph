@@ -1,0 +1,9 @@
+{
+  "title": "Operations",
+  "pages": [
+    "deployments-and-rollbacks",
+    "recovery-and-retention",
+    "security-boundaries",
+    "smoke-tests"
+  ]
+}

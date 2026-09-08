@@ -1,0 +1,39 @@
+---
+title: Artifacts
+description: Cloudflare Artifacts is the canonical Git store for every Project.
+---
+
+Cloudflare Artifacts holds the source history. The Durable Object filesystem is
+a working copy and a cache, never the truth.
+
+## The repository model
+
+- One base Artifacts repository per Project.
+- One Artifacts fork per Workspace.
+- The base repository, base commit, Workspace repository, and head commit are
+  recorded explicitly.
+- A Checkpoint is written after a coherent agent change, before a Check, and
+  whenever the User asks for one.
+- An accepted Workspace result is merged into the Project's default branch.
+- The Workspace fork is retained, then deleted or archived under the retention
+  policy.
+
+## Why forks rather than branches
+
+Forks isolate credentials, CI events, retention, and failed experiments. Several
+Workspaces can work on one Project at the same time without sharing a mutable
+branch or a working tree. The schema keeps a `repository_mode` column so a
+branch-backed Workspace can be supported later without a migration of meaning.
+
+## Push triggers CI
+
+An Artifacts push event starts a Cloudflare CI Workflow. This is what makes
+"checkpoint, then check" a single causal path rather than two coordinated calls.
+
+## Credentials
+
+<Callout type="warn" title="Never persist an Artifacts token">
+  An Artifacts access token is never written to D1 or to Durable Object SQLite.
+  The Workers binding is used where possible, and a short-lived repository token
+  is minted only when a CI Sandbox needs Git smart HTTP access.
+</Callout>

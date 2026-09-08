@@ -1,0 +1,46 @@
+---
+title: Repository layout
+description: Where things live in the Sylph monorepo.
+---
+
+Sylph is a Bun monorepo managed with Turborepo. Deployable applications live in
+`apps/`, and reusable code lives in `packages/`.
+
+```text
+apps/
+  web/                  TanStack Start product UI and authenticated routes
+  docs/                 This marketing and documentation site
+packages/
+  db/                   Shared D1 Drizzle schema, migrations, repositories
+  domain/               Effect Schemas, IDs, errors, status values
+  ui/                   Shared shadcn-based design system
+  cursor-provider/      Provider integration
+  cloudflare-recovery/  Recovery and lifecycle helpers
+alchemy.run.ts          The Alchemy v2 stack
+turbo.json              The monorepo task graph
+bun.lock                The only dependency lockfile
+```
+
+## Conventions
+
+- Bun handles installation, scripts, tests, and the lockfile.
+- Turborepo orchestrates `dev`, `build`, `typecheck`, `lint`, and `test`.
+- Oxlint lints and Oxfmt formats. There is no ESLint or Prettier configuration.
+- Every RPC payload, database JSON value, Workflow payload, and Durable Object
+  callback is defined once in `@workspace/domain`. There are no parallel
+  validation schemas.
+- Authored source carries no comments. Intent is expressed through names, small
+  functions, explicit types, schemas, and module boundaries.
+
+## This site
+
+```text
+apps/docs/
+  content/docs/         MDX pages, and the meta.json that orders them
+  source.config.ts      Fumadocs collection definition
+  src/routes/           TanStack Start routes
+  src/lib/source.ts     The Fumadocs loader
+```
+
+Add a page by adding an MDX file. Add it to the `pages` array of the `meta.json`
+beside it to place it in the sidebar.

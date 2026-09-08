@@ -18,7 +18,7 @@ For local setup, clone your fork and run `./scripts/setup.sh` with Bun and Docke
 
 Build a web IDE for parallel coding-agent work on Cloudflare. The interface should borrow bb's dense, keyboard-first workspace and Conductor's task-focused parallelism. It should not reproduce bb's local-host architecture.
 
-Sylph is a Bun monorepo managed with Turborepo. The web app lives in `apps/web`. Shared database code lives in `packages/db`, and the shared design system lives in `packages/ui`. This keeps both packages available to a future `apps/desktop` client without coupling them to TanStack Start.
+Sylph is a Bun monorepo managed with Turborepo. The web app lives in `apps/web`, and the marketing and documentation site lives in `apps/docs`. Shared database code lives in `packages/db`, and the shared design system lives in `packages/ui`. This keeps both packages available to a future `apps/desktop` client without coupling them to TanStack Start.
 
 ## Local development
 
@@ -413,6 +413,7 @@ The workspace list is the product's home screen. Each row should answer four que
 ```text
 apps/
   web/                       TanStack Start UI and authenticated routes
+  docs/                      TanStack Start marketing and documentation site
   ci/                        Cloudflare CI Workflow Worker
   desktop/                   Future desktop client; not created for the MVP
 packages/

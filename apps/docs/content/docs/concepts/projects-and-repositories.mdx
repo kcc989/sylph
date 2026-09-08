@@ -1,0 +1,52 @@
+---
+title: Projects and repositories
+description: What a Project owns, and how its source history is stored.
+---
+
+A **Project** is the product a user creates inside an Organization. A Project
+contains one Project Repository and one or more Workspaces.
+
+## Project Repository
+
+The **Project Repository** is the accepted source history for a Project. A
+Project has exactly one. It is stored in Cloudflare Artifacts, not on a local
+disk and not in an external forge.
+
+Work reaches the Project Repository only through
+[Acceptance](/docs/concepts/acceptance-and-delivery).
+
+## Template Repository
+
+A **Template Repository** is an imported source history, pinned to one commit,
+that a Project Repository can be forked from. An Installation imports each
+template ref once.
+
+The **Template origin** records the Template Repository and the commit a Project
+Repository was forked from. A Project keeps no live link to its template, so a
+later template change never rewrites Project history.
+
+## Upstream Repository
+
+An **Upstream Repository** is an external GitHub repository connected to a
+Project Repository for ongoing synchronization and delivery. It is not the
+accepted source history inside Sylph.
+
+**Delivery** is the publication of an Accepted commit to an Upstream Repository,
+by direct push or by pull request.
+
+<Callout title="Two different roles">
+  The Project Repository is the truth inside Sylph. The Upstream Repository is
+  where that truth is published. Confusing them is the most common source of
+  surprise when a Project is connected to GitHub.
+</Callout>
+
+## Issues
+
+An **Issue** is a durable, numbered unit of work inside a Project that describes
+what should change. An Issue is open or closed.
+
+## Recovery export
+
+A **Recovery export** is a manifest containing every Git repository needed to
+recover a Project, including its Project Repository and its retained Workspace
+forks. See [Recovery and retention](/docs/operations/recovery-and-retention).

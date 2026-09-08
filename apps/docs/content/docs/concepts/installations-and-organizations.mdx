@@ -1,0 +1,44 @@
+---
+title: Installations and Organizations
+description: The boundary you deploy, and the membership inside it.
+---
+
+## Installation
+
+An **Installation** is a deployed Sylph system operated as one security and
+data boundary. It contains one Organization. Everything an Installation stores —
+repositories, Conversations, credentials, Evidence — stays inside the Cloudflare
+account it was deployed into.
+
+## Installation claim
+
+The **Installation claim** is the one-time act that creates the Installation's
+Organization and makes an authenticated claimant, with a verified and explicitly
+confirmed email address, its first Admin. See
+[Claim your Installation](/docs/getting-started/claim-your-installation).
+
+## Organization
+
+An **Organization** is a membership boundary that owns Projects. Its members are
+Admins or Users.
+
+| Role  | Can do                                                                         |
+| ----- | ------------------------------------------------------------------------------ |
+| Admin | Invite Users, manage shared settings, manage Organization Provider connections |
+| User  | Work in Projects, manage their own Personal connections                        |
+
+## Invitation
+
+An **Invitation** is an Admin-issued authorization for one email address to
+become a User. After the Installation is claimed, a new User can exist only when
+a current Invitation authorizes their email address. There is no open sign-up.
+
+## Skills
+
+A **Skill** is reusable instructions and supporting resources that guide an
+agent. A Skill can allow user slash invocation, model invocation, both, or
+neither.
+
+A **Skill Installation** is a durable attachment of a Skill to an Installation
+or to a Project. A Project Skill with the same name overrides the Installation
+Skill for that Project.

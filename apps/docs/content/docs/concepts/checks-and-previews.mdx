@@ -1,0 +1,46 @@
+---
+title: Checks and Previews
+description: How a Checkpoint earns the right to be accepted.
+---
+
+## Check
+
+A **Check** is an evaluation of one exact Checkpoint through the Project's
+install, typecheck, lint, test, and build requirements. A Check may also create
+and test that Checkpoint's Preview.
+
+A Check runs in Cloudflare CI, not in the agent runtime. The agent requests a
+run, receives a run ID, and does not hold the Durable Object open while CI
+works. When the Workflow finishes, it calls the Workspace object back with a
+bounded, redacted result.
+
+The callback is idempotent. It is keyed by the Workflow instance ID and attempt
+number, so a retried Workflow step cannot duplicate a commit, a result, or a
+repair Turn.
+
+## Preview
+
+A **Preview** is an isolated deployment of one exact Checkpoint that a User or a
+browser test can inspect. The Preview page must render the checkpoint and
+deployment values Sylph passes in, and expose them as data attributes. See
+[Project scripts](/docs/reference/project-scripts).
+
+## Evidence
+
+**Evidence** is a durable observation captured while testing a Preview, such as
+a screenshot or an accessibility snapshot, linked to the Check that produced it.
+
+The agent gets the Preview browser through Cloudflare Browser Rendering. It
+opens a path on the current Preview, returns the rendered markdown and the
+accessibility tree, and stores a screenshot as Check Evidence. The tool refuses
+every origin other than the Preview.
+
+## Bounded automatic repair
+
+A failed Check can start a Check continuation. The repair loop is bounded twice:
+
+- Each Check accepts at most two repair turns.
+- Each Workspace accepts at most three automatic repair turns in a row.
+
+A User prompt or a passing Check restores the Workspace budget. When the budget
+is exhausted, the agent is told that the Check failed and waits for direction.

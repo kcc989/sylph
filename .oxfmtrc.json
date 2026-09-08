@@ -29,11 +29,13 @@
     "**/node_modules/**",
     "**/.turbo/**",
     "**/.output/**",
+    "**/.source/**",
     "**/.nitro/**",
     "**/.tanstack/**",
     "**/.vinxi/**",
     "**/coverage/**",
     "apps/web/src/routeTree.gen.ts",
+    "apps/docs/src/routeTree.gen.ts",
     "README.md",
     "pnpm-lock.yaml",
     ".pnpm-store/"
