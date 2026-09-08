@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Schema } from "effect"
+import { Context, Effect, Layer, Option, Schema } from "effect"
 import {
   CloudflareRecoveryFailure,
   D1RecoveryGroup,
@@ -6,6 +6,7 @@ import {
   RecoveryTopology,
 } from "@workspace/domain/cloudflare-recovery"
 import { CloudflareD1Recovery, type RecoveryConfiguration } from "./recovery"
+import { CloudflareR2Recovery } from "./r2"
 
 type Result<A> = Effect.Effect<A, CloudflareRecoveryFailure>
 type Capture = { releaseId: string; liveReleaseId?: string }
@@ -46,14 +47,26 @@ export const CloudflareRecoveryGroupLive = (
         throw new Error(
           "Recovery control cannot be restored as application data"
         )
+      const bucketNames = [
+        ...new Set(
+          topology.workers.flatMap((worker) => worker.bucketNames ?? [])
+        ),
+      ].sort()
+      const optionalBuckets = yield* Effect.serviceOption(CloudflareR2Recovery)
+      if (bucketNames.length > 0 && Option.isNone(optionalBuckets))
+        throw new Error("R2 recovery requires its configured adapter")
+      const buckets = Option.getOrUndefined(optionalBuckets)
       const now = configuration.now ?? Date.now
       const topologyIdentity = (value: RecoveryTopology) =>
         JSON.stringify(
-          value.workers.map(({ workerName, databaseIds, serviceTargets }) => ({
-            workerName,
-            databaseIds,
-            serviceTargets,
-          }))
+          value.workers.map(
+            ({ workerName, databaseIds, serviceTargets, bucketNames }) => ({
+              workerName,
+              databaseIds,
+              serviceTargets,
+              bucketNames: bucketNames ?? [],
+            })
+          )
         )
       const topologyJson = topologyIdentity(topology)
       const fail = (operation: string) =>
@@ -139,6 +152,21 @@ export const CloudflareRecoveryGroupLive = (
             )
           )
             throw new Error("Group contains mismatched recovery points")
+          if (
+            JSON.stringify(
+              (group.buckets ?? []).map((point) => point.bucketName).sort()
+            ) !== JSON.stringify(bucketNames)
+          )
+            throw new Error("Group must cover each application bucket once")
+          if (
+            (group.buckets ?? []).some(
+              (point) =>
+                point.releaseId !== group.releaseId ||
+                point.projectId !== group.projectId ||
+                point.expiresAt < group.expiresAt
+            )
+          )
+            throw new Error("Group contains mismatched bucket recovery points")
           return group
         })
       })
@@ -176,11 +204,27 @@ export const CloudflareRecoveryGroupLive = (
               databaseId,
             })
           )
+        const bucketPoints: NonNullable<D1RecoveryGroup["buckets"]>[number][] =
+          []
+        if (buckets)
+          for (const bucketName of bucketNames)
+            bucketPoints.push(
+              yield* (drill ? buckets.captureForDrill : buckets.capture)({
+                bucketName,
+                releaseId: input.releaseId,
+              })
+            )
         for (const point of databases) {
           const actual = yield* recovery.fingerprint(point.databaseId)
           if (actual.fingerprint !== point.fingerprint)
             return yield* fail("Database changed during group capture")
         }
+        if (buckets)
+          for (const point of bucketPoints) {
+            const actual = yield* buckets.fingerprint(point.bucketName)
+            if (actual.fingerprint !== point.fingerprint)
+              return yield* fail("Bucket changed during group capture")
+          }
         yield* paused(input.releaseId)
         const group = Schema.decodeUnknownSync(D1RecoveryGroup)({
           version: 1,
@@ -188,9 +232,12 @@ export const CloudflareRecoveryGroupLive = (
           projectId: configuration.projectId,
           releaseId: input.releaseId,
           capturedAt: now(),
-          expiresAt: Math.min(...databases.map((point) => point.expiresAt)),
+          expiresAt: Math.min(
+            ...[...databases, ...bucketPoints].map((point) => point.expiresAt)
+          ),
           topology,
           databases,
+          ...(bucketNames.length ? { buckets: bucketPoints } : {}),
         })
         const json = JSON.stringify(group)
         const hash = yield* attempt("Hash recovery group", () => digest(json))
@@ -232,11 +279,35 @@ export const CloudflareRecoveryGroupLive = (
             return yield* fail("Require matching immutable group members")
           yield* recovery.secrets(saved)
         }
+        if (buckets) {
+          for (const point of [
+            ...(target.buckets ?? []),
+            ...(undo.buckets ?? []),
+          ]) {
+            const saved = yield* buckets.readManifest(point.id)
+            if (
+              JSON.stringify(saved) !== JSON.stringify(point) ||
+              point.expiresAt <= now()
+            )
+              return yield* fail(
+                "Require matching immutable bucket group members"
+              )
+            yield* buckets.verifySnapshot(saved)
+          }
+          for (const point of undo.buckets ?? []) {
+            const actual = yield* buckets.fingerprint(point.bucketName)
+            if (actual.fingerprint !== point.fingerprint)
+              return yield* fail("Undo group no longer matches current bucket")
+          }
+        }
         for (const point of undo.databases) {
           const actual = yield* recovery.fingerprint(point.databaseId)
           if (actual.fingerprint !== point.fingerprint)
             return yield* fail("Undo group no longer matches current data")
         }
+        if (buckets)
+          for (const point of target.buckets ?? [])
+            yield* buckets.preflightRestore(point, releaseId)
         yield* paused(releaseId)
         yield* query(
           "INSERT INTO sylph_recovery_group_operation (release_id, group_id, phase) VALUES (?, ?, 'restoring')",
@@ -245,11 +316,20 @@ export const CloudflareRecoveryGroupLive = (
         const program = Effect.gen(function* () {
           for (const point of target.databases)
             yield* recovery.restore(point, releaseId)
+          if (buckets)
+            for (const point of target.buckets ?? [])
+              yield* buckets.restore(point, releaseId)
           for (const point of target.databases) {
             const actual = yield* recovery.fingerprint(point.databaseId)
             if (actual.fingerprint !== point.fingerprint)
               return yield* fail("Verify coordinated restored data")
           }
+          if (buckets)
+            for (const point of target.buckets ?? []) {
+              const actual = yield* buckets.fingerprint(point.bucketName)
+              if (actual.fingerprint !== point.fingerprint)
+                return yield* fail("Verify coordinated restored bucket")
+            }
           yield* paused(releaseId)
           yield* query(
             "UPDATE sylph_recovery_group_operation SET phase = 'verified' WHERE release_id = ? AND group_id = ? AND phase = 'restoring'",

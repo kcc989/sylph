@@ -195,6 +195,7 @@ export const ProjectDeploymentBrokerLive = (configuration: {
               for (const [name, value] of request.headers) {
                 if (
                   [
+                    "accept-encoding",
                     "cache-control",
                     "content-disposition",
                     "content-encoding",
@@ -202,6 +203,7 @@ export const ProjectDeploymentBrokerLive = (configuration: {
                     "expires",
                     "cf-r2-custom-metadata",
                     "cf-r2-http-metadata",
+                    "cf-r2-storage-class",
                   ].includes(name) ||
                   name.startsWith("x-amz-meta-")
                 )

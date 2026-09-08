@@ -674,6 +674,8 @@ test("R2 JSON object bytes and allowed metadata survive without accepting routin
         expect(request.headers.get("cf-r2-custom-metadata")).toBe(
           '{"kind":"fixture"}'
         )
+        expect(request.headers.get("cf-r2-storage-class")).toBe("Standard")
+        expect(request.headers.get("accept-encoding")).toBe("identity")
         expect(request.headers.has("x-http-method-override")).toBe(false)
         return Response.json({ success: true, result: {} })
       }
@@ -695,6 +697,8 @@ test("R2 JSON object bytes and allowed metadata survive without accepting routin
     headers: {
       "Content-Type": "application/json",
       "CF-R2-Custom-Metadata": '{"kind":"fixture"}',
+      "CF-R2-Storage-Class": "Standard",
+      "Accept-Encoding": "identity",
       "X-HTTP-Method-Override": "DELETE",
     },
     body: payload,

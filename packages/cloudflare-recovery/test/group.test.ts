@@ -7,6 +7,8 @@ import {
   type RecoveryTopology,
 } from "@workspace/domain/cloudflare-recovery"
 import { CloudflareD1Recovery, CloudflareD1RecoveryLive } from "../src/recovery"
+import { CloudflareR2RecoveryLive } from "../src/r2"
+import { R2Provider, r2Object } from "./fixtures/r2-provider"
 import { verifyRecoveryDrill } from "../src/drill"
 import {
   CloudflareRecoveryGroup,
@@ -15,6 +17,7 @@ import {
 
 class Provider {
   control = new Database(":memory:")
+  r2: R2Provider | undefined
   databases = new Map(
     ["one", "two"].map((id) => [id, new Database(":memory:")])
   )
@@ -72,8 +75,26 @@ class Provider {
     if (!database) throw new Error("Unknown fixture database")
     return database
   }
+  addBucket() {
+    this.r2 = new R2Provider(this.control, "project-capability")
+    this.topology = {
+      workers: this.topology.workers.map((worker, index) => ({
+        ...worker,
+        ...(index === 0 ? { bucketNames: ["owned-bucket"] } : {}),
+      })),
+    }
+    return this.r2
+  }
   change() {
     this.revision++
+    if (this.r2) {
+      this.r2.objects.set(
+        "folder/a #雪",
+        r2Object("folder/a #雪", "new-object")
+      )
+      this.r2.objects.set("extra", r2Object("extra", "new-key"))
+      this.r2.generation++
+    }
     for (const [id, database] of this.databases)
       database.query("UPDATE notes SET body = ?").run(`changed-${id}`)
   }
@@ -97,7 +118,20 @@ class Provider {
     if (path.pathname.endsWith("/settings"))
       return Response.json({
         success: true,
-        result: { bindings: this.bindings.get(workerName) },
+        result: {
+          bindings: [
+            ...(this.bindings.get(workerName) ?? []),
+            ...(this.r2 && workerName === "front"
+              ? [
+                  {
+                    name: "BUCKET",
+                    type: "r2_bucket",
+                    bucket_name: "owned-bucket",
+                  },
+                ]
+              : []),
+          ],
+        },
       })
     if (path.pathname.endsWith("/schedules"))
       return Response.json({ success: true, result: { schedules: [] } })
@@ -126,6 +160,7 @@ class Provider {
       const saved = this.saved.get(path.searchParams.get("bookmark") ?? "")
       if (!saved) throw new Error("Unknown fixture bookmark")
       this.databases.set(id, Database.deserialize(saved))
+      this.revision++
       if (id === this.failDatabase && this.loseResponse)
         throw new Error("Transport lost after accepted restore")
       return Response.json({
@@ -154,8 +189,19 @@ class Provider {
     }
   }
   layer() {
+    const d1 = CloudflareD1RecoveryLive(this.configuration())
+    const dependencies = this.r2
+      ? Layer.merge(
+          d1,
+          CloudflareR2RecoveryLive({
+            ...this.configuration(),
+            bucketNames: ["owned-bucket"],
+            fetch: this.r2.fetch,
+          })
+        )
+      : d1
     return CloudflareRecoveryGroupLive(this.configuration()).pipe(
-      Layer.provideMerge(CloudflareD1RecoveryLive(this.configuration()))
+      Layer.provideMerge(dependencies)
     )
   }
 }
@@ -433,4 +479,83 @@ test("initial group capture requires a verified schema drill and independently a
     "one",
     "two",
   ])
+})
+
+describe("coordinated D1 and R2 recovery", () => {
+  test("restores complete data and object metadata together, then restores their undo group", async () => {
+    const provider = new Provider()
+    const r2 = provider.addBucket()
+    const original = new Map(r2.objects)
+    const { target, undo } = await prepare(provider)
+    const changed = new Map(r2.objects)
+    expect(target.buckets).toHaveLength(1)
+    await run(provider, (group, recovery) =>
+      Effect.gen(function* () {
+        yield* group.restore(target.id, "restore")
+        yield* recovery.resume("restore")
+        expect(provider.bodies()).toEqual([
+          { body: "original-one" },
+          { body: "original-two" },
+        ])
+        expect(r2.objects).toEqual(original)
+        yield* recovery.pause("undo")
+        yield* group.capture({ releaseId: "undo" })
+        yield* group.restore(undo.id, "undo")
+        yield* recovery.resume("undo")
+        expect(provider.bodies()).toEqual([
+          { body: "changed-one" },
+          { body: "changed-two" },
+        ])
+        expect(r2.objects).toEqual(changed)
+      })
+    )
+  })
+  test("authenticates every bucket snapshot before the first database restore", async () => {
+    const provider = new Provider()
+    const r2 = provider.addBucket()
+    const { target } = await prepare(provider)
+    r2.corruptChunk = true
+    await expect(
+      run(provider, (group) => group.restore(target.id, "restore"))
+    ).rejects.toThrow()
+    expect(provider.restored).toEqual([])
+    expect(r2.mutations).toBe(0)
+  })
+  test("refuses a stale bucket undo before restoring databases", async () => {
+    const provider = new Provider()
+    const r2 = provider.addBucket()
+    const { target } = await prepare(provider)
+    r2.objects.set("late", r2Object("late", "outside-writer"))
+    r2.generation++
+    await expect(
+      run(provider, (group) => group.restore(target.id, "restore"))
+    ).rejects.toThrow()
+    expect(provider.restored).toEqual([])
+    expect(r2.mutations).toBe(0)
+  })
+  test("a lost bucket restore response keeps the whole application paused without replay", async () => {
+    const provider = new Provider()
+    const r2 = provider.addBucket()
+    const { target } = await prepare(provider)
+    r2.lostMutation = 1
+    await expect(
+      run(provider, (group) => group.restore(target.id, "restore"))
+    ).rejects.toThrow()
+    expect(provider.restored).toEqual(["one", "two"])
+    const mutations = r2.mutations
+    await expect(
+      run(provider, (group) => group.restore(target.id, "restore"))
+    ).rejects.toThrow()
+    expect(r2.mutations).toBe(mutations)
+    await expect(
+      run(provider, (_, recovery) => recovery.resume("restore"))
+    ).rejects.toThrow()
+    expect(
+      provider.control
+        .query(
+          "SELECT phase FROM sylph_recovery_group_operation WHERE release_id = 'restore'"
+        )
+        .get()
+    ).toEqual({ phase: "uncertain" })
+  })
 })
