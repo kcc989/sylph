@@ -190,12 +190,12 @@ export const listCloudflareResources = async (
         info.total_count === undefined ||
         !Number.isSafeInteger(info.total_count) ||
         info.total_count < 0 ||
-        info.total_pages === undefined ||
-        !Number.isSafeInteger(info.total_pages) ||
-        info.total_pages < 0 ||
-        info.total_pages > 1000 ||
-        (info.total_pages !== Math.ceil(info.total_count / info.per_page) &&
-          !(info.total_count === 0 && info.total_pages === 1)) ||
+        Math.ceil(info.total_count / info.per_page) > 1000 ||
+        (info.total_pages !== undefined &&
+          (!Number.isSafeInteger(info.total_pages) ||
+            info.total_pages < 0 ||
+            (info.total_pages !== Math.ceil(info.total_count / info.per_page) &&
+              !(info.total_count === 0 && info.total_pages === 1)))) ||
         (namespaceTotal !== undefined && namespaceTotal !== info.total_count) ||
         (namespacePageSize !== undefined &&
           namespacePageSize !== info.per_page) ||
@@ -212,6 +212,10 @@ export const listCloudflareResources = async (
       }
     }
     resources.push(...items)
+    if (kind === "durable_object") {
+      if (resources.length === namespaceTotal) return resources
+      continue
+    }
     if (
       kind === "worker" ||
       (body.result_info?.total_pages !== undefined

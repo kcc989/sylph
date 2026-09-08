@@ -1546,7 +1546,7 @@ test("namespace absence requires a complete consistent unique provider inventory
     total_count: 0,
     total_pages: 0,
   }
-  for (const total_pages of [0, 1]) {
+  for (const total_pages of [0, 1, undefined]) {
     const result = await listCloudflareResources(
       credentials,
       "durable_object",
@@ -1623,6 +1623,63 @@ test("namespace absence requires a complete consistent unique provider inventory
     }
     await expect(
       listCloudflareResources(credentials, "durable_object", request)
+    ).rejects.toThrow()
+  }
+})
+
+test("namespace pagination accepts live provider totals without total_pages", async () => {
+  const credentials = { accountId: "account", token: "test" }
+  const namespaces = Array.from({ length: 153 }, (_, index) => ({
+    id: `namespace-${index}`,
+    name: `State-${index}`,
+    script: "worker",
+    class: `State${index}`,
+    use_sqlite: true,
+  }))
+  const visited: number[] = []
+  const request: ResourceRequest = async (input) => {
+    const page = Number(new URL(String(input)).searchParams.get("page"))
+    visited.push(page)
+    const result = namespaces.slice((page - 1) * 100, page * 100)
+    return Response.json({
+      success: true,
+      result,
+      result_info: {
+        page,
+        per_page: 100,
+        count: result.length,
+        total_count: 153,
+      },
+    })
+  }
+  expect(
+    await listCloudflareResources(credentials, "durable_object", request)
+  ).toHaveLength(153)
+  expect(visited).toEqual([1, 2])
+  for (const defect of ["truncated", "duplicate", "count", "total", "pages"]) {
+    const invalid: ResourceRequest = async (input) => {
+      const page = Number(new URL(String(input)).searchParams.get("page"))
+      if (page === 1) return request(input)
+      const result =
+        defect === "truncated"
+          ? namespaces.slice(100, 152)
+          : defect === "duplicate"
+            ? namespaces.slice(0, 53)
+            : namespaces.slice(100)
+      return Response.json({
+        success: true,
+        result,
+        result_info: {
+          page,
+          per_page: 100,
+          count: defect === "count" ? 52 : result.length,
+          total_count: defect === "total" ? 154 : 153,
+          total_pages: defect === "pages" ? 1 : undefined,
+        },
+      })
+    }
+    await expect(
+      listCloudflareResources(credentials, "durable_object", invalid)
     ).rejects.toThrow()
   }
 })
