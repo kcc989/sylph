@@ -11,7 +11,9 @@
     "./r2": "./src/r2.ts",
     "./r2-drill": "./src/r2-drill.ts",
     "./queue": "./src/queue.ts",
-    "./managed-kv": "./src/managed-kv.ts"
+    "./managed-kv": "./src/managed-kv.ts",
+    "./object": "./src/object.ts",
+    "./object-worker": "./src/object-worker.ts"
   },
   "scripts": {
     "test": "bun test",

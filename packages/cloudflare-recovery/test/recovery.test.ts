@@ -421,7 +421,7 @@ test("D1 restore rejects data changes after the saved undo point before provider
 test("managed KV and Queue inventory requires exact journal and consumer ownership", async () => {
   const provider = new Provider()
   provider.bindings.push(
-    { name: "CACHE", type: "kv_namespace", id: "kv" },
+    { name: "CACHE", type: "kv_namespace", namespace_id: "kv" },
     { name: "JOBS", type: "queue", queue_name: "jobs" }
   )
   provider.queues = [

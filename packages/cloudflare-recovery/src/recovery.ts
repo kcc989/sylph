@@ -1,4 +1,5 @@
 import { Context, Effect, Layer, Schema } from "effect"
+import { RecoveryObjectsResponse } from "@workspace/domain/cloudflare-object-recovery"
 import {
   CloudflareRecoveryFailure,
   D1RecoveryManifest,
@@ -447,7 +448,7 @@ const createRecovery = (
           !managedKv.some(
             (managed) =>
               managed.bindingName === binding.name &&
-              managed.namespaceId === binding.id
+              managed.namespaceId === binding.namespace_id
           )
       )
     )
@@ -469,9 +470,56 @@ const createRecovery = (
       throw new Error(
         "Queue bindings require exact managed journal declarations"
       )
+    const registered = input.durableObjects ?? []
+    const objectBindings = response.result.bindings.filter(
+      (binding) => binding.type === "durable_object_namespace"
+    )
+    if (
+      new Set(registered.map((entry) => entry.bindingName)).size !==
+        registered.length ||
+      objectBindings.length !== registered.length ||
+      objectBindings.some(
+        (binding) =>
+          !registered.some(
+            (entry) =>
+              entry.bindingName === binding.name &&
+              entry.namespaceId === binding.namespace_id
+          )
+      )
+    )
+      throw new Error(
+        "Durable Object bindings require exact registered namespace declarations"
+      )
+    for (const entry of registered) {
+      const seen = new Set<string>()
+      const cursors = new Set<string>()
+      let cursor = ""
+      for (let page = 0; page < 100; page++) {
+        const response = Schema.decodeUnknownSync(RecoveryObjectsResponse)(
+          await request(
+            `/workers/durable_objects/namespaces/${encodeURIComponent(entry.namespaceId)}/objects?limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`
+          )
+        )
+        for (const object of response.result) {
+          if (seen.has(object.id) || !entry.objectIds.includes(object.id))
+            throw new Error("Namespace contains an unregistered object")
+          seen.add(object.id)
+        }
+        cursor = response.result_info?.cursor ?? ""
+        if (!cursor) {
+          if (response.result.length >= 100)
+            throw new Error("Object inventory pagination is incomplete")
+          break
+        }
+        if (cursors.has(cursor) || page === 99)
+          throw new Error("Object inventory cursor repeats or exceeds bound")
+        cursors.add(cursor)
+      }
+    }
     const safeBindings = new Set([
       "d1",
       "r2_bucket",
+      "durable_object_namespace",
       "kv_namespace",
       "queue",
       "secret_text",
@@ -540,6 +588,17 @@ const createRecovery = (
       if (page > 1 && total !== response.result_info.total_count)
         throw new Error("Queue inventory changed during inspection")
       total = response.result_info.total_count
+      if (
+        response.result.some((queue) =>
+          queue.consumers.some(
+            (consumer) =>
+              consumer.script &&
+              consumer.script_name &&
+              consumer.script !== consumer.script_name
+          )
+        )
+      )
+        throw new Error("Queue consumer identity aliases disagree")
       queues.push(...response.result)
       if (page >= response.result_info.total_pages) break
     }
@@ -552,7 +611,8 @@ const createRecovery = (
       const declared = worker.queueConsumers ?? []
       const actual = queues.filter((queue) =>
         queue.consumers.some(
-          (consumer) => consumer.script_name === worker.workerName
+          (consumer) =>
+            (consumer.script_name ?? consumer.script) === worker.workerName
         )
       )
       if (
@@ -615,7 +675,7 @@ const createRecovery = (
             !related.some(
               (value) =>
                 value.role === "consumer" &&
-                value.workerName === consumer.script_name
+                value.workerName === (consumer.script_name ?? consumer.script)
             )
         )
       )

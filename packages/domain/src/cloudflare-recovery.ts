@@ -1,4 +1,8 @@
 import { Schema } from "effect"
+import {
+  RecoveryObjectManifest,
+  RecoveryObjectRegistration,
+} from "./cloudflare-object-recovery"
 import { R2RecoveryManifest } from "./cloudflare-r2-recovery"
 
 export class CloudflareRecoveryFailure extends Schema.TaggedError<CloudflareRecoveryFailure>()(
@@ -141,6 +145,7 @@ export const RecoveryQueuesResponse = Schema.Struct({
         Schema.Struct({
           type: Schema.NonEmptyString,
           script_name: Schema.optional(Schema.String),
+          script: Schema.optional(Schema.String),
         })
       ),
       producers: Schema.Array(
@@ -159,6 +164,9 @@ export const RecoveryQueuesResponse = Schema.Struct({
 })
 export const RecoveryWorkerInventory = Schema.Struct({
   workerName: Schema.NonEmptyString,
+  durableObjects: Schema.optional(
+    Schema.Array(RecoveryObjectRegistration).check(Schema.isMaxLength(20))
+  ),
   managedKv: Schema.optional(
     Schema.Array(RecoveryManagedKv).check(Schema.isMaxLength(20))
   ),
@@ -228,6 +236,9 @@ export const D1RecoveryGroup = Schema.Struct({
           values.length
       )
     )
+  ),
+  objects: Schema.optional(
+    Schema.Array(RecoveryObjectManifest).check(Schema.isMaxLength(100))
   ),
   databases: Schema.Array(D1RecoveryManifest).check(
     Schema.isMinLength(1),

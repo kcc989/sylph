@@ -8,6 +8,8 @@ import {
 } from "@workspace/domain/cloudflare-recovery"
 import { CloudflareD1Recovery, CloudflareD1RecoveryLive } from "../src/recovery"
 import { CloudflareR2RecoveryLive } from "../src/r2"
+import { CloudflareObjectRecoveryLive } from "../src/object"
+import type { RecoveryObjectSnapshot } from "@workspace/domain/cloudflare-object-recovery"
 import { R2Provider, r2Object } from "./fixtures/r2-provider"
 import { verifyRecoveryDrill } from "../src/drill"
 import {
@@ -18,6 +20,8 @@ import {
 class Provider {
   control = new Database(":memory:")
   r2: R2Provider | undefined
+  object: RecoveryObjectSnapshot | undefined
+  objectRestores = 0
   databases = new Map(
     ["one", "two"].map((id) => [id, new Database(":memory:")])
   )
@@ -87,6 +91,11 @@ class Provider {
     return this.r2
   }
   change() {
+    if (this.object)
+      this.object = {
+        ...this.object,
+        values: [{ key: "state", value: "changed" }],
+      }
     this.revision++
     if (this.r2) {
       this.r2.objects.set(
@@ -114,6 +123,12 @@ class Provider {
     const path = new URL(url)
     const pieces = path.pathname.split("/")
     const workerName = pieces[5] ?? ""
+    if (path.pathname.endsWith("/objects"))
+      return Response.json({
+        success: true,
+        result: [{ id: "object", hasStoredData: true }],
+        result_info: {},
+      })
     if (path.pathname.endsWith("/queues"))
       return Response.json({
         success: true,
@@ -199,7 +214,7 @@ class Provider {
   }
   layer() {
     const d1 = CloudflareD1RecoveryLive(this.configuration())
-    const dependencies = this.r2
+    const storage = this.r2
       ? Layer.merge(
           d1,
           CloudflareR2RecoveryLive({
@@ -209,6 +224,23 @@ class Provider {
           })
         )
       : d1
+    const dependencies = this.object
+      ? Layer.merge(
+          storage,
+          CloudflareObjectRecoveryLive({
+            ...this.configuration(),
+            identities: [{ namespaceId: "namespace", objectId: "object" }],
+            transport: async (request) => {
+              if (!this.object) throw new Error("Missing object fixture")
+              if (request.operation === "restore") {
+                this.objectRestores++
+                this.object = request.snapshot
+              }
+              return { identity: request.identity, snapshot: this.object }
+            },
+          })
+        )
+      : storage
     return CloudflareRecoveryGroupLive(this.configuration()).pipe(
       Layer.provideMerge(dependencies)
     )
@@ -590,3 +622,65 @@ test.each(["prior-operation", "unavailable-bookmark"])(
     expect(provider.restored).toEqual([])
   }
 )
+
+const withObject = () => {
+  const provider = new Provider()
+  provider.object = {
+    version: 1,
+    tables: [],
+    indexes: [],
+    values: [{ key: "state", value: "original" }],
+  }
+  provider.control.exec(
+    readFileSync(new URL("../src/object-control.sql", import.meta.url), "utf8")
+  )
+  provider.topology = {
+    workers: provider.topology.workers.map((worker) =>
+      worker.workerName === "front"
+        ? {
+            ...worker,
+            durableObjects: [
+              {
+                bindingName: "OBJECT",
+                namespaceId: "namespace",
+                objectIds: ["object"],
+              },
+            ],
+          }
+        : worker
+    ),
+  }
+  provider.bindings.set("front", [
+    ...(provider.bindings.get("front") ?? []),
+    JSON.parse(
+      '{"name":"OBJECT","type":"durable_object_namespace","namespace_id":"namespace"}'
+    ),
+  ])
+  return provider
+}
+
+test("group authenticates object snapshots before D1 writes and restores registered state", async () => {
+  const provider = withObject()
+  const { target } = await prepare(provider)
+  await run(provider, (group) => group.restore(target.id, "restore"))
+  expect(provider.objectRestores).toBe(1)
+  expect(provider.object?.values).toEqual([{ key: "state", value: "original" }])
+  expect(provider.restored).toEqual(["one", "two"])
+})
+
+test("corrupt object ciphertext prevents every grouped restore mutation", async () => {
+  const provider = withObject()
+  const { target } = await prepare(provider)
+  const manifest = target.objects?.[0]
+  if (!manifest) throw new Error("Object manifest missing")
+  provider.control
+    .query(
+      "UPDATE sylph_recovery_object_chunk SET ciphertext = 'corrupt' WHERE manifest_id = ?"
+    )
+    .run(manifest.id)
+  await expect(
+    run(provider, (group) => group.restore(target.id, "restore"))
+  ).rejects.toThrow()
+  expect(provider.restored).toEqual([])
+  expect(provider.objectRestores).toBe(0)
+})
