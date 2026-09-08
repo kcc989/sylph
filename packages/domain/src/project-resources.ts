@@ -14,6 +14,7 @@ export type ProjectResourceKind = typeof ProjectResourceKind.Type
 
 export const ProjectResourceBinding = Schema.Struct({
   type: Schema.Literals([
+    "r2_bucket",
     "durable_object_namespace",
     "workflow",
     "service",

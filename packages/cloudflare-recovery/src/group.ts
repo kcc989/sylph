@@ -237,7 +237,7 @@ export const CloudflareRecoveryGroupLive = (
           ),
           topology,
           databases,
-          ...(bucketNames.length ? { buckets: bucketPoints } : {}),
+          buckets: bucketNames.length ? bucketPoints : undefined,
         })
         const json = JSON.stringify(group)
         const hash = yield* attempt("Hash recovery group", () => digest(json))
@@ -305,6 +305,8 @@ export const CloudflareRecoveryGroupLive = (
           if (actual.fingerprint !== point.fingerprint)
             return yield* fail("Undo group no longer matches current data")
         }
+        for (const point of target.databases)
+          yield* recovery.preflightRestore(point, releaseId)
         if (buckets)
           for (const point of target.buckets ?? [])
             yield* buckets.preflightRestore(point, releaseId)

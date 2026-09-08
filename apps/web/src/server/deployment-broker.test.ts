@@ -847,3 +847,33 @@ test("first-release Worker absence requires a real Cloudflare lookup before any 
   expect(f.calls).toHaveLength(3)
   expect(f.created).toEqual([])
 })
+
+test("reserved R2 drill storage cannot be bound into an application Worker", () => {
+  expect(() =>
+    validateBrokerBindings(
+      [
+        {
+          type: "r2_bucket",
+          name: "DRILL",
+          bucket_name: "project-a-recovery-drill",
+        },
+      ],
+      [
+        ...plan,
+        {
+          kind: "r2",
+          name: "project-a-recovery-drill",
+          purpose: "recovery_control",
+        },
+      ],
+      [
+        ...owned,
+        {
+          kind: "r2",
+          name: "project-a-recovery-drill",
+          id: "project-a-recovery-drill",
+        },
+      ]
+    )
+  ).toThrow("cannot be bound")
+})

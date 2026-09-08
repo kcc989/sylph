@@ -95,12 +95,27 @@ export const validateResourceTopology = (plan: ProjectResourcePlan) => {
           ? "worker"
           : binding.type === "workflow"
             ? "workflow"
-            : "durable_object"
+            : binding.type === "r2_bucket"
+              ? "r2"
+              : "durable_object"
       if (
         !plan.some((item) => item.kind === kind && item.name === binding.target)
       )
         throw new ResourcePolicyError({
           message: `Binding ${binding.name} must reference a ${kind} in this Project plan; cross-Project bindings are unsupported`,
+        })
+      if (
+        binding.type === "r2_bucket" &&
+        plan.some(
+          (item) =>
+            item.kind === "r2" &&
+            item.name === binding.target &&
+            item.purpose === "recovery_control"
+        )
+      )
+        throw new ResourcePolicyError({
+          message:
+            "Recovery drill buckets cannot be bound to application Workers",
         })
       if (binding.entrypoint && binding.type !== "service")
         throw new ResourcePolicyError({

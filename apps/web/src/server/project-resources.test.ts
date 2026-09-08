@@ -1254,3 +1254,30 @@ test("an external Queue consumer blocks Worker cleanup before any mutation", asy
   ).rejects.toThrow("detach it through the owning Alchemy stack")
   expect(fixture.deletes).toHaveLength(0)
 })
+
+test("R2 plan bindings require exact application bucket ownership", () => {
+  const plan = readResourcePlan(
+    `SYLPH_RESOURCE_PLAN=${JSON.stringify([
+      {
+        kind: "worker",
+        name: "owned-app",
+        bindings: [
+          { type: "r2_bucket", name: "UPLOADS", target: "owned-uploads" },
+        ],
+      },
+      { kind: "r2", name: "owned-uploads" },
+    ])}`,
+    "owned"
+  )
+  expect(plan).toHaveLength(2)
+  for (const bucket of [
+    { kind: "r2", name: "owned-foreign" },
+    { kind: "r2", name: "owned-uploads", purpose: "recovery_control" },
+  ])
+    expect(() =>
+      readResourcePlan(
+        `SYLPH_RESOURCE_PLAN=${JSON.stringify([plan[0], bucket])}`,
+        "owned"
+      )
+    ).toThrow()
+})

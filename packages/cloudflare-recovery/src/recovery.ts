@@ -70,6 +70,10 @@ export class CloudflareD1Recovery extends Context.Service<
     captureForDrill: (input: CaptureInput) => RecoveryResult<D1RecoveryManifest>
     capture: (input: CaptureInput) => RecoveryResult<D1RecoveryManifest>
     readManifest: (id: string) => RecoveryResult<D1RecoveryManifest>
+    preflightRestore: (
+      manifest: D1RecoveryManifest,
+      releaseId: string
+    ) => RecoveryResult<void>
     restore: (
       manifest: D1RecoveryManifest,
       releaseId: string
@@ -492,6 +496,45 @@ const createRecovery = (
     if (databases.size < 1 || databases.size > 20)
       throw new Error("Recovery requires one to twenty application databases")
   }
+  const preflightRestore = async (
+    input: D1RecoveryManifest,
+    releaseId: string
+  ) => {
+    const manifest = await readManifest(input.id)
+    if (JSON.stringify(manifest) !== JSON.stringify(input))
+      throw new Error("Saved manifest differs from request")
+    await paused(releaseId)
+    if (manifest.expiresAt <= now() || manifest.capturedAt > now())
+      throw new Error("Recovery point expired")
+    await secrets(manifest)
+    const undo = await control(
+      "SELECT id FROM sylph_recovery_manifest WHERE project_id = ? AND release_id = ? AND database_id = ? ORDER BY rowid DESC LIMIT 1",
+      [configuration.projectId, releaseId, manifest.databaseId]
+    )
+    const undoPoint = await readManifest(
+      Schema.decodeUnknownSync(Schema.String)(undo[0]?.id)
+    )
+    if (
+      undoPoint.expiresAt <= now() ||
+      undoPoint.capturedAt < now() - 15 * 60000
+    )
+      throw new Error("Fresh undo point required before restore")
+    const prior = await control(
+      "SELECT phase, evidence, manifest_id FROM sylph_recovery_operation WHERE release_id = ? UNION ALL SELECT phase, evidence, manifest_id FROM sylph_recovery_resource_operation WHERE release_id = ? AND resource_kind = 'd1' AND resource_id = ?",
+      [releaseId, releaseId, manifest.databaseId]
+    )
+    if (prior.length !== 0)
+      throw new Error("Restore already attempted; reconcile before retrying")
+    await secrets(undoPoint)
+    const current = await fingerprint(manifest.databaseId)
+    if (
+      current.fingerprint !== undoPoint.fingerprint ||
+      current.schemaFingerprint !== undoPoint.schemaFingerprint
+    )
+      throw new Error("Fresh undo point must match current data")
+    await bookmark(manifest.databaseId)
+    return manifest
+  }
   return CloudflareD1Recovery.of({
     gate: () =>
       wrap("Inspect writer gate", async () =>
@@ -629,36 +672,13 @@ const createRecovery = (
       ),
     fingerprint: (databaseId) =>
       wrap("Fingerprint D1", () => fingerprint(databaseId)),
+    preflightRestore: (input, releaseId) =>
+      wrap("Preflight D1 recovery point", async () => {
+        await preflightRestore(input, releaseId)
+      }),
     restore: (input, releaseId) =>
       wrap("Restore D1 recovery point", async () => {
-        const manifest = await readManifest(input.id)
-        if (JSON.stringify(manifest) !== JSON.stringify(input))
-          throw new Error("Saved manifest differs from request")
-        await paused(releaseId)
-        if (manifest.expiresAt <= now() || manifest.capturedAt > now())
-          throw new Error("Recovery point expired")
-        await secrets(manifest)
-        const undo = await control(
-          "SELECT id FROM sylph_recovery_manifest WHERE project_id = ? AND release_id = ? AND database_id = ? ORDER BY rowid DESC LIMIT 1",
-          [configuration.projectId, releaseId, manifest.databaseId]
-        )
-        const undoPoint = await readManifest(
-          Schema.decodeUnknownSync(Schema.String)(undo[0]?.id)
-        )
-        if (
-          undoPoint.expiresAt <= now() ||
-          undoPoint.capturedAt < now() - 15 * 60000
-        )
-          throw new Error("Fresh undo point required before restore")
-        const prior = await control(
-          "SELECT phase, evidence, manifest_id FROM sylph_recovery_operation WHERE release_id = ? UNION ALL SELECT phase, evidence, manifest_id FROM sylph_recovery_resource_operation WHERE release_id = ? AND resource_kind = 'd1' AND resource_id = ?",
-          [releaseId, releaseId, manifest.databaseId]
-        )
-        if (prior.length !== 0)
-          throw new Error(
-            "Restore already attempted; reconcile before retrying"
-          )
-        await bookmark(manifest.databaseId)
+        const manifest = await preflightRestore(input, releaseId)
         await control(
           "INSERT INTO sylph_recovery_resource_operation (release_id, resource_kind, resource_id, manifest_id, schema_fingerprint, phase) VALUES (?, 'd1', ?, ?, ?, 'restoring')",
           [

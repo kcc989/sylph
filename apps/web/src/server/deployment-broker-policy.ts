@@ -69,6 +69,15 @@ export const validateBrokerBindings = (
         reference("kv", "namespace_id")
         break
       case "r2_bucket":
+        if (
+          resources.some(
+            (resource) =>
+              resource.kind === "r2" &&
+              resource.name === unknownBinding.bucket_name &&
+              resource.name.endsWith("-recovery-drill")
+          )
+        )
+          brokerDenied("restore drill bucket cannot be bound to a Worker")
         keys(unknownBinding, ["name", "type", "bucket_name"])
         reference("r2", "bucket_name", true)
         break

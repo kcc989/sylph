@@ -25,6 +25,7 @@ class Provider {
   revision = 1
   restored: string[] = []
   failDatabase = ""
+  unavailableBookmark = ""
   settingsStatus = 200
   loseResponse = false
   topology: RecoveryTopology = {
@@ -80,7 +81,7 @@ class Provider {
     this.topology = {
       workers: this.topology.workers.map((worker, index) => ({
         ...worker,
-        ...(index === 0 ? { bucketNames: ["owned-bucket"] } : {}),
+        bucketNames: index === 0 ? ["owned-bucket"] : undefined,
       })),
     }
     return this.r2
@@ -149,6 +150,8 @@ class Provider {
       })
     }
     if (path.pathname.endsWith("/bookmark")) {
+      if (id === this.unavailableBookmark)
+        return new Response(null, { status: 503 })
       const bookmark = `${id}-${this.revision}`
       this.saved.set(bookmark, database.serialize())
       return Response.json({ success: true, result: { bookmark } })
@@ -559,3 +562,25 @@ describe("coordinated D1 and R2 recovery", () => {
     ).toEqual({ phase: "uncertain" })
   })
 })
+
+test.each(["prior-operation", "unavailable-bookmark"])(
+  "group preflights later D1 member before all restore mutations: %s",
+  async (mode) => {
+    const provider = new Provider()
+    const { target } = await prepare(provider)
+    if (mode === "prior-operation")
+      provider.control
+        .query(
+          "INSERT INTO sylph_recovery_resource_operation (release_id, resource_kind, resource_id, manifest_id, schema_fingerprint, phase) VALUES ('restore', 'd1', 'two', ?, ?, 'uncertain')"
+        )
+        .run(
+          target.databases[1]?.id ?? "missing",
+          target.databases[1]?.schemaFingerprint ?? "missing"
+        )
+    else provider.unavailableBookmark = "two"
+    await expect(
+      run(provider, (group) => group.restore(target.id, "restore"))
+    ).rejects.toThrow()
+    expect(provider.restored).toEqual([])
+  }
+)
