@@ -81,7 +81,10 @@ export const handleCursorRequest = async (
                 part.type === "error"
                   ? {
                       type: "error",
-                      error: cursorFailureMessage(part.error),
+                      error:
+                        part.error instanceof Error
+                          ? cursorFailureMessage(part.error)
+                          : "Cursor model request failed",
                     }
                   : part.type === "file" && part.data instanceof Uint8Array
                     ? {
