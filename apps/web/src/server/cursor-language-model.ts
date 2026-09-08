@@ -1,3 +1,4 @@
+import { cursorReadOutput } from "./cursor-read-output"
 import type {
   LanguageModelV3,
   LanguageModelV3CallOptions,
@@ -19,7 +20,36 @@ const decodePart = Schema.decodeUnknownPromise(CursorStreamPart)
 
 const promptFiles = (options: LanguageModelV3CallOptions) =>
   options.prompt.map((message) => {
-    if (message.role === "system" || message.role === "tool") return message
+    if (message.role === "system") return message
+    if (message.role === "tool")
+      return {
+        ...message,
+        content: message.content.map((part) => {
+          if (part.type !== "tool-result" || part.toolName !== "read")
+            return part
+          if (part.output.type === "text")
+            return {
+              ...part,
+              output: {
+                ...part.output,
+                value: cursorReadOutput(part.output.value),
+              },
+            }
+          if (part.output.type === "content")
+            return {
+              ...part,
+              output: {
+                ...part.output,
+                value: part.output.value.map((item) =>
+                  item.type === "text"
+                    ? { ...item, text: cursorReadOutput(item.text) }
+                    : item
+                ),
+              },
+            }
+          return part
+        }),
+      }
     return {
       ...message,
       content: message.content.map((part) => {
