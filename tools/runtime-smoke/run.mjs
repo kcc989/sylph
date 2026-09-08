@@ -1,3 +1,4 @@
+import { encodeMessage } from "../../node_modules/cursor-opencode-provider/dist/protocol/messages.js"
 import assert from "node:assert/strict"
 import { mkdtemp, readFile, readdir, realpath, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -233,6 +234,15 @@ try {
   const started = performance.now()
   const health = await read("health")
   assert.equal(health.health.healthy, true)
+  const protocolInput = {
+    root_prompt_messages_json: ['{"role":"user","content":"fixture"}'],
+  }
+  const protocol = await read("cursor-protocol")
+  assert.deepEqual(
+    protocol.bytes,
+    Array.from(encodeMessage("ConversationStateStructure", protocolInput))
+  )
+  assert.deepEqual(protocol.decoded, protocolInput)
   await read("cursor-connect")
   const cursorCatalog = await read("cursor-connect")
   assert(

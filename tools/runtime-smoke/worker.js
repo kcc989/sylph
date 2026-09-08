@@ -1,3 +1,7 @@
+import {
+  encodeMessage,
+  decodeMessageSparse,
+} from "../../node_modules/cursor-opencode-provider/dist/protocol/messages.js"
 import { createCursorProvider } from "../../apps/web/src/server/cursor-plugin"
 import { WorkspaceCredentials } from "../../apps/web/src/server/workspace-credentials"
 import {
@@ -245,6 +249,16 @@ export class Probe extends DurableObject {
       return Response.json({
         tables,
         storageBytes: this.ctx.storage.sql.databaseSize,
+      })
+    }
+    if (path === "/cursor-protocol") {
+      const input = {
+        root_prompt_messages_json: ['{"role":"user","content":"fixture"}'],
+      }
+      const encoded = encodeMessage("ConversationStateStructure", input)
+      return Response.json({
+        bytes: Array.from(encoded),
+        decoded: decodeMessageSparse("ConversationStateStructure", encoded),
       })
     }
     if (path === "/cursor-connect") {

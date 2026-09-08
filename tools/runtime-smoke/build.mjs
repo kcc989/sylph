@@ -1,3 +1,4 @@
+import { cursorProtocolPlugin } from "../build/cursor-protocol.mjs"
 import { rolldown } from "rolldown"
 import cloudflare from "@alchemy.run/cloudflare-runtime/rolldown"
 import { esmExternalRequirePlugin } from "rolldown/plugins"
@@ -13,7 +14,7 @@ export async function buildWorker(directory) {
   )
   const build = await rolldown({
     input: new URL("./worker.js", import.meta.url).pathname,
-    plugins,
+    plugins: [cursorProtocolPlugin(), ...plugins],
     external: ["lightningcss", "fsevents"],
     checks: { unresolvedImport: false, ineffectiveDynamicImport: false },
   })
