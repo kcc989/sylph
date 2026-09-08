@@ -1096,6 +1096,16 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         )
       }
 
+      if (data.text.trim() === "/compact") {
+        await opencode.sessions.compact({
+          id: workspacePromptMessageId(data.messageId),
+          sessionID: sessionId,
+          delivery,
+        })
+        if (delivery !== "queue") await this.#scheduleTurnLimit()
+        return encodeWorkspaceRuntimeHealthSync(await this.#snapshot(opencode))
+      }
+
       const invocation = resolveSkillInvocation(data.text, this.#skills.list())
       await opencode.sessions.prompt({
         id: workspacePromptMessageId(data.messageId),
