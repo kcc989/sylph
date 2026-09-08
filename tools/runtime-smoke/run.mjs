@@ -245,8 +245,13 @@ try {
   const stats = await read("stats")
   assert.ok(stats.storageBytes > 0)
   nativeMode = true
-  await read("native-start")
+  const nativeStart = await read("native-start")
   const nativeResult = await read("complete")
+  assert(
+    nativeResult.messages.data.some(
+      (message) => message.id === nativeStart.messageId
+    )
+  )
   assert.equal(nativeResult.outcome, "succeeded")
   assert.equal(nativeCallIndex, nativeCalls.length)
   const nativeTools = nativeResult.messages.data.flatMap((message) =>

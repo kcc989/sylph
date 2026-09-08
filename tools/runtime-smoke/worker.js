@@ -3,7 +3,11 @@ import {
   newCheckRun,
 } from "../../apps/web/src/server/workspace-checks"
 import { deliverCheckCompletion } from "../../apps/web/src/server/workspace-check-completion"
-import { WorkspaceCheckRun, WorkspaceCheckUpdate } from "@workspace/domain"
+import {
+  WorkspaceCheckRun,
+  WorkspaceCheckUpdate,
+  workspacePromptMessageId,
+} from "@workspace/domain"
 import { workspaceBrowserTool } from "../../apps/web/src/server/workspace-browser-tool"
 import { DurableObject } from "cloudflare:workers"
 import { WorkspaceFilesystem } from "../../apps/web/src/server/workspace-filesystem"
@@ -313,13 +317,15 @@ export class Probe extends DurableObject {
         },
       })
       await this.ctx.storage.put("probeSession", session.id)
+      const messageId = workspacePromptMessageId()
       await host.sessions.prompt({
+        id: messageId,
         sessionID: session.id,
         text: "Exercise native file tools on native.txt.",
         metadata: { sylphOrigin: "user" },
         delivery: undefined,
       })
-      return Response.json({ sessionID: session.id })
+      return Response.json({ sessionID: session.id, messageId })
     }
     if (path === "/start") {
       const session = await host.sessions.create({

@@ -30,6 +30,9 @@ export class InitializeWorkspaceRuntime extends Schema.Class<InitializeWorkspace
   archivedAt: Schema.optional(Schema.NullOr(Schema.Number)),
 }) {}
 
+export const workspacePromptMessageId = (id: string = crypto.randomUUID()) =>
+  id.startsWith("msg_") ? id : `msg_${id}`
+
 const WorkspacePromptMessageId = Schema.NonEmptyString.check(
   Schema.isMaxLength(92),
   Schema.isPattern(/^[a-zA-Z0-9_-]+$/)

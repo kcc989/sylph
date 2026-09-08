@@ -49,6 +49,7 @@ import {
   WorkspaceMessagePageInput,
   WorkspaceMessagePage,
   WorkspaceRuntimePromptInput,
+  workspacePromptMessageId,
   WorkspaceSyncResult,
   WorkspaceTurnCancelInput,
   WorkspaceVersionControlSnapshot,
@@ -1082,7 +1083,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
 
       const invocation = resolveSkillInvocation(data.text, this.#skills.list())
       await opencode.sessions.prompt({
-        id: data.messageId,
+        id: workspacePromptMessageId(data.messageId),
         sessionID: sessionId,
         text: invocation
           ? invocation.text || "Follow the attached Skill instructions."
@@ -1365,7 +1366,15 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         "Workspace runtime request failed",
         error instanceof Error ? error.stack : error
       )
-      throw error
+      throw new Error(
+        serializeServerFailure(
+          new WorkspaceRuntimeFailure({
+            message:
+              providerFailureDetail(error) ??
+              "Workspace runtime request failed",
+          })
+        )
+      )
     }
   }
 
