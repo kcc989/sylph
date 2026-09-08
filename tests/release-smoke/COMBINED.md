@@ -79,7 +79,7 @@ The implementation files are under `tests/release-smoke/actions/`; their shared 
 
 ## Explicit preparation boundaries
 
-A fresh supported setup starts from the smoke runner's newly deployed stage. Importing an earlier Installation's schema into that stage is a separate migration exercise: the installation:migrate command supports the pinned pre-PR69 D1 schema and complete Workspace SQLite/KV transfer to a separate target. Read tools/installation-migration/README.md for exact source constraints and writer-drain requirements. Local conversion and Workerd tests do not prove a live migration. Keep the old Installation until target verification and explicit promotion.
+Start from a fresh Installation with newly deployed resources. Earlier experimental Installations are being discarded; no historical data migration is required.
 
 The product now exposes confirmed immediate cleanup of retained Previews and cleanup retry, but no public control for injecting a partial provider deletion failure. Cleanup empties R2 buckets before deleting them, so a nonempty bucket alone cannot prove failure. Before the final cleanup action, exercise a reviewed provider failure against the oldest disposable Preview, wait for the original Workflow's retries to stop, and inspect its actual failed scope. The action reports `blocked` if that precondition is absent. Do not insert failure rows, synthesize provider receipts, or treat an ordinary complete cleanup as partial-failure proof. The runner retains this blocked attempt; review it before preparing any subsequent run.
 

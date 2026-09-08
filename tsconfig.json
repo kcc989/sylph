@@ -25,8 +25,6 @@
     "tests/release-smoke/actions/*.ts",
     "tests/release-smoke/flow-helpers.ts",
     "scripts/installation-preserve.ts",
-    "scripts/deploy-check.ts",
-    "tools/installation-migration/**/*.ts",
-    "scripts/installation-migrate.ts"
+    "scripts/deploy-check.ts"
   ]
 }

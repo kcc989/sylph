@@ -4,8 +4,6 @@ Do not deploy the reset `0001_initial.sql` over an earlier Installation. The cur
 
 The preservation-only transition is parallel operation: retain the earlier Installation and its resource identities, preserve its D1 database and encryption keys, verify a local import, then create a separate Installation. The preservation command does **not** convert earlier D1 schemas or clone Durable Object storage. Do not direct the new Installation at old resources or replay its baseline into the old D1 database.
 
-A separate [verified migration path](../tools/installation-migration/README.md) now supports D1 conversion and full Workspace SQLite/KV copy from exact pre-PR69 commit `5311a147464946a7f0b781737166ea81d9c91f78` with the pinned SDK bootstrap schema. It retains the original copy, rejects active or unsupported state, and requires reviewed bridge deployment and a new target. Its local tests do not establish deployed migration proof. The remaining instructions on this page describe the preservation-only command.
-
 ## Capture and verify D1
 
 `bun run installation:preserve` uses `~/.config/sylph/release-smoke.env`, or `SYLPH_SMOKE_ENV_FILE`. It parses the file without sourcing it. Saved values win over shell credentials. For an earlier Installation, select its actual private deployment configuration; a smoke configuration with different keys is unsuitable. The required keys are `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `CREDENTIAL_ENCRYPTION_KEY`, and `BETTER_AUTH_SECRET`.

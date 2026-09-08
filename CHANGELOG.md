@@ -8,7 +8,6 @@ All notable changes to Sylph are recorded here. The format follows [Keep a Chang
 
 - Project-scoped deployment capabilities and broker-backed Alchemy state keep account credentials out of Project commands.
 - Coordinated multi-Worker D1/R2 recovery with complete preflight, encrypted bucket snapshots, isolated first-release drills, and replay refusal after uncertain restores.
-- Verified conversion of the pinned earlier Installation D1 schema and complete Workspace SQLite/KV transfer to a separate target.
 - Reviewed external starter v0.3.0 candidate for new Projects; publication and the new built-in pin remain pending approval. Existing Projects are unchanged.
 
 - Production health collection on the existing schedule, release and telemetry incidents, and repair Workspaces created from the published commit.

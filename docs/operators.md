@@ -103,7 +103,7 @@ GitHub App credentials are encrypted in D1. No second deployment or copying cred
 
 Alchemy retains generated secret values and token outputs in its Cloudflare deployment state. Access to that state is privileged. Keep it when updating. Destroying state and generating new encryption keys does not recover existing encrypted data.
 
-The first-release baseline requires fresh resources. This update applies `0002_project_operations.sql` and then `0003_resource_lifecycle.sql` to that baseline. The migrations preserve existing resource claims and add production observations, repair references, and resource lifecycle reviews. They do not convert earlier experimental schemas or transfer Durable Object state. Use [Installation transition and preservation](installation-transition.md) to preserve an earlier Installation, and keep its original Worker and Durable Object namespaces available.
+The first-release baseline requires fresh resources. This update applies `0002_project_operations.sql` and then `0003_resource_lifecycle.sql` to that baseline. The migrations preserve existing resource claims and add production observations, repair references, and resource lifecycle reviews. They do not convert earlier experimental schemas or transfer Durable Object state. Deploy this release as a fresh Installation. Earlier experimental Installations will be discarded; no data transfer is required.
 
 ## Production release safety
 
@@ -148,8 +148,6 @@ Project CI now uses the Installation broker for Cloudflare operations and Alchem
 The new starter retains a separate D1 drill database and, when R2 is declared, a separate R2 drill bucket. Their purpose is `recovery_control`; application cleanup and restore exclude them. First release checks initial Worker absence before migrations, runs isolated provider drills, then records the complete D1/R2 recovery group. Recovery requires guarded writers and inactive object-changing bucket policies. A failed or uncertain restore leaves the writer gate paused for inspection. Local tests do not establish live Time Travel or R2 metadata compatibility.
 
 An Admin can confirm immediate cleanup of a retained Preview in Project settings. The confirmation names the exact scope and run. Cleanup stops only a retention-waiting Workflow, independently checks its terminal state and saves an audit record before dispatch. Failed cleanup can be retried after its prior Workflow finishes. Production and recovery-control resources remain excluded.
-
-For Installations from before the Worker/schema consolidation, use the separate [Installation migration procedure](../tools/installation-migration/README.md). It supports the pinned earlier schema and complete Workspace SQLite/KV transfer to a fresh target. Preserve the old Installation, drain writers, independently verify the target and obtain approval before promotion. It does not silently upgrade arbitrary historical schemas or rebind retained external resources.
 
 ## Production observations and browser acceptance
 
