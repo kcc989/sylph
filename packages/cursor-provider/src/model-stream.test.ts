@@ -63,9 +63,13 @@ test("Cursor never retries after text or tool calls", async () => {
     { type: "tool-call", toolCallId: "call", toolName: "write", input: "{}" },
   ] satisfies LanguageModelV3StreamPart[]) {
     const { model, requests } = fixture([part])
-    await expect(
-      Array.fromAsync(cursorModelStream(model, { prompt: [] }))
-    ).rejects.toThrow("Max Mode Required")
+    const parts = await Array.fromAsync(
+      cursorModelStream(model, { prompt: [] })
+    )
+    expect(parts.at(-1)).toMatchObject({
+      type: "error",
+      error: { message: "Max Mode Required" },
+    })
     expect(requests.length).toBe(1)
   }
 })
@@ -80,8 +84,12 @@ test("Cursor does not retry unrelated request failures", async () => {
       replaySafe: true,
     })
   }
-  await expect(
-    Array.fromAsync(cursorModelStream(model, { prompt: [] }))
-  ).rejects.toThrow("Different failure")
+  const parts = await Array.fromAsync(cursorModelStream(model, { prompt: [] }))
+  expect(parts).toMatchObject([
+    {
+      type: "error",
+      error: { code: "invalid_argument", message: "Different failure" },
+    },
+  ])
   expect(requests.length).toBe(1)
 })

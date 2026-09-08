@@ -58,7 +58,8 @@ export const cursorModelStream = (
         if (next.done) controller.close()
         else controller.enqueue(next.value)
       } catch (error) {
-        controller.error(error)
+        controller.enqueue({ type: "error", error })
+        controller.close()
       }
     },
     async cancel() {
