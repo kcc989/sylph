@@ -1,3 +1,4 @@
+import type { CursorRuntimeContainer } from "./cursor-runtime-container"
 import { DurableObject } from "cloudflare:workers"
 import { Schema } from "effect"
 import {
@@ -23,16 +24,9 @@ const decodeModels = Schema.decodeUnknownPromise(CursorModels)
 
 export class CursorConnectionObject extends DurableObject<{
   CREDENTIAL_ENCRYPTION_KEY: string
+  CURSOR_RUNTIME: DurableObjectNamespace<CursorRuntimeContainer>
 }> {
   #pending: Promise<void> = Promise.resolve()
-  #native:
-    | Promise<
-        ReturnType<
-          typeof import("@workspace/cursor-provider/worker").createWorkerCursorHandler
-        >
-      >
-    | undefined
-
   #exclusive<T>(run: () => Promise<T>): Promise<T> {
     const result = this.#pending.then(run)
     this.#pending = result.then(
@@ -42,12 +36,20 @@ export class CursorConnectionObject extends DurableObject<{
     return result
   }
 
-  async #send(input: typeof CursorBridgeRequest.Type, signal?: AbortSignal) {
-    this.#native ??= import("@workspace/cursor-provider/worker").then(
-      ({ createWorkerCursorHandler }) =>
-        createWorkerCursorHandler(this.ctx.id.toString())
+  async #send(
+    input: typeof CursorBridgeRequest.Type,
+    signal?: AbortSignal,
+    connectionKey = "auth"
+  ) {
+    const native = this.env.CURSOR_RUNTIME.get(
+      this.env.CURSOR_RUNTIME.idFromName(
+        JSON.stringify([
+          this.ctx.id.toString(),
+          connectionKey,
+          input.operation === "stream" ? input.call.sessionId : "auth",
+        ])
+      )
     )
-    const native = await this.#native
     return native.fetch(
       new Request("http://cursor/", {
         method: "POST",
@@ -131,10 +133,6 @@ export class CursorConnectionObject extends DurableObject<{
       const models = await decodeModels(await catalog.json())
       if (models.length === 0)
         throw new Error("Cursor returned no available models")
-      if (await this.#read("connection")) {
-        ;(await this.#native)?.dispose()
-        this.#native = undefined
-      }
       const key = crypto.randomUUID()
       await this.#write(
         "connection",
@@ -157,9 +155,6 @@ export class CursorConnectionObject extends DurableObject<{
   async disconnect() {
     await this.#exclusive(async () => {
       await this.ctx.storage.deleteAll()
-      const native = await this.#native
-      native?.dispose()
-      this.#native = undefined
     })
   }
 
@@ -199,7 +194,8 @@ export class CursorConnectionObject extends DurableObject<{
           accessToken: connection.tokens.accessToken,
           call: input.call,
         },
-        request.signal
+        request.signal,
+        connection.key
       )
     })
   }

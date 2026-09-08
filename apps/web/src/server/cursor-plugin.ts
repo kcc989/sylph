@@ -1,3 +1,4 @@
+import type { WorkspaceCommandFile } from "@workspace/domain/workspace-command"
 import { Model } from "@opencode-ai/schema/model"
 import { Integration } from "@opencode-ai/schema/integration"
 import { Plugin } from "@opencode-ai/plugin"
@@ -10,7 +11,8 @@ const decodeModels = Schema.decodeUnknownPromise(CursorModels)
 
 export const createCursorProvider = (
   namespace: DurableObjectNamespace,
-  storage: Pick<DurableObjectStorage, "get" | "put">
+  storage: Pick<DurableObjectStorage, "get" | "put">,
+  files: () => readonly WorkspaceCommandFile[]
 ) => {
   let models: typeof CursorModels.Type = []
   const catalogs = new Set<() => Promise<void>>()
@@ -68,7 +70,7 @@ export const createCursorProvider = (
         if (event.model.providerID === "cursor")
           event.sdk = {
             languageModel: (modelId: string) =>
-              cursorLanguageModel(modelId, credential, send),
+              cursorLanguageModel(modelId, credential, send, files),
           }
       })
       return async () => {

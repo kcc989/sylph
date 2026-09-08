@@ -1,0 +1,8 @@
+**/node_modules
+**/.git
+**/.alchemy
+**/.env*
+**/dist
+**/.output
+**/.turbo
+**/coverage

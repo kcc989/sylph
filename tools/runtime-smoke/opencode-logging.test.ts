@@ -1,24 +1,23 @@
-import { expect, test } from "bun:test"
+import { expect, test, spyOn } from "bun:test"
 import { Cause, Effect } from "effect"
-import { layer } from "../../node_modules/@opencode-ai/sdk/dist/logging"
-import { providerRuntimeErrorDetail } from "../../apps/web/src/server/workspace-error-summary"
+import { openCodeLogging } from "../../apps/web/src/server/opencode-logging"
 
-test("SDK logging preserves the original provider failure for redacted diagnostics", async () => {
-  const details: Array<string | null> = []
-  const failure = {
-    reason: { raw: "TypeError: stream fixture; token=private-value" },
-  }
-  await Effect.runPromise(
-    Effect.logError("Failed to drain Session", Cause.fail(failure)).pipe(
-      Effect.provide(
-        layer({
-          level: "error",
-          emit: ({ cause }) => {
-            details.push(providerRuntimeErrorDetail(cause))
-          },
+test("runtime logging keeps provider causes available for redaction", async () => {
+  const output = spyOn(console, "error").mockImplementation(() => {})
+  try {
+    await Effect.runPromise(
+      Effect.logError(
+        "Failed to drain Session",
+        Cause.fail({
+          reason: { raw: "TypeError: stream fixture; token=private-value" },
         })
-      )
+      ).pipe(Effect.provide(openCodeLogging))
     )
-  )
-  expect(details).toEqual(["TypeError: stream fixture; token=[redacted]"])
+    expect(output).toHaveBeenCalledWith(
+      "Failed to drain Session",
+      "TypeError: stream fixture; token=[redacted]"
+    )
+  } finally {
+    output.mockRestore()
+  }
 })

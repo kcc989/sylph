@@ -99,7 +99,6 @@ import {
 import {
   providerConnectionErrorSummary,
   providerFailureDetail,
-  providerRuntimeErrorDetail,
 } from "./workspace-error-summary"
 import {
   createWorkspacePlugin,
@@ -335,7 +334,9 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
 
   constructor(context: DurableObjectState, bindings: WorkspaceBindings) {
     super(context, bindings)
-    this.#cursor = createCursorProvider(bindings.CURSOR, context.storage)
+    this.#cursor = createCursorProvider(bindings.CURSOR, context.storage, () =>
+      this.#filesystem.commandFiles()
+    )
     context.setWebSocketAutoResponse(
       new WebSocketRequestResponsePair("ping", "pong")
     )
@@ -392,7 +393,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     )
     this.#opencode = context.blockConcurrencyWhile(async () => {
       await this.#cursor.restore()
-      const { OpenCodeWorkerd } = await import("@opencode-ai/sdk/workerd")
+      const { createOpenCodeRuntime } = await import("./opencode-runtime")
       const { Environment } =
         await import("@opencode-ai/core/environment/index")
       const { Ripgrep } = await import("@opencode-ai/core/ripgrep")
@@ -412,21 +413,12 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         () => this.#assertWritable(),
         `agent-${context.id.toString().slice(0, 56)}`
       )
-      const opencode = await OpenCodeWorkerd.create(
+      const opencode = await createOpenCodeRuntime(
         {
           storage: context.storage,
           models: {
             url: "https://models.opencode.ai",
             snapshot: false,
-          },
-          log: {
-            level: "error",
-            emit: ({ message, cause }) =>
-              console.error(
-                "OpenCode runtime error",
-                message,
-                providerRuntimeErrorDetail(cause) ?? cause
-              ),
           },
           config:
             bindings.SYLPH_SMOKE_GROK_BUDGET === "true"

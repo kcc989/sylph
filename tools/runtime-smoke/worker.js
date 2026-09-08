@@ -1,8 +1,3 @@
-import { buildRunRequest } from "../../node_modules/cursor-opencode-provider/dist/protocol/request.js"
-import {
-  encodeMessage,
-  decodeMessageSparse,
-} from "../../node_modules/cursor-opencode-provider/dist/protocol/messages.js"
 import { createCursorProvider } from "../../apps/web/src/server/cursor-plugin"
 import { WorkspaceCredentials } from "../../apps/web/src/server/workspace-credentials"
 import {
@@ -54,11 +49,13 @@ export class Probe extends DurableObject {
             ]),
         }),
       },
-      state.storage
+      state.storage,
+      () => this.files.commandFiles()
     )
     this.host = state.blockConcurrencyWhile(async () => {
       await this.cursor.restore()
-      const { OpenCodeWorkerd } = await import("@opencode-ai/sdk/workerd")
+      const { createOpenCodeRuntime } =
+        await import("../../apps/web/src/server/opencode-runtime")
       const { Environment } =
         await import("@opencode-ai/core/environment/index")
       const { Ripgrep } = await import("@opencode-ai/core/ripgrep")
@@ -112,7 +109,7 @@ export class Probe extends DurableObject {
       }).pipe(Effect.orDie)
       const { workspaceShellSelection } =
         await import("../../apps/web/src/server/workspace-shell-selection")
-      const host = await OpenCodeWorkerd.create(
+      const host = await createOpenCodeRuntime(
         {
           storage: state.storage,
           models: { fetch: false, snapshot: false },
@@ -204,11 +201,6 @@ export class Probe extends DurableObject {
               },
             },
           ],
-          log: {
-            level: "warn",
-            emit: (entry) =>
-              console.log("opencode", entry.message, entry.cause),
-          },
         },
         {
           overrides: [
@@ -255,26 +247,6 @@ export class Probe extends DurableObject {
         tables,
         storageBytes: this.ctx.storage.sql.databaseSize,
       })
-    }
-    if (path === "/cursor-protocol") {
-      const input = {
-        root_prompt_messages_json: [
-          JSON.stringify({
-            role: "user",
-            content: "Cursor UTF-8 fixture 🧪 漢字 ".repeat(3000),
-          }),
-          "trailing message",
-        ],
-      }
-      const encoded = encodeMessage("ConversationStateStructure", input)
-      return Response.json({
-        bytes: Array.from(encoded),
-        decoded: decodeMessageSparse("ConversationStateStructure", encoded),
-      })
-    }
-    if (path === "/cursor-run-protocol") {
-      const input = await request.json()
-      return Response.json(Array.from(buildRunRequest(input)))
     }
     if (path === "/cursor-catalog")
       return Response.json(await host.model.list())

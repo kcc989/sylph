@@ -36,7 +36,8 @@ const fixture = (saved = new Map()) => {
     {
       get: async (key) => saved.get(key),
       put: async (key, value) => saved.set(key, structuredClone(value)),
-    }
+    },
+    () => []
   )
   const context = {
     integration: {

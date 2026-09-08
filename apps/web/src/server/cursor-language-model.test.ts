@@ -81,6 +81,9 @@ test("Cursor model calls keep user identity, tool results, and cancellation", as
       if (payload.operation !== "stream")
         throw new Error("Expected model stream")
       expect(payload.call.sessionId).toBe("workspace-session")
+      expect(payload.call.files).toEqual([
+        { path: "file.txt", content: "aGVsbG8=" },
+      ])
       expect(payload.call.options.prompt[0]).toMatchObject({
         role: "tool",
         content: [
@@ -98,7 +101,8 @@ test("Cursor model calls keep user identity, tool results, and cancellation", as
       controller.abort()
       expect(request.signal.aborted).toBe(true)
       return response([finish])
-    }
+    },
+    () => [{ path: "file.txt", content: "aGVsbG8=" }]
   )
   const result = await model.doStream({
     prompt: [
@@ -131,7 +135,8 @@ test("Cursor refuses a model call without a durable session identity", async () 
     async () => {
       called = true
       return response([finish])
-    }
+    },
+    () => [{ path: "file.txt", content: "aGVsbG8=" }]
   )
   await expect(model.doStream({ prompt: [] })).rejects.toThrow(
     "session identity"
@@ -153,7 +158,8 @@ test("Cursor translates read envelopes only for successful read tool results", a
       expect(prompt).toContain("<path>/workspace/file.txt</path>")
       expect(prompt).toContain(envelope.replaceAll("\n", "\\n"))
       return response([finish])
-    }
+    },
+    () => [{ path: "file.txt", content: "aGVsbG8=" }]
   )
   const streamed = await model.doStream({
     headers: { "x-opencode-session": "session" },

@@ -60,6 +60,7 @@ jobs:
       - run: bun run typecheck
       - run: bun run test
       - run: bun run build
+      - run: docker build -f packages/cursor-provider/Dockerfile -t sylph-cursor:test .
       - run: bun run smoke:runtime
 
   stories:

@@ -1,3 +1,4 @@
+import type { WorkspaceCommandFile } from "@workspace/domain/workspace-command"
 import { cursorReadOutput } from "./cursor-read-output"
 import type {
   LanguageModelV3,
@@ -109,7 +110,8 @@ export const cursorResponseStream = (response: Response) => {
 export const cursorLanguageModel = (
   modelId: string,
   credential: () => Promise<string>,
-  request: (userId: string, request: Request) => Promise<Response>
+  request: (userId: string, request: Request) => Promise<Response>,
+  files: () => readonly WorkspaceCommandFile[]
 ): LanguageModelV3 => {
   const doStream: LanguageModelV3["doStream"] = async (options) => {
     const handle = await decodeHandle(JSON.parse(await credential()))
@@ -122,6 +124,7 @@ export const cursorLanguageModel = (
         message: "OpenCode did not supply a Cursor session identity",
       })
     const call = await decodeCall({
+      files: files().filter((file) => !file.path.startsWith(".git/")),
       modelId,
       sessionId,
       options: {

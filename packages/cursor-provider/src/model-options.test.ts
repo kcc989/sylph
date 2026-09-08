@@ -38,5 +38,5 @@ test("Cursor preserves explicit model options", () => {
       },
       { id: "model", variants: [variant(true, false)] }
     ).providerOptions?.cursor
-  ).toEqual({ maxMode: true, opencodeCompaction: true, remoteWorkspace: true })
+  ).toEqual({ maxMode: true, opencodeCompaction: true })
 })

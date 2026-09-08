@@ -15,7 +15,6 @@ export const cursorModelOptions = (
       ...options.providerOptions,
       cursor: {
         ...cursor,
-        remoteWorkspace: true,
         maxMode: cursor?.maxMode ?? requiresMaxMode,
       },
     },

@@ -1,3 +1,4 @@
+import { syncCursorWorkspace } from "./workspace"
 import { cursorToolInput } from "./tool-input"
 import { cursorModelStream } from "./model-stream"
 import { cursorModelOptions } from "./model-options"
@@ -6,7 +7,7 @@ import {
   CursorTokens,
 } from "@workspace/domain/cursor-provider"
 import { Schema } from "effect"
-import { createSdk as createCursor } from "cursor-opencode-provider/sdk"
+import { createCursor } from "cursor-opencode-provider"
 import {
   buildLoginUrl,
   generatePkceParams,
@@ -61,6 +62,7 @@ export const handleCursorRequest = async (
       )
     }
     case "stream": {
+      await syncCursorWorkspace("/workspace", input.call.files)
       const models = await discoverModels(input.accessToken, cacheDir)
       const model = models.find((model) => model.id === input.call.modelId)
       if (!model)

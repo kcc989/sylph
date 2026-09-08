@@ -1,5 +1,6 @@
 import { isJSONValue, type JSONValue } from "@ai-sdk/provider"
 import { Effect, Schema } from "effect"
+import { WorkspaceCommandFile } from "./workspace-command"
 
 const JsonValue = Schema.declare<JSONValue>(isJSONValue)
 const JsonObject = Schema.Record(Schema.String, JsonValue)
@@ -124,6 +125,7 @@ const Prompt = Schema.mutable(
   )
 )
 export const CursorModelCall = Schema.Struct({
+  files: Schema.Array(WorkspaceCommandFile),
   modelId: Schema.NonEmptyString,
   sessionId: Schema.NonEmptyString,
   options: Schema.Struct({
