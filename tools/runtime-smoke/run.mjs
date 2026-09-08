@@ -298,6 +298,12 @@ try {
   )
   assert.equal(reset.status, 500)
   assert.equal((await read("health")).health.healthy, true)
+  assert(
+    (await read("cursor-catalog")).data.some(
+      (model) => model.providerID === "cursor" && model.id === "grok-4.6"
+    ),
+    "Cursor catalog must survive a Durable Object restart without reconnecting"
+  )
   release.resolve()
   await deadline(recovered.promise, "Recovered model request")
   assert.ok(requests[1].includes("probe_recovery_tool"))

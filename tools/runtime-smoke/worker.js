@@ -39,21 +39,25 @@ export class Probe extends DurableObject {
   constructor(state, env) {
     super(state, env)
     this.files = new WorkspaceFilesystem(state.storage)
-    this.cursor = createCursorProvider({
-      idFromName: (name) => name,
-      get: () => ({
-        fetch: async () =>
-          Response.json([
-            {
-              id: "grok-4.6",
-              name: "Cursor Grok 4.6",
-              context: 128000,
-              images: false,
-            },
-          ]),
-      }),
-    })
+    this.cursor = createCursorProvider(
+      {
+        idFromName: (name) => name,
+        get: () => ({
+          fetch: async () =>
+            Response.json([
+              {
+                id: "grok-4.6",
+                name: "Cursor Grok 4.6",
+                context: 128000,
+                images: false,
+              },
+            ]),
+        }),
+      },
+      state.storage
+    )
     this.host = state.blockConcurrencyWhile(async () => {
+      await this.cursor.restore()
       const { OpenCodeWorkerd } = await import("@opencode-ai/sdk/workerd")
       const { Environment } =
         await import("@opencode-ai/core/environment/index")
@@ -272,6 +276,8 @@ export class Probe extends DurableObject {
       const input = await request.json()
       return Response.json(Array.from(buildRunRequest(input)))
     }
+    if (path === "/cursor-catalog")
+      return Response.json(await host.model.list())
     if (path === "/cursor-connect") {
       const key = JSON.stringify({ userId: "fixture-user", key: "fixture-key" })
       await this.cursor.refresh(key)
