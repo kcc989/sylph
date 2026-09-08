@@ -1,6 +1,7 @@
 "use client"
 
-import { PatchDiff, type SelectedLineRange } from "@pierre/diffs/react"
+import type { SelectedLineRange } from "@pierre/diffs/react"
+import { PatchDiff } from "@workspace/ui/components/code-viewer"
 import { Plus } from "lucide-react"
 import type { ReactNode } from "react"
 
