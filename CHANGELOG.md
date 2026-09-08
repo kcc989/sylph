@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased lifecycle verification
+
+- Added managed KV and Queue journals, registered SQLite Durable Object snapshots, and first-release object restore drills.
+- Added a full telemetry-to-repair journey and independent R2 restore/undo metadata checks.
+- Added source-linked removal preparation, exact Queue consumer detachment, and a real partial-cleanup failure experiment.
+- Deployed lifecycle proof remains pending the compatible template publication and fresh authenticated run.
+
 All notable changes to Sylph are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Sylph uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
