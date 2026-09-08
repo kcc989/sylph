@@ -113,7 +113,7 @@ diff --git a/dist/session.d.ts b/dist/session.d.ts
 +export declare function getSessionManager(): SessionManager;
 +export declare function createScopedReadableStream<T>(source: UnderlyingDefaultSource<T>): ReadableStream<T>;
 diff --git a/dist/language-model.js b/dist/language-model.js
-index 9c3ec0f74ff9f1f2f8c139dcf61024cee73e693c..db5122eb416e744566fe1ea9c41307eb8467b293 100644
+index 9c3ec0f74ff9f1f2f8c139dcf61024cee73e693c..8eeaebf5bd842bb56001a410816f50acb7c2cfc7 100644
 --- a/dist/language-model.js
 +++ b/dist/language-model.js
 @@ -27,7 +27,7 @@ import { clearConversationBlobs, conversationBlobCount, inspectConversationBlobG
@@ -210,7 +210,15 @@ index 9c3ec0f74ff9f1f2f8c139dcf61024cee73e693c..db5122eb416e744566fe1ea9c41307eb
                  replaySafe: false,
                  fallback: "Cursor heartbeat write failed",
              }));
-@@ -1001,7 +1008,7 @@ async function startSession(modelId, token, callOptions, options, startOptions)
+@@ -946,6 +953,7 @@ async function startSession(modelId, token, callOptions, options, startOptions)
+     }
+     const session = {
+         sessionId: crypto.randomUUID(),
++        remoteWorkspace: providerOptions?.remoteWorkspace === true,
+         conversationId,
+         cacheDir,
+         resumeCheckpoint: undefined,
+@@ -1001,7 +1009,7 @@ async function startSession(modelId, token, callOptions, options, startOptions)
          closeError: null,
          closed: false,
      };
@@ -219,7 +227,7 @@ index 9c3ec0f74ff9f1f2f8c139dcf61024cee73e693c..db5122eb416e744566fe1ea9c41307eb
      attachSessionHeartbeat(session);
      const abortIfNeeded = (stream) => {
          if (!session.closed && !callOptions.abortSignal?.aborted)
-@@ -1055,13 +1062,13 @@ async function startSession(modelId, token, callOptions, options, startOptions)
+@@ -1055,13 +1063,13 @@ async function startSession(modelId, token, callOptions, options, startOptions)
          session.heartbeatCancel?.();
          await waitForStreamWrites(session.stream);
          abortIfNeeded(next);
@@ -235,7 +243,7 @@ index 9c3ec0f74ff9f1f2f8c139dcf61024cee73e693c..db5122eb416e744566fe1ea9c41307eb
      }, { once: true });
      return session;
  }
-@@ -1072,7 +1079,7 @@ async function startSession(modelId, token, callOptions, options, startOptions)
+@@ -1072,7 +1080,7 @@ async function startSession(modelId, token, callOptions, options, startOptions)
  export function findContinuationSession(toolResults) {
      for (let i = toolResults.length - 1; i >= 0; i--) {
          const r = toolResults[i];
@@ -244,7 +252,7 @@ index 9c3ec0f74ff9f1f2f8c139dcf61024cee73e693c..db5122eb416e744566fe1ea9c41307eb
          if (s)
              return s;
      }
-@@ -1208,7 +1215,7 @@ export function deliverContinuationResults(session, trailingToolResults) {
+@@ -1208,7 +1216,7 @@ export function deliverContinuationResults(session, trailingToolResults) {
          `${pendingResults.length} pending for sessionId=${session.sessionId} ` +
          `pending={${[...session.pending.keys()].join(",")}}`);
      for (const r of pendingResults) {
@@ -253,7 +261,7 @@ index 9c3ec0f74ff9f1f2f8c139dcf61024cee73e693c..db5122eb416e744566fe1ea9c41307eb
          if ("kind" in claim) {
              if (claim.kind === "deliverable") {
                  throw new CursorProtocolError("Cursor continuation claim remained unclaimed");
-@@ -1232,7 +1239,7 @@ export function deliverContinuationResults(session, trailingToolResults) {
+@@ -1232,7 +1240,7 @@ export function deliverContinuationResults(session, trailingToolResults) {
              }
              catch (error) {
                  trace(`continuation: ask_question encode FAILED execId=${r.execId} err=${error.message}`);
@@ -262,7 +270,7 @@ index 9c3ec0f74ff9f1f2f8c139dcf61024cee73e693c..db5122eb416e744566fe1ea9c41307eb
                  return undefined;
              }
          }
-@@ -1245,7 +1252,7 @@ export function deliverContinuationResults(session, trailingToolResults) {
+@@ -1245,7 +1253,7 @@ export function deliverContinuationResults(session, trailingToolResults) {
              }
              catch (error) {
                  trace(`continuation: switch_mode encode FAILED execId=${r.execId} err=${error.message}`);
@@ -271,7 +279,7 @@ index 9c3ec0f74ff9f1f2f8c139dcf61024cee73e693c..db5122eb416e744566fe1ea9c41307eb
                  return undefined;
              }
          }
-@@ -1255,7 +1262,7 @@ export function deliverContinuationResults(session, trailingToolResults) {
+@@ -1255,7 +1263,7 @@ export function deliverContinuationResults(session, trailingToolResults) {
              }
              catch (error) {
                  trace(`continuation: create_plan encode FAILED execId=${r.execId} err=${error.message}`);
@@ -280,7 +288,7 @@ index 9c3ec0f74ff9f1f2f8c139dcf61024cee73e693c..db5122eb416e744566fe1ea9c41307eb
                  return undefined;
              }
          }
-@@ -1351,11 +1358,11 @@ export function deliverContinuationResults(session, trailingToolResults) {
+@@ -1351,11 +1359,11 @@ export function deliverContinuationResults(session, trailingToolResults) {
              }
              catch (error) {
                  trace(`continuation: result encode FAILED execId=${r.execId} err=${error.message}`);
@@ -294,7 +302,7 @@ index 9c3ec0f74ff9f1f2f8c139dcf61024cee73e693c..db5122eb416e744566fe1ea9c41307eb
          if (outcome.kind !== "delivered") {
              trace(`continuation: delivery stopped execId=${r.execId} reason=${outcome.reason}`);
              if (outcome.kind === "duplicate")
-@@ -1513,7 +1520,7 @@ async function nextFrameWithSemanticDeadline(session) {
+@@ -1513,7 +1521,7 @@ async function nextFrameWithSemanticDeadline(session) {
   *  - transport EOF before turn_ended → throw for one fresh-Run recovery.
   */
  export async function pump(session, controller, ids, abortSignal) {
@@ -303,7 +311,7 @@ index 9c3ec0f74ff9f1f2f8c139dcf61024cee73e693c..db5122eb416e744566fe1ea9c41307eb
      const cacheDiagnostics = session.cacheDiagnostics ??= {
          sessionKey: session.openCodeSessionId,
          conversationId: session.conversationId,
-@@ -1542,7 +1549,7 @@ export async function pump(session, controller, ids, abortSignal) {
+@@ -1542,7 +1550,7 @@ export async function pump(session, controller, ids, abortSignal) {
      const failRunProtocol = (message, code) => {
          replaySafety.markBarrier("unknown-or-malformed-frame");
          const error = new CursorProtocolError(message, { code });
@@ -312,7 +320,7 @@ index 9c3ec0f74ff9f1f2f8c139dcf61024cee73e693c..db5122eb416e744566fe1ea9c41307eb
          throw error;
      };
      const rethrowTransportWriteFailure = (error) => {
-@@ -1561,7 +1568,7 @@ export async function pump(session, controller, ids, abortSignal) {
+@@ -1561,7 +1569,7 @@ export async function pump(session, controller, ids, abortSignal) {
              const wrapped = new Error(`Failed to ${operation}: ${error.message}`);
              trace(`exec: reply FAILED ${wrapped.message}`);
              safeError(wrapped);
@@ -321,7 +329,15 @@ index 9c3ec0f74ff9f1f2f8c139dcf61024cee73e693c..db5122eb416e744566fe1ea9c41307eb
              return false;
          }
      };
-@@ -1709,7 +1716,7 @@ export async function pump(session, controller, ids, abortSignal) {
+@@ -1622,6 +1630,7 @@ export async function pump(session, controller, ids, abortSignal) {
+      * permission-aware path.
+      */
+     const recoverCorrelatedEditRead = (parsed, displayCallId) => {
++        if (session.remoteWorkspace) return false;
+         if (!displayCallId ||
+             parsed.resultField !== "read_result" ||
+             parsed.toolName !== "read" ||
+@@ -1709,7 +1718,7 @@ export async function pump(session, controller, ids, abortSignal) {
              const error = new Error(`Failed to recover Cursor edit read: ${e.message}`);
              trace(`exec: edit read recovery FAILED ${error.message}`);
              safeError(error);
@@ -330,7 +346,15 @@ index 9c3ec0f74ff9f1f2f8c139dcf61024cee73e693c..db5122eb416e744566fe1ea9c41307eb
              return true;
          }
      };
-@@ -1759,7 +1766,7 @@ export async function pump(session, controller, ids, abortSignal) {
+@@ -1729,6 +1738,7 @@ export async function pump(session, controller, ids, abortSignal) {
+      * errors fall through to OpenCode so a genuine permission decision stands.
+      */
+     const rejectMissingReadTarget = (parsed) => {
++        if (session.remoteWorkspace) return false;
+         if (parsed.toolName !== "read")
+             return false;
+         const requested = typeof parsed.args.filePath === "string" ? parsed.args.filePath : "";
+@@ -1759,7 +1769,7 @@ export async function pump(session, controller, ids, abortSignal) {
              const error = new Error(`Failed to reject Cursor read of a missing path: ${e.message}`);
              trace(`exec: missing read rejection FAILED ${error.message}`);
              safeError(error);
@@ -339,7 +363,7 @@ index 9c3ec0f74ff9f1f2f8c139dcf61024cee73e693c..db5122eb416e744566fe1ea9c41307eb
              return true;
          }
      };
-@@ -1882,14 +1889,14 @@ export async function pump(session, controller, ids, abortSignal) {
+@@ -1882,14 +1892,14 @@ export async function pump(session, controller, ids, abortSignal) {
          // keeping the loop alive would discard frames the next pump needs.
          if (streamClosed) {
              trace(`pump: stream closed (consumer cancelled) pending=${session.pending.size}`);
@@ -356,7 +380,7 @@ index 9c3ec0f74ff9f1f2f8c139dcf61024cee73e693c..db5122eb416e744566fe1ea9c41307eb
              return;
          }
          let next;
-@@ -1982,7 +1989,7 @@ export async function pump(session, controller, ids, abortSignal) {
+@@ -1982,7 +1992,7 @@ export async function pump(session, controller, ids, abortSignal) {
              checkpointBytes: checkpointProgress,
          });
          if (replayFrame.semanticProgress) {
@@ -365,7 +389,7 @@ index 9c3ec0f74ff9f1f2f8c139dcf61024cee73e693c..db5122eb416e744566fe1ea9c41307eb
          }
          if (replayFrame.barrier)
              replaySafety.markBarrier(replayFrame.barrier);
-@@ -2062,7 +2069,7 @@ export async function pump(session, controller, ids, abortSignal) {
+@@ -2062,7 +2072,7 @@ export async function pump(session, controller, ids, abortSignal) {
                      }
                  }
                  emitFinish(turnEnded, { unified: "stop", raw: undefined });
@@ -374,7 +398,7 @@ index 9c3ec0f74ff9f1f2f8c139dcf61024cee73e693c..db5122eb416e744566fe1ea9c41307eb
                  return;
              }
              else if (iu?.tool_call_started) {
-@@ -2135,7 +2142,7 @@ export async function pump(session, controller, ids, abortSignal) {
+@@ -2135,7 +2145,7 @@ export async function pump(session, controller, ids, abortSignal) {
                          }
                          else {
                              const execId = session.nextBridgedExecId++;
@@ -383,7 +407,7 @@ index 9c3ec0f74ff9f1f2f8c139dcf61024cee73e693c..db5122eb416e744566fe1ea9c41307eb
                              const toolCallId = `cursor_${session.sessionId}_${execId}`;
                              const input = JSON.stringify(bridged.args ?? {});
                              trace(`display BRIDGED tool-call toolCallId=${toolCallId} toolName=${bridged.toolName} ` +
-@@ -2337,7 +2344,7 @@ export async function pump(session, controller, ids, abortSignal) {
+@@ -2337,7 +2347,7 @@ export async function pump(session, controller, ids, abortSignal) {
                              }
                              if (displayCallId)
                                  session.displayToolCalls.delete(displayCallId);
@@ -392,7 +416,15 @@ index 9c3ec0f74ff9f1f2f8c139dcf61024cee73e693c..db5122eb416e744566fe1ea9c41307eb
                                  ...parsed.resultMetadata,
                                  path: target,
                                  binaryWriteBytes: undefined,
-@@ -2395,7 +2402,7 @@ export async function pump(session, controller, ids, abortSignal) {
+@@ -2364,6 +2374,7 @@ export async function pump(session, controller, ids, abortSignal) {
+                         // corresponding host tool. Emitting that request makes OpenCode
+                         // manufacture an `invalid` tool result. Refuse it on the held-open
+                         // Cursor exec channel instead, using the request's exact typed result.
++                        if (session.remoteWorkspace && parsed.toolName === "bash" && advertisedToolNameSet.has("shell")) parsed.toolName = "shell";
+                         if (!advertisedToolNameSet.has(parsed.toolName)) {
+                             const available = advertisedToolNames.length > 0
+                                 ? advertisedToolNames.join(", ")
+@@ -2395,7 +2406,7 @@ export async function pump(session, controller, ids, abortSignal) {
                              registerCursorShellCall(tc.toolCallId, parsed.resultMetadata);
                          }
                          // Keep the stream open; the result arrives on the next doStream call.
@@ -401,7 +433,7 @@ index 9c3ec0f74ff9f1f2f8c139dcf61024cee73e693c..db5122eb416e744566fe1ea9c41307eb
                          // tc.input is already a JSON string (LanguageModelV3ToolCall.input).
                          trace(`exec: EMITTED tool-call toolCallId=${tc.toolCallId} toolName=${tc.toolName} inputLen=${tc.input.length}`);
                          emittedHostTools++;
-@@ -2504,7 +2511,7 @@ export async function pump(session, controller, ids, abortSignal) {
+@@ -2504,7 +2515,7 @@ export async function pump(session, controller, ids, abortSignal) {
                      // ConversationAction when it was already acknowledged with `async`).
                      const ask = handled.askQuestion;
                      const execId = session.nextBridgedExecId++;
@@ -410,7 +442,7 @@ index 9c3ec0f74ff9f1f2f8c139dcf61024cee73e693c..db5122eb416e744566fe1ea9c41307eb
                          interactionId: handled.id,
                          askQuestionArgs: ask.args,
                          askQuestionRawArgs: ask.rawArgs,
-@@ -2550,7 +2557,7 @@ export async function pump(session, controller, ids, abortSignal) {
+@@ -2550,7 +2561,7 @@ export async function pump(session, controller, ids, abortSignal) {
                      const bridgeKind = sw.bridge.kind;
                      const toolName = sw.toolName ?? "plan_exit";
                      const execId = session.nextBridgedExecId++;
@@ -419,7 +451,7 @@ index 9c3ec0f74ff9f1f2f8c139dcf61024cee73e693c..db5122eb416e744566fe1ea9c41307eb
                          interactionId: handled.id,
                          switchModeTarget: sw.args.targetModeId,
                          switchModeToolCallId: sw.toolCallId,
-@@ -2582,7 +2589,7 @@ export async function pump(session, controller, ids, abortSignal) {
+@@ -2582,7 +2593,7 @@ export async function pump(session, controller, ids, abortSignal) {
                      const planUri = staged?.plan_uri ?? plan.planUri ?? "";
                      const input = staged ?? plan.questionInput ?? {};
                      const stageExecId = session.nextBridgedExecId++;

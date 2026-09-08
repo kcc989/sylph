@@ -1,3 +1,4 @@
+import { cursorToolInput } from "./tool-input"
 import { cursorModelStream } from "./model-stream"
 import { cursorModelOptions } from "./model-options"
 import {
@@ -68,7 +69,7 @@ export const handleCursorRequest = async (
         name: "cursor",
         accessToken: input.accessToken,
         cacheDir,
-        workspaceRoot: `${cacheDir}/workspace`,
+        workspaceRoot: "/workspace",
         retry: { maxAttempts: 1 },
       })
       const stream = cursorModelStream(
@@ -83,7 +84,8 @@ export const handleCursorRequest = async (
       return new Response(
         stream.pipeThrough(
           new TransformStream({
-            transform(part, controller) {
+            transform(rawPart, controller) {
+              const part = cursorToolInput(rawPart)
               if (part.type === "raw") return
               const value =
                 part.type === "error"
