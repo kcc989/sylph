@@ -233,11 +233,36 @@ const step = async (label, action, expected = "observed", extra = {}) => {
       assert.equal(result.session.id, sessionId)
     sessionId = result.session.id
   }
+  if (result.evidence.some((item) => item.kind === "accessibility"))
+    assert.ok(
+      result.evidence.some((item) => item.kind === "screenshot"),
+      `${label}: required screenshot is missing`
+    )
   screenshotId =
     result.evidence.find((item) => item.kind === "screenshot")?.id ??
     screenshotId
   console.log(`Passed: ${label}`)
   return result
+}
+const saveScreenshot = async (name, width, height) => {
+  const response = await fetch(`${baseURL}/probe/evidence/${screenshotId}`, {
+    headers: { authorization: `Bearer ${token}` },
+  })
+  assert.equal(response.status, 200)
+  const png = Buffer.from(await response.arrayBuffer())
+  assert.equal(png.readUInt32BE(0), 0x89504e47)
+  assert.equal(png.readUInt32BE(16), width)
+  assert.equal(png.readUInt32BE(20), height)
+  await writeFile(resolve(directory, `${name}.png`), png)
+  record.images ??= []
+  record.images.push({
+    name,
+    width,
+    height,
+    bytes: png.length,
+    evidenceId: screenshotId,
+  })
+  await save()
 }
 const check = (label, assertion) =>
   step(label, { type: "assert", assertion }, "passed")
@@ -331,36 +356,29 @@ const policy = {
     },
   ],
   allowedOrigins: [oauthOrigin],
-  captureMode: "accessibility",
   reason:
-    "Require CRUD and both viewport sizes with DOM evidence. The recorded Browser Run freeze/capture limitation prevents screenshot proof.",
+    "Require CRUD and both viewport sizes with screenshots and native pointer evidence.",
 }
 try {
   await expectBlocked("No policy blocks acceptance", true)
   await step("Start origin guard probe", { type: "start" })
-  try {
-    await step("Reconnect with required screenshot evidence", {
-      type: "observe",
-    })
-  } catch (error) {
-    assert.match(error.message, /captureScreenshot/)
-    record.captureLimitation =
-      "Browser Run screenshot capture fails after freeze/resume; DOM-only proof is explicitly configured below."
-  }
-  await expectBlocked("Capture failure does not pass acceptance", true)
-  await probe("policy", {
-    requirements: [],
-    allowedOrigins: [],
-    captureMode: "accessibility",
-    reason:
-      "Explicit DOM-only policy for guarded navigation testing after the reproduced capture failure",
-  })
-  sessionId = undefined
-  await step("Start DOM-only origin guard probe", { type: "start" })
-  await step("Reconnect guarded browser with DOM evidence", { type: "observe" })
+  await step("Reconnect with required screenshot evidence", { type: "observe" })
+  await expectBlocked("Missing journey policy blocks acceptance", true)
   await reject(
     "Block native popup before its first external request",
     { action: { type: "click", selector: "#external-popup" } },
+    /Preview|configured|navigation/
+  )
+  sessionId = undefined
+  await step("Start idle origin guard probe", { type: "start" })
+  await step("Schedule native popup while owner is idle", {
+    type: "click",
+    selector: "#idle-popup",
+  })
+  await setTimeout(6_000)
+  await reject(
+    "Block unattended popup between action connections",
+    { action: { type: "observe" } },
     /Preview|configured|navigation/
   )
   const visits = await fetch(`${oauthOrigin}/probe/count`, {
@@ -487,14 +505,7 @@ try {
   ])
   record.d1 = rows
   await step("Scroll page", { type: "scroll", x: 0, y: 500 })
-  const screenshot = await fetch(`${baseURL}/probe/evidence/${screenshotId}`, {
-    headers: { authorization: `Bearer ${token}` },
-  })
-  assert.equal(screenshot.status, 200)
-  await writeFile(
-    resolve(directory, "journey.png"),
-    Buffer.from(await screenshot.arrayBuffer())
-  )
+  await saveScreenshot("journey", 1440, 900)
   await step("Delete todo", { type: "click", selector: "#delete" })
   await step("Wait for deletion", {
     type: "wait",
@@ -526,8 +537,23 @@ try {
     type: "journey_begin",
     requirementId: "responsive",
   })
+  let pointerCount = 0
   for (const viewport of ["desktop", "mobile"]) {
     await step(`Set ${viewport} viewport`, { type: "viewport", viewport })
+    const width = viewport === "desktop" ? 1440 : 390
+    const height = viewport === "desktop" ? 900 : 844
+    await step(`Native pointer in ${viewport} viewport`, {
+      type: "click_point",
+      x: width - 66,
+      y: 36,
+    })
+    pointerCount += 1
+    await check(`Native pointer changed ${viewport} control`, {
+      type: "text",
+      selector: "#pointer",
+      value: String(pointerCount),
+    })
+    await saveScreenshot(viewport, width, height)
     await check(`Verify authenticated ${viewport} view`, {
       type: "text",
       selector: "#signed-in",

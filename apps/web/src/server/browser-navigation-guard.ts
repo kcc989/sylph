@@ -7,6 +7,10 @@ export const browserNavigationGuard = async (
 ) => {
   await trace("guard-root")
   const root = await browser.target().createCDPSession()
+  const { browserContextId } = await root.send("Target.createBrowserContext", {
+    disposeOnDetach: true,
+  })
+  for (const page of await browser.pages()) await page.close()
   const connection = root.connection()
   if (!connection) throw new Error("Browser navigation guard has no connection")
   const sessions = new Set<CDPSession>()
@@ -74,12 +78,6 @@ export const browserNavigationGuard = async (
           await Promise.all(pending)
           if (unavailable) await browser.close()
           else {
-            if (event.targetInfo.type === "page")
-              await session.send(
-                "Page.setWebLifecycleState",
-                { state: "active" },
-                { timeout: 15_000 }
-              )
             await session.send("Runtime.runIfWaitingForDebugger", undefined, {
               timeout: 15_000,
             })
@@ -119,15 +117,8 @@ export const browserNavigationGuard = async (
     await trace("guard-fetch")
     await Promise.all(pending)
     if (unavailable)
-      throw new Error(
-        `The browser could not guard a frozen page: ${failureDetail}`
-      )
+      throw new Error(`The browser could not guard a page: ${failureDetail}`)
     await trace("guard-resume")
-    await session.send(
-      "Page.setWebLifecycleState",
-      { state: "active" },
-      { timeout: 15_000 }
-    )
     await session.send("Runtime.runIfWaitingForDebugger", undefined, {
       timeout: 15_000,
     })
@@ -144,7 +135,6 @@ export const browserNavigationGuard = async (
         `The browser cannot enforce navigation policy; no action is allowed: ${failureDetail}`
       )
     pages.set(page, session)
-    await session.send("Page.setWebLifecycleState", { state: "active" })
     return session
   }
   await trace("guard-pages")
@@ -152,6 +142,31 @@ export const browserNavigationGuard = async (
   for (const page of await browser.pages()) await prepare(page)
   return {
     prepare,
+    async newPage() {
+      const { targetId } = await root.send("Target.createTarget", {
+        url: "about:blank",
+        browserContextId,
+      })
+      const target = await browser.waitForTarget(
+        async (candidate) => {
+          if (candidate.type() !== "page") return false
+          const session = await candidate.createCDPSession()
+          try {
+            return (
+              (await session.send("Target.getTargetInfo")).targetInfo
+                .targetId === targetId
+            )
+          } finally {
+            await session.detach()
+          }
+        },
+        { timeout: 15_000 }
+      )
+      const page = await target.page()
+      if (!page) throw new Error("The owned browser context has no page")
+      await prepare(page)
+      return page
+    },
     async check() {
       while (targets.size) await Promise.all(targets)
       await Promise.all(pending)
@@ -161,33 +176,6 @@ export const browserNavigationGuard = async (
         )
       if (blocked) {
         throw new Error(blocked)
-      }
-    },
-    async disconnect() {
-      if (blocked || unavailable) {
-        const message =
-          blocked ??
-          `The browser navigation guard lost its connection: ${failureDetail}`
-        try {
-          if (browser.connected) await browser.close()
-        } finally {
-          await browser.disconnect()
-        }
-        throw new Error(message)
-      }
-      if (!browser.connected) return
-      try {
-        for (const page of await browser.pages()) {
-          const session = await prepare(page)
-          await session.send("Page.stopLoading")
-          await session.send("Page.setWebLifecycleState", { state: "frozen" })
-        }
-      } catch (error) {
-        await browser.close()
-        throw error
-      } finally {
-        await root.detach()
-        await browser.disconnect()
       }
     },
   }

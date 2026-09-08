@@ -45,11 +45,16 @@ const redirect = (origin: string) =>
   new Response(null, { status: 303, headers: { location: `${origin}/` } })
 
 export class BrowserSmoke extends DurableObject<Bindings> {
+  #phases: string[] = []
+  #browserLayer = browserRunLayer(this.env.BROWSER, async (phase) => {
+    this.#phases.push(phase)
+    await this.ctx.storage.put("browser-trace", this.#phases)
+  })
   async fetch(request: Request) {
     const url = new URL(request.url)
     if (url.pathname === "/probe/trace")
       return Response.json((await this.ctx.storage.get("browser-trace")) ?? [])
-    const phases: string[] = []
+    this.#phases = []
     const runtime = ManagedRuntime.make(
       workspaceBrowserLayer({
         storage: durableBrowserSessionStore(this.ctx.storage),
@@ -84,14 +89,7 @@ export class BrowserSmoke extends DurableObject<Bindings> {
           }
         },
         addEvidence: () => {},
-      }).pipe(
-        Layer.provide(
-          browserRunLayer(this.env.BROWSER, async (phase) => {
-            phases.push(phase)
-            await this.ctx.storage.put("browser-trace", phases)
-          })
-        )
-      )
+      }).pipe(Layer.provide(this.#browserLayer))
     )
     try {
       if (url.pathname === "/probe/policy") {
@@ -265,7 +263,7 @@ export default {
       return document(
         env.SMOKE_COMMIT,
         env.SMOKE_SOURCE,
-        `<form method="post" action="/login"><label>Password <input id="password" name="password" type="password"></label><button id="login">Sign in</button></form><a id="external-popup" target="_blank" href="${env.SMOKE_OAUTH_ORIGIN}/blocked">Open external popup</a>`
+        `<form method="post" action="/login"><label>Password <input id="password" name="password" type="password"></label><button id="login">Sign in</button></form><a id="external-popup" target="_blank" href="${env.SMOKE_OAUTH_ORIGIN}/blocked">Open external popup</a><button id="idle-popup" onclick="setTimeout(() => window.open('${env.SMOKE_OAUTH_ORIGIN}/blocked'), 4000)">Open delayed external popup</button>`
       )
     }
     await env.DB.prepare(
@@ -298,7 +296,7 @@ export default {
     return document(
       env.SMOKE_COMMIT,
       env.SMOKE_SOURCE,
-      `<p id="signed-in">Signed in</p>${request.headers.get("cookie")?.includes("oauth-complete=true") ? '<p id="oauth-authenticated">OAuth callback completed</p>' : ""}<label>View <select id="view" onchange="localStorage.setItem('view',this.value)"><option value="all">All</option><option value="active">Active</option></select></label><script>document.querySelector('#view').value=localStorage.getItem('view')||'all'</script><form method="post" action="/create"><label>Todo <input id="title" name="title" required></label><button id="create">Create</button></form><ul>${rows.results.map((row) => `<li class="todo"><span class="title">${escapeHtml(row.title)}</span><input class="completed" type="checkbox" ${row.completed ? "checked" : ""} disabled><form method="post" action="/edit"><input type="hidden" name="id" value="${row.id}"><input id="edit-title" name="title" value="${escapeHtml(row.title)}"><button id="edit">Save</button></form><form method="post" action="/complete"><input type="hidden" name="id" value="${row.id}"><button id="complete">Complete</button></form><form method="post" action="/delete"><input type="hidden" name="id" value="${row.id}"><button id="delete">Delete</button></form></li>`).join("")}</ul><a id="external" href="https://example.com">External navigation</a><a id="oauth-popup" target="_blank" href="/oauth/start">External authentication</a>`
+      `<p id="signed-in">Signed in</p><button id="pointer" style="position:fixed;right:16px;top:16px;width:100px;height:40px" onclick="this.textContent=String(Number(this.textContent)+1)">0</button>${request.headers.get("cookie")?.includes("oauth-complete=true") ? '<p id="oauth-authenticated">OAuth callback completed</p>' : ""}<label>View <select id="view" onchange="localStorage.setItem('view',this.value)"><option value="all">All</option><option value="active">Active</option></select></label><script>document.querySelector('#view').value=localStorage.getItem('view')||'all'</script><form method="post" action="/create"><label>Todo <input id="title" name="title" required></label><button id="create">Create</button></form><ul>${rows.results.map((row) => `<li class="todo"><span class="title">${escapeHtml(row.title)}</span><input class="completed" type="checkbox" ${row.completed ? "checked" : ""} disabled><form method="post" action="/edit"><input type="hidden" name="id" value="${row.id}"><input id="edit-title" name="title" value="${escapeHtml(row.title)}"><button id="edit">Save</button></form><form method="post" action="/complete"><input type="hidden" name="id" value="${row.id}"><button id="complete">Complete</button></form><form method="post" action="/delete"><input type="hidden" name="id" value="${row.id}"><button id="delete">Delete</button></form></li>`).join("")}</ul><a id="external" href="https://example.com">External navigation</a><a id="oauth-popup" target="_blank" href="/oauth/start">External authentication</a>`
     )
   },
 } satisfies ExportedHandler<Bindings>
