@@ -66,6 +66,7 @@ export const RecoveryObjectManifest = Schema.Struct({
   releaseId: Schema.NonEmptyString,
   identity: RecoveryObjectIdentity,
   capturedAt: Schema.Number,
+  restoreVerifiedAt: Schema.Number,
   expiresAt: Schema.Number,
   fingerprint: Schema.NonEmptyString,
   chunkCount: Schema.Int.check(Schema.isGreaterThan(0)),

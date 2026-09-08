@@ -12,6 +12,7 @@ import {
   type RecoveryObjectIdentity,
   type RecoveryObjectRequest,
 } from "@workspace/domain/cloudflare-object-recovery"
+import { RecoveryObjectDrillProof } from "@workspace/domain/cloudflare-object-drill"
 import type { RecoveryConfiguration } from "./recovery"
 
 type Result<A> = Effect.Effect<A, CloudflareRecoveryFailure>
@@ -20,6 +21,10 @@ export class CloudflareObjectRecovery extends Context.Service<
   CloudflareObjectRecovery,
   {
     capture: (
+      identity: RecoveryObjectIdentity,
+      releaseId: string
+    ) => Result<RecoveryObjectManifest>
+    captureForDrill: (
       identity: RecoveryObjectIdentity,
       releaseId: string
     ) => Result<RecoveryObjectManifest>
@@ -53,13 +58,29 @@ const unbase64 = (value: string) =>
 const identityKey = (identity: RecoveryObjectIdentity) =>
   JSON.stringify(identity)
 
+export interface ObjectRecoveryConfiguration extends RecoveryConfiguration {
+  identities: readonly RecoveryObjectIdentity[]
+  transport: (request: RecoveryObjectRequest) => Promise<RecoveryObjectResponse>
+}
+
+export const objectSnapshotFingerprint = (snapshot: RecoveryObjectSnapshot) =>
+  digest(JSON.stringify(snapshot))
+
+export const objectSchemaFingerprint = (snapshot: RecoveryObjectSnapshot) =>
+  digest(
+    JSON.stringify({
+      version: snapshot.version,
+      tables: snapshot.tables.map(({ name, sql, columns }) => ({
+        name,
+        sql,
+        columns,
+      })),
+      indexes: snapshot.indexes,
+    })
+  )
+
 export const CloudflareObjectRecoveryLive = (
-  configuration: RecoveryConfiguration & {
-    identities: readonly RecoveryObjectIdentity[]
-    transport: (
-      request: RecoveryObjectRequest
-    ) => Promise<RecoveryObjectResponse>
-  }
+  configuration: ObjectRecoveryConfiguration
 ) =>
   Layer.sync(CloudflareObjectRecovery, () => {
     const now = configuration.now ?? Date.now
@@ -213,10 +234,36 @@ export const CloudflareObjectRecoveryLive = (
     }
     const capture = Effect.fn("ObjectRecovery.capture")(function* (
       identity: RecoveryObjectIdentity,
-      releaseId: string
+      releaseId: string,
+      forDrill = false
     ) {
       return yield* attempt("Capture registered object", async () => {
         const json = await snapshot(identity, releaseId)
+        let restoreVerifiedAt = 0
+        if (!forDrill) {
+          const proof = Schema.decodeUnknownSync(RecoveryObjectDrillProof)(
+            (
+              await query(
+                "SELECT d.schema_fingerprint, d.verified_at FROM sylph_recovery_object_drill d JOIN sylph_recovery_object_drill_operation o ON o.namespace_id = d.namespace_id WHERE d.namespace_id = ? AND d.object_id = ? AND o.phase = 'verified'",
+                [identity.namespaceId, identity.objectId]
+              )
+            )[0]
+          )
+          if (
+            proof.verified_at <= 0 ||
+            proof.verified_at > now() ||
+            proof.schema_fingerprint !==
+              (await objectSchemaFingerprint(
+                Schema.decodeUnknownSync(RecoveryObjectSnapshot)(
+                  JSON.parse(json)
+                )
+              ))
+          )
+            throw new Error(
+              "Object requires a verified restore drill for its storage schema"
+            )
+          restoreVerifiedAt = proof.verified_at
+        }
         const bytes = new TextEncoder().encode(json)
         const id = crypto.randomUUID()
         const manifest = Schema.decodeUnknownSync(RecoveryObjectManifest)({
@@ -226,6 +273,7 @@ export const CloudflareObjectRecoveryLive = (
           releaseId,
           identity,
           capturedAt: now(),
+          restoreVerifiedAt,
           expiresAt: now() + 6 * 86400000,
           fingerprint: await digest(json),
           chunkCount: Math.ceil(bytes.length / 32768),
@@ -368,7 +416,9 @@ export const CloudflareObjectRecoveryLive = (
       })
     })
     return CloudflareObjectRecovery.of({
-      capture,
+      capture: (identity, releaseId) => capture(identity, releaseId),
+      captureForDrill: (identity, releaseId) =>
+        capture(identity, releaseId, true),
       read: (id) => attempt("Read object manifest", () => readSaved(id)),
       fingerprint: (identity, releaseId) =>
         attempt("Fingerprint registered object", async () =>

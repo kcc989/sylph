@@ -145,7 +145,7 @@ test("actual SQLite object tables, indexes, blobs and JSON KV round-trip through
     ).toBe(200)
     await state.pause("original")
     const saved = await state.run((objects) =>
-      objects.capture(state.identity, "original")
+      objects.captureForDrill(state.identity, "original")
     )
     const original = await state.transport({
       operation: "capture",
@@ -175,7 +175,9 @@ test("actual SQLite object tables, indexes, blobs and JSON KV round-trip through
       (await state.worker.dispatchFetch("https://object.test/mutate")).status
     ).toBe(200)
     await state.pause("restore")
-    await state.run((objects) => objects.capture(state.identity, "restore"))
+    await state.run((objects) =>
+      objects.captureForDrill(state.identity, "restore")
+    )
     await state.run((objects) => objects.restore(saved, "restore"))
     expect(
       await state.transport({
@@ -204,12 +206,14 @@ test("uncertain object restores retain pause and cannot replay a destructive req
     await state.worker.dispatchFetch("https://object.test/seed")
     await state.pause("original")
     const saved = await state.run((objects) =>
-      objects.capture(state.identity, "original")
+      objects.captureForDrill(state.identity, "original")
     )
     await state.pause(null)
     await state.worker.dispatchFetch("https://object.test/mutate")
     await state.pause("restore")
-    await state.run((objects) => objects.capture(state.identity, "restore"))
+    await state.run((objects) =>
+      objects.captureForDrill(state.identity, "restore")
+    )
     state.loseResponse()
     await expect(
       state.run((objects) => objects.restore(saved, "restore"))
@@ -237,17 +241,20 @@ test("unregistered objects, wrong gate ownership and alarms cannot emit snapshot
   const state = await setup()
   try {
     await expect(
-      state.run((objects) => objects.capture(state.identity, "release"))
+      state.run((objects) => objects.captureForDrill(state.identity, "release"))
     ).rejects.toThrow()
     await state.worker.dispatchFetch("https://object.test/alarm")
     await state.pause("release")
     await expect(
       state.run((objects) =>
-        objects.capture({ ...state.identity, objectId: "unknown" }, "release")
+        objects.captureForDrill(
+          { ...state.identity, objectId: "unknown" },
+          "release"
+        )
       )
     ).rejects.toThrow()
     await expect(
-      state.run((objects) => objects.capture(state.identity, "release"))
+      state.run((objects) => objects.captureForDrill(state.identity, "release"))
     ).rejects.toThrow()
     expect(
       await state.database
@@ -269,7 +276,9 @@ test.each(["large-integer", "unsupported-kv"])(
       ).toBe(200)
       await state.pause("release")
       await expect(
-        state.run((objects) => objects.capture(state.identity, "release"))
+        state.run((objects) =>
+          objects.captureForDrill(state.identity, "release")
+        )
       ).rejects.toThrow()
       expect(
         await state.database
