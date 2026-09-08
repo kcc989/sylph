@@ -4,7 +4,7 @@
   "candidateCommit": "36860839fb2b1536228775998f3cce730f5b028c",
   "candidateRef": "codex/complete-release-contract",
   "version": "0.2.0",
-  "published": false,
+  "published": true,
   "recoverySources": [
     {
       "templatePath": "src/recovery/recovery.ts",

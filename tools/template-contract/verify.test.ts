@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import { requiredTemplateScripts, verifyTemplateManifest } from "./verify.mjs"
 
-test("rejects the pinned 0.1.1 starter contract and names every missing hook", () => {
+test("rejects the legacy 0.1.1 starter contract and names every missing hook", () => {
   const scripts = Object.fromEntries(
     ["typecheck", "lint", "test", "build", "sylph:preview", "sylph:deploy"].map(
       (name) => [name, "bun script.ts"]

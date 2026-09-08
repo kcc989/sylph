@@ -7,7 +7,7 @@ All notable changes to Sylph are recorded here. The format follows [Keep a Chang
 ### Added
 
 - Production health collection on the existing schedule, release and telemetry incidents, and repair Workspaces created from the published commit.
-- D1 Time Travel recovery, a drained writer gate, encrypted secret versions, and a reviewed starter candidate with all five release hooks. Candidate publication, pinning, and a real restore drill remain required before rollout.
+- D1 Time Travel recovery, a drained writer gate, encrypted secret versions, and the pinned starter with all five release hooks. A real restore drill remains required before rollout.
 - Multiple-Worker resource plans, hosted Durable Object and Workflow identities, service/AI bindings, and reviewed adoption, retirement, and removal.
 - Browser journey requirements tied to the current Check attempt, ordered assertions, desktop/mobile viewports, allowed authentication origins, and human control.
 - Concrete combined lifecycle verification actions and encrypted Installation D1 preservation with local import verification. Earlier Durable Objects remain in the retained original Installation.
@@ -38,10 +38,10 @@ All notable changes to Sylph are recorded here. The format follows [Keep a Chang
 - Open Workspace chat while repository and runtime setup run in a Workflow. Save early messages in D1 and deliver them in order after setup. The initial deployment includes a message delivery Workflow and a minute recovery cron.
 - Remove the retired dependency-repair runner and completion callback. Dependency repairs use native shell commands.
 - Reserve one production operation per Project and retain release evidence in the initial schema. Repository export declares its repository-only scope; it does not provide a full Workspace backup.
-- Require a resource plan before deployment credentials are provided. The initial deployment includes the ResourceMaintenance Workflow and resource inventory. A compatible template revision still needs to be published and pinned; see the operator notes before rollout.
+- Require a resource plan before deployment credentials are provided. The initial deployment includes the ResourceMaintenance Workflow and resource inventory. Compatible template `0.2.0` is published and pinned; see the operator notes for the remaining live checks before rollout.
 - Share command environment selection, deadlines, output limits, and cancellation across agent commands and immutable Check execution.
 - Use one event policy and refresh queue for Workspace synchronization; failed socket updates retain their replay cursor.
-- Pin new Projects to template 0.1.1's verified commit and test that exact template release in CI. Existing Projects remain unchanged.
+- Pin new Projects to template 0.2.0's verified commit and test that exact template release in CI. Existing Projects remain unchanged.
 
 - Use OpenCode native file and shell tools with the existing Cloudflare Sandbox binding. Workspace edits and commands auto-approve, and consecutive tool calls appear in expandable action summaries.
 - Reconcile active Workspace status after missed runtime events and accept steering messages when the previous Turn has just ended.
