@@ -52,7 +52,15 @@ const scopedQueues = (
     const id = Schema.decodeUnknownSync(Schema.NonEmptyString)(value.queue_id)
     const consumers = Schema.decodeUnknownSync(Schema.Array(BrokerJson))(
       value.consumers
-    )
+    ).map((item) => {
+      if (
+        item.script !== undefined &&
+        item.script_name !== undefined &&
+        item.script !== item.script_name
+      )
+        brokerDenied("Queue consumer host fields disagree")
+      return { ...item, script: item.script ?? item.script_name }
+    })
     if (value.consumers_total_count !== consumers.length)
       brokerDenied("Queue consumer inventory is incomplete")
     const owned = ownedQueues.find((item) => item.id === id)
@@ -60,8 +68,7 @@ const scopedQueues = (
       if (
         consumers.some(
           (item) =>
-            Schema.is(Schema.String)(item.script_name) &&
-            workers.has(item.script_name)
+            Schema.is(Schema.String)(item.script) && workers.has(item.script)
         )
       )
         brokerDenied("Undeclared Queue consumes from an approved Worker")
@@ -78,8 +85,8 @@ const scopedQueues = (
       consumers.some(
         (item) =>
           item.type !== "worker" ||
-          !Schema.is(Schema.String)(item.script_name) ||
-          !workers.has(item.script_name)
+          !Schema.is(Schema.String)(item.script) ||
+          !workers.has(item.script)
       )
     )
       brokerDenied("Queue has an unapproved consumer")
@@ -103,7 +110,7 @@ const scopedQueues = (
       consumers: consumers.map((item) => ({
         type: item.type,
         consumer_id: item.consumer_id,
-        script_name: item.script_name,
+        script: item.script,
       })),
       producers: producers.map((item) => ({
         type: item.type,

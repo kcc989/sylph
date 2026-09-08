@@ -1207,7 +1207,7 @@ test("Queue collection traverses the full account and reports one complete scope
       {
         type: "worker",
         consumer_id: "consumer-a",
-        script_name: "project-a-web",
+        script: "project-a-web",
         provider_private: "not-exposed",
       },
     ],
@@ -1245,7 +1245,7 @@ test("Queue collection traverses the full account and reports one complete scope
           {
             type: "worker",
             consumer_id: "consumer-a",
-            script_name: "project-a-web",
+            script: "project-a-web",
           },
         ],
         producers: [{ type: "worker", script: "project-a-web" }],
@@ -1277,7 +1277,7 @@ test("an undeclared Queue attached to an approved Worker fails without leaking f
                 {
                   ...queueInventory("foreign-id", "private-foreign-queue"),
                   consumers_total_count: 1,
-                  consumers: [{ type: "worker", script_name: "project-a-web" }],
+                  consumers: [{ type: "worker", script: "project-a-web" }],
                 },
               ],
         result_info: { total_pages: 2 },
@@ -1321,6 +1321,13 @@ test("Queue collection fails closed on external actors and incomplete inventorie
       consumers_total_count: 1,
     },
     { ...queueInventory("queue-id-a", "renamed-queue") },
+    {
+      ...queueInventory("foreign-id", "foreign-queue"),
+      consumers_total_count: 1,
+      consumers: [
+        { type: "worker", script: "foreign-web", script_name: "project-a-web" },
+      ],
+    },
   ]) {
     const f = await protocolFixture(
       async () =>
