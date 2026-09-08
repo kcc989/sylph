@@ -877,3 +877,66 @@ test("reserved R2 drill storage cannot be bound into an application Worker", () 
     )
   ).toThrow("cannot be bound")
 })
+
+test("R2 policy evidence routes read only the exact claimed bucket", async () => {
+  const topology = [...plan, { kind: "r2" as const, name: "bucket-a" }]
+  const resources = [...owned, { kind: "r2", name: "bucket-a", id: "bucket-a" }]
+  const f = await protocolFixture(
+    async (request) => {
+      const path = new URL(request.url).pathname
+      const result = path.endsWith("/sippy")
+        ? { enabled: false }
+        : path.endsWith("/configuration")
+          ? { bucketName: "bucket-a", queues: [] }
+          : { rules: [] }
+      return Response.json({ success: true, result })
+    },
+    resources,
+    topology
+  )
+  const routes = [
+    "/r2/buckets/bucket-a/lifecycle",
+    "/r2/buckets/bucket-a/lock",
+    "/r2/buckets/bucket-a/sippy",
+    "/event_notifications/r2/bucket-a/configuration",
+  ]
+  for (const path of routes) {
+    expect((await f.run(path)).status).toBe(200)
+    for (const method of ["POST", "PUT", "PATCH", "DELETE"])
+      await expect(f.run(path, { method })).rejects.toThrow("capability denied")
+    for (const query of [
+      "bucket_name=bucket-b",
+      "account_id=foreign",
+      "cursor=foreign",
+    ])
+      await expect(f.run(`${path}?${query}`)).rejects.toThrow(
+        "capability denied"
+      )
+    await expect(f.run(path.replace("bucket-a", "bucket-b"))).rejects.toThrow(
+      "capability denied"
+    )
+  }
+  expect(f.calls).toHaveLength(4)
+  expect(
+    f.calls.every(
+      (request) =>
+        request.method === "GET" &&
+        request.headers.get("Authorization") === "Bearer server-owner-secret"
+    )
+  ).toBe(true)
+  const reserved = await protocolFixture(
+    async () => Response.json({ success: true }),
+    owned,
+    topology
+  )
+  for (const path of routes)
+    await expect(reserved.run(path)).rejects.toThrow("capability denied")
+  expect(reserved.calls).toEqual([])
+  for (const path of [
+    "/event_notifications/r2/bucket-a/configuration/queues/foreign",
+    "/r2/buckets/bucket-a/locks",
+    "/r2/buckets/bucket-a/sippy/source",
+  ])
+    await expect(f.run(path)).rejects.toThrow("capability denied")
+  expect(f.calls).toHaveLength(4)
+})

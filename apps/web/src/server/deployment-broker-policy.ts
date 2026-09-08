@@ -241,6 +241,27 @@ export const authorizeBrokerRequest = (
     return { kind: "account_subdomain" }
   if (path === "/workers/durable_objects/namespaces" && method === "GET")
     return { kind: "durable_object", collection: true }
+  const policyBucket =
+    path.match(/^\/r2\/buckets\/([^/]+)\/(?:lifecycle|lock|sippy)$/)?.[1] ??
+    path.match(/^\/event_notifications\/r2\/([^/]+)\/configuration$/)?.[1]
+  if (policyBucket) {
+    if (method !== "GET") brokerDenied("R2 recovery policy is read-only")
+    if (
+      !plan.some(
+        (resource) => resource.kind === "r2" && resource.name === policyBucket
+      ) ||
+      !resources.some(
+        (resource) =>
+          resource.kind === "r2" &&
+          resource.name === policyBucket &&
+          resource.id === policyBucket
+      )
+    )
+      brokerDenied(
+        "R2 policy belongs to another Project or has no verified identity"
+      )
+    return { kind: "r2" }
+  }
   const families = [
     {
       prefix: "/d1/database",
