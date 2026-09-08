@@ -335,7 +335,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   constructor(context: DurableObjectState, bindings: WorkspaceBindings) {
     super(context, bindings)
     this.#cursor = createCursorProvider(bindings.CURSOR, context.storage, () =>
-      this.#filesystem.commandFiles()
+      this.#filesystem.commandFiles(false)
     )
     context.setWebSocketAutoResponse(
       new WebSocketRequestResponsePair("ping", "pong")
@@ -526,7 +526,19 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           archived_at INTEGER
         )
       `)
-      console.info("Workspace bootstrap", { phase: "ready" })
+      console.info("Workspace bootstrap", {
+        phase: "ready",
+        history: context.storage.sql
+          .exec(
+            "SELECT count(*) AS count, sum(length(data)) AS bytes, max(length(data)) AS largest FROM session_message"
+          )
+          .toArray(),
+        files: context.storage.sql
+          .exec(
+            "SELECT CASE WHEN path LIKE '.git/%' THEN 'git' ELSE 'working' END AS kind, count(*) AS count, sum(size) AS bytes FROM app_workspace_file GROUP BY kind"
+          )
+          .toArray(),
+      })
       return opencode
     })
     const credentialLayer = WorkspaceCredentials.layer(

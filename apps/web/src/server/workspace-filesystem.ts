@@ -379,10 +379,12 @@ export class WorkspaceFilesystem implements WorkspaceGitFilesystem {
       .filter((path) => path.startsWith(prefix))
   }
 
-  commandFiles(): WorkspaceCommandFile[] {
+  commandFiles(includeGit = true): WorkspaceCommandFile[] {
     return this.#storage.sql
       .exec<FileContentRow>(
-        "SELECT path, content FROM app_workspace_file ORDER BY path"
+        includeGit
+          ? "SELECT path, content FROM app_workspace_file ORDER BY path"
+          : "SELECT path, content FROM app_workspace_file WHERE path NOT LIKE '.git/%' ORDER BY path"
       )
       .toArray()
       .map((row) => ({

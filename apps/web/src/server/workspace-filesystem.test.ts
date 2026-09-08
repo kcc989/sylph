@@ -301,3 +301,17 @@ test("repair checkout uses deployed files when Project main has advanced", async
     "repair-incident"
   )
 })
+
+test("Cursor snapshots exclude Git objects without losing working files", async () => {
+  const filesystem = new WorkspaceFilesystem(new TestSqlStorage())
+  filesystem.initialize()
+  await filesystem.writeFile(".git/objects/fixture", "git object")
+  await filesystem.writeFile("package.json", "{}")
+  expect(filesystem.commandFiles(false)).toEqual([
+    { path: "package.json", content: Buffer.from("{}").toString("base64") },
+  ])
+  expect(filesystem.commandFiles().map((file) => file.path)).toEqual([
+    ".git/objects/fixture",
+    "package.json",
+  ])
+})
