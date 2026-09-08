@@ -1,3 +1,4 @@
+import { buildRunRequest } from "../../node_modules/cursor-opencode-provider/dist/protocol/request.js"
 import {
   encodeMessage,
   decodeMessageSparse,
@@ -266,6 +267,10 @@ export class Probe extends DurableObject {
         bytes: Array.from(encoded),
         decoded: decodeMessageSparse("ConversationStateStructure", encoded),
       })
+    }
+    if (path === "/cursor-run-protocol") {
+      const input = await request.json()
+      return Response.json(Array.from(buildRunRequest(input)))
     }
     if (path === "/cursor-connect") {
       const key = JSON.stringify({ userId: "fixture-user", key: "fixture-key" })

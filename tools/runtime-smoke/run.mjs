@@ -1,3 +1,4 @@
+import { buildRunRequest } from "../../node_modules/cursor-opencode-provider/dist/protocol/request.js"
 import { encodeMessage } from "../../node_modules/cursor-opencode-provider/dist/protocol/messages.js"
 import assert from "node:assert/strict"
 import { mkdtemp, readFile, readdir, realpath, rm } from "node:fs/promises"
@@ -249,6 +250,38 @@ try {
     Array.from(encodeMessage("ConversationStateStructure", protocolInput))
   )
   assert.deepEqual(protocol.decoded, protocolInput)
+  const runInput = {
+    messageId: "11111111-1111-4111-8111-111111111111",
+    conversationId: "22222222-2222-4222-8222-222222222222",
+    modelId: "grok-4.6",
+    text: "Write the marker file.",
+    systemPrompt: protocolInput.root_prompt_messages_json[0],
+    history: [{ role: "user", content: "Earlier message" }],
+    parameterValues: [{ id: "effort", value: "high" }],
+    tools: [
+      {
+        type: "function",
+        name: "write",
+        description: "Write a file",
+        inputSchema: {
+          type: "object",
+          properties: { path: { type: "string" }, content: { type: "string" } },
+        },
+      },
+    ],
+  }
+  const runResponse = await miniflare.dispatchFetch(
+    "http://localhost/cursor-run-protocol",
+    {
+      method: "POST",
+      body: JSON.stringify(runInput),
+    }
+  )
+  assert.equal(runResponse.status, 200, await runResponse.clone().text())
+  assert.deepEqual(
+    await runResponse.json(),
+    Array.from(buildRunRequest(runInput))
+  )
   await read("cursor-connect")
   const cursorCatalog = await read("cursor-connect")
   assert(

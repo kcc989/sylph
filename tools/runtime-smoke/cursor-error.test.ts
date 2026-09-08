@@ -24,3 +24,19 @@ test("Cursor retains the code when the server has no message", () => {
     connectFrameError('{"error":{"code":"invalid_argument"}}').message
   ).toBe("Cursor API error (code=invalid_argument)")
 })
+
+test("Cursor preserves structured rejection details", () => {
+  const error = connectFrameError(
+    JSON.stringify({
+      error: {
+        code: "invalid_argument",
+        message: "Error",
+        details: [
+          { type: "fixture", reason: "Unsupported model", token: "private" },
+        ],
+      },
+    })
+  )
+  expect(error.message).toContain("Unsupported model")
+  expect(error.message).not.toContain("private")
+})
