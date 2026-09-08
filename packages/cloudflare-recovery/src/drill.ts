@@ -63,11 +63,11 @@ export const verifyRecoveryDrill = Effect.fn("CloudflareRecovery.verifyDrill")(
     )
       return yield* fail()
     const recovery = yield* CloudflareD1Recovery
+    yield* recovery.pause(input.releaseId)
     const application = yield* recovery.fingerprint(input.applicationDatabaseId)
     const scratch = yield* recovery.fingerprint(input.databaseId)
     if (application.schemaFingerprint !== scratch.schemaFingerprint)
       return yield* fail()
-    yield* recovery.pause(input.releaseId)
     const point = yield* recovery.captureForDrill({
       databaseId: input.databaseId,
       releaseId: input.releaseId,
