@@ -93,11 +93,15 @@ export const validateResourceTopology = (plan: ProjectResourcePlan) => {
       const kind =
         binding.type === "service"
           ? "worker"
-          : binding.type === "workflow"
-            ? "workflow"
-            : binding.type === "r2_bucket"
-              ? "r2"
-              : "durable_object"
+          : binding.type === "kv_namespace"
+            ? "kv"
+            : binding.type === "queue"
+              ? "queue"
+              : binding.type === "workflow"
+                ? "workflow"
+                : binding.type === "r2_bucket"
+                  ? "r2"
+                  : "durable_object"
       if (
         !plan.some((item) => item.kind === kind && item.name === binding.target)
       )

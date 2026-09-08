@@ -1281,3 +1281,31 @@ test("R2 plan bindings require exact application bucket ownership", () => {
       )
     ).toThrow()
 })
+
+test("managed KV and Queue bindings require exact same-Project resource kinds", () => {
+  for (const [type, kind] of [
+    ["kv_namespace", "kv"],
+    ["queue", "queue"],
+  ]) {
+    const worker = {
+      kind: "worker",
+      name: "owned-app",
+      bindings: [{ type, name: "DATA", target: "owned-data" }],
+    }
+    const plan = [worker, { kind, name: "owned-data" }]
+    expect(
+      readResourcePlan(`SYLPH_RESOURCE_PLAN=${JSON.stringify(plan)}`, "owned")
+    ).toHaveLength(2)
+    for (const other of [
+      { kind, name: "owned-other" },
+      { kind: "r2", name: "owned-data" },
+    ]) {
+      expect(() =>
+        readResourcePlan(
+          `SYLPH_RESOURCE_PLAN=${JSON.stringify([worker, other])}`,
+          "owned"
+        )
+      ).toThrow()
+    }
+  }
+})
