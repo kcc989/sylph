@@ -45,6 +45,9 @@ export const RecoveryBinding = Schema.Struct({
   name: Schema.String,
   type: Schema.String,
   id: Schema.optional(Schema.String),
+  service: Schema.optional(Schema.String),
+  environment: Schema.optional(Schema.String),
+  entrypoint: Schema.optional(Schema.String),
 })
 export const RecoverySettingsResponse = Schema.Struct({
   success: Schema.Boolean,
@@ -104,3 +107,38 @@ export const D1RestoreEvidence = Schema.Struct({
   verifiedAt: Schema.Number,
 })
 export type D1RestoreEvidence = typeof D1RestoreEvidence.Type
+
+export const RecoveryWorkerInventory = Schema.Struct({
+  workerName: Schema.NonEmptyString,
+  databaseIds: Schema.Array(Schema.NonEmptyString).check(
+    Schema.isMaxLength(20)
+  ),
+  secretNames: Schema.Array(Schema.NonEmptyString).check(
+    Schema.isMaxLength(100)
+  ),
+  serviceTargets: Schema.Array(Schema.NonEmptyString).check(
+    Schema.isMaxLength(4)
+  ),
+})
+export type RecoveryWorkerInventory = typeof RecoveryWorkerInventory.Type
+export const RecoveryTopology = Schema.Struct({
+  workers: Schema.Array(RecoveryWorkerInventory).check(
+    Schema.isMinLength(1),
+    Schema.isMaxLength(4)
+  ),
+})
+export type RecoveryTopology = typeof RecoveryTopology.Type
+export const D1RecoveryGroup = Schema.Struct({
+  version: Schema.Literal(1),
+  id: Schema.NonEmptyString,
+  projectId: Schema.NonEmptyString,
+  releaseId: Schema.NonEmptyString,
+  capturedAt: Schema.Number,
+  expiresAt: Schema.Number,
+  topology: RecoveryTopology,
+  databases: Schema.Array(D1RecoveryManifest).check(
+    Schema.isMinLength(1),
+    Schema.isMaxLength(20)
+  ),
+})
+export type D1RecoveryGroup = typeof D1RecoveryGroup.Type

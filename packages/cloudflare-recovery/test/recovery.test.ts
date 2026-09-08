@@ -162,7 +162,9 @@ describe("Cloudflare D1 recovery", () => {
     provider.corruptRestore = true
     await expect(drill(provider)).rejects.toThrow()
     expect(
-      provider.control.query("SELECT phase FROM sylph_recovery_operation").get()
+      provider.control
+        .query("SELECT phase FROM sylph_recovery_resource_operation")
+        .get()
     ).toEqual({ phase: "uncertain" })
     expect(
       provider.control.query("SELECT owner FROM sylph_recovery_gate").get()
