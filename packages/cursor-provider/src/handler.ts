@@ -7,7 +7,7 @@ import {
   CursorTokens,
 } from "@workspace/domain/cursor-provider"
 import { Schema } from "effect"
-import { CursorServerError } from "cursor-opencode-provider/errors"
+import { cursorFailureMessage } from "./failure"
 import { createCursor } from "cursor-opencode-provider"
 import {
   buildLoginUrl,
@@ -81,17 +81,7 @@ export const handleCursorRequest = async (
                 part.type === "error"
                   ? {
                       type: "error",
-                      error:
-                        part.error instanceof CursorServerError &&
-                        [
-                          "unauthenticated",
-                          "permission_denied",
-                          "resource_exhausted",
-                          "invalid_argument",
-                          "unavailable",
-                        ].includes(part.error.code ?? "")
-                          ? `Cursor model request failed: ${part.error.code}`
-                          : "Cursor model request failed: unexpected_error",
+                      error: cursorFailureMessage(part.error),
                     }
                   : part.type === "file" && part.data instanceof Uint8Array
                     ? {
