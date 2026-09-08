@@ -60,11 +60,22 @@ export const CloudflareRecoveryGroupLive = (
       const topologyIdentity = (value: RecoveryTopology) =>
         JSON.stringify(
           value.workers.map(
-            ({ workerName, databaseIds, serviceTargets, bucketNames }) => ({
+            ({
+              workerName,
+              databaseIds,
+              serviceTargets,
+              bucketNames,
+              managedKv,
+              managedQueues,
+              queueConsumers,
+            }) => ({
               workerName,
               databaseIds,
               serviceTargets,
               bucketNames: bucketNames ?? [],
+              managedKv: managedKv ?? [],
+              managedQueues: managedQueues ?? [],
+              queueConsumers: queueConsumers ?? [],
             })
           )
         )

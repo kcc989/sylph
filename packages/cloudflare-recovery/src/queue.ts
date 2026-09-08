@@ -40,7 +40,7 @@ export const CloudflareRecoveryQueueLive = (configuration: {
       configuration.queue
     )
     const now = configuration.now ?? Date.now
-    const database = configuration.database
+    const database = configuration.database.withSession("first-primary")
     const attempt = <A>(operation: string, run: () => Promise<A>): Result<A> =>
       Effect.tryPromise({
         try: run,

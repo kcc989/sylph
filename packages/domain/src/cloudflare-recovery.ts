@@ -51,6 +51,8 @@ export const RecoveryBinding = Schema.Struct({
   entrypoint: Schema.optional(Schema.String),
   bucket_name: Schema.optional(Schema.String),
   jurisdiction: Schema.optional(Schema.String),
+  queue_name: Schema.optional(Schema.String),
+  namespace_id: Schema.optional(Schema.String),
 })
 export const RecoverySettingsResponse = Schema.Struct({
   success: Schema.Boolean,
@@ -111,8 +113,61 @@ export const D1RestoreEvidence = Schema.Struct({
 })
 export type D1RestoreEvidence = typeof D1RestoreEvidence.Type
 
+export const RecoveryManagedKv = Schema.Struct({
+  bindingName: Schema.NonEmptyString,
+  namespaceId: Schema.NonEmptyString,
+  databaseId: Schema.NonEmptyString,
+})
+export const RecoveryManagedQueue = Schema.Struct({
+  bindingName: Schema.NonEmptyString,
+  queueId: Schema.NonEmptyString,
+  queueName: Schema.NonEmptyString,
+  databaseId: Schema.NonEmptyString,
+})
+export const RecoveryQueueConsumer = Schema.Struct({
+  queueId: Schema.NonEmptyString,
+  queueName: Schema.NonEmptyString,
+  databaseId: Schema.NonEmptyString,
+})
+export const RecoveryQueuesResponse = Schema.Struct({
+  success: Schema.Literal(true),
+  result: Schema.Array(
+    Schema.Struct({
+      queue_id: Schema.NonEmptyString,
+      queue_name: Schema.NonEmptyString,
+      consumers_total_count: Schema.Int,
+      producers_total_count: Schema.Int,
+      consumers: Schema.Array(
+        Schema.Struct({
+          type: Schema.NonEmptyString,
+          script_name: Schema.optional(Schema.String),
+        })
+      ),
+      producers: Schema.Array(
+        Schema.Struct({
+          type: Schema.NonEmptyString,
+          script: Schema.optional(Schema.String),
+        })
+      ),
+    })
+  ),
+  result_info: Schema.Struct({
+    page: Schema.Int,
+    total_pages: Schema.Int,
+    total_count: Schema.Int,
+  }),
+})
 export const RecoveryWorkerInventory = Schema.Struct({
   workerName: Schema.NonEmptyString,
+  managedKv: Schema.optional(
+    Schema.Array(RecoveryManagedKv).check(Schema.isMaxLength(20))
+  ),
+  managedQueues: Schema.optional(
+    Schema.Array(RecoveryManagedQueue).check(Schema.isMaxLength(20))
+  ),
+  queueConsumers: Schema.optional(
+    Schema.Array(RecoveryQueueConsumer).check(Schema.isMaxLength(20))
+  ),
   databaseIds: Schema.Array(Schema.NonEmptyString).check(
     Schema.isMaxLength(20)
   ),

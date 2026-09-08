@@ -114,6 +114,12 @@ class Provider {
     const path = new URL(url)
     const pieces = path.pathname.split("/")
     const workerName = pieces[5] ?? ""
+    if (path.pathname.endsWith("/queues"))
+      return Response.json({
+        success: true,
+        result: [],
+        result_info: { page: 1, total_pages: 0, total_count: 0 },
+      })
     if (path.pathname.endsWith("/settings") && this.settingsStatus !== 200)
       return new Response(null, { status: this.settingsStatus })
     if (path.pathname.endsWith("/settings"))
