@@ -81,6 +81,9 @@ test("Cursor model calls keep user identity, tool results, and cancellation", as
       if (payload.operation !== "stream")
         throw new Error("Expected model stream")
       expect(payload.call.sessionId).toBe("workspace-session")
+      expect(payload.call.files).toEqual([
+        { path: "file.txt", content: "aGVsbG8=" },
+      ])
       expect(payload.call.options.prompt[0]).toMatchObject({
         role: "tool",
         content: [
@@ -98,7 +101,8 @@ test("Cursor model calls keep user identity, tool results, and cancellation", as
       controller.abort()
       expect(request.signal.aborted).toBe(true)
       return response([finish])
-    }
+    },
+    () => [{ path: "file.txt", content: "aGVsbG8=" }]
   )
   const result = await model.doStream({
     prompt: [
@@ -131,10 +135,53 @@ test("Cursor refuses a model call without a durable session identity", async () 
     async () => {
       called = true
       return response([finish])
-    }
+    },
+    () => [{ path: "file.txt", content: "aGVsbG8=" }]
   )
   await expect(model.doStream({ prompt: [] })).rejects.toThrow(
     "session identity"
   )
   expect(called).toBe(false)
+})
+
+test("Cursor translates read envelopes only for successful read tool results", async () => {
+  const envelope = "Read file /workspace/file.txt, lines 1-1\n1: exact content"
+  const model = cursorLanguageModel(
+    "model",
+    async () => JSON.stringify({ userId: "user", key: "key" }),
+    async (_userId, request) => {
+      const payload = await Schema.decodeUnknownPromise(CursorRuntimeRequest)(
+        await request.json()
+      )
+      if (payload.operation !== "stream") throw new Error("Expected stream")
+      const prompt = JSON.stringify(payload.call.options.prompt)
+      expect(prompt).toContain("<path>/workspace/file.txt</path>")
+      expect(prompt).toContain(envelope.replaceAll("\n", "\\n"))
+      return response([finish])
+    },
+    () => [{ path: "file.txt", content: "aGVsbG8=" }]
+  )
+  const streamed = await model.doStream({
+    headers: { "x-opencode-session": "session" },
+    prompt: [
+      {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "read",
+            toolName: "read",
+            output: { type: "text", value: envelope },
+          },
+          {
+            type: "tool-result",
+            toolCallId: "shell",
+            toolName: "shell",
+            output: { type: "text", value: envelope },
+          },
+        ],
+      },
+    ],
+  })
+  await Array.fromAsync(streamed.stream)
 })

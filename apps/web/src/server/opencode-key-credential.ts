@@ -32,6 +32,7 @@ interface OpenCodeKeyCredentialInput {
   readonly providerId: string
   readonly key: string
   readonly configuration?: OpenCodeKeyConfiguration
+  readonly catalogRefresh?: "external"
 }
 
 const formAnswerRejection = "Key method does not accept a form answer"
@@ -50,7 +51,8 @@ export const connectOpenCodeKeyCredential = async (
     })
 
   try {
-    await updateCredentialAndWaitForCatalog(opencode, connect)
+    if (input.catalogRefresh === "external") await connect()
+    else await updateCredentialAndWaitForCatalog(opencode, connect)
     return
   } catch (error) {
     if (

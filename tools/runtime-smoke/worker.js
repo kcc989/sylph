@@ -1,9 +1,20 @@
+import { createCursorProvider } from "../../apps/web/src/server/cursor-plugin"
+import { WorkspaceCredentials } from "../../apps/web/src/server/workspace-credentials"
+import {
+  reserveSmokeRequest,
+  smokeModel,
+  smokeModelConfiguration,
+} from "../../apps/web/src/server/workspace-smoke-budget"
 import {
   WorkspaceChecks,
   newCheckRun,
 } from "../../apps/web/src/server/workspace-checks"
 import { deliverCheckCompletion } from "../../apps/web/src/server/workspace-check-completion"
-import { WorkspaceCheckRun, WorkspaceCheckUpdate } from "@workspace/domain"
+import {
+  WorkspaceCheckRun,
+  WorkspaceCheckUpdate,
+  workspacePromptMessageId,
+} from "@workspace/domain"
 import { workspaceBrowserTool } from "../../apps/web/src/server/workspace-browser-tool"
 import { DurableObject } from "cloudflare:workers"
 import { WorkspaceFilesystem } from "../../apps/web/src/server/workspace-filesystem"
@@ -15,6 +26,7 @@ import {
 
 export class Probe extends DurableObject {
   host
+  cursor
   bootStarted = Date.now()
   bootMs = 0
   files
@@ -22,8 +34,28 @@ export class Probe extends DurableObject {
   constructor(state, env) {
     super(state, env)
     this.files = new WorkspaceFilesystem(state.storage)
+    this.cursor = createCursorProvider(
+      {
+        idFromName: (name) => name,
+        get: () => ({
+          fetch: async () =>
+            Response.json([
+              {
+                id: "grok-4.6",
+                name: "Cursor Grok 4.6",
+                context: 128000,
+                images: false,
+              },
+            ]),
+        }),
+      },
+      state.storage,
+      () => this.files.commandFiles()
+    )
     this.host = state.blockConcurrencyWhile(async () => {
-      const { OpenCodeWorkerd } = await import("@opencode-ai/sdk/workerd")
+      await this.cursor.restore()
+      const { createOpenCodeRuntime } =
+        await import("../../apps/web/src/server/opencode-runtime")
       const { Environment } =
         await import("@opencode-ai/core/environment/index")
       const { Ripgrep } = await import("@opencode-ai/core/ripgrep")
@@ -77,7 +109,7 @@ export class Probe extends DurableObject {
       }).pipe(Effect.orDie)
       const { workspaceShellSelection } =
         await import("../../apps/web/src/server/workspace-shell-selection")
-      const host = await OpenCodeWorkerd.create(
+      const host = await createOpenCodeRuntime(
         {
           storage: state.storage,
           models: { fetch: false, snapshot: false },
@@ -89,10 +121,11 @@ export class Probe extends DurableObject {
               openrouter: {
                 package: "@opencode-ai/ai/providers/openrouter",
                 settings: {
-                  baseURL: "https://fixture.test/v1",
+                  baseURL: "https://openrouter.ai/api/v1",
                   apiKey: "fixture",
                 },
                 models: {
+                  ...smokeModelConfiguration.providers.openrouter.models,
                   "anthropic/claude-sonnet-4.6": {
                     body: workspaceModelCacheBody(
                       "openrouter",
@@ -112,6 +145,7 @@ export class Probe extends DurableObject {
             },
           },
           plugins: [
+            this.cursor.plugin,
             ...Array.from({ length: 32 }, (_, index) => ({
               id: `initial-plugin-${index}`,
               async setup() {},
@@ -119,9 +153,14 @@ export class Probe extends DurableObject {
             {
               id: "recovery-probe",
               async setup(ctx) {
-                await ctx.session.hook("http.request", async (event) =>
-                  assertWorkspaceModelRequestSize(event.request, event.agent)
-                )
+                await ctx.session.hook("http.request", async (event) => {
+                  await assertWorkspaceModelRequestSize(
+                    event.request,
+                    event.agent
+                  )
+                  if (event.model.id === smokeModel)
+                    await reserveSmokeRequest(event.request, state.storage)
+                })
                 await ctx.tool.transform((draft) => {
                   draft.add(
                     workspaceBrowserTool(async (input) => ({
@@ -162,11 +201,6 @@ export class Probe extends DurableObject {
               },
             },
           ],
-          log: {
-            level: "warn",
-            emit: (entry) =>
-              console.log("opencode", entry.message, entry.cause),
-          },
         },
         {
           overrides: [
@@ -214,6 +248,30 @@ export class Probe extends DurableObject {
         storageBytes: this.ctx.storage.sql.databaseSize,
       })
     }
+    if (path === "/cursor-catalog")
+      return Response.json(await host.model.list())
+    if (path === "/cursor-connect") {
+      const key = JSON.stringify({ userId: "fixture-user", key: "fixture-key" })
+      await this.cursor.refresh(key)
+      const { Effect } = await import("effect")
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const credentials = yield* WorkspaceCredentials
+          yield* Effect.promise(() =>
+            credentials.install("cursor", { type: "key", key })
+          )
+        }).pipe(
+          Effect.provide(
+            WorkspaceCredentials.layer(
+              Promise.resolve(host),
+              this.ctx.storage,
+              { active: false, accountID: null }
+            )
+          )
+        )
+      )
+      return Response.json(await host.model.list())
+    }
     if (path === "/abort") this.ctx.abort("Deliberate recovery probe")
     if (path === "/native-state") {
       return Response.json({
@@ -221,10 +279,20 @@ export class Probe extends DurableObject {
         content: await this.files.readFile("native.txt", "utf8"),
       })
     }
-    if (path === "/cache-start" || path === "/budget-start") {
+    if (
+      path === "/cache-start" ||
+      path === "/budget-start" ||
+      path === "/smoke-start"
+    ) {
       const session = await host.sessions.create({
         location: { directory: "/workspace" },
-        model: { providerID: "openrouter", id: "anthropic/claude-sonnet-4.6" },
+        model: {
+          providerID: "openrouter",
+          id:
+            path === "/smoke-start"
+              ? smokeModel
+              : "anthropic/claude-sonnet-4.6",
+        },
       })
       await this.ctx.storage.put("probeSession", session.id)
       await host.sessions.prompt({
@@ -313,13 +381,15 @@ export class Probe extends DurableObject {
         },
       })
       await this.ctx.storage.put("probeSession", session.id)
+      const messageId = workspacePromptMessageId()
       await host.sessions.prompt({
+        id: messageId,
         sessionID: session.id,
         text: "Exercise native file tools on native.txt.",
         metadata: { sylphOrigin: "user" },
         delivery: undefined,
       })
-      return Response.json({ sessionID: session.id })
+      return Response.json({ sessionID: session.id, messageId })
     }
     if (path === "/start") {
       const session = await host.sessions.create({

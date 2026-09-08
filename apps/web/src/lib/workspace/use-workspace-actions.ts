@@ -2,6 +2,7 @@ import { useRouter } from "@tanstack/react-router"
 import { useServerFn } from "@tanstack/react-start"
 import {
   workspaceAcceptance,
+  workspacePromptMessageId,
   type WorkspacePermissionReply,
 } from "@workspace/domain"
 import type {
@@ -356,7 +357,7 @@ export function useWorkspaceActions({
     onSubmitPrompt: async (text, model, delivery) => {
       const signature = JSON.stringify({ text, model, delivery })
       if (promptSubmission.current?.signature !== signature)
-        promptSubmission.current = { id: crypto.randomUUID(), signature }
+        promptSubmission.current = { id: workspacePromptMessageId(), signature }
       const messageId = promptSubmission.current.id
       const finishPrompt = trackPrompt(messageId, text, delivery)
       const sent = await commands.run(

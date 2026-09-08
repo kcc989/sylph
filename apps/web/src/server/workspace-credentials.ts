@@ -39,6 +39,7 @@ const installWorkspaceCredential = async (
     try {
       await connectOpenCodeKeyCredential(opencode, {
         providerId,
+        catalogRefresh: providerId === "cursor" ? "external" : undefined,
         key: credential.key,
         configuration: credential.configuration,
       })

@@ -6,6 +6,11 @@ import tailwindcss from "@tailwindcss/vite"
 
 const config = defineConfig({
   build: { rolldownOptions: { external: ["cloudflare:workers"] } },
+  environments: {
+    ssr: {
+      build: { minify: true, rolldownOptions: { output: { keepNames: true } } },
+    },
+  },
   resolve: {
     dedupe: ["effect", "react", "react-dom", "@tanstack/react-router"],
     tsconfigPaths: true,

@@ -335,6 +335,14 @@ class WorkspaceSynchronization {
     )
     this.#publish({
       result,
+      live: {
+        ...this.#state.live,
+        partialMessages: Object.fromEntries(
+          Object.entries(this.#state.live.partialMessages).filter(
+            ([id]) => !acknowledged.has(id)
+          )
+        ),
+      },
       optimisticMessages: this.#state.optimisticMessages.filter(
         (message) => !acknowledged.has(message.id)
       ),

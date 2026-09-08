@@ -1,6 +1,6 @@
 "use client"
 
-import { File as CodeFile } from "@pierre/diffs/react"
+import { File as CodeFile } from "@workspace/ui/components/code-viewer"
 import {
   ChevronRight,
   File,

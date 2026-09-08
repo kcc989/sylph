@@ -1,9 +1,13 @@
+import { syncCursorWorkspace } from "./workspace"
+import { cursorToolInput } from "./tool-input"
+import { cursorModelStream } from "./model-stream"
+import { cursorModelOptions } from "./model-options"
 import {
   CursorBridgeRequest,
   CursorTokens,
 } from "@workspace/domain/cursor-provider"
 import { Schema } from "effect"
-import { createSdk as createCursor } from "cursor-opencode-provider/sdk"
+import { createCursor } from "cursor-opencode-provider"
 import {
   buildLoginUrl,
   generatePkceParams,
@@ -58,23 +62,32 @@ export const handleCursorRequest = async (
       )
     }
     case "stream": {
+      await syncCursorWorkspace("/workspace", input.call.files)
+      const models = await discoverModels(input.accessToken, cacheDir)
+      const model = models.find((model) => model.id === input.call.modelId)
+      if (!model)
+        throw new Error("The selected Cursor model is no longer available")
       const provider = createCursor({
         name: "cursor",
         accessToken: input.accessToken,
         cacheDir,
-        workspaceRoot: `${cacheDir}/workspace`,
+        workspaceRoot: "/workspace",
         retry: { maxAttempts: 1 },
       })
-      const result = await provider.languageModel(input.call.modelId).doStream({
-        ...input.call.options,
-        headers: { "x-opencode-session": input.call.sessionId },
-        abortSignal: request.signal,
-      })
+      const stream = cursorModelStream(
+        provider.languageModel(input.call.modelId),
+        {
+          ...cursorModelOptions(input.call.options, model),
+          headers: { "x-opencode-session": input.call.sessionId },
+          abortSignal: request.signal,
+        }
+      )
       const encoder = new TextEncoder()
       return new Response(
-        result.stream.pipeThrough(
+        stream.pipeThrough(
           new TransformStream({
-            transform(part, controller) {
+            transform(rawPart, controller) {
+              const part = cursorToolInput(rawPart)
               if (part.type === "raw") return
               const value =
                 part.type === "error"

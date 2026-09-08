@@ -1,35 +1,35 @@
 # Cursor subscription through OpenCode
 
-Sylph registers a Cursor language-model provider in OpenCode 2. OpenCode still
-owns the conversation, tool execution, permissions, and checkpoints. A private
-per-user Durable Object uses `cursor-opencode-provider@0.6.6` with a Worker-native
-HTTP/2 connector. The connector opens `cloudflare:sockets` TLS connections and
-implements framing, HPACK headers, stream flow control, and cancellation.
+For current deployed verification status and continuation steps, read the
+[E2E handoff](e2e-handoff-2026-09-08.md).
 
-This integration does not use the Cursor Agent SDK and is not an official
-Cursor API integration. A pinned provider patch injects the connector and
-isolates continuation state per Durable Object, including asynchronous stream
-callbacks. Each Cursor Run gets its own connection; no network socket is reused
-across users. There is no Node service or container fallback.
+Sylph registers `cursor-opencode-provider@0.6.6` through its public provider API.
+The unmodified provider runs in a Node 24 Cloudflare Container. OpenCode runs in
+the Workspace Durable Object and owns conversation history, tools, permissions,
+and checkpoints. This community provider is not the official Cursor Agent SDK.
 
-A pinned OpenCode patch runs the dynamic npm provider loader after bundled
-provider hooks. Cursor uses the bundled adapter; existing native providers use
-OpenCode's native provider mapping. Models are prepared before OpenCode lazily loads the plugin, and the
-catalog transform itself remains synchronous.
+Alchemy declares the private `CURSOR_RUNTIME` binding in `alchemy.run.ts`.
+Container identities include the user Durable Object, connection generation,
+and OpenCode session. Authentication operations use a separate container.
+Each stream receives a current Workspace file snapshot at `/workspace` for the
+provider's native file checks. Unsafe paths are rejected, stale files are
+removed, and overlapping requests are rejected before replacing the snapshot.
+Tool execution remains in Sylph's Workspace and Cloudflare CI services.
 
 ## Credentials and isolation
 
-Each Sylph user has a separate named Cursor Durable Object. It encrypts OAuth
-tokens and pending login state with AES-GCM, using the existing
-`CREDENTIAL_ENCRYPTION_KEY`. The personal provider connection stores an
-encrypted handle. OpenCode resolves that handle for each request; the Durable
-Object checks it against the current connection before sending to Cursor.
+The per-user Cursor Durable Object encrypts OAuth tokens and pending login state
+with AES-GCM using `CREDENTIAL_ENCRYPTION_KEY`. The personal provider connection
+stores an encrypted handle. Each request must match the current connection.
+Tokens travel only over the private container binding; the browser receives a
+PKCE URL and status. Tokens are not included in the image or its environment.
 
-The browser receives a PKCE login URL and status, never OAuth tokens. The
-provider keeps transient conversation data in memory and the Worker's temporary
-filesystem. Disconnect removes stored credentials and closes that user's
-continuation sessions. Alchemy configures the private cross-worker binding in
-`alchemy.run.ts`. No public provider route or separate provider API key exists.
+Disconnect deletes the stored connection and prevents further authenticated
+requests. Reconnecting uses a new container identity. An already running stream
+must be cancelled separately. Idle containers sleep after ten minutes; their
+local files and continuation state are ephemeral. OpenCode history remains
+in Durable Object storage. No dependency patches or custom HTTP/2 implementation
+are used.
 
 ## Verification
 
@@ -44,13 +44,27 @@ continuation sessions. Alchemy configures the private cross-worker binding in
 7. Cancel an active turn and verify it stops. Reconnect, then disconnect and
    verify subsequent Cursor requests require a new connection.
 8. Test a Durable Object restart separately. Persistent OpenCode history does not
-   make Cursor's in-memory HTTP/2 continuation durable. An interrupted stream
+   make Cursor's in-memory continuation durable. An interrupted stream
    must fail rather than report a successful completion.
 
 Run `bun run typecheck`, `bun run lint`, `bun run format:check`, and `bun run test`
 for local validation. Stream tests cover tool results, compaction metadata,
 session identity, cancellation signal forwarding, and truncated responses.
 They do not prove live Cursor authentication, inference, or checkpoint recovery.
+
+## Current local verification: 2026-09-08
+
+The application build, full tests, typecheck, lint, and formatting pass. The
+Docker image builds using a frozen lockfile and unmodified dependencies. Its
+Node service returns a PKCE login response and rejects unknown routes.
+Focused tests cover stream forwarding, cancellation, concurrent requests,
+request size, binary snapshots, stale files, symlinks, and path traversal.
+The Workerd regression verifies plugin registration before recovery, native
+tools, cache behavior, restart persistence, and bounded compaction.
+
+Live authenticated inference and the complete deployed journey have not yet
+been repeated with this implementation. The evidence below describes older
+implementations and does not validate the current container integration.
 
 ## Container implementation preview evidence: 2026-09-04
 

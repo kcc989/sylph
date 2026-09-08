@@ -4,6 +4,7 @@ import {
   WorkspacePromptInput,
   WorkspaceQueuedMessage,
   WorkspaceId,
+  workspacePromptMessageId,
 } from "@workspace/domain"
 import { and, asc, eq, isNull, sql } from "drizzle-orm"
 import { Schema } from "effect"
@@ -53,7 +54,7 @@ export const savePendingWorkspacePrompt = async (
   userId: string,
   input: WorkspacePromptInput
 ) => {
-  const id = input.messageId ?? crypto.randomUUID()
+  const id = input.messageId ?? workspacePromptMessageId()
   const payload = await Schema.encodePromise(WorkspacePromptInput)(input)
   await database.run(sql`INSERT INTO workspace_pending_prompt (id, workspace_id, user_id, payload, created_at)
     SELECT ${id}, ${input.workspaceId}, ${userId}, ${JSON.stringify(payload)}, ${Date.now()}

@@ -437,3 +437,31 @@ test("permissions resolved during disconnection disappear on reconnect", async (
   await sync.refresh("workspace")
   expect(sync.getSnapshot().permissionRequests).toEqual([])
 })
+
+test("acknowledged streaming text does not reappear when history advances", async () => {
+  const { sync, sockets } = setup()
+  await sockets[0].options.onEvent(delta("Finished earlier work"))
+  expect(sync.getSnapshot().entries.map((entry) => entry.body)).toEqual([
+    "Finished earlier work",
+  ])
+  const next = snapshot()
+  next.runtime = {
+    ...next.runtime,
+    messages: [
+      { ...message("assistant-1", "Finished earlier work"), role: "assistant" },
+    ],
+  }
+  sync.replace(next)
+  expect(sync.getSnapshot().entries.map((entry) => entry.body)).toEqual([
+    "Finished earlier work",
+  ])
+  const latest = snapshot()
+  latest.runtime = {
+    ...latest.runtime,
+    messages: [message("user-2", "Next task")],
+  }
+  sync.replace(latest)
+  expect(sync.getSnapshot().entries.map((entry) => entry.body)).toEqual([
+    "Next task",
+  ])
+})

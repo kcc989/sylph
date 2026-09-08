@@ -1,15 +1,11 @@
 import type { Model } from "@opencode-ai/schema/model"
 
-export const workspaceModelContextLimit = 32_768
-export const workspaceModelInputLimit = 24_576
 export const workspaceModelOutputLimit = 4_096
 export const workspaceModelRequestByteLimit = 128 * 1024
 export const workspaceCompactionRequestByteLimit = 1024 * 1024
 
 export const boundedWorkspaceModelLimits = (limit: Model.Info["limit"]) => ({
   ...limit,
-  context: Math.min(limit.context, workspaceModelContextLimit),
-  input: Math.min(limit.input ?? limit.context, workspaceModelInputLimit),
   output: Math.min(limit.output, workspaceModelOutputLimit),
 })
 

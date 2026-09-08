@@ -6,10 +6,17 @@ import {
   workspaceCompactionRequestByteLimit,
 } from "./workspace-model-limits"
 
-test("caps large model windows without increasing smaller limits", () => {
+test("preserves provider context windows while bounding generated output", () => {
   expect(
     boundedWorkspaceModelLimits({ context: 1_000_000, output: 128_000 })
-  ).toEqual({ context: 32_768, input: 24_576, output: 4_096 })
+  ).toEqual({ context: 1_000_000, output: 4_096 })
+  expect(
+    boundedWorkspaceModelLimits({
+      context: 256_000,
+      input: 240_000,
+      output: 32_000,
+    })
+  ).toEqual({ context: 256_000, input: 240_000, output: 4_096 })
   expect(
     boundedWorkspaceModelLimits({ context: 8_000, input: 4_000, output: 2_000 })
   ).toEqual({ context: 8_000, input: 4_000, output: 2_000 })

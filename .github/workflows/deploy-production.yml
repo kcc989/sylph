@@ -16,7 +16,6 @@ on:
       - "oxlint.config.ts"
       - "package.json"
       - "packages/**"
-      - "scripts/prepare-workerd.sh"
       - "tools/oxlint/**"
       - "tools/wizard/**"
       - "tools/deployment/**"

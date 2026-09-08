@@ -7,7 +7,10 @@ import {
   WorkspaceBrowserResult,
 } from "@workspace/domain"
 import { WorkspacePreviewExpiry } from "@workspace/domain/checks"
-import { reserveSmokeRequest } from "./workspace-smoke-budget"
+import {
+  reserveSmokeRequest,
+  smokeModelConfiguration,
+} from "./workspace-smoke-budget"
 import type { Sandbox } from "@cloudflare/sandbox"
 import type { CodexContainer } from "./codex-container"
 import {
@@ -49,6 +52,7 @@ import {
   WorkspaceMessagePageInput,
   WorkspaceMessagePage,
   WorkspaceRuntimePromptInput,
+  workspacePromptMessageId,
   WorkspaceSyncResult,
   WorkspaceTurnCancelInput,
   WorkspaceVersionControlSnapshot,
@@ -330,7 +334,9 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
 
   constructor(context: DurableObjectState, bindings: WorkspaceBindings) {
     super(context, bindings)
-    this.#cursor = createCursorProvider(bindings.CURSOR)
+    this.#cursor = createCursorProvider(bindings.CURSOR, context.storage, () =>
+      this.#filesystem.commandFiles()
+    )
     context.setWebSocketAutoResponse(
       new WebSocketRequestResponsePair("ping", "pong")
     )
@@ -386,7 +392,8 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       }).pipe(Layer.provide(browserRunLayer(bindings.BROWSER)))
     )
     this.#opencode = context.blockConcurrencyWhile(async () => {
-      const { OpenCodeWorkerd } = await import("@opencode-ai/sdk/workerd")
+      await this.#cursor.restore()
+      const { createOpenCodeRuntime } = await import("./opencode-runtime")
       const { Environment } =
         await import("@opencode-ai/core/environment/index")
       const { Ripgrep } = await import("@opencode-ai/core/ripgrep")
@@ -406,26 +413,18 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         () => this.#assertWritable(),
         `agent-${context.id.toString().slice(0, 56)}`
       )
-      const opencode = await OpenCodeWorkerd.create(
+      const opencode = await createOpenCodeRuntime(
         {
           storage: context.storage,
           models: {
             url: "https://models.opencode.ai",
             snapshot: false,
           },
-          log: {
-            level: "error",
-            emit: ({ message, cause }) =>
-              console.error("OpenCode runtime error", message, cause),
-          },
           config:
             bindings.SYLPH_SMOKE_GROK_BUDGET === "true"
               ? {
                   ...workerdModelConfiguration,
-                  agents: {
-                    title: { model: "openrouter/x-ai/grok-4.6" },
-                    compaction: { model: "openrouter/x-ai/grok-4.6" },
-                  },
+                  ...smokeModelConfiguration,
                 }
               : workerdModelConfiguration,
           plugins: [
@@ -1041,17 +1040,17 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
 
       try {
         if (!turnActive) {
+          if (
+            data.model.providerId === "cursor" &&
+            data.credential.type === "key"
+          )
+            await this.#cursor.refresh(data.credential.key)
           if (state.credentialFingerprint !== nextCredentialFingerprint) {
             await this.#credentials.install(
               data.model.providerId,
               data.credential
             )
           }
-          if (
-            data.model.providerId === "cursor" &&
-            data.credential.type === "key"
-          )
-            await this.#cursor.refresh(data.credential.key)
           const catalog = await opencode.model.list()
           const selected = findWorkspaceModel(catalog.data, data.model)
           await opencode.sessions.switchModel({
@@ -1082,7 +1081,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
 
       const invocation = resolveSkillInvocation(data.text, this.#skills.list())
       await opencode.sessions.prompt({
-        id: data.messageId,
+        id: workspacePromptMessageId(data.messageId),
         sessionID: sessionId,
         text: invocation
           ? invocation.text || "Follow the attached Skill instructions."
@@ -1365,7 +1364,15 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         "Workspace runtime request failed",
         error instanceof Error ? error.stack : error
       )
-      throw error
+      throw new Error(
+        serializeServerFailure(
+          new WorkspaceRuntimeFailure({
+            message:
+              providerFailureDetail(error) ??
+              "Workspace runtime request failed",
+          })
+        )
+      )
     }
   }
 
@@ -1693,9 +1700,9 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     )
 
     try {
-      await this.#credentials.install(input.providerId, input.credential)
       if (input.providerId === "cursor" && input.credential.type === "key")
         await this.#cursor.refresh(input.credential.key)
+      await this.#credentials.install(input.providerId, input.credential)
       this.#database
         .update(appWorkspaceState)
         .set({

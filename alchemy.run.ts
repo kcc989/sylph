@@ -1,3 +1,4 @@
+import type { CursorRuntimeContainer } from "./apps/web/src/server/cursor-runtime-container"
 import type { ProjectResourceMaintenance } from "@workspace/domain/project-resources"
 import { normalizeDomain } from "./tools/deployment/config"
 import {
@@ -80,6 +81,16 @@ export class Website extends Cloudflare.Website.Vite<Website>()(
         BROWSER: Cloudflare.Browser("BROWSER"),
         CLOUDFLARE_ACCOUNT_ID: Config.string("CLOUDFLARE_ACCOUNT_ID"),
         DB: database,
+        CURSOR_RUNTIME: Cloudflare.Container<CursorRuntimeContainer>(
+          "CursorRuntimeContainer",
+          {
+            context: ".",
+            dockerfile: "packages/cursor-provider/Dockerfile",
+            className: "CursorRuntimeContainer",
+            instanceType: "basic",
+            maxInstances: 10,
+          }
+        ),
         CODEX: Cloudflare.Container<CodexContainer>("CodexContainer", {
           image: "docker.io/library/node:24-alpine",
           className: "CodexContainer",

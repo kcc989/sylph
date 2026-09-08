@@ -4,6 +4,9 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Miniflare } from "miniflare"
 import { buildWorker } from "./build.mjs"
+import { verifyWorkflowInputs } from "./workflow-inputs.mjs"
+
+await verifyWorkflowInputs()
 
 const deadline = async (promise, label) => {
   let timer
@@ -118,9 +121,14 @@ try {
     ),
     durableObjects: { PROBE: { className: "Probe", useSQLite: true } },
     outboundService: async (request) => {
-      if (new URL(request.url).hostname !== "fixture.test")
+      if (
+        !["fixture.test", "openrouter.ai"].includes(
+          new URL(request.url).hostname
+        )
+      )
         return new Response("External requests are disabled", { status: 503 })
       const body = await request.json()
+      if (body.model === "x-ai/grok-4.6") assert.equal(body.max_tokens, 4096)
       if (body.model === "anthropic/claude-sonnet-4.6")
         cacheRequests.push({
           body,
@@ -190,9 +198,22 @@ try {
         }
         chunks[1].choices[0].finish_reason = "tool_calls"
       }
+      const encoded = new TextEncoder().encode(
+        ": OPENROUTER PROCESSING\n\n" +
+          chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("") +
+          "data: [DONE]\n\n"
+      )
+      let offset = 0
       return new Response(
-        chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("") +
-          "data: [DONE]\n\n",
+        new ReadableStream({
+          async pull(controller) {
+            await new Promise((resolve) => setTimeout(resolve, 1))
+            if (offset === encoded.length) return controller.close()
+            const end = Math.min(offset + 37, encoded.length)
+            controller.enqueue(encoded.slice(offset, end))
+            offset = end
+          },
+        }),
         { headers: { "Content-Type": "text/event-stream" } }
       )
     },
@@ -212,6 +233,13 @@ try {
   const started = performance.now()
   const health = await read("health")
   assert.equal(health.health.healthy, true)
+  await read("cursor-connect")
+  const cursorCatalog = await read("cursor-connect")
+  assert(
+    cursorCatalog.data.some(
+      (model) => model.providerID === "cursor" && model.id === "grok-4.6"
+    )
+  )
   const session = await read("start")
   await deadline(first.promise, "Initial model request")
   assert.ok(requests[0].includes("probe_recovery_tool"))
@@ -221,6 +249,12 @@ try {
   )
   assert.equal(reset.status, 500)
   assert.equal((await read("health")).health.healthy, true)
+  assert(
+    (await read("cursor-catalog")).data.some(
+      (model) => model.providerID === "cursor" && model.id === "grok-4.6"
+    ),
+    "Cursor catalog must survive a Durable Object restart without reconnecting"
+  )
   release.resolve()
   await deadline(recovered.promise, "Recovered model request")
   assert.ok(requests[1].includes("probe_recovery_tool"))
@@ -242,8 +276,13 @@ try {
   const stats = await read("stats")
   assert.ok(stats.storageBytes > 0)
   nativeMode = true
-  await read("native-start")
+  const nativeStart = await read("native-start")
   const nativeResult = await read("complete")
+  assert(
+    nativeResult.messages.data.some(
+      (message) => message.id === nativeStart.messageId
+    )
+  )
   assert.equal(nativeResult.outcome, "succeeded")
   assert.equal(nativeCallIndex, nativeCalls.length)
   const nativeTools = nativeResult.messages.data.flatMap((message) =>
@@ -296,6 +335,8 @@ try {
   for (const tool of patchTools)
     assert.equal(tool.state.status, "completed", JSON.stringify(tool))
   assert.deepEqual((await read("native-state")).files, ["native.txt"])
+  await read("smoke-start")
+  assert.equal((await read("complete")).outcome, "succeeded")
   const cacheSession = await read("cache-start")
   assert.equal((await read("complete")).outcome, "succeeded")
   const requestsBeforeNotice = cacheRequests.length

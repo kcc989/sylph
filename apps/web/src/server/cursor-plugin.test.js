@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import { createCursorProvider } from "./cursor-plugin"
 
-const fixture = () => {
+const fixture = (saved = new Map()) => {
   let connected = false
   let resolutions = 0
   let transform
@@ -23,15 +23,22 @@ const fixture = () => {
     })
     models = structuredClone(next)
   }
-  const provider = createCursorProvider({
-    idFromName: (name) => name,
-    get: () => ({
-      fetch: async () =>
-        Response.json([
-          { id: "default", name: "Auto", context: 128000, images: true },
-        ]),
-    }),
-  })
+  const provider = createCursorProvider(
+    {
+      idFromName: (name) => name,
+      get: () => ({
+        fetch: async () =>
+          Response.json([
+            { id: "default", name: "Auto", context: 128000, images: true },
+          ]),
+      }),
+    },
+    {
+      get: async (key) => saved.get(key),
+      put: async (key, value) => saved.set(key, structuredClone(value)),
+    },
+    () => []
+  )
   const context = {
     integration: {
       transform: registration,
@@ -123,5 +130,19 @@ test("Cursor SDK supplies the language model through the host fallback", async (
   expect(model.provider).toBe("cursor")
   expect(model.modelId).toBe("default")
   expect(state.aiSdkHooks.has("language")).toBe(false)
+  await cleanup()
+})
+
+test("Cursor catalog survives a Workspace restart before session recovery", async () => {
+  const saved = new Map()
+  const first = fixture(saved)
+  await first.provider.refresh(
+    JSON.stringify({ userId: "test-user", key: "test-key" })
+  )
+  const restarted = fixture(saved)
+  await restarted.provider.restore()
+  const cleanup = await restarted.provider.plugin.setup(restarted.context)
+  expect(restarted.models().map((model) => model.id)).toEqual(["default"])
+  expect(restarted.resolutions()).toBe(0)
   await cleanup()
 })
