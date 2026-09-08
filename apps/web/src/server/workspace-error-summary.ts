@@ -44,6 +44,7 @@ const safeErrorDetail = (error: ProviderConnectionFailure) => {
   return messages
     .join(": ")
     .replace(/\bBearer\s+\S+/gi, "Bearer [redacted]")
+    .replace(/\bsk-[\w-]+/g, "[redacted]")
     .replace(
       /\b(token|secret|password|authorization|api[-_ ]?key)\s*[:=]\s*\S+/gi,
       "$1=[redacted]"
@@ -58,4 +59,14 @@ export const providerConnectionErrorSummary = (
   const detail = error ? safeErrorDetail(error) : ""
   if (!detail) return reconnectSummary(providerId)
   return `The AI provider could not connect to ${providerId}. ${detail}`
+}
+
+const providerStreamFailure = Schema.Struct({
+  reason: Schema.Struct({ raw: Schema.String }),
+})
+
+export const providerRuntimeErrorDetail = (cause: unknown) => {
+  if (Schema.is(providerStreamFailure)(cause))
+    return safeErrorDetail(new Error(cause.reason.raw))
+  return providerFailureDetail(cause)
 }

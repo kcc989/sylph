@@ -96,6 +96,7 @@ import {
 import {
   providerConnectionErrorSummary,
   providerFailureDetail,
+  providerRuntimeErrorDetail,
 } from "./workspace-error-summary"
 import {
   createWorkspacePlugin,
@@ -417,7 +418,11 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           log: {
             level: "error",
             emit: ({ message, cause }) =>
-              console.error("OpenCode runtime error", message, cause),
+              console.error(
+                "OpenCode runtime error",
+                message,
+                providerRuntimeErrorDetail(cause) ?? cause
+              ),
           },
           config:
             bindings.SYLPH_SMOKE_GROK_BUDGET === "true"

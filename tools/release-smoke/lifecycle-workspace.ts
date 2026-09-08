@@ -94,10 +94,20 @@ export const nativePrompt = (marker: string) =>
   `Keep the existing template, auth, Alchemy resources and all five release hooks. Build an authenticated D1 todo list at / with table todos(title TEXT NOT NULL, completed INTEGER NOT NULL DEFAULT 0). Require the existing Better Auth session for all todo server operations. Preserve /sign-in with the template account registration and login labels. Give the input aria-label New todo, a button with aria-label Add todo, and each row a checkbox aria-label equal to its title and a button with aria-label Delete <title>. Render each title in a span with data-smoke-todo equal to the title, and data-smoke-completed equal to true or false on the same span, updated from D1. No browser storage or memory persistence. Preserve the exact runtime SYLPH_CHECKPOINT/SYLPH_DEPLOYMENT text and data attributes. Apply additive migrations through Alchemy. Add RELEASE_SMOKE_PROOF.txt containing ${marker}, and show it on /. Use native write/edit tools, read the files back, and native shell tools for node --version, bun --version, git diff, bun install and meaningful project tests. Add and execute smoke-shell.sh which runs the project tests, captures their actual exit status, prints SYLPH_NATIVE_EXIT=<that status> and exits with it. Keep all checks meaningful. After authentication render a span with data-smoke-secret whose text is the server runtime SMOKE_REVISION application binding, or unset when absent; this is a disposable nonsecret version marker used to verify restored secret deployment. Add a tested wrapper around the existing sylph:deploy command: only when SYLPH_DEPLOYMENT is production and JSON.parse(SYLPH_PROJECT_SECRETS).SMOKE_FAIL_RELEASE equals yes, exit 73 with SYLPH_EXPECTED_RELEASE_FAILURE before invoking Alchemy. All other cases must execute the original command and preserve its exit code. Do not change sylph:preview or the five recovery hooks to fake success. Also add an Alchemy-managed FILES R2 application bucket through applicationBucketBindings and preserve the template recovery hooks. After login render a textbox aria-label Object body, a textbox aria-label Object version, and a button aria-label Save object. Save the body to lifecycle-proof.txt in FILES with httpMetadata {contentType: "text/plain; charset=utf-8", cacheControl: "private, no-store"} and customMetadata {version: the submitted Object version}. On page load and after Save object read R2 and show body in [data-smoke-object] and custom version in [data-smoke-object-version]. Require the session on all object operations. Add an authenticated /smoke-health endpoint that normally returns 200 but has a deliberately reproducible defect: when query parameter probe equals ${marker}, return HTTP 500 with text SYLPH_EXPECTED_RUNTIME_FAILURE. Tests must cover normal success and this current defect. Keep the default app and health checks healthy. Do not create a Checkpoint or run a Check.`
 
 export async function prompt(r: LifecycleActionRuntime, text: string) {
+  const errors = r.page.getByRole("article").filter({
+    has: r.page.getByRole("heading", { name: "Assistant error", exact: true }),
+  })
+  const priorErrors = await errors.count()
   await r.page.getByRole("textbox", { name: "Message the agent" }).fill(text)
   await r.page.getByRole("button", { name: "Send message" }).click()
-  await expect(r.page.getByText("Agent working", { exact: true })).toBeVisible()
-  await finishWorkspaceTurn(r.page)
+  await expect(
+    r.page
+      .getByText("Agent working", { exact: true })
+      .or(errors.nth(priorErrors))
+  ).toBeVisible({ timeout: 60_000 })
+  await expect(errors).toHaveCount(priorErrors)
+  await finishWorkspaceTurn(r.page, true)
+  await expect(errors).toHaveCount(priorErrors)
 }
 
 async function createLifecycleProject(r: LifecycleActionRuntime) {
@@ -186,7 +196,13 @@ export async function modelNativeCommands(r: LifecycleActionRuntime) {
       exact: true,
     })
     .click()
-  await prompt(r, nativePrompt(r.state.marker))
+  const task = nativePrompt(r.state.marker)
+  await prompt(
+    r,
+    (await r.page.getByText(task, { exact: true }).count()) > 0
+      ? "Continue the task in the previous message. Retry the failed turn and preserve every requirement."
+      : task
+  )
   await expectExpandableToolCalls(r.page)
   const shellOutputs = r.page
     .locator('button[aria-label$=", completed"]')
