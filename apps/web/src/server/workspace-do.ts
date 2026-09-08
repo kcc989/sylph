@@ -335,7 +335,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
 
   constructor(context: DurableObjectState, bindings: WorkspaceBindings) {
     super(context, bindings)
-    this.#cursor = createCursorProvider(bindings.CURSOR)
+    this.#cursor = createCursorProvider(bindings.CURSOR, context.storage)
     context.setWebSocketAutoResponse(
       new WebSocketRequestResponsePair("ping", "pong")
     )
@@ -391,6 +391,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       }).pipe(Layer.provide(browserRunLayer(bindings.BROWSER)))
     )
     this.#opencode = context.blockConcurrencyWhile(async () => {
+      await this.#cursor.restore()
       const { OpenCodeWorkerd } = await import("@opencode-ai/sdk/workerd")
       const { Environment } =
         await import("@opencode-ai/core/environment/index")

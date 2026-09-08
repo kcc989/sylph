@@ -8,7 +8,10 @@ import { cursorLanguageModel } from "./cursor-language-model"
 const decodeHandle = Schema.decodeUnknownPromise(CursorHandle)
 const decodeModels = Schema.decodeUnknownPromise(CursorModels)
 
-export const createCursorProvider = (namespace: DurableObjectNamespace) => {
+export const createCursorProvider = (
+  namespace: DurableObjectNamespace,
+  storage: Pick<DurableObjectStorage, "get" | "put">
+) => {
   let models: typeof CursorModels.Type = []
   const catalogs = new Set<() => Promise<void>>()
   const send = (userId: string, request: Request) =>
@@ -80,6 +83,10 @@ export const createCursorProvider = (namespace: DurableObjectNamespace) => {
 
   return {
     plugin,
+    restore: async () => {
+      const saved = await storage.get("cursor-models")
+      if (saved !== undefined) models = await decodeModels(saved)
+    },
     refresh: async (key: string) => {
       const handle = await decodeHandle(JSON.parse(key))
       const response = await send(
@@ -91,6 +98,7 @@ export const createCursorProvider = (namespace: DurableObjectNamespace) => {
       )
       if (!response.ok) throw new Error("Could not load Cursor models")
       models = await decodeModels(await response.json())
+      await storage.put("cursor-models", models)
       await Promise.all(Array.from(catalogs, (reload) => reload()))
     },
   }
