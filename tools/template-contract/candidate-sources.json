@@ -52,7 +52,8 @@
   ],
   "rewrites": [
     ["@workspace/domain/cloudflare-recovery", "./domain"],
-    ["@workspace/domain/cloudflare-r2-recovery", "./r2-domain"]
+    ["@workspace/domain/cloudflare-r2-recovery", "./r2-domain"],
+    ["./cloudflare-r2-recovery", "./r2-domain"]
   ],
   "controlSchemas": [
     "packages/cloudflare-recovery/src/control.sql",
