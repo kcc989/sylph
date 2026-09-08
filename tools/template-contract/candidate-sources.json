@@ -48,15 +48,72 @@
     {
       "templatePath": "recovery-migrations/0003-recovery-r2.sql",
       "platformPath": "packages/cloudflare-recovery/src/r2-control.sql"
+    },
+    {
+      "templatePath": "src/recovery/managed-kv.ts",
+      "platformPath": "packages/cloudflare-recovery/src/managed-kv.ts"
+    },
+    {
+      "templatePath": "src/recovery/queue.ts",
+      "platformPath": "packages/cloudflare-recovery/src/queue.ts"
+    },
+    {
+      "templatePath": "src/recovery/object.ts",
+      "platformPath": "packages/cloudflare-recovery/src/object.ts"
+    },
+    {
+      "templatePath": "src/recovery/object-worker.ts",
+      "platformPath": "packages/cloudflare-recovery/src/object-worker.ts"
+    },
+    {
+      "templatePath": "src/recovery/object-drill.ts",
+      "platformPath": "packages/cloudflare-recovery/src/object-drill.ts"
+    },
+    {
+      "templatePath": "src/recovery/managed-kv-domain.ts",
+      "platformPath": "packages/domain/src/managed-kv.ts"
+    },
+    {
+      "templatePath": "src/recovery/queue-domain.ts",
+      "platformPath": "packages/domain/src/cloudflare-queue-recovery.ts"
+    },
+    {
+      "templatePath": "src/recovery/object-domain.ts",
+      "platformPath": "packages/domain/src/cloudflare-object-recovery.ts"
+    },
+    {
+      "templatePath": "src/recovery/object-drill-domain.ts",
+      "platformPath": "packages/domain/src/cloudflare-object-drill.ts"
+    },
+    {
+      "templatePath": "migrations/0002_managed_kv.sql",
+      "platformPath": "packages/cloudflare-recovery/src/managed-kv.sql"
+    },
+    {
+      "templatePath": "migrations/0003_managed_queue.sql",
+      "platformPath": "packages/cloudflare-recovery/src/queue.sql"
+    },
+    {
+      "templatePath": "recovery-migrations/0004-recovery-object.sql",
+      "platformPath": "packages/cloudflare-recovery/src/object-control.sql"
     }
   ],
   "rewrites": [
     ["@workspace/domain/cloudflare-recovery", "./domain"],
     ["@workspace/domain/cloudflare-r2-recovery", "./r2-domain"],
-    ["./cloudflare-r2-recovery", "./r2-domain"]
+    ["./cloudflare-r2-recovery", "./r2-domain"],
+    ["@workspace/domain/managed-kv", "./managed-kv-domain"],
+    ["./managed-kv", "./managed-kv-domain"],
+    ["@workspace/domain/cloudflare-queue-recovery", "./queue-domain"],
+    ["./cloudflare-queue-recovery", "./queue-domain"],
+    ["@workspace/domain/cloudflare-object-recovery", "./object-domain"],
+    ["./cloudflare-object-recovery", "./object-domain"],
+    ["@workspace/domain/cloudflare-object-drill", "./object-drill-domain"],
+    ["./cloudflare-object-drill", "./object-drill-domain"]
   ],
   "controlSchemas": [
     "packages/cloudflare-recovery/src/control.sql",
-    "packages/cloudflare-recovery/src/r2-control.sql"
+    "packages/cloudflare-recovery/src/r2-control.sql",
+    "packages/cloudflare-recovery/src/object-control.sql"
   ]
 }
