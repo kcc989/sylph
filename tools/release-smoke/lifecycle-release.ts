@@ -1,3 +1,4 @@
+import { writeObject, observeObject } from "./lifecycle-objects"
 import { expect } from "@playwright/test"
 import { Schema } from "effect"
 import { CloudflareDeployments } from "@workspace/domain/project-operations"
@@ -267,6 +268,7 @@ export async function productionRelease(r: LifecycleActionRuntime) {
   await expect(
     app.getByRole("checkbox", { name: title, exact: true })
   ).toBeVisible()
+  await writeObject(app, r.state.marker, "before")
   await app.close()
   const worker = new URL(url).hostname.split(".")[0]
   const settings = await r.provider.settings(worker)
@@ -278,6 +280,10 @@ export async function productionRelease(r: LifecycleActionRuntime) {
     ...r.state,
     productionDatabaseId: database,
     productionWorker: worker,
+    productionBucket: requireValue(
+      settings.bindings.find((item) => item.name === "FILES")?.bucket_name,
+      "Production FILES R2 binding missing"
+    ),
   }
   r.assert(
     "Production persisted pre-restore data",
@@ -290,6 +296,9 @@ export async function productionRelease(r: LifecycleActionRuntime) {
     [{ title, completed: 0 }],
     true
   )
+  app = await r.app(url)
+  await observeObject(r, app, "before")
+  await app.close()
   await secret(r, "SMOKE_REVISION", "after")
   const released = await deploy(r)
   const recovery = Schema.decodeUnknownSync(DeploymentRecoveryPoint)(
@@ -314,6 +323,8 @@ export async function productionRelease(r: LifecycleActionRuntime) {
     await app.locator("[data-smoke-secret]").textContent(),
     "after"
   )
+  await writeObject(app, r.state.marker, "after")
+  await observeObject(r, app, "after")
   await app.getByRole("checkbox", { name: title, exact: true }).check()
   await app.reload()
   r.assert(
@@ -462,6 +473,10 @@ export async function restore(r: LifecycleActionRuntime, undo: boolean) {
     [{ title, completed: undo ? 1 : 0 }],
     true
   )
+  await observeObject(r, app, undo ? "after" : "before")
+  await writeObject(app, r.state.marker, "mutation")
+  await observeObject(r, app, "mutation")
+  await writeObject(app, r.state.marker, undo ? "after" : "before")
   const checkbox = app.getByRole("checkbox", { name: title, exact: true })
   await checkbox.setChecked(!undo)
   await app.reload()

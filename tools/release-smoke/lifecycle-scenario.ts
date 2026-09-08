@@ -20,6 +20,7 @@ export const actionOrder = [
   "deliberate-failure",
   "application-restore",
   "restore-undo",
+  "telemetry-repair",
   "ownership-conflict",
   "partial-failure-cleanup",
 ] as const
@@ -72,6 +73,7 @@ export async function createLifecycleScenario(
     },
     accountId,
     modelBudgetUsd: 4,
+    modelWorkspaceLimit: 2,
     options,
     phases,
   })

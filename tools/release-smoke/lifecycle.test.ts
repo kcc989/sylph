@@ -28,6 +28,7 @@ const scenario: LifecycleScenario = {
   identity,
   accountId: "c".repeat(32),
   modelBudgetUsd: 4,
+  modelWorkspaceLimit: 2,
   phases: lifecyclePaths.map((path) => ({
     path,
     target: `${path} on disposable app`,
@@ -147,7 +148,7 @@ test("local receipts and missing provider evidence cannot complete a combined li
     ],
   }))
   expect(combinedLifecycleResult(observations).complete).toBe(false)
-  expect(combinedLifecycleResult([]).paths).toHaveLength(12)
+  expect(combinedLifecycleResult([]).paths).toHaveLength(lifecyclePaths.length)
   const deployed = observations.map((observation) => ({
     ...observation,
     scope: "deployed" as const,

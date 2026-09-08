@@ -14,6 +14,7 @@ export const approvalPaths = new Set([
   "deliberate-failure",
   "application-restore",
   "restore-undo",
+  "telemetry-repair",
   "partial-failure-cleanup",
 ])
 

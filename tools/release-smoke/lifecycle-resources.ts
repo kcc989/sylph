@@ -175,6 +175,8 @@ export async function partialFailureCleanup(r: LifecycleActionRuntime) {
     r.state.productionDatabaseId,
     "Production D1 missing"
   )
+  const bucket = requireValue(r.state.productionBucket, "Production R2 missing")
+  const retainedObject = await r.provider.object(bucket, "lifecycle-proof.txt")
   const retainedRows = await r.provider.rows(
     live,
     "SELECT title, completed FROM todos ORDER BY title",
@@ -245,6 +247,12 @@ export async function partialFailureCleanup(r: LifecycleActionRuntime) {
       Schema.JsonObject
     ),
     retainedRows,
+    true
+  )
+  r.assert(
+    "Cleanup retains production R2 body and metadata",
+    await r.provider.object(bucket, "lifecycle-proof.txt"),
+    retainedObject,
     true
   )
   r.assert(

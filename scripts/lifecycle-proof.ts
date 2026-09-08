@@ -163,7 +163,10 @@ async function main() {
         {
           identity: scenario.identity,
           accountId: scenario.accountId,
-          modelBudgetUsd: scenario.modelBudgetUsd,
+          modelBudgetUsdPerWorkspace: scenario.modelBudgetUsd,
+          modelWorkspaceLimit: scenario.modelWorkspaceLimit,
+          maximumModelBudgetUsd:
+            scenario.modelBudgetUsd * scenario.modelWorkspaceLimit,
           observedState,
           phases: scenario.phases.map((phase) => ({
             ...phase,
