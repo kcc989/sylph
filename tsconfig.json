@@ -20,6 +20,8 @@
     "tools/browser-smoke/*.ts",
     "tools/deployment/**/*.ts",
     "tools/release-smoke/lifecycle*.ts",
+    "tools/release-smoke/cleanup-lock*.ts",
+    "scripts/cleanup-lock.ts",
     "tools/release-smoke/preservation*.ts",
     "scripts/lifecycle-proof.ts",
     "tests/release-smoke/actions/*.ts",
