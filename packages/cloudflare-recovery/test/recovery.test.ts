@@ -116,6 +116,7 @@ const drill = (provider: Provider) =>
       })
       provider.application.exec("UPDATE notes SET body = 'changed'")
       provider.current = "bookmark-2"
+      yield* service.captureForDrill({ databaseId: "app", releaseId: "drill" })
       const evidence = yield* service.restore(manifest, "drill")
       yield* service.resume("drill")
       return { manifest, evidence }
@@ -380,4 +381,26 @@ describe("Cloudflare D1 recovery", () => {
         )
       ).rejects.toThrow()
   })
+})
+
+test("D1 restore rejects data changes after the saved undo point before provider mutation", async () => {
+  const provider = new Provider()
+  await run(provider, (service) =>
+    Effect.gen(function* () {
+      yield* service.pause("stale-undo")
+      const target = yield* service.captureForDrill({
+        databaseId: "app",
+        releaseId: "stale-undo",
+      })
+      provider.application.exec("UPDATE notes SET body = 'outside-writer'")
+      const result = yield* Effect.result(service.restore(target, "stale-undo"))
+      expect(result._tag).toBe("Failure")
+    })
+  )
+  expect(provider.restoreCalls).toBe(0)
+  expect(
+    provider.control
+      .query("SELECT phase FROM sylph_recovery_resource_operation")
+      .get()
+  ).toBeNull()
 })
