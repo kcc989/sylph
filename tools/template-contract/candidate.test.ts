@@ -5,6 +5,7 @@ import {
   mkdirSync,
   rmSync,
   readFileSync,
+  readdirSync,
 } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
@@ -14,7 +15,7 @@ import {
   verifyControlSchema,
   verifyImmutableMigrations,
 } from "./candidate.mjs"
-import { prepareTemplateUpgrade } from "./upgrade.mjs"
+import { createHash } from "node:crypto"
 
 const baseSql =
   "CREATE TABLE sylph_recovery_gate (id INTEGER PRIMARY KEY, owner TEXT); INSERT INTO sylph_recovery_gate VALUES (1, NULL);"
@@ -71,7 +72,7 @@ const commit = (directory: string) => {
   return git(directory, "rev-parse", "HEAD")
 }
 
-test("candidate generation reproduces exact full and incremental trees and preserves accepted Project history", () => {
+test("candidate generation records deterministic immutable references and verified source provenance only", () => {
   const root = mkdtempSync(join(tmpdir(), "sylph-candidate-contract-"))
   try {
     const platform = join(root, "platform")
@@ -82,7 +83,7 @@ test("candidate generation reproduces exact full and incremental trees and prese
     writeFileSync(join(platform, "control.sql"), baseSql + additiveSql)
     writeFileSync(join(platform, "upgrade.sql"), additiveSql)
     writeFileSync(join(platform, "base.sql"), baseSql)
-    commit(platform)
+    const platformCommit = commit(platform)
     writeFileSync(join(starter, "package.json"), '{"version":"0.1.0"}\n')
     const baseCommit = commit(starter)
     mkdirSync(join(starter, "recovery-migrations"))
@@ -126,34 +127,24 @@ test("candidate generation reproduces exact full and incremental trees and prese
     expect(readFileSync(join(output, "template-candidate.json"), "utf8")).toBe(
       first
     )
-    const project = join(root, "project")
-    git(root, "clone", "-q", starter, project)
-    git(project, "checkout", "--detach", previousCommit)
-    const upgraded = prepareTemplateUpgrade(
-      project,
-      join(root, "upgrade"),
-      "codex/review-upgrade",
-      output
-    )
-    expect(upgraded.patch).toBe("template-upgrade.patch")
-    expect(git(project, "rev-parse", "HEAD")).toBe(previousCommit)
-    expect(git(project, "status", "--porcelain")).toBe("")
-    expect(git(upgraded.directory, "rev-parse", "HEAD")).toBe(previousCommit)
-    expect(
-      readFileSync(
-        join(upgraded.directory, "recovery-migrations/0001.sql"),
-        "utf8"
-      )
-    ).toBe(baseSql)
-    writeFileSync(join(output, "template-upgrade.patch"), "corrupt")
-    expect(() =>
-      prepareTemplateUpgrade(
-        project,
-        join(root, "tampered"),
-        "codex/tampered",
-        output
-      )
-    ).toThrow("hash mismatch")
+    expect(metadata.repository).toBe("kcc989/sylph-tanstack-template")
+    expect(metadata.baseCommit).toBe(baseCommit)
+    expect(metadata.previousCommit).toBe(previousCommit)
+    expect(metadata.recoverySourceCommit).toBe(platformCommit)
+    expect(metadata).not.toHaveProperty("patches")
+    expect(metadata).not.toHaveProperty("candidateRef")
+    expect(readdirSync(output)).toEqual(["template-candidate.json"])
+    expect(metadata.recoverySources[0]).toEqual({
+      templatePath: "recovery-migrations/0001.sql",
+      platformPath: "base.sql",
+      sourceCommit: platformCommit,
+      sourceSha256: createHash("sha256").update(baseSql).digest("hex"),
+      templateSha256: createHash("sha256").update(baseSql).digest("hex"),
+    })
+    expect(git(starter, "rev-parse", "HEAD")).toBe(candidateCommit)
+    expect(git(starter, "status", "--porcelain")).toBe("")
+    expect(git(platform, "rev-parse", "HEAD")).toBe(platformCommit)
+    expect(git(platform, "status", "--porcelain")).toBe("")
     const mapping = JSON.parse(readFileSync(sourceMap, "utf8"))
     mapping.sources[0].platformPath = "upgrade.sql"
     writeFileSync(sourceMap, JSON.stringify(mapping))
@@ -165,6 +156,18 @@ test("candidate generation reproduces exact full and incremental trees and prese
     )
     writeFileSync(join(starter, "uncommitted"), "pending")
     expect(() => generateTemplateCandidate(options)).toThrow("clean committed")
+    rmSync(join(starter, "uncommitted"))
+    writeFileSync(
+      join(starter, "recovery-migrations/0001.sql"),
+      baseSql.replace("owner TEXT", "owner INTEGER")
+    )
+    commit(starter)
+    expect(() => generateTemplateCandidate(options)).toThrow(
+      "Published migration changed"
+    )
+    expect(readFileSync(join(output, "template-candidate.json"), "utf8")).toBe(
+      first
+    )
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

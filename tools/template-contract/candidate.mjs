@@ -1,13 +1,6 @@
 import { Database } from "bun:sqlite"
 import { createHash } from "node:crypto"
-import {
-  readFileSync,
-  writeFileSync,
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-} from "node:fs"
-import { tmpdir } from "node:os"
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { spawnSync } from "node:child_process"
@@ -74,40 +67,6 @@ export const verifyControlSchema = (migrations, schemas) => {
     )
 }
 
-const verifyPatch = (repository, base, candidate, patch) => {
-  const temporary = mkdtempSync(join(tmpdir(), "sylph-candidate-index-"))
-  try {
-    const environment = {
-      ...process.env,
-      GIT_INDEX_FILE: join(temporary, "index"),
-    }
-    const indexGit = (args, input) => {
-      const result = spawnSync("git", args, {
-        cwd: repository,
-        env: environment,
-        input,
-        encoding: "utf8",
-      })
-      if (result.status !== 0)
-        throw new Error(
-          result.stderr.trim() || "Patch tree verification failed"
-        )
-      return result.stdout.trim()
-    }
-    indexGit(["read-tree", base])
-    if (patch) indexGit(["apply", "--cached", "--binary", "-"], patch)
-    if (
-      indexGit(["write-tree"]) !==
-      git(repository, "rev-parse", `${candidate}^{tree}`).trim()
-    )
-      throw new Error(
-        "Upgrade patch does not reproduce the exact candidate tree"
-      )
-  } finally {
-    rmSync(temporary, { recursive: true, force: true })
-  }
-}
-
 export const generateTemplateCandidate = ({
   platform,
   starter,
@@ -127,7 +86,7 @@ export const generateTemplateCandidate = ({
     )
   )
     throw new Error(
-      "Write the candidate bundle outside the platform and starter checkouts"
+      "Write candidate metadata outside the platform and starter checkouts"
     )
   if (!/^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?$/.test(version))
     throw new Error("Use an explicit candidate release version")
@@ -202,29 +161,11 @@ export const generateTemplateCandidate = ({
       blob(platform, sourceCommit, checkedPath(path))
     )
   )
-  const patches = [
-    ["template.patch", baseCommit],
-    ["template-upgrade.patch", previousCommit],
-  ].map(([name, from]) => {
-    const text = git(
-      starter,
-      "diff",
-      "--binary",
-      "--full-index",
-      "--no-renames",
-      from,
-      candidateCommit,
-      "--"
-    )
-    verifyPatch(starter, from, candidateCommit, text)
-    return { name, baseCommit: from, sha256: hash(text), text }
-  })
   const metadata = {
     repository: "kcc989/sylph-tanstack-template",
     baseCommit,
     previousCommit,
     candidateCommit,
-    candidateRef: git(starter, "branch", "--show-current").trim(),
     version,
     published: false,
     recoverySourceCommit: sourceCommit,
@@ -236,15 +177,12 @@ export const generateTemplateCandidate = ({
       sha256: hash(blob(platform, sourceCommit, path)),
     })),
     recoverySources,
-    patches: patches.map(({ text: _text, ...entry }) => entry),
     recoveryMigrations: recoveryMigrations.map((path) => ({
       path,
       sha256: hash(blob(starter, candidateCommit, path)),
     })),
   }
   mkdirSync(output, { recursive: true })
-  for (const patch of patches)
-    writeFileSync(join(output, patch.name), patch.text)
   writeFileSync(
     join(output, "template-candidate.json"),
     `${JSON.stringify(metadata, null, 2)}\n`
