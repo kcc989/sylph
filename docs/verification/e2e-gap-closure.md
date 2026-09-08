@@ -18,6 +18,12 @@ R2 snapshots are bounded to 10,000 objects, 16 MiB per object and 64 MiB of obje
 
 See [combined lifecycle procedure](../../tests/release-smoke/COMBINED.md) and [starter candidate procedure](../../tools/template-contract/README.md). No live application restore, resource deletion, earlier Installation migration or production release has been performed by the follow-up integration owner.
 
+## Current local checks
+
+Platform source `8f9a885` passed all 803 tests, formatting, lint and the local Workerd agent-runtime smoke. Production build and typechecks passed before the final test-only fixture changes. External starter `33482d3892652237dccfb80a9d2f4e479a6d51e0` passed 59 tests, typecheck, lint, formatting and production build. The platform contract checker also passed, including exact copied-source comparison and recovery schema reconciliation. The candidate is not published or pinned yet.
+
+These results do not establish fresh deployed journey, application restore/undo, or partial-cleanup proof. The combined source is in draft PR #73 until the compatible starter and live evidence are complete.
+
 ## Earlier integration checks
 
 The final combined implementation at `635f28e` passed format, lint, all package/root typechecks, the full test command (617 tests), and the production build. The local Workerd runtime smoke and all 59 Storybook browser tests also passed. The starter candidate passed 28 tests, typecheck, lint, formatting, build, the shared platform contract verifier, full patch applicability, and copied recovery-source hash checks.
