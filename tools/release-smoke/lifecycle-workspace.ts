@@ -100,7 +100,7 @@ export async function prompt(r: LifecycleActionRuntime, text: string) {
   await finishWorkspaceTurn(r.page)
 }
 
-export async function modelNativeCommands(r: LifecycleActionRuntime) {
+async function createLifecycleProject(r: LifecycleActionRuntime) {
   await r.page.goto("/admin?onboarding=1")
   await waitForHydration(r.page)
   await r.page.getByRole("tab", { name: "Organization" }).click()
@@ -169,6 +169,11 @@ export async function modelNativeCommands(r: LifecycleActionRuntime) {
     true
   )
   r.state = { ...r.state, project, workspace, workspaceUrl: r.page.url() }
+}
+
+export async function modelNativeCommands(r: LifecycleActionRuntime) {
+  if (r.state.workspace) await r.workspacePage()
+  else await createLifecycleProject(r)
   await expect(
     r.page.getByRole("textbox", { name: "Message the agent" })
   ).toBeEnabled()

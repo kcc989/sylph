@@ -6,7 +6,11 @@ import {
   workspaceProvisioningId,
   workspaceProvisioningInput,
 } from "./workspace-provisioning-request"
-import { type WorkspaceMessageDeliveryInput } from "@workspace/domain"
+import type { WorkspaceMessageDeliveryInput } from "@workspace/domain"
+import {
+  provisioningParameters,
+  messageDeliveryParameters,
+} from "./workspace-workflow-parameters"
 import { deploymentWorkflowAlreadyStarted } from "./deployment-records"
 import { env } from "cloudflare:workers"
 import {
@@ -31,7 +35,7 @@ export const scheduleWorkspaceProvisioning = async (workspaceId: string) => {
   try {
     await env.PROVISIONING.create({
       id: workspaceProvisioningId(input),
-      params: input,
+      params: provisioningParameters(input),
     })
   } catch (cause) {
     if (!deploymentWorkflowAlreadyStarted(cause)) throw cause
@@ -48,7 +52,7 @@ export const scheduleWorkspaceMessageDelivery = async (
   try {
     await env.MESSAGE_DELIVERY.create({
       id: `message-${input.messageId}`,
-      params: input,
+      params: messageDeliveryParameters(input),
     })
   } catch (cause) {
     if (!deploymentWorkflowAlreadyStarted(cause)) throw cause

@@ -4,6 +4,9 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Miniflare } from "miniflare"
 import { buildWorker } from "./build.mjs"
+import { verifyWorkflowInputs } from "./workflow-inputs.mjs"
+
+await verifyWorkflowInputs()
 
 const deadline = async (promise, label) => {
   let timer
