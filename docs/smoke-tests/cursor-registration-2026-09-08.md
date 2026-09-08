@@ -73,3 +73,21 @@ The proof file is the only added working change. Existing fixture files remain p
 Checkpoint `abf76d5d-1d67-4582-b26a-5ab2f82010b9`, commit `d4db629e65cf8c86c609d18a8a9b2e149b2ea8d3`, Check `check-abf76d5d-1d67-4582-b26a-5ab2f82010b9` passed install, typecheck, lint, test, and build. Preview failed with `ResourcePolicyError: Recovery control must use a separate D1 database`. The exact source condition is a non-D1 resource with purpose recovery_control, not equal database IDs.
 
 Cursor's automatic repair turn inspected files and changed two resource-plan files. Follow-up guidance supplied the exact validation condition, then requested a checkpoint and rerun without publish/restore/deletion. That checkpoint/rerun was not confirmed: the Workspace became unavailable. Scoped Worker telemetry reported the Durable Object exceeded its memory limit and reset, followed by repeated blockConcurrencyWhile startup timeouts. Retry and reload did not establish recovery. Preserve the existing Workspace, its saved repair edits, and the Check above. Do not claim Preview, release, or recovery E2E success from the successful provider probes.
+
+## Workspace recovery experiments
+
+Bootstrap phase logs show the runtime reaches ready before the repeated timeout. Aggregate stored sizes were 521 messages / 2,631,734 bytes (largest message 46,476 bytes), 109 working files / 596,455 bytes, and 71 Git files / 483,146 bytes. These are measurements, not proof of the reset's cause. The first-party Cursor snapshot now excludes Git objects in SQL before loading/encoding them. Filesystem regression and web typecheck passed.
+
+A standalone local Workerd probe of the unmodified OpenCode SQLite driver's success → rollback → success path passed with row counts 1 → 1 → 2. The newer published dev-19272 driver has the same transaction implementation. No dependency change or patch was made.
+
+OpenCode's public SessionRestart layer now permits two automatic restart attempts. The actual Workerd regression passed, including native compaction and restart recovery. Deployed source ba567fb recovered the browser long enough to confirm the repair checkpoint was already saved: `11e1e4f3-ee52-402a-9313-4d701366fce3`, commit `9f41af4eaae6aa2861bfb9c41857874235214cf0`. The working copy was clean. Later duplicate checkpoint calls correctly reported no changes. A subsequent bounded request to run Checks again hit Workspace unavailability; its outcome is not yet confirmed.
+
+Source 71b454d exposes `/compact` in the composer through OpenCode's public session compaction API. It preserves the conversation and file history. Deployment and live compaction are the next experiment; do not assume they succeeded from the code alone. Temporary Worker bootstrap phase/aggregate logs should be removed after diagnosis. Container stdout/stderr collection remains disabled.
+
+## Live recovery and second fixture repair
+
+Deployed source `71b454d29aaa8046c14b1f24ea8d298179e05cdf`. Native `/compact` completed, and the preserved conversation then started Check `check-11e1e4f3-ee52-402a-9313-4d701366fce3`. Install, typecheck, and lint passed; seven of 73 fixture tests failed because the earlier repair listed the control D1 as application state and left R2 purpose expectations inconsistent. This confirms practical conversation recovery, not a complete diagnosis of the previous memory reset.
+
+Cursor corrected the application database list and R2 expectations, retained the scratch bucket in the resource plan, and saved checkpoint `09e9bc45-509f-4888-a706-fd4baa92c265`, commit `4e9055ad40c0611750d8a8a94f6118b61650828d`. The in-app conversation reports 73 passing local tests. Its corresponding deployed Check is running in the verification Workflow step, independently confirmed through Cloudflare at 23:42 UTC. Preview and the remaining lifecycle are not yet proven. The scratch bucket purpose change also requires review against resource-removal safeguards before release.
+
+The completed compaction now gets a visible acknowledgement with the original request identity; focused message tests, web typecheck, and lint pass. Temporary bootstrap diagnostics are removed from source. Container stdout/stderr collection remains disabled.
