@@ -1,3 +1,8 @@
+import {
+  createDeploymentCapability,
+  revokeDeploymentCapability,
+} from "./deployment-broker-store"
+import { deploymentBrokerPreload } from "./deployment-broker-transport"
 import { captureDeploymentIdentity } from "./cloudflare-health"
 import {
   projectSecretEnvironment,
@@ -86,6 +91,7 @@ const decodeWorkspaceCiInput = Schema.decodeUnknownSync(WorkspaceCiInput)
 const encodeWorkspaceCheckUpdateSync = Schema.encodeSync(WorkspaceCheckUpdate)
 
 type WorkspaceCiBindings = CiBindings & {
+  SYLPH_URL: string
   RESOURCE_TOKEN: string
   CREDENTIAL_ENCRYPTION_KEY: string
   CI_VERIFICATION_CONCURRENCY: string
@@ -796,13 +802,62 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
         item.name === stage ? checkStage(stage, "running", "Running") : item
       ),
     })
-    const result = await parent.runner({
-      ...options,
-      command: ciCommand(
-        options.command,
-        stage === "preview" || run.kind === "production"
-      ),
-    })
+    const capability = options.cloudflareCredentials
+      ? await createDeploymentCapability(
+          this.env.DB,
+          this.env.CLOUDFLARE_ACCOUNT_ID,
+          {
+            projectId: this.#projectId,
+            scope:
+              run.kind === "production"
+                ? "production"
+                : `preview:${run.id}:${run.attempt}`,
+            runId: this.#workflowInstanceId,
+          }
+        )
+      : null
+    let result: CiRunnerResult
+    try {
+      const brokerRoot = `${this.env.SYLPH_URL.replace(/\/$/, "")}/api/project-deployment`
+      const preloadPath = "/tmp/sylph-deployment-broker.mjs"
+      const preload = capability
+        ? `NODE_OPTIONS= node -e 'require("node:fs").writeFileSync("${preloadPath}", Buffer.from("${btoa(deploymentBrokerPreload)}", "base64"))' && `
+        : ""
+      const runnerEnvironment = { ...options.env }
+      for (const name of [
+        "CLOUDFLARE_API_TOKEN",
+        "CF_TOKEN",
+        "RESOURCE_TOKEN",
+        "CLOUDFLARE_API_KEY",
+        "CLOUDFLARE_EMAIL",
+        "ALCHEMY_PASSWORD",
+      ])
+        delete runnerEnvironment[name]
+      if (capability)
+        Object.assign(runnerEnvironment, {
+          CLOUDFLARE_API_TOKEN: capability.token,
+          CLOUDFLARE_ACCOUNT_ID: this.env.CLOUDFLARE_ACCOUNT_ID,
+          SYLPH_CLOUDFLARE_API_BASE_URL: brokerRoot,
+          SYLPH_ALCHEMY_STATE_URL: brokerRoot,
+          NODE_OPTIONS: `--import=${preloadPath}`,
+        })
+      result = await parent.runner({
+        ...options,
+        cloudflareCredentials: false,
+        sourceControlCredentials: false,
+        secrets: [],
+        env: runnerEnvironment,
+        command:
+          preload +
+          ciCommand(
+            options.command,
+            stage === "preview" || run.kind === "production"
+          ),
+      })
+    } finally {
+      if (capability)
+        await revokeDeploymentCapability(this.env.DB, capability.id)
+    }
     const logs = await readWorkspaceCiLogs(result.logs)
     const completedAt = await step.do(`${label}-completed-at`, async () =>
       Date.now()
