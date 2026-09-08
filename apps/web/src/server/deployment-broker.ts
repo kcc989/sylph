@@ -292,6 +292,11 @@ export const ProjectDeploymentBrokerLive = (configuration: {
                 headers: responseHeaders,
               })
             }
+            if (
+              /^\/r2\/buckets\/[^/]+\/sippy$/.test(relative) &&
+              !responseType.includes("application/json")
+            )
+              brokerDenied("Sippy policy evidence must be JSON")
             if (!responseType.includes("application/json"))
               return new Response(upstream.body, {
                 status: upstream.status,
@@ -300,6 +305,19 @@ export const ProjectDeploymentBrokerLive = (configuration: {
             const result = Schema.decodeUnknownSync(BrokerJson)(
               await upstream.json()
             )
+            if (/^\/r2\/buckets\/[^/]+\/sippy$/.test(relative)) {
+              if (result.success !== true)
+                brokerDenied("Sippy policy evidence failed")
+              const policy = Schema.decodeUnknownSync(BrokerJson)(result.result)
+              return Response.json({
+                success: true,
+                result: {
+                  enabled: Schema.decodeUnknownSync(Schema.Boolean)(
+                    policy.enabled
+                  ),
+                },
+              })
+            }
             if (authorization.kind === "account_subdomain") {
               const value = Schema.decodeUnknownSync(BrokerJson)(result.result)
               return Response.json({

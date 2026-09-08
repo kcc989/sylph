@@ -940,3 +940,64 @@ test("R2 policy evidence routes read only the exact claimed bucket", async () =>
     await expect(f.run(path)).rejects.toThrow("capability denied")
   expect(f.calls).toHaveLength(4)
 })
+
+test("Sippy policy evidence never exposes provider credential configuration", async () => {
+  const topology = [...plan, { kind: "r2" as const, name: "bucket-a" }]
+  const resources = [...owned, { kind: "r2", name: "bucket-a", id: "bucket-a" }]
+  for (const enabled of [false, true]) {
+    const f = await protocolFixture(
+      async () =>
+        Response.json({
+          success: true,
+          result: {
+            enabled,
+            source: {
+              accessKeyId: "source-key",
+              secretAccessKey: "source-secret",
+              bucket: "external-private-bucket",
+            },
+            destination: {
+              accessKeyId: "destination-key",
+              secretAccessKey: "destination-secret",
+              account: "foreign-account",
+            },
+          },
+          extra: "provider-private",
+        }),
+      resources,
+      topology
+    )
+    expect(
+      JSON.parse(await (await f.run("/r2/buckets/bucket-a/sippy")).text())
+    ).toEqual({ success: true, result: { enabled } })
+  }
+  for (const result of [
+    {},
+    { enabled: "false" },
+    { enabled: null },
+    { enabled: 0 },
+  ]) {
+    const f = await protocolFixture(
+      async () => Response.json({ success: true, result }),
+      resources,
+      topology
+    )
+    await expect(f.run("/r2/buckets/bucket-a/sippy")).rejects.toThrow(
+      "capability denied"
+    )
+  }
+})
+
+test("Sippy policy evidence rejects non-JSON provider bodies instead of forwarding them", async () => {
+  const f = await protocolFixture(
+    async () =>
+      new Response("provider-credential", {
+        headers: { "Content-Type": "text/plain" },
+      }),
+    [...owned, { kind: "r2", name: "bucket-a", id: "bucket-a" }],
+    [...plan, { kind: "r2", name: "bucket-a" }]
+  )
+  await expect(f.run("/r2/buckets/bucket-a/sippy")).rejects.toThrow(
+    "capability denied"
+  )
+})
