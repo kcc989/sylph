@@ -17,7 +17,7 @@
     "./object-drill": "./src/object-drill.ts"
   },
   "scripts": {
-    "test": "bun test",
+    "test": "bun tools/test.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint . --deny-warnings"
   },

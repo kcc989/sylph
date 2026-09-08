@@ -20,9 +20,9 @@ See [combined lifecycle procedure](../../tests/release-smoke/COMBINED.md) and [s
 
 ## Current local checks
 
-Platform source `8f9a885` passed all 803 tests, formatting, lint and the local Workerd agent-runtime smoke. Production build and typechecks passed before the final test-only fixture changes. External starter `33482d3892652237dccfb80a9d2f4e479a6d51e0` passed 59 tests, typecheck, lint, formatting and production build. The platform contract checker also passed, including exact copied-source comparison and recovery schema reconciliation. The candidate is not published or pinned yet.
+Platform source `8f9a885` passed all 803 tests, formatting, lint and the local Workerd agent-runtime smoke. Production build and typechecks passed before the final test-only fixture changes. External starter `33482d3892652237dccfb80a9d2f4e479a6d51e0` passed 59 tests, typecheck, lint, formatting and production build. The platform contract checker also passed, including exact copied-source comparison and recovery schema reconciliation. The user-approved candidate was published on `codex/project-capability-broker`; its remote hash was verified before the immutable pin changed.
 
-These results do not establish fresh deployed journey, application restore/undo, or partial-cleanup proof. The combined source is in draft PR #73 until the compatible starter and live evidence are complete.
+These results do not establish fresh deployed journey, application restore/undo, or partial-cleanup proof. The combined source is in draft PR #73 until live evidence is complete.
 
 ## Earlier integration checks
 

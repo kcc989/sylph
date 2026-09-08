@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs"
-import { afterAll, expect, test } from "bun:test"
+import { afterAll, beforeAll, expect, test } from "bun:test"
 import { Effect, Schema } from "effect"
 import { Miniflare } from "miniflare"
 import {
@@ -23,7 +23,10 @@ const runtime = new Miniflare({
   d1Databases: { CONTROL: "control" },
   durableObjects: { OBJECT: { className: "TestObject", useSQLite: true } },
 })
-afterAll(() => runtime.dispose())
+beforeAll(async () => {
+  await runtime.ready
+}, 30_000)
+afterAll(() => runtime.dispose(), 30_000)
 
 const setup = async () => {
   const objectName = crypto.randomUUID()
