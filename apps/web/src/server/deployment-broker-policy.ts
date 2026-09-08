@@ -1,6 +1,7 @@
 import { Schema } from "effect"
 import {
   BrokerBinding,
+  BrokerQueueMessage,
   BrokerJson,
   type BrokerResource,
 } from "@workspace/domain/project-deployment-broker"
@@ -446,7 +447,16 @@ export const authorizeBrokerRequest = (
     )
       brokerDenied("unsupported R2 object operation")
     if (family.kind === "queue" && method !== "GET") {
-      if (!tail && method === "PUT") {
+      if (tail === "messages" && method === "POST") {
+        keys(body, ["body", "content_type"])
+        const message = Schema.decodeUnknownSync(BrokerQueueMessage)(body)
+        const encoded =
+          message.content_type === "text"
+            ? message.body
+            : JSON.stringify(message.body)
+        if (new TextEncoder().encode(encoded).byteLength > 128 * 1024)
+          brokerDenied("Queue message exceeds the provider size limit")
+      } else if (!tail && method === "PUT") {
         keys(body, ["queue_name", "settings"])
         if (body.queue_name && body.queue_name !== owned?.name)
           brokerDenied("queue rename changes the frozen plan")

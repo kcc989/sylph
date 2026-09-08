@@ -1183,3 +1183,245 @@ test("known missing CORS configuration preserves its driver code without provide
   expect(result).toContain("10059")
   expect(result).not.toContain("provider-private-credential")
 })
+
+const queueInventory = (id: string, name: string) => ({
+  queue_id: id,
+  queue_name: name,
+  consumers: [],
+  producers: [],
+  consumers_total_count: 0,
+  producers_total_count: 0,
+})
+const queuePlan = [...plan, { kind: "queue" as const, name: "queue-a" }]
+const queueResources = [
+  ...owned,
+  { kind: "queue", name: "queue-a", id: "queue-id-a" },
+]
+
+test("Queue collection traverses the full account and reports one complete scoped page", async () => {
+  const ownQueue = {
+    ...queueInventory("queue-id-a", "queue-a"),
+    consumers_total_count: 1,
+    producers_total_count: 1,
+    consumers: [
+      {
+        type: "worker",
+        consumer_id: "consumer-a",
+        script_name: "project-a-web",
+        provider_private: "not-exposed",
+      },
+    ],
+    producers: [
+      {
+        type: "worker",
+        script: "project-a-web",
+        provider_private: "not-exposed",
+      },
+    ],
+    unrelated_provider_field: "not-exposed",
+  }
+  const f = await protocolFixture(
+    async (request) =>
+      Response.json({
+        success: true,
+        result:
+          new URL(request.url).searchParams.get("page") === "1"
+            ? [queueInventory("queue-b", "foreign-queue")]
+            : [ownQueue],
+        result_info: { total_pages: 2, total_count: 500 },
+      }),
+    queueResources,
+    queuePlan
+  )
+  const result = await (await f.run("/queues?page=9&per_page=1")).json()
+  expect(result).toEqual({
+    success: true,
+    result: [
+      {
+        ...queueInventory("queue-id-a", "queue-a"),
+        consumers_total_count: 1,
+        producers_total_count: 1,
+        consumers: [
+          {
+            type: "worker",
+            consumer_id: "consumer-a",
+            script_name: "project-a-web",
+          },
+        ],
+        producers: [{ type: "worker", script: "project-a-web" }],
+      },
+    ],
+    result_info: {
+      page: 1,
+      per_page: 1,
+      count: 1,
+      total_pages: 1,
+      total_count: 1,
+    },
+  })
+  expect(f.calls.map((request) => new URL(request.url).search)).toEqual([
+    "?page=1&per_page=100",
+    "?page=2&per_page=100",
+  ])
+})
+
+test("an undeclared Queue attached to an approved Worker fails without leaking foreign metadata", async () => {
+  const f = await protocolFixture(
+    async (request) =>
+      Response.json({
+        success: true,
+        result:
+          new URL(request.url).searchParams.get("page") === "1"
+            ? [queueInventory("queue-id-a", "queue-a")]
+            : [
+                {
+                  ...queueInventory("foreign-id", "private-foreign-queue"),
+                  consumers_total_count: 1,
+                  consumers: [{ type: "worker", script_name: "project-a-web" }],
+                },
+              ],
+        result_info: { total_pages: 2 },
+      }),
+    queueResources,
+    queuePlan
+  )
+  await expect(f.run("/queues?page=1&per_page=100")).rejects.toThrow(
+    "capability denied"
+  )
+  try {
+    await f.run("/queues")
+  } catch (cause) {
+    expect(String(cause)).not.toContain("private-foreign-queue")
+    expect(String(cause)).not.toContain("foreign-id")
+  }
+  expect(f.calls).toHaveLength(4)
+})
+
+test("Queue collection fails closed on external actors and incomplete inventories", async () => {
+  for (const value of [
+    { ...queueInventory("queue-id-a", "queue-a"), consumers_total_count: 1 },
+    { ...queueInventory("queue-id-a", "queue-a"), producers_total_count: 1 },
+    {
+      ...queueInventory("queue-id-a", "queue-a"),
+      consumers_total_count: 1,
+      consumers: [{ type: "worker", script_name: "foreign-web" }],
+    },
+    {
+      ...queueInventory("queue-id-a", "queue-a"),
+      producers_total_count: 1,
+      producers: [{ type: "worker", script: "foreign-web" }],
+    },
+    {
+      ...queueInventory("queue-id-a", "queue-a"),
+      producers_total_count: 1,
+      producers: [{ type: "r2_bucket", bucket_name: "foreign-bucket" }],
+    },
+    {
+      ...queueInventory("foreign-id", "foreign-queue"),
+      consumers_total_count: 1,
+    },
+    { ...queueInventory("queue-id-a", "renamed-queue") },
+  ]) {
+    const f = await protocolFixture(
+      async () =>
+        Response.json({
+          success: true,
+          result: [value],
+          result_info: { total_pages: 1 },
+        }),
+      queueResources,
+      queuePlan
+    )
+    await expect(f.run("/queues")).rejects.toThrow("capability denied")
+  }
+})
+
+test("new planned Queue remains absent until creation records its provider identity", async () => {
+  let created = false
+  const f = await protocolFixture(
+    async (request) => {
+      if (request.method === "POST") {
+        created = true
+        return Response.json({
+          success: true,
+          result: { queue_id: "queue-id-a", queue_name: "queue-a" },
+        })
+      }
+      return Response.json({
+        success: true,
+        result: created ? [queueInventory("queue-id-a", "queue-a")] : [],
+        result_info: { total_pages: 1 },
+      })
+    },
+    owned,
+    queuePlan
+  )
+  expect((await (await f.run("/queues")).json()).result).toEqual([])
+  await f.run("/queues", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ queue_name: "queue-a" }),
+  })
+  expect((await (await f.run("/queues")).json()).result).toEqual([
+    queueInventory("queue-id-a", "queue-a"),
+  ])
+  expect(f.created).toEqual([
+    { kind: "queue", name: "queue-a", id: "queue-id-a" },
+  ])
+})
+
+test("Queue replay sends standard messages only to the exact owned planned Queue", async () => {
+  const f = await protocolFixture(
+    async () => Response.json({ success: true, result: {} }),
+    queueResources,
+    queuePlan
+  )
+  const body = {
+    body: { version: 1, queue: "queue-a", id: "journal-entry" },
+    content_type: "json",
+  }
+  const send = (path: string, value: typeof BrokerJson.Type) =>
+    f.run(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(value),
+    })
+  expect((await send("/queues/queue-id-a/messages", body)).status).toBe(200)
+  expect(await f.calls[0]?.json()).toEqual(body)
+  expect(f.calls[0]?.headers.get("Authorization")).toBe(
+    "Bearer server-owner-secret"
+  )
+  for (const [path, value] of [
+    ["/queues/foreign-id/messages", body],
+    ["/queues/queue-a/messages", body],
+    ["/queues/queue-id-a/messages/batch", { messages: [body] }],
+    ["/queues/queue-id-a/messages", { ...body, queue_id: "foreign-id" }],
+    [
+      "/queues/queue-id-a/messages",
+      { ...body, url: "https://foreign.example" },
+    ],
+    ["/queues/queue-id-a/messages", { ...body, delay_seconds: 1 }],
+    ["/queues/queue-id-a/messages", { body: {}, content_type: "text" }],
+    [
+      "/queues/queue-id-a/messages",
+      { body: "x".repeat(128 * 1024 + 1), content_type: "text" },
+    ],
+    ["/queues/queue-id-a/messages", { content_type: "json" }],
+    ["/queues/queue-id-a/messages", { ...body, content_type: "v8" }],
+  ] satisfies Array<[string, typeof BrokerJson.Type]>)
+    await expect(send(path, value)).rejects.toThrow("capability denied")
+  expect(f.calls).toHaveLength(1)
+  const notOwned = await protocolFixture(
+    async () => Response.json({ success: true }),
+    owned,
+    queuePlan
+  )
+  await expect(
+    notOwned.run("/queues/queue-id-a/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+  ).rejects.toThrow("capability denied")
+  expect(notOwned.calls).toHaveLength(0)
+})

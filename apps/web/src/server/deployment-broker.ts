@@ -38,6 +38,82 @@ export class ProjectDeploymentBroker extends Context.Service<
   }
 >()("@sylph/ProjectDeploymentBroker") {}
 
+const scopedQueues = (
+  values: readonly (typeof BrokerJson.Type)[],
+  plan: typeof BrokerPlan.Type,
+  resources: readonly BrokerResource[]
+) => {
+  const workers = new Set(
+    plan.filter((item) => item.kind === "worker").map((item) => item.name)
+  )
+  const ownedQueues = resources.filter((item) => item.kind === "queue")
+  const result = []
+  for (const value of values) {
+    const id = Schema.decodeUnknownSync(Schema.NonEmptyString)(value.queue_id)
+    const consumers = Schema.decodeUnknownSync(Schema.Array(BrokerJson))(
+      value.consumers
+    )
+    if (value.consumers_total_count !== consumers.length)
+      brokerDenied("Queue consumer inventory is incomplete")
+    const owned = ownedQueues.find((item) => item.id === id)
+    if (!owned) {
+      if (
+        consumers.some(
+          (item) =>
+            Schema.is(Schema.String)(item.script_name) &&
+            workers.has(item.script_name)
+        )
+      )
+        brokerDenied("Undeclared Queue consumes from an approved Worker")
+      continue
+    }
+    if (value.queue_name !== owned.name)
+      brokerDenied("Queue identity differs from the approved resource")
+    const producers = Schema.decodeUnknownSync(Schema.Array(BrokerJson))(
+      value.producers
+    )
+    if (value.producers_total_count !== producers.length)
+      brokerDenied("Queue producer inventory is incomplete")
+    if (
+      consumers.some(
+        (item) =>
+          item.type !== "worker" ||
+          !Schema.is(Schema.String)(item.script_name) ||
+          !workers.has(item.script_name)
+      )
+    )
+      brokerDenied("Queue has an unapproved consumer")
+    if (
+      producers.some(
+        (item) =>
+          item.type !== "worker" ||
+          !Schema.is(Schema.String)(item.script) ||
+          !workers.has(item.script)
+      )
+    )
+      brokerDenied("Queue has an unapproved producer")
+    result.push({
+      queue_id: id,
+      queue_name: owned.name,
+      created_on: value.created_on,
+      modified_on: value.modified_on,
+      settings: value.settings,
+      consumers_total_count: consumers.length,
+      producers_total_count: producers.length,
+      consumers: consumers.map((item) => ({
+        type: item.type,
+        consumer_id: item.consumer_id,
+        script_name: item.script_name,
+      })),
+      producers: producers.map((item) => ({
+        type: item.type,
+        script: item.script,
+      })),
+    })
+  }
+  return result
+}
+
 export const capabilityHash = async (value: string) =>
   Array.from(
     new Uint8Array(
@@ -431,6 +507,13 @@ export const ProjectDeploymentBrokerLive = (configuration: {
                 const info = Schema.decodeUnknownSync(BrokerCollectionPage)(
                   pageResult.result_info ?? {}
                 )
+                if (
+                  authorization.kind === "queue" &&
+                  info.total_pages !== undefined &&
+                  (!Number.isInteger(info.total_pages) ||
+                    info.total_pages < page)
+                )
+                  brokerDenied("Queue provider pagination is incomplete")
                 if (authorization.kind === "r2") {
                   if (!info.cursor) break
                   if (cursors.has(info.cursor))
@@ -471,31 +554,39 @@ export const ProjectDeploymentBrokerLive = (configuration: {
                 values.push(...items)
                 pageLength = items.length
               }
-              const allowed = values.filter((value) => {
-                if (authorization.kind === "durable_object")
-                  return plan.some(
-                    (item) =>
-                      item.kind === "durable_object" &&
-                      item.worker === value.script &&
-                      item.className === value.class
-                  )
-                return resources.some(
-                  (resource) =>
-                    resource.kind === authorization.kind &&
-                    [value.id, value.uuid, value.queue_id, value.name].includes(
-                      resource.id
-                    )
-                )
-              })
+              const allowed =
+                authorization.kind === "queue"
+                  ? scopedQueues(values, plan, resources)
+                  : values.filter((value) => {
+                      if (authorization.kind === "durable_object")
+                        return plan.some(
+                          (item) =>
+                            item.kind === "durable_object" &&
+                            item.worker === value.script &&
+                            item.className === value.class
+                        )
+                      return resources.some(
+                        (resource) =>
+                          resource.kind === authorization.kind &&
+                          [
+                            value.id,
+                            value.uuid,
+                            value.queue_id,
+                            value.name,
+                          ].includes(resource.id)
+                      )
+                    })
+              const resultInfo: typeof BrokerJson.Type = {
+                page: 1,
+                per_page: allowed.length,
+                count: allowed.length,
+                total_count: allowed.length,
+              }
+              if (authorization.kind === "queue") resultInfo.total_pages = 1
               return Response.json({
                 success: true,
                 result: wrappedBuckets ? { buckets: allowed } : allowed,
-                result_info: {
-                  page: 1,
-                  per_page: allowed.length,
-                  count: allowed.length,
-                  total_count: allowed.length,
-                },
+                result_info: resultInfo,
               })
             }
             if (authorization.createName && result.success === true) {
