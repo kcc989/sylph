@@ -45,7 +45,17 @@ export const cursorServer = (handle = handleCursorRequest) => {
         name: error instanceof Error ? error.name : "UnknownError",
         code: error instanceof CursorServerError ? error.code : undefined,
       })
-      if (!outgoing.headersSent) outgoing.writeHead(502)
+      if (!outgoing.headersSent)
+        outgoing.writeHead(502, {
+          "x-sylph-cursor-failure":
+            error instanceof CursorServerError
+              ? "upstream"
+              : error instanceof TypeError
+                ? "type"
+                : error instanceof SyntaxError
+                  ? "syntax"
+                  : "request",
+        })
       outgoing.end()
     } finally {
       active = false

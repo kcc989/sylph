@@ -68,10 +68,17 @@ const promptFiles = (options: LanguageModelV3CallOptions) =>
   })
 
 export const cursorResponseStream = (response: Response) => {
-  if (!response.ok || !response.body)
+  if (!response.ok || !response.body) {
+    const code = response.headers.get("x-sylph-cursor-failure")
+    const detail = ["upstream", "type", "syntax", "request"].includes(
+      code ?? ""
+    )
+      ? `: ${code}`
+      : ""
     throw new CursorProviderFailure({
-      message: `Cursor provider request failed (${response.status})`,
+      message: `Cursor provider request failed (${response.status}${detail})`,
     })
+  }
   let pending = ""
   let finished = false
   return response.body.pipeThrough(new TextDecoderStream()).pipeThrough(
