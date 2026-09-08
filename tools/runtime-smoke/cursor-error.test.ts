@@ -32,11 +32,18 @@ test("Cursor preserves structured rejection details", () => {
         code: "invalid_argument",
         message: "Error",
         details: [
-          { type: "fixture", reason: "Unsupported model", token: "private" },
+          {
+            type: "fixture",
+            debug: {
+              details: { title: "Unsupported model", detail: "token=private" },
+            },
+            value: "opaque-value",
+          },
         ],
       },
     })
   )
   expect(error.message).toContain("Unsupported model")
+  expect(error.message).not.toContain("opaque-value")
   expect(error.message).not.toContain("private")
 })

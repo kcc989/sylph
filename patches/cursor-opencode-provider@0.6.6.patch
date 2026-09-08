@@ -131,7 +131,7 @@ index 9c3ec0f74ff9f1f2f8c139dcf61024cee73e693c..db5122eb416e744566fe1ea9c41307eb
          }
 -        return new CursorServerError(`Cursor API error (code=${code})`, {
 +        const detail = typeof envelope.error?.message === "string"
-+            ? [envelope.error.message, JSON.stringify(envelope.error.details)].filter(Boolean).join(": ")
++            ? [envelope.error.message, ...(Array.isArray(envelope.error.details) ? envelope.error.details.flatMap((entry) => [entry?.debug?.details?.title, entry?.debug?.details?.detail]) : [])].filter((value) => typeof value === "string" && value).join(": ")
 +                .replace(/\bBearer\s+\S+/gi, "Bearer [redacted]")
 +                .replace(/\bsk-[\w-]+/g, "[redacted]")
 +                .replace(/\b(token|secret|password|authorization|api[-_ ]?key)["\x27]?\s*[:=]\s*\S+/gi, "$1=[redacted]")

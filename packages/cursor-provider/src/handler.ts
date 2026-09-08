@@ -1,3 +1,4 @@
+import { cursorModelOptions } from "./model-options"
 import {
   CursorBridgeRequest,
   CursorTokens,
@@ -58,6 +59,10 @@ export const handleCursorRequest = async (
       )
     }
     case "stream": {
+      const models = await discoverModels(input.accessToken, cacheDir)
+      const model = models.find((model) => model.id === input.call.modelId)
+      if (!model)
+        throw new Error("The selected Cursor model is no longer available")
       const provider = createCursor({
         name: "cursor",
         accessToken: input.accessToken,
@@ -66,7 +71,7 @@ export const handleCursorRequest = async (
         retry: { maxAttempts: 1 },
       })
       const result = await provider.languageModel(input.call.modelId).doStream({
-        ...input.call.options,
+        ...cursorModelOptions(input.call.options, model),
         headers: { "x-opencode-session": input.call.sessionId },
         abortSignal: request.signal,
       })
