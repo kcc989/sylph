@@ -1,5 +1,5 @@
 import { browserJournal } from "../../apps/web/src/server/workspace-browser-journal"
-import { captureProbe } from "./capture-probe"
+import { captureProbe, ownedContextProbe } from "./capture-probe"
 import { DurableObject } from "cloudflare:workers"
 import { Effect, Layer, ManagedRuntime, Schema } from "effect"
 import {
@@ -155,6 +155,8 @@ export default {
         return new Response("Unauthorized", { status: 401 })
       if (url.pathname === "/probe/capture")
         return Response.json(await captureProbe(env.BROWSER, url.origin))
+      if (url.pathname === "/probe/owner-capture")
+        return Response.json(await ownedContextProbe(env.BROWSER, url.origin))
       if (url.pathname === "/probe/ready")
         return Response.json({
           commit: env.SMOKE_COMMIT,

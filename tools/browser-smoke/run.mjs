@@ -176,6 +176,18 @@ for (let attempt = 0; attempt < 30; attempt++) {
   await setTimeout(2_000)
 }
 assert.ok(ready, "The deployed fixture did not become ready")
+if (process.argv.includes("--owner-probe")) {
+  const response = await fetch(`${baseURL}/probe/owner-capture`, {
+    headers: { authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(120_000),
+  })
+  record.ownerProbe = await response.json()
+  record.status = response.ok ? "owner_probe_passed" : "owner_probe_failed"
+  await save()
+  assert.ok(response.ok, JSON.stringify(record.ownerProbe))
+  console.log(JSON.stringify(record.ownerProbe))
+  process.exit(0)
+}
 let sessionId
 let screenshotId
 const step = async (label, action, expected = "observed", extra = {}) => {
