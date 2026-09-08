@@ -233,6 +233,7 @@ try {
   const started = performance.now()
   const health = await read("health")
   assert.equal(health.health.healthy, true)
+  await read("cursor-connect")
   const cursorCatalog = await read("cursor-connect")
   assert(
     cursorCatalog.data.some(
