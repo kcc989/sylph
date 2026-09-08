@@ -44,6 +44,13 @@ export const cursorServer = (handle = handleCursorRequest) => {
       console.error("Cursor request failed", {
         name: error instanceof Error ? error.name : "UnknownError",
         code: error instanceof CursorServerError ? error.code : undefined,
+        frames:
+          error instanceof Error
+            ? error.stack
+                ?.split("\n")
+                .filter((line) => line.trimStart().startsWith("at "))
+                .slice(0, 8)
+            : [],
       })
       if (!outgoing.headersSent)
         outgoing.writeHead(502, {
