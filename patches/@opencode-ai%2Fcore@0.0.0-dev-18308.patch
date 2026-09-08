@@ -93,3 +93,15 @@ index 784c3e6382ad8bb855a9297571705293d09ea717..2b0d3ce125904b7d2ce7c98411e1397a
    exports_instruction.Plugin,
    exports_reference2.Plugin,
    exports_agent2.Plugin,
+diff --git a/dist/chunks/reference-091m19a6.js b/dist/chunks/reference-091m19a6.js
+index 633de049d284ec1c81034ff4e0cf79406d0bffa1..e6ea99944e72cf1b9585d1ba367bdfa5f74fc6a2 100644
+--- a/dist/chunks/reference-091m19a6.js
++++ b/dist/chunks/reference-091m19a6.js
+@@ -314,6 +314,7 @@ var make = (dependencies) => {
+     const used = last.tokens.input + last.tokens.output + last.tokens.reasoning + last.tokens.cache.read + last.tokens.cache.write;
+     if (used <= 0)
+       return false;
++    console.info("OpenCode compaction decision", { model: input.resolved.ref, limit, used, promptCeiling, tokens: last.tokens, messageID: last.id, required: used >= promptCeiling });
+     return used >= promptCeiling;
+   };
+   const compactManual = Effect.fn("SessionCompaction.compactManual")(function* (input) {
