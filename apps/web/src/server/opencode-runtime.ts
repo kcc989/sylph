@@ -1,12 +1,13 @@
 import { openCodeLogging } from "./opencode-logging"
 import { OpenCode } from "@opencode-ai/client"
 import { PluginPromise } from "@opencode-ai/core/plugin/promise"
+import { ConfigPluginSource } from "@opencode-ai/core/config/plugin/source"
 import { SdkPlugins } from "@opencode-ai/core/plugin/sdk"
 import type { Plugin } from "@opencode-ai/plugin"
 import { ServerFetch } from "@opencode-ai/server/fetch"
 import { ServerWorkerd } from "@opencode-ai/server/workerd"
 import type { OpenCodeWorkerd } from "@opencode-ai/sdk/workerd"
-import { Context, Effect, Exit, Layer, Scope } from "effect"
+import { Context, Effect, Exit, Layer, Scope, Stream } from "effect"
 
 export const createOpenCodeRuntime = async (
   options: Omit<OpenCodeWorkerd.CreateOptions, "log">,
@@ -42,6 +43,22 @@ export const createOpenCodeRuntime = async (
       ServerFetch.make(ServerWorkerd.serverOptions(profile), {
         overrides: [
           ...ServerWorkerd.replacements(profile),
+          [
+            ConfigPluginSource.node,
+            {
+              ...ConfigPluginSource.empty,
+              implementation: Layer.succeed(
+                ConfigPluginSource.Service,
+                ConfigPluginSource.Service.of({
+                  operations: () =>
+                    Effect.succeed([
+                      { type: "remove", target: "opencode.provider.dynamic" },
+                    ]),
+                  changes: () => Stream.never,
+                })
+              ),
+            },
+          ],
           ...(boot.overrides ?? []),
           [SdkPlugins.node, { ...SdkPlugins.node, implementation: plugins }],
         ],

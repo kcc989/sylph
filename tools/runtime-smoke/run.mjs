@@ -240,6 +240,12 @@ try {
       (model) => model.providerID === "cursor" && model.id === "grok-4.6"
     )
   )
+  assert.ok(
+    JSON.stringify(await read("cursor-inference")).includes(
+      "CURSOR_RUNTIME_OK"
+    ),
+    "Cursor must execute through the registered AISDK adapter"
+  )
   const session = await read("start")
   await deadline(first.promise, "Initial model request")
   assert.ok(requests[0].includes("probe_recovery_tool"))
@@ -254,6 +260,12 @@ try {
       (model) => model.providerID === "cursor" && model.id === "grok-4.6"
     ),
     "Cursor catalog must survive a Durable Object restart without reconnecting"
+  )
+  assert.ok(
+    JSON.stringify(await read("cursor-inference")).includes(
+      "CURSOR_RUNTIME_OK"
+    ),
+    "Cursor inference must survive a Durable Object restart without reconnecting"
   )
   release.resolve()
   await deadline(recovered.promise, "Recovered model request")
@@ -409,6 +421,7 @@ try {
         recoveredPluginsPresent: true,
         nativeFileTools: true,
         browserToolDispatch: true,
+        cursorInferenceBeforeAndAfterRestart: true,
         nativeShellThroughWorkspaceProvider: true,
         nativeSearchTools: true,
         nativeFilesSurviveRestart: true,

@@ -38,15 +38,37 @@ export class Probe extends DurableObject {
       {
         idFromName: (name) => name,
         get: () => ({
-          fetch: async () =>
-            Response.json([
+          fetch: async (request) => {
+            const input = await request.json()
+            if (input.operation === "stream")
+              return new Response(
+                [
+                  { type: "stream-start", warnings: [] },
+                  { type: "text-start", id: "cursor-proof" },
+                  {
+                    type: "text-delta",
+                    id: "cursor-proof",
+                    delta: "CURSOR_RUNTIME_OK",
+                  },
+                  { type: "text-end", id: "cursor-proof" },
+                  {
+                    type: "finish",
+                    finishReason: { unified: "stop" },
+                    usage: { inputTokens: {}, outputTokens: {} },
+                  },
+                ]
+                  .map((part) => JSON.stringify(part))
+                  .join("\n") + "\n"
+              )
+            return Response.json([
               {
                 id: "grok-4.6",
                 name: "Cursor Grok 4.6",
                 context: 128000,
                 images: false,
               },
-            ]),
+            ])
+          },
         }),
       },
       state.storage,
@@ -247,6 +269,20 @@ export class Probe extends DurableObject {
         tables,
         storageBytes: this.ctx.storage.sql.databaseSize,
       })
+    }
+    if (path === "/cursor-inference") {
+      const session = await host.sessions.create({
+        location: { directory: "/workspace" },
+        model: { providerID: "cursor", id: "grok-4.6" },
+      })
+      await host.sessions.prompt({
+        sessionID: session.id,
+        text: "Reply with the runtime proof marker.",
+      })
+      await host.sessions.wait({ sessionID: session.id })
+      return Response.json(
+        await host.message.list({ sessionID: session.id, limit: 20 })
+      )
     }
     if (path === "/cursor-catalog")
       return Response.json(await host.model.list())
