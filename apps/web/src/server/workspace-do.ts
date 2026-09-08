@@ -1047,17 +1047,17 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
 
       try {
         if (!turnActive) {
+          if (
+            data.model.providerId === "cursor" &&
+            data.credential.type === "key"
+          )
+            await this.#cursor.refresh(data.credential.key)
           if (state.credentialFingerprint !== nextCredentialFingerprint) {
             await this.#credentials.install(
               data.model.providerId,
               data.credential
             )
           }
-          if (
-            data.model.providerId === "cursor" &&
-            data.credential.type === "key"
-          )
-            await this.#cursor.refresh(data.credential.key)
           const catalog = await opencode.model.list()
           const selected = findWorkspaceModel(catalog.data, data.model)
           await opencode.sessions.switchModel({
@@ -1707,9 +1707,9 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     )
 
     try {
-      await this.#credentials.install(input.providerId, input.credential)
       if (input.providerId === "cursor" && input.credential.type === "key")
         await this.#cursor.refresh(input.credential.key)
+      await this.#credentials.install(input.providerId, input.credential)
       this.#database
         .update(appWorkspaceState)
         .set({

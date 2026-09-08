@@ -1,3 +1,5 @@
+import { createCursorProvider } from "../../apps/web/src/server/cursor-plugin"
+import { WorkspaceCredentials } from "../../apps/web/src/server/workspace-credentials"
 import {
   reserveSmokeRequest,
   smokeModel,
@@ -24,6 +26,7 @@ import {
 
 export class Probe extends DurableObject {
   host
+  cursor
   bootStarted = Date.now()
   bootMs = 0
   files
@@ -31,6 +34,20 @@ export class Probe extends DurableObject {
   constructor(state, env) {
     super(state, env)
     this.files = new WorkspaceFilesystem(state.storage)
+    this.cursor = createCursorProvider({
+      idFromName: (name) => name,
+      get: () => ({
+        fetch: async () =>
+          Response.json([
+            {
+              id: "grok-4.6",
+              name: "Cursor Grok 4.6",
+              context: 128000,
+              images: false,
+            },
+          ]),
+      }),
+    })
     this.host = state.blockConcurrencyWhile(async () => {
       const { OpenCodeWorkerd } = await import("@opencode-ai/sdk/workerd")
       const { Environment } =
@@ -122,6 +139,7 @@ export class Probe extends DurableObject {
             },
           },
           plugins: [
+            this.cursor.plugin,
             ...Array.from({ length: 32 }, (_, index) => ({
               id: `initial-plugin-${index}`,
               async setup() {},
@@ -228,6 +246,28 @@ export class Probe extends DurableObject {
         tables,
         storageBytes: this.ctx.storage.sql.databaseSize,
       })
+    }
+    if (path === "/cursor-connect") {
+      const key = JSON.stringify({ userId: "fixture-user", key: "fixture-key" })
+      await this.cursor.refresh(key)
+      const { Effect } = await import("effect")
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const credentials = yield* WorkspaceCredentials
+          yield* Effect.promise(() =>
+            credentials.install("cursor", { type: "key", key })
+          )
+        }).pipe(
+          Effect.provide(
+            WorkspaceCredentials.layer(
+              Promise.resolve(host),
+              this.ctx.storage,
+              { active: false, accountID: null }
+            )
+          )
+        )
+      )
+      return Response.json(await host.model.list())
     }
     if (path === "/abort") this.ctx.abort("Deliberate recovery probe")
     if (path === "/native-state") {

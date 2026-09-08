@@ -233,6 +233,12 @@ try {
   const started = performance.now()
   const health = await read("health")
   assert.equal(health.health.healthy, true)
+  const cursorCatalog = await read("cursor-connect")
+  assert(
+    cursorCatalog.data.some(
+      (model) => model.providerID === "cursor" && model.id === "grok-4.6"
+    )
+  )
   const session = await read("start")
   await deadline(first.promise, "Initial model request")
   assert.ok(requests[0].includes("probe_recovery_tool"))
