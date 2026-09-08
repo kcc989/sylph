@@ -242,10 +242,23 @@ export const authorizeBrokerRequest = (
   if (path === "/workers/durable_objects/namespaces" && method === "GET")
     return { kind: "durable_object", collection: true }
   const policyBucket =
-    path.match(/^\/r2\/buckets\/([^/]+)\/(?:lifecycle|lock|sippy)$/)?.[1] ??
+    path.match(
+      /^\/r2\/buckets\/([^/]+)\/(?:lifecycle|lock|sippy|cors|domains\/custom|domains\/managed)$/
+    )?.[1] ??
     path.match(/^\/event_notifications\/r2\/([^/]+)\/configuration$/)?.[1]
   if (policyBucket) {
-    if (method !== "GET") brokerDenied("R2 recovery policy is read-only")
+    if (method !== "GET") {
+      if (path.endsWith("/lifecycle") && method === "PUT") {
+        keys(body, ["rules"])
+        if (!Array.isArray(body.rules) || body.rules.length !== 0)
+          brokerDenied("Only empty R2 lifecycle rules are allowed")
+      } else if (path.endsWith("/cors") && method === "DELETE") keys(body, [])
+      else if (path.endsWith("/domains/managed") && method === "PUT") {
+        keys(body, ["enabled"])
+        if (body.enabled !== false)
+          brokerDenied("R2 public access cannot be enabled")
+      } else brokerDenied("Unsupported R2 policy mutation")
+    }
     if (
       !plan.some(
         (resource) => resource.kind === "r2" && resource.name === policyBucket

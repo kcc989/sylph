@@ -438,7 +438,7 @@ const protocolFixture = async (
     store: {
       capability: async (value) => (value === hash ? lease : null),
       activePlan: async () => lease.planJson,
-      resources: async () => resources,
+      resources: async () => [...resources, ...created],
       created: async (_, resource) => {
         created.push(resource)
       },
@@ -1000,4 +1000,186 @@ test("Sippy policy evidence rejects non-JSON provider bodies instead of forwardi
   await expect(f.run("/r2/buckets/bucket-a/sippy")).rejects.toThrow(
     "capability denied"
   )
+})
+
+test("installed Alchemy default Bucket reconciles through the Project broker", async () => {
+  const { reconcilePrivateBucket } =
+    await import("../../../../tools/ci-smoke/private-bucket-driver.fixture.mjs")
+  let exists = false
+  const f = await protocolFixture(
+    async (request) => {
+      const path = new URL(request.url).pathname
+      if (path.endsWith("/r2/buckets") && request.method === "POST") {
+        exists = true
+        return Response.json({
+          success: true,
+          result: { name: "bucket-a", storageClass: "Standard" },
+        })
+      }
+      if (path.endsWith("/bucket-a"))
+        return exists
+          ? Response.json({
+              success: true,
+              result: { name: "bucket-a", storageClass: "Standard" },
+            })
+          : Response.json(
+              {
+                success: false,
+                errors: [{ code: 10006, message: "No such bucket" }],
+              },
+              { status: 404 }
+            )
+      if (request.method === "DELETE")
+        return Response.json({ success: true, result: {} })
+      if (request.method === "PUT") {
+        expect(JSON.parse(await request.text())).toEqual(
+          path.endsWith("/lifecycle") ? { rules: [] } : { enabled: false }
+        )
+        return Response.json({
+          success: true,
+          result: { enabled: false, domain: "private.r2.dev" },
+        })
+      }
+      if (path.endsWith("/domains/custom"))
+        return Response.json({ success: true, result: { domains: [] } })
+      if (path.endsWith("/lifecycle"))
+        return Response.json({
+          success: true,
+          result: {
+            rules: [
+              {
+                id: "default-abort",
+                enabled: true,
+                conditions: { prefix: "" },
+                abortMultipartUploadsTransition: {
+                  condition: { type: "Age", maxAge: 604800 },
+                },
+              },
+            ],
+          },
+        })
+      if (path.endsWith("/cors"))
+        return Response.json({
+          success: true,
+          result: {
+            rules: [
+              {
+                allowed: { methods: ["GET"], origins: ["https://old.example"] },
+              },
+            ],
+          },
+        })
+      if (path.endsWith("/domains/managed"))
+        return Response.json({
+          success: true,
+          result: { enabled: true, domain: "private.r2.dev" },
+        })
+      throw new Error(`Unexpected fixture request ${request.method} ${path}`)
+    },
+    owned,
+    [...plan, { kind: "r2", name: "bucket-a" }]
+  )
+  const result = await reconcilePrivateBucket(f.run, token)
+  expect(result.bucketName).toBe("bucket-a")
+  expect(result.publicDomain).toBeUndefined()
+  expect(
+    f.calls.map(
+      (request) =>
+        `${request.method} ${new URL(request.url).pathname.replace("/client/v4/accounts/account", "")}`
+    )
+  ).toEqual([
+    "GET /r2/buckets/bucket-a",
+    "GET /r2/buckets/bucket-a",
+    "POST /r2/buckets",
+    "GET /r2/buckets/bucket-a/domains/custom",
+    "GET /r2/buckets/bucket-a/lifecycle",
+    "PUT /r2/buckets/bucket-a/lifecycle",
+    "GET /r2/buckets/bucket-a/cors",
+    "DELETE /r2/buckets/bucket-a/cors",
+    "GET /r2/buckets/bucket-a/domains/managed",
+    "PUT /r2/buckets/bucket-a/domains/managed",
+  ])
+})
+
+test("private Bucket reconciliation cannot enable public access, add policies, or route to another jurisdiction", async () => {
+  const topology = [...plan, { kind: "r2" as const, name: "bucket-a" }]
+  const resources = [...owned, { kind: "r2", name: "bucket-a", id: "bucket-a" }]
+  const f = await protocolFixture(
+    async () => Response.json({ success: true, result: {} }),
+    resources,
+    topology
+  )
+  for (const [path, method, body] of [
+    ["/domains/managed", "PUT", { enabled: true }],
+    ["/domains/managed", "PUT", { enabled: false, domain: "foreign.example" }],
+    ["/lifecycle", "PUT", { rules: [{ id: "delete", enabled: true }] }],
+    ["/lifecycle", "PUT", { rules: [], jurisdiction: "eu" }],
+    ["/cors", "PUT", { rules: [] }],
+    ["/cors", "DELETE", { rules: [] }],
+    ["/domains/custom", "POST", { domain: "foreign.example", enabled: true }],
+    ["/domains/custom/foreign.example", "DELETE", {}],
+  ] satisfies Array<[string, string, typeof BrokerJson.Type]>)
+    await expect(
+      f.run(`/r2/buckets/bucket-a${path}`, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+    ).rejects.toThrow("capability denied")
+  for (const jurisdiction of ["eu", "fedramp", "default, eu"])
+    await expect(
+      f.run("/r2/buckets/bucket-a", {
+        headers: { "cf-r2-jurisdiction": jurisdiction },
+      })
+    ).rejects.toThrow("capability denied")
+  for (const tail of ["/cors", "/domains/custom", "/domains/managed"])
+    await expect(f.run(`/r2/buckets/bucket-b${tail}`)).rejects.toThrow(
+      "capability denied"
+    )
+  expect(f.calls).toEqual([])
+})
+
+test("new Bucket reads and creation require independently verified absence", async () => {
+  for (const status of [200, 403, 500]) {
+    const f = await protocolFixture(
+      async () =>
+        Response.json(
+          { result: { private: "foreign-bucket-data" } },
+          { status }
+        ),
+      owned,
+      [...plan, { kind: "r2", name: "bucket-a" }]
+    )
+    await expect(f.run("/r2/buckets/bucket-a")).rejects.toThrow(
+      "capability denied"
+    )
+    await expect(
+      f.run("/r2/buckets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "bucket-a" }),
+      })
+    ).rejects.toThrow("capability denied")
+    expect(f.calls.every((request) => request.method === "GET")).toBe(true)
+    expect(f.created).toEqual([])
+  }
+})
+
+test("known missing CORS configuration preserves its driver code without provider error text", async () => {
+  const f = await protocolFixture(
+    async () =>
+      Response.json(
+        {
+          success: false,
+          errors: [{ code: 10059, message: "provider-private-credential" }],
+        },
+        { status: 404 }
+      ),
+    [...owned, { kind: "r2", name: "bucket-a", id: "bucket-a" }],
+    [...plan, { kind: "r2", name: "bucket-a" }]
+  )
+  const response = await f.run("/r2/buckets/bucket-a/cors")
+  const result = await response.text()
+  expect(result).toContain("10059")
+  expect(result).not.toContain("provider-private-credential")
 })

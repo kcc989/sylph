@@ -98,6 +98,11 @@ export const ProjectDeploymentBrokerLive = (configuration: {
             if (!path.startsWith(`${accountPrefix}/`))
               brokerDenied("foreign account")
             const relative = path.slice(accountPrefix.length)
+            const jurisdiction = request.headers.get("cf-r2-jurisdiction")
+            if (jurisdiction !== null && jurisdiction !== "default")
+              brokerDenied(
+                "Nondefault R2 jurisdiction is outside the approved surface"
+              )
             validateBrokerQuery(relative, request.method, url.searchParams)
             const plan = Schema.decodeUnknownSync(BrokerPlan)(
               JSON.parse(lease.planJson)
@@ -138,6 +143,42 @@ export const ProjectDeploymentBrokerLive = (configuration: {
                 )
               else if (!relative.includes("/values/"))
                 brokerDenied("unsupported request encoding")
+            }
+            const newBucket = relative.match(/^\/r2\/buckets\/([^/]+)$/)?.[1]
+            if (
+              request.method === "GET" &&
+              newBucket &&
+              plan.some(
+                (item) => item.kind === "r2" && item.name === newBucket
+              ) &&
+              !resources.some(
+                (item) => item.kind === "r2" && item.name === newBucket
+              )
+            ) {
+              const observed = await (configuration.fetch ?? fetch)(
+                `https://api.cloudflare.com/client/v4${path}`,
+                {
+                  method: "GET",
+                  headers: { Authorization: `Bearer ${configuration.token}` },
+                  redirect: "error",
+                  signal: AbortSignal.timeout(60000),
+                }
+              )
+              if (observed.status !== 404)
+                brokerDenied("Reserved bucket absence is not verified")
+              return Response.json(
+                {
+                  success: false,
+                  errors: [
+                    {
+                      code: 10006,
+                      message:
+                        "Reserved bucket absence verified with Cloudflare",
+                    },
+                  ],
+                },
+                { status: 404 }
+              )
             }
             if (
               request.method === "GET" &&
@@ -246,6 +287,19 @@ export const ProjectDeploymentBrokerLive = (configuration: {
                   "reserved resource already exists or its absence is unverified"
                 )
             }
+            if (authorization.kind === "r2" && authorization.createName) {
+              const observed = await fetcher(
+                `${upstreamUrl.href}/${encodeURIComponent(authorization.createName)}`,
+                {
+                  method: "GET",
+                  headers,
+                  redirect: "error",
+                  signal: AbortSignal.timeout(60000),
+                }
+              )
+              if (observed.status !== 404)
+                brokerDenied("Reserved bucket absence is not verified")
+            }
             const upstream = await fetcher(upstreamUrl.href, {
               method: request.method,
               headers,
@@ -253,13 +307,41 @@ export const ProjectDeploymentBrokerLive = (configuration: {
               redirect: "error",
               signal: AbortSignal.timeout(60_000),
             })
-            if (!upstream.ok)
+            if (!upstream.ok) {
+              let safeCode = upstream.status
+              if (
+                authorization.kind === "r2" &&
+                request.method === "GET" &&
+                upstream.status === 404
+              ) {
+                const failure = await upstream.json().catch(() => null)
+                if (
+                  Schema.is(BrokerJson)(failure) &&
+                  Array.isArray(failure.errors)
+                ) {
+                  if (
+                    failure.errors.some(
+                      (error) =>
+                        Schema.is(BrokerJson)(error) && error.code === 10006
+                    )
+                  )
+                    safeCode = 10006
+                  else if (
+                    relative.endsWith("/cors") &&
+                    failure.errors.some(
+                      (error) =>
+                        Schema.is(BrokerJson)(error) && error.code === 10059
+                    )
+                  )
+                    safeCode = 10059
+                }
+              }
               return Response.json(
                 {
                   success: false,
                   errors: [
                     {
-                      code: upstream.status,
+                      code: safeCode,
                       message:
                         "The approved Cloudflare operation failed; provider error bodies are withheld.",
                     },
@@ -267,6 +349,7 @@ export const ProjectDeploymentBrokerLive = (configuration: {
                 },
                 { status: upstream.status }
               )
+            }
             const responseType = upstream.headers.get("Content-Type") ?? ""
             if (authorization.objectData && request.method === "GET") {
               const responseHeaders = new Headers()
