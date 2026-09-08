@@ -1,9 +1,6 @@
 {
   "repository": "kcc989/sylph-tanstack-template",
-  "baseCommit": "bed6b52785eab6e79680041ee1367f2831f59296",
-  "previousCommit": "36860839fb2b1536228775998f3cce730f5b028c",
   "candidateCommit": "6450aa6b0bcd19873d09c2471ad9a359ed307a4f",
-  "candidateRef": "codex/project-capability-broker",
   "version": "0.3.0",
   "published": false,
   "recoverySourceCommit": "3947bb48b5923272c0b680ebe27ba2c038e4757d",
@@ -110,18 +107,6 @@
       "sourceCommit": "3947bb48b5923272c0b680ebe27ba2c038e4757d",
       "sourceSha256": "e0df2e5ede6a1d61a897ee93a4bd1ad3824cf60a79cfe1c60f268cc11b7a29a8",
       "templateSha256": "e0df2e5ede6a1d61a897ee93a4bd1ad3824cf60a79cfe1c60f268cc11b7a29a8"
-    }
-  ],
-  "patches": [
-    {
-      "name": "template.patch",
-      "baseCommit": "bed6b52785eab6e79680041ee1367f2831f59296",
-      "sha256": "b52bd55039e4ac26865495301db1dc6e719480a6c11716e0e578d979229a1c44"
-    },
-    {
-      "name": "template-upgrade.patch",
-      "baseCommit": "36860839fb2b1536228775998f3cce730f5b028c",
-      "sha256": "d519280c7eba643e51bd69d9a59bd2a5cb15c08341271efd3fa3b2b029edb282"
     }
   ],
   "recoveryMigrations": [

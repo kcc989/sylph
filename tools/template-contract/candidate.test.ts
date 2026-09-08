@@ -10,11 +10,7 @@ import {
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { spawnSync } from "node:child_process"
-import {
-  generateTemplateCandidate,
-  verifyControlSchema,
-  verifyImmutableMigrations,
-} from "./candidate.mjs"
+import { generateTemplateCandidate, verifyControlSchema } from "./candidate.mjs"
 import { createHash } from "node:crypto"
 
 const baseSql =
@@ -22,23 +18,7 @@ const baseSql =
 const additiveSql =
   "CREATE TABLE recovery_group (id TEXT PRIMARY KEY, json TEXT);"
 
-test("immutable migrations and actual applied recovery schema are independently verified", () => {
-  const original = new Map([["recovery-migrations/0001.sql", baseSql]])
-  expect(() =>
-    verifyImmutableMigrations(
-      original,
-      new Map([...original, ["recovery-migrations/0002.sql", additiveSql]])
-    )
-  ).not.toThrow()
-  expect(() =>
-    verifyImmutableMigrations(
-      original,
-      new Map([["recovery-migrations/0001.sql", `${baseSql}${additiveSql}`]])
-    )
-  ).toThrow("Published migration changed")
-  expect(() => verifyImmutableMigrations(original, new Map())).toThrow(
-    "disappeared"
-  )
+test("fresh template recovery schema and gate are independently verified", () => {
   expect(() =>
     verifyControlSchema([baseSql, additiveSql], [baseSql + additiveSql])
   ).not.toThrow()
@@ -85,10 +65,10 @@ test("candidate generation records deterministic immutable references and verifi
     writeFileSync(join(platform, "base.sql"), baseSql)
     const platformCommit = commit(platform)
     writeFileSync(join(starter, "package.json"), '{"version":"0.1.0"}\n')
-    const baseCommit = commit(starter)
+    commit(starter)
     mkdirSync(join(starter, "recovery-migrations"))
     writeFileSync(join(starter, "recovery-migrations/0001.sql"), baseSql)
-    const previousCommit = commit(starter)
+    commit(starter)
     writeFileSync(join(starter, "recovery-migrations/0002.sql"), additiveSql)
     writeFileSync(join(starter, "package.json"), '{"version":"0.3.0"}\n')
     const candidateCommit = commit(starter)
@@ -114,8 +94,6 @@ test("candidate generation records deterministic immutable references and verifi
       platform,
       starter,
       output,
-      baseCommit,
-      previousCommit,
       version: "0.3.0",
       sourceMap,
     }
@@ -128,10 +106,10 @@ test("candidate generation records deterministic immutable references and verifi
       first
     )
     expect(metadata.repository).toBe("kcc989/sylph-tanstack-template")
-    expect(metadata.baseCommit).toBe(baseCommit)
-    expect(metadata.previousCommit).toBe(previousCommit)
     expect(metadata.recoverySourceCommit).toBe(platformCommit)
     expect(metadata).not.toHaveProperty("patches")
+    expect(metadata).not.toHaveProperty("baseCommit")
+    expect(metadata).not.toHaveProperty("previousCommit")
     expect(metadata).not.toHaveProperty("candidateRef")
     expect(readdirSync(output)).toEqual(["template-candidate.json"])
     expect(metadata.recoverySources[0]).toEqual({
@@ -157,13 +135,15 @@ test("candidate generation records deterministic immutable references and verifi
     writeFileSync(join(starter, "uncommitted"), "pending")
     expect(() => generateTemplateCandidate(options)).toThrow("clean committed")
     rmSync(join(starter, "uncommitted"))
+    mapping.sources[0].platformPath = "base.sql"
+    writeFileSync(sourceMap, JSON.stringify(mapping))
     writeFileSync(
       join(starter, "recovery-migrations/0001.sql"),
       baseSql.replace("owner TEXT", "owner INTEGER")
     )
     commit(starter)
     expect(() => generateTemplateCandidate(options)).toThrow(
-      "Published migration changed"
+      "Vendored source mismatch"
     )
     expect(readFileSync(join(output, "template-candidate.json"), "utf8")).toBe(
       first

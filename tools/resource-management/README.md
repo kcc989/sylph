@@ -53,7 +53,7 @@ The prepared starter labels its `<prefix>-recovery` plan entry with this purpose
 
 Deploy database migration `0003_resource_lifecycle.sql` through Alchemy. It preserves existing claims and adds lifecycle review storage. It follows `0002_project_operations.sql`. `alchemy.run.ts` now provisions `ResourceToken` or uses a configured `RESOURCE_TOKEN`, scoped to Worker scripts, D1, KV, R2 and Queue permissions plus read-only Container attachment inspection in the installation account. Resource inspection and maintenance use it. Installation services retain account credentials. Project deployment commands receive only a short-lived capability tied to the exact active resource plan; broker requests verify the claim and operation on every call.
 
-The complete template patch includes the deployment broker state helper, coordinated D1/R2 release hooks, isolated drills, encrypted snapshots and application restore/undo. Its publication status and source hashes are recorded in `template-candidate.json`.
+The external template includes the deployment broker state helper, coordinated D1/R2 release hooks, isolated drills, encrypted snapshots and application restore/undo. Its publication status and source hashes are recorded in `template-candidate.json`.
 
 ## Reviewable verification commands
 
@@ -93,6 +93,6 @@ Capabilities were checked against installed Alchemy `2.0.0-beta.76`, Distilled p
 
 The current built-in pin remains the previously approved starter `0.2.0`, commit `36860839fb2b1536228775998f3cce730f5b028c`. The new `0.3.0` candidate is `6450aa6b0bcd19873d09c2471ad9a359ed307a4f` on the local `codex/project-capability-broker` branch and is not published.
 
-`template.patch` reproduces the candidate from the recorded legacy base; `template-upgrade.patch` reproduces it from the previous published release. Candidate metadata records the exact source and patch hashes. Both patches and the combined control schema were independently verified. See [candidate procedure](../template-contract/README.md). Publication and the built-in pin update require the separate approval before this change can ship. Existing Projects need the reviewed source upgrade; a new pin does not modify accepted Checkpoints.
+Candidate metadata records the external repository commit and verified source hashes. The template's fresh recovery schema was independently checked. See [candidate procedure](../template-contract/README.md). Publication and the built-in pin update require separate approval. The new pin affects only new Projects; existing Projects keep their source and accepted Checkpoints. Sylph stores no template patches and has no existing-Project template upgrade flow.
 
 First prepare verifies that every initial Worker is absent before bootstrap can apply migrations. It then performs isolated provider drills for the supported schema and optional R2 topology before recording the application recovery group. Control and scratch resources remain retained independently. Local SQLite-backed hook tests pass; no production deployment, live application restore, or resource destruction was performed by this integration.

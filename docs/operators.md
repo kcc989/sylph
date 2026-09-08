@@ -116,7 +116,7 @@ Data recovery requires an Admin to confirm the paired code commit and possible l
 ## Project resource management
 
 The previous template `0.2.0` remains published and pinned while the v0.3.0 candidate awaits approval. Complete the candidate publication, pin update and live lifecycle
-checks before production rollout. The reviewed template patch and rollout
+checks before production rollout. The external template release and rollout
 procedure are in [the resource management guide](../tools/resource-management/README.md).
 Existing Project repositories also need the new `sylph:plan` script and matching
 Alchemy resource names. Sylph does not rewrite their reviewed Checkpoints.
@@ -143,7 +143,7 @@ test suite and build do not prove live deletion or configuration behavior.
 
 Apply the ordered `0004_project_deployment_broker.sql` and `0005_project_preview_cleanup.sql` migrations through the normal Alchemy deployment. They add expiring deployment capabilities, scoped Alchemy state and Preview cleanup audit records. No new manual credential is required. Keep the Installation credential encryption key unchanged.
 
-Project CI now uses the Installation broker for Cloudflare operations and Alchemy state. The reviewed starter v0.3.0 candidate and its full/incremental upgrade patches are in `tools/resource-management/`. Its external publication and built-in pin update are pending approval; do not roll out this branch with the old starter. Upgrade existing Project source through a reviewed Checkpoint before deploying it with the new broker. See [candidate procedure](../tools/template-contract/README.md).
+Project CI now uses the Installation broker for Cloudflare operations and Alchemy state. The starter v0.3.0 candidate lives in the external template repository; `tools/resource-management/template-candidate.json` records its exact commit and verification metadata. Publication and the built-in pin update are pending approval. Template pin changes affect new Projects only; existing Project source and accepted Checkpoints remain unchanged. See [candidate procedure](../tools/template-contract/README.md).
 
 The new starter retains a separate D1 drill database and, when R2 is declared, a separate R2 drill bucket. Their purpose is `recovery_control`; application cleanup and restore exclude them. First release checks initial Worker absence before migrations, runs isolated provider drills, then records the complete D1/R2 recovery group. Recovery requires guarded writers and inactive object-changing bucket policies. A failed or uncertain restore leaves the writer gate paused for inspection. Local tests do not establish live Time Travel or R2 metadata compatibility.
 

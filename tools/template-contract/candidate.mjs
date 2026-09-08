@@ -20,8 +20,6 @@ const paths = (cwd, revision) =>
     .trim()
     .split("\n")
     .filter(Boolean)
-const migration = (path) =>
-  /(^|\/)(?:recovery-)?migrations\/.*\.sql$/.test(path)
 const checkedPath = (path) => {
   if (
     !path ||
@@ -30,12 +28,6 @@ const checkedPath = (path) => {
   )
     throw new Error("Source mapping requires a repository-relative path")
   return path
-}
-
-export const verifyImmutableMigrations = (previous, candidate) => {
-  for (const [path, content] of previous)
-    if (migration(path) && candidate.get(path) !== content)
-      throw new Error(`Published migration changed or disappeared: ${path}`)
 }
 
 export const verifyControlSchema = (migrations, schemas) => {
@@ -70,8 +62,6 @@ export const verifyControlSchema = (migrations, schemas) => {
 export const generateTemplateCandidate = ({
   platform,
   starter,
-  baseCommit,
-  previousCommit,
   version,
   output,
   sourceMap,
@@ -97,11 +87,11 @@ export const generateTemplateCandidate = ({
       )
   const candidateCommit = git(starter, "rev-parse", "HEAD").trim()
   const sourceCommit = git(platform, "rev-parse", "HEAD").trim()
-  for (const revision of [baseCommit, previousCommit]) {
-    if (!/^[a-f0-9]{40}$/.test(revision))
-      throw new Error("Use exact immutable base and previous commit hashes")
-    git(starter, "merge-base", "--is-ancestor", revision, candidateCommit)
-  }
+  if (
+    JSON.parse(blob(starter, candidateCommit, "package.json")).version !==
+    version
+  )
+    throw new Error("Candidate version differs from its package version")
   const mapping = JSON.parse(
     readFileSync(
       sourceMap ??
@@ -110,17 +100,6 @@ export const generateTemplateCandidate = ({
     )
   )
   const candidatePaths = paths(starter, candidateCommit)
-  const previousFiles = new Map(
-    paths(starter, previousCommit)
-      .filter(migration)
-      .map((path) => [path, blob(starter, previousCommit, path)])
-  )
-  const candidateFiles = new Map(
-    candidatePaths
-      .filter(migration)
-      .map((path) => [path, blob(starter, candidateCommit, path)])
-  )
-  verifyImmutableMigrations(previousFiles, candidateFiles)
   const recoverySources = mapping.sources.map((entry) => {
     checkedPath(entry.templatePath)
     checkedPath(entry.platformPath)
@@ -163,8 +142,6 @@ export const generateTemplateCandidate = ({
   )
   const metadata = {
     repository: "kcc989/sylph-tanstack-template",
-    baseCommit,
-    previousCommit,
     candidateCommit,
     version,
     published: false,
@@ -194,28 +171,16 @@ if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(resolve(process.argv[1])).href
 ) {
-  const [
-    ,
-    ,
-    platform,
-    starter,
-    baseCommit,
-    previousCommit,
-    version,
-    output,
-    sourceMap,
-  ] = process.argv
+  const [, , platform, starter, version, output, sourceMap] = process.argv
   if (!output)
     throw new Error(
-      "Usage: bun tools/template-contract/candidate.mjs <platform> <starter> <base-commit> <previous-published-commit> <version> <output-directory> [source-map.json]"
+      "Usage: bun tools/template-contract/candidate.mjs <platform> <starter> <version> <output-directory> [source-map.json]"
     )
   console.log(
     JSON.stringify(
       generateTemplateCandidate({
         platform,
         starter,
-        baseCommit,
-        previousCommit,
         version,
         output: resolve(output),
         sourceMap,
