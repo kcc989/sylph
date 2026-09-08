@@ -70,3 +70,9 @@ diff --git a/dist/workerd.js b/dist/workerd.js
 -  return PromiseSdk.create({ ...profile.options, log, plugins }, { overrides: profile.replacements });
 +  return PromiseSdk.create({ ...profile.options, log, plugins }, { ...embed, overrides: [...profile.replacements, ...embed.overrides ?? []] });
  };
+diff --git a/dist/logging.js b/dist/logging.js
+--- a/dist/logging.js
++++ b/dist/logging.js
+@@ -38,1 +38,1 @@
+-        ...entry.cause === void 0 && detailCause === void 0 ? {} : { cause: entry.cause ?? detailCause }
++        ...entry.cause === void 0 && detailCause === void 0 ? {} : { cause: options.cause.reasons.length > 0 ? options.cause : detailCause }

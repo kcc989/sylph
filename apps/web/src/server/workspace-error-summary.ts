@@ -1,4 +1,4 @@
-import { Schema } from "effect"
+import { Cause, Schema } from "effect"
 
 const providerFailureMessage = Schema.Struct({ message: Schema.String })
 const wrappedProviderFailureMessage = Schema.Struct({
@@ -65,7 +65,12 @@ const providerStreamFailure = Schema.Struct({
   reason: Schema.Struct({ raw: Schema.String }),
 })
 
-export const providerRuntimeErrorDetail = (cause: unknown) => {
+export const providerRuntimeErrorDetail = (cause: unknown): string | null => {
+  if (Cause.isCause(cause)) {
+    const failure = cause.reasons.find(Cause.isFailReason)
+    if (failure) return providerRuntimeErrorDetail(failure.error)
+    return safeErrorDetail(new Error(Cause.pretty(cause)))
+  }
   if (Schema.is(providerStreamFailure)(cause))
     return safeErrorDetail(new Error(cause.reason.raw))
   return providerFailureDetail(cause)
