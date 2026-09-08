@@ -29,7 +29,26 @@ const fixture = (saved = new Map()) => {
       get: () => ({
         fetch: async () =>
           Response.json([
-            { id: "default", name: "Auto", context: 128000, images: true },
+            {
+              id: "default",
+              name: "Auto",
+              context: 128000,
+              images: true,
+              modelId: "wire-model",
+              output: 64000,
+              settings: {
+                cursorModelId: "wire-model",
+                cursorVariantParameters: [{ id: "context", value: "1m" }],
+              },
+              variants: [
+                {
+                  id: "High",
+                  settings: {
+                    cursorVariantParameters: [{ id: "effort", value: "high" }],
+                  },
+                },
+              ],
+            },
           ]),
       }),
     },
@@ -143,6 +162,22 @@ test("Cursor catalog survives a Workspace restart before session recovery", asyn
   await restarted.provider.restore()
   const cleanup = await restarted.provider.plugin.setup(restarted.context)
   expect(restarted.models().map((model) => model.id)).toEqual(["default"])
+  expect(restarted.models()[0]).toMatchObject({
+    modelID: "wire-model",
+    limit: { output: 64000 },
+    settings: {
+      cursorModelId: "wire-model",
+      cursorVariantParameters: [{ id: "context", value: "1m" }],
+    },
+    variants: [
+      {
+        id: "High",
+        settings: {
+          cursorVariantParameters: [{ id: "effort", value: "high" }],
+        },
+      },
+    ],
+  })
   expect(restarted.resolutions()).toBe(0)
   await cleanup()
 })

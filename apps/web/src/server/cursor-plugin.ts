@@ -47,11 +47,19 @@ export const createCursorProvider = (
         })
         for (const model of models)
           draft.model.update("cursor", model.id, (value) => {
-            value.modelID = Model.ID.make(model.id)
+            value.modelID = Model.ID.make(model.modelId ?? model.id)
             value.name = model.name
+            value.settings = model.settings
+            value.variants = (model.variants ?? []).map((variant) => ({
+              id: Model.VariantID.make(variant.id),
+              settings: variant.settings,
+            }))
             value.enabled = true
             value.status = "active"
-            value.limit = { context: model.context, output: 32_000 }
+            value.limit = {
+              context: model.context,
+              output: model.output ?? 32_000,
+            }
             value.capabilities = {
               tools: true,
               input: model.images ? ["text", "image"] : ["text"],

@@ -48,13 +48,16 @@ const fixture = (prefix: LanguageModelV3StreamPart[] = []) => {
   return { model, requests }
 }
 
-test("Cursor retries a Max Mode requirement before any model content", async () => {
+test("Cursor bridge does not change model options or retry provider failures", async () => {
   const { model, requests } = fixture()
   const parts = await Array.fromAsync(cursorModelStream(model, { prompt: [] }))
-  expect(requests.length).toBe(2)
-  expect(requests[1]?.providerOptions?.cursor?.maxMode).toBe(true)
+  expect(requests.length).toBe(1)
+  expect(requests[0]).toEqual({ prompt: [] })
   expect(parts.filter((part) => part.type === "stream-start").length).toBe(1)
-  expect(parts.at(-1)).toMatchObject({ type: "text-delta", delta: "ready" })
+  expect(parts.at(-1)).toMatchObject({
+    type: "error",
+    error: { message: "Max Mode Required" },
+  })
 })
 
 test("Cursor never retries after text or tool calls", async () => {

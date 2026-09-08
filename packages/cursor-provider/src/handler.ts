@@ -1,7 +1,7 @@
 import { syncCursorWorkspace } from "./workspace"
 import { cursorToolInput } from "./tool-input"
 import { cursorModelStream } from "./model-stream"
-import { cursorModelOptions } from "./model-options"
+import { cursorCatalog } from "./catalog"
 import {
   CursorBridgeRequest,
   CursorTokens,
@@ -51,34 +51,21 @@ export const handleCursorRequest = async (
       return Response.json(await refreshAccessToken(input.refreshToken))
     case "models": {
       const models = await discoverModels(input.accessToken, cacheDir)
-      return Response.json(
-        models
-          .filter((model) => model.supportsAgent !== false)
-          .map((model) => ({
-            id: model.id,
-            name: model.displayName ?? model.id,
-            context: model.maxContext ?? 128_000,
-            images: model.supportsImages ?? false,
-          }))
-      )
+      return Response.json(cursorCatalog(models))
     }
     case "stream": {
       await syncCursorWorkspace("/workspace", input.call.files)
-      const models = await discoverModels(input.accessToken, cacheDir)
-      const model = models.find((model) => model.id === input.call.modelId)
-      if (!model)
-        throw new Error("The selected Cursor model is no longer available")
+      await discoverModels(input.accessToken, cacheDir)
       const provider = createCursor({
         name: "cursor",
         accessToken: input.accessToken,
         cacheDir,
         workspaceRoot: "/workspace",
-        retry: { maxAttempts: 1 },
       })
       const stream = cursorModelStream(
         provider.languageModel(input.call.modelId),
         {
-          ...cursorModelOptions(input.call.options, model),
+          ...input.call.options,
           headers: { "x-opencode-session": input.call.sessionId },
           abortSignal: request.signal,
         }

@@ -324,12 +324,38 @@ export const CursorLogin = Schema.Struct({
   url: Schema.NonEmptyString,
   expiresAt: Schema.Number,
 })
+export const CursorModelConfiguration = Schema.Record(
+  Schema.String,
+  Schema.Struct({
+    name: Schema.String,
+    limit: Schema.Struct({ context: Schema.Number, output: Schema.Number }),
+    modalities: Schema.optional(
+      Schema.Struct({
+        input: Schema.Array(Schema.String),
+        output: Schema.Array(Schema.String),
+      })
+    ),
+    options: Schema.optional(JsonObject),
+    variants: Schema.optional(Schema.Record(Schema.String, JsonObject)),
+  })
+)
 export const CursorModels = Schema.Array(
   Schema.Struct({
     id: Schema.NonEmptyString,
     name: Schema.NonEmptyString,
     context: Schema.Number,
     images: Schema.Boolean,
+    modelId: Schema.optional(Schema.String),
+    output: Schema.optional(Schema.Number),
+    settings: Schema.optional(JsonObject),
+    variants: Schema.optional(
+      Schema.Array(
+        Schema.Struct({
+          id: Schema.String,
+          settings: JsonObject,
+        })
+      )
+    ),
   })
 )
 export const CursorHandle = Schema.Struct({
