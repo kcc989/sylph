@@ -1,5 +1,7 @@
 import { expect } from "@playwright/test"
 import { Schema } from "effect"
+import { CloudflareDeployments } from "@workspace/domain/project-operations"
+import { jsonPointer } from "./lifecycle"
 import {
   ProjectDeployInput,
   DeploymentDataRestore,
@@ -335,6 +337,28 @@ export async function productionRelease(r: LifecycleActionRuntime) {
 
 export async function deliberateFailure(r: LifecycleActionRuntime) {
   const previous = r.deployment
+  const worker = requireValue(
+    r.state.productionWorker,
+    "Production Worker missing"
+  )
+  const readIdentity = async () =>
+    Schema.decodeUnknownSync(CloudflareDeployments)(
+      jsonPointer(
+        await r.provider.read(`workers/scripts/${worker}/deployments`),
+        "/result"
+      )
+    ).deployments[0]
+  const identity = requireValue(
+    await readIdentity(),
+    "Active Worker deployment missing"
+  )
+  const bindings = await r.provider.settings(worker)
+  const control = requireValue(
+    bindings.bindings.find(
+      (binding) => binding.name === "SYLPH_RECOVERY_CONTROL"
+    )?.id,
+    "Recovery control database missing"
+  )
   await secret(r, "SMOKE_FAIL_RELEASE", "yes")
   const failed = await deploy(r, undefined, "failed")
   r.assert(
@@ -350,14 +374,38 @@ export async function deliberateFailure(r: LifecycleActionRuntime) {
     true
   )
   const app = await r.context.newPage()
-  await app.goto(
+  const response = await app.goto(
     requireValue(previous.production_url, "Previous production URL missing")
   )
-  await r.identity(app, previous.commit, "production")
   r.assert(
-    "Previous code and secret version still serve",
-    await app.locator("[data-smoke-secret]").textContent(),
-    "after"
+    "Failed release keeps application writes paused",
+    response?.status() ?? null,
+    503,
+    true
+  )
+  r.assert(
+    "Maintenance response permits a later retry",
+    response?.headers()["retry-after"] ?? null,
+    "30"
+  )
+  await expect(app.locator("body")).toContainText(
+    "Application maintenance is in progress"
+  )
+  r.assert(
+    "Failed release preserves the deployed Worker version",
+    await readIdentity(),
+    identity,
+    true
+  )
+  r.assert(
+    "Failed release owns the drained recovery gate",
+    await r.provider.rows(
+      control,
+      "SELECT owner, active FROM sylph_recovery_gate WHERE id = 1",
+      Schema.JsonObject
+    ),
+    [{ owner: failed.id, active: 0 }],
+    true
   )
   const database = requireValue(
     r.state.productionDatabaseId,

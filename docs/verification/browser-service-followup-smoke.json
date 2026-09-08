@@ -1,0 +1,618 @@
+{
+  "stage": "smoke-browser-mtry7aml",
+  "commit": "a91e848909ec9a093c09482ae990317eeeac9738",
+  "sourceHash": "da741c962af43c6747ce738ff5fcd0fd62e0c3d9f636e8a89fdb53f8271ba2b6",
+  "dirty": false,
+  "status": "passed",
+  "blockedPopupRequests": 0,
+  "images": [
+    {
+      "name": "journey",
+      "width": 1440,
+      "height": 900,
+      "bytes": 27540,
+      "evidenceId": "browser-smoke-check-agent-screenshot-ac98c0c0-561d-4101-97b6-10c408e0214e-24"
+    },
+    {
+      "name": "desktop",
+      "width": 1440,
+      "height": 900,
+      "bytes": 20098,
+      "evidenceId": "browser-smoke-check-agent-screenshot-ac98c0c0-561d-4101-97b6-10c408e0214e-35"
+    },
+    {
+      "name": "mobile",
+      "width": 390,
+      "height": 844,
+      "bytes": 16173,
+      "evidenceId": "browser-smoke-check-agent-screenshot-ac98c0c0-561d-4101-97b6-10c408e0214e-39"
+    }
+  ],
+  "stepCount": 79,
+  "steps": [
+    {
+      "label": "No policy blocks acceptance",
+      "httpStatus": null,
+      "outcome": null,
+      "blockers": [
+        "Set a browser journey policy, then complete its journeys or record a policy exception."
+      ],
+      "evidenceKinds": []
+    },
+    {
+      "label": "Start origin guard probe",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Reconnect with required screenshot evidence",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Missing journey policy blocks acceptance",
+      "httpStatus": null,
+      "outcome": null,
+      "blockers": [
+        "Set a browser journey policy, then complete its journeys or record a policy exception."
+      ],
+      "evidenceKinds": []
+    },
+    {
+      "label": "Block native popup before its first external request",
+      "httpStatus": 422,
+      "outcome": null,
+      "blockers": null,
+      "evidenceKinds": []
+    },
+    {
+      "label": "Start idle origin guard probe",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Schedule native popup while owner is idle",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Block unattended popup between action connections",
+      "httpStatus": 422,
+      "outcome": null,
+      "blockers": null,
+      "evidenceKinds": []
+    },
+    {
+      "label": "Start exact Checkpoint",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Begin required CRUD journey",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Rendered source identity",
+      "httpStatus": 200,
+      "outcome": "passed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Fill fixture password",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Sign in with keyboard",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Wait for sign-in",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Authenticated across reconnects",
+      "httpStatus": 200,
+      "outcome": "passed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Select saved preference",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Fill new todo",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Create todo",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Duplicate create does not replay",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Wait for created todo",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Created todo text",
+      "httpStatus": 200,
+      "outcome": "passed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Reload authenticated page",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Cookie survives reload",
+      "httpStatus": 200,
+      "outcome": "passed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Local storage survives reload",
+      "httpStatus": 200,
+      "outcome": "passed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "D1 todo survives reload",
+      "httpStatus": 200,
+      "outcome": "passed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Fill edited title",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Save edit",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Observe saved edit",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Edited title",
+      "httpStatus": 200,
+      "outcome": "passed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Complete todo",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Observe completion",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Completed checkbox",
+      "httpStatus": 200,
+      "outcome": "passed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Scroll page",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Delete todo",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Wait for deletion",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Reload after deletion",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Deletion persisted",
+      "httpStatus": 200,
+      "outcome": "passed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Complete CRUD proof",
+      "httpStatus": 200,
+      "outcome": "passed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Missing responsive journey blocks acceptance",
+      "httpStatus": null,
+      "outcome": null,
+      "blockers": [
+        "Authenticated responsive view: missing browser journey proof."
+      ],
+      "evidenceKinds": []
+    },
+    {
+      "label": "Begin responsive failure attempt",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Failed assertion stays failed",
+      "httpStatus": 200,
+      "outcome": "failed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Failed assertion blocks acceptance",
+      "httpStatus": null,
+      "outcome": null,
+      "blockers": [
+        "Authenticated responsive view: failed browser journey proof."
+      ],
+      "evidenceKinds": []
+    },
+    {
+      "label": "Begin responsive retry",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Set desktop viewport",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Native pointer in desktop viewport",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Native pointer changed desktop control",
+      "httpStatus": 200,
+      "outcome": "passed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Verify authenticated desktop view",
+      "httpStatus": 200,
+      "outcome": "passed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Set mobile viewport",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Native pointer in mobile viewport",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Native pointer changed mobile control",
+      "httpStatus": 200,
+      "outcome": "passed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Verify authenticated mobile view",
+      "httpStatus": 200,
+      "outcome": "passed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Complete responsive retry",
+      "httpStatus": 200,
+      "outcome": "passed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Exact journey proof permits browser acceptance",
+      "httpStatus": null,
+      "outcome": null,
+      "blockers": [],
+      "evidenceKinds": []
+    },
+    {
+      "label": "Changed Check attempt blocks old proof",
+      "httpStatus": null,
+      "outcome": null,
+      "blockers": [
+        "Create, reload, edit, complete, and delete: missing browser journey proof.",
+        "Authenticated responsive view: missing browser journey proof."
+      ],
+      "evidenceKinds": []
+    },
+    {
+      "label": "Human takeover",
+      "httpStatus": null,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Agent cannot act during human control",
+      "httpStatus": 422,
+      "outcome": null,
+      "blockers": null,
+      "evidenceKinds": []
+    },
+    {
+      "label": "Human observes same authenticated session",
+      "httpStatus": null,
+      "outcome": "passed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Human releases control",
+      "httpStatus": null,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Open configured external popup",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Select external page",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Fill external fixture password",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Submit external sign-in",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "OAuth callback validates state and one-time code",
+      "httpStatus": 200,
+      "outcome": "passed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Return to application page",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Reload original page after OAuth",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "OAuth session is shared with original page",
+      "httpStatus": 200,
+      "outcome": "passed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Application cookies remain in shared context",
+      "httpStatus": 200,
+      "outcome": "passed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Begin interrupted journey",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Close unfinished journey",
+      "httpStatus": 200,
+      "outcome": "closed",
+      "blockers": null,
+      "evidenceKinds": []
+    },
+    {
+      "label": "Interrupted journey blocks acceptance",
+      "httpStatus": null,
+      "outcome": null,
+      "blockers": [
+        "Authenticated responsive view: interrupted browser journey proof."
+      ],
+      "evidenceKinds": []
+    },
+    {
+      "label": "Start for final navigation checks",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Sign in again",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Submit sign-in again",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Reject external URL",
+      "httpStatus": 422,
+      "outcome": null,
+      "blockers": null,
+      "evidenceKinds": []
+    },
+    {
+      "label": "Block external link navigation",
+      "httpStatus": 422,
+      "outcome": null,
+      "blockers": null,
+      "evidenceKinds": []
+    },
+    {
+      "label": "Close authenticated session",
+      "httpStatus": 200,
+      "outcome": "closed",
+      "blockers": null,
+      "evidenceKinds": []
+    },
+    {
+      "label": "Start clean session",
+      "httpStatus": 200,
+      "outcome": "observed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Closed session loses login",
+      "httpStatus": 200,
+      "outcome": "passed",
+      "blockers": null,
+      "evidenceKinds": ["screenshot", "accessibility"]
+    },
+    {
+      "label": "Close browser",
+      "httpStatus": 200,
+      "outcome": "closed",
+      "blockers": null,
+      "evidenceKinds": []
+    }
+  ],
+  "ownerDisposalProbe": {
+    "commit": "0a5e6b0",
+    "stage": "smoke-browser-mtrxw6qd",
+    "result": [
+      {
+        "phase": "owned-initial",
+        "bytes": 16484
+      },
+      {
+        "phase": "owned-idle",
+        "bytes": 16484
+      },
+      {
+        "phase": "owner-disconnected",
+        "contexts": []
+      }
+    ]
+  }
+}
