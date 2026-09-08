@@ -103,6 +103,7 @@ export const validateBrokerBindings = (
           !plan.some(
             (resource) =>
               resource.kind === "durable_object" &&
+              !resource.retirement &&
               resource.className === unknownBinding.class_name &&
               (!unknownBinding.script_name ||
                 resource.worker === unknownBinding.script_name)
@@ -194,7 +195,16 @@ export const validateWorkerMetadata = (
             !plan.some(
               (resource) =>
                 resource.kind === "durable_object" &&
-                resource.className === className
+                resource.className === className &&
+                (field === "deleted_classes"
+                  ? resource.retirement &&
+                    resources.some(
+                      (owned) =>
+                        owned.kind === resource.kind &&
+                        owned.name === resource.name &&
+                        owned.id === resource.retirement?.resourceId
+                    )
+                  : !resource.retirement)
             )
           )
             brokerDenied("unreviewed Durable Object migration")
@@ -212,6 +222,7 @@ export interface BrokerAuthorization {
   createName?: string
   worker?: boolean
   objectData?: boolean
+  consumerRemoval?: boolean
 }
 
 export const authorizeBrokerRequest = (
@@ -242,6 +253,25 @@ export const authorizeBrokerRequest = (
     return { kind: "account_subdomain" }
   if (path === "/workers/durable_objects/namespaces" && method === "GET")
     return { kind: "durable_object", collection: true }
+  const namespaceObjects = path.match(
+    /^\/workers\/durable_objects\/namespaces\/([^/]+)\/objects$/
+  )?.[1]
+  if (namespaceObjects) {
+    if (
+      method !== "GET" ||
+      !resources.some(
+        (item) =>
+          item.kind === "durable_object" &&
+          item.id === namespaceObjects &&
+          plan.some(
+            (planned) =>
+              planned.kind === item.kind && planned.name === item.name
+          )
+      )
+    )
+      brokerDenied("Object inventory requires the exact owned namespace")
+    return { kind: "durable_object" }
+  }
   const policyBucket =
     path.match(
       /^\/r2\/buckets\/([^/]+)\/(?:lifecycle|lock|sippy|cors|domains\/custom|domains\/managed)$/
@@ -394,7 +424,8 @@ export const authorizeBrokerRequest = (
     if (
       method === "DELETE" &&
       !(family.kind === "kv" && /^values\/[^/]+$/.test(tail)) &&
-      !(family.kind === "r2" && /^objects\/.+/.test(tail))
+      !(family.kind === "r2" && /^objects\/.+/.test(tail)) &&
+      !(family.kind === "queue" && /^consumers\/[^/]+$/.test(tail))
     )
       brokerDenied("resource removal requires the platform removal workflow")
     if (family.kind === "worker") {
@@ -447,7 +478,9 @@ export const authorizeBrokerRequest = (
     )
       brokerDenied("unsupported R2 object operation")
     if (family.kind === "queue" && method !== "GET") {
-      if (tail === "messages" && method === "POST") {
+      if (/^consumers\/[^/]+$/.test(tail) && method === "DELETE") {
+        keys(body, [])
+      } else if (tail === "messages" && method === "POST") {
         keys(body, ["body", "content_type"])
         const message = Schema.decodeUnknownSync(BrokerQueueMessage)(body)
         const encoded =
@@ -502,6 +535,10 @@ export const authorizeBrokerRequest = (
       createName: !owned && !tail ? id : undefined,
       worker: family.kind === "worker",
       objectData: family.kind === "r2" && /^objects\/.+/.test(tail),
+      consumerRemoval:
+        family.kind === "queue" &&
+        method === "DELETE" &&
+        /^consumers\/[^/]+$/.test(tail),
     }
   }
   brokerDenied("API outside the approved deployment surface")
@@ -527,6 +564,10 @@ export const validateBrokerQuery = (
     else if (path === "/r2/buckets")
       allowed = ["per_page", "cursor", "name_contains", "direction"]
     else if (path === "/workers/scripts") allowed = ["include_subdomain"]
+    else if (
+      /^\/workers\/durable_objects\/namespaces\/[^/]+\/objects$/.test(path)
+    )
+      allowed = ["limit", "cursor"]
     else if (/^\/r2\/buckets\/[^/]+\/objects$/.test(path))
       allowed = ["per_page", "cursor", "prefix", "delimiter", "start_after"]
     else if (/^\/storage\/kv\/namespaces\/[^/]+\/keys$/.test(path))

@@ -1,3 +1,4 @@
+import { ProjectResourceRemovalPreparation } from "./project-resource-removal-preparation"
 import { useState } from "react"
 import { useServerFn } from "@tanstack/react-start"
 import { useRouter } from "@tanstack/react-router"
@@ -99,6 +100,10 @@ export function ProjectResourceActions({
         and its data, but blocks future use in this Project. Removal permanently
         deletes retired resources and their data.
       </p>
+      <ProjectResourceRemovalPreparation
+        projectId={projectId}
+        resources={resources}
+      />
       {pendingReview && !review && (
         <Button
           size="sm"

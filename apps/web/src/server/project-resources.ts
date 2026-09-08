@@ -1,3 +1,7 @@
+import {
+  namespaceRecoveryBlockers,
+  requireNamespaceAbsent,
+} from "./resource-retirement"
 import { removeOwnedResources } from "./resource-removal"
 import { entryWorker, validateResourceTopology } from "./resource-policy"
 import {
@@ -161,11 +165,29 @@ export const reserveProjectResources = async (
   request: ResourceRequest = fetch
 ) => {
   validateResourceTopology(plan)
+  const retirementIds = plan.flatMap((item) =>
+    item.retirement ? [item.retirement.resourceId] : []
+  )
+  if (
+    (await namespaceRecoveryBlockers(database, owner.projectId, retirementIds))
+      .length
+  )
+    throw new Error(
+      "Namespace deletion would invalidate saved recovery points. Keep the namespace until an explicit irreversible release policy is available."
+    )
   const previous = await scopeResources(database, credentials, owner)
   for (const resource of plan) {
     const claim = previous.find(
       (item) => item.kind === resource.kind && item.name === resource.name
     )
+    if (
+      resource.retirement &&
+      (owner.scope !== "production" ||
+        claim?.state !== "active" ||
+        claim.resource_id !== resource.retirement.resourceId ||
+        claim.generation !== resource.retirement.generation)
+    )
+      throw new Error(`Retirement identity changed for ${resource.name}`)
     if (claim?.state === "retired" || claim?.state === "deleted")
       throw new Error(`Resource ${resource.name} was retired; use a new name`)
     if (
@@ -226,7 +248,12 @@ export const reserveProjectResources = async (
       throw new Error(
         `Resource host or class changed for ${resource.name}; review its migration before deployment`
       )
-    if (!existing && claim?.resource_id && claim.state !== "deleted")
+    if (
+      !existing &&
+      claim?.resource_id &&
+      claim.state !== "deleted" &&
+      !resource.retirement
+    )
       throw new Error(
         `Owned resource ${resource.name} is missing; reconcile it before deploying`
       )
@@ -336,6 +363,22 @@ export const captureProjectResources = async (
     if (resource.state === "deleted" || resource.state === "retired") continue
     const existing = await findResource(credentials, resource, request)
     if (!existing) {
+      const retirement = declared.find(
+        (item) => item.kind === resource.kind && item.name === resource.name
+      )?.retirement
+      if (
+        resource.kind === "durable_object" &&
+        resource.state === "active" &&
+        resource.resource_id === retirement?.resourceId &&
+        resource.generation === retirement?.generation
+      ) {
+        await requireNamespaceAbsent(
+          credentials,
+          retirement.resourceId,
+          request
+        )
+        continue
+      }
       if (requireComplete)
         throw new Error(`Declared resource ${resource.name} was not deployed`)
       continue

@@ -1309,3 +1309,221 @@ test("managed KV and Queue bindings require exact same-Project resource kinds", 
     }
   }
 })
+
+test("removal Workspace review binds accepted source, live identity and recovery compatibility", async () => {
+  const {
+    inspectResourceRemoval,
+    requireCurrentRemovalPreparation,
+    removalPreparationPrompt,
+  } = await import("./resource-removal-preparation")
+  const f = await setup("production")
+  const worker = f.plan.find((item) => item.kind === "worker")
+  if (!worker) throw new Error("Worker fixture missing")
+  const object = {
+    kind: "durable_object" as const,
+    name: `${worker.name}/Counter`,
+    worker: worker.name,
+    className: "Counter",
+  }
+  const plan = [...f.plan, object]
+  await reserveProjectResources(
+    f.database,
+    f.credentials,
+    f.owner,
+    plan,
+    f.request
+  )
+  f.deploy()
+  f.live.push({ ...object, id: "namespace-a" })
+  await captureProjectResources(
+    f.database,
+    f.credentials,
+    f.owner,
+    true,
+    f.request
+  )
+  await finishResourceOperation(f.database, f.credentials, f.owner, "complete")
+  const commit = "a".repeat(40)
+  f.sqlite
+    .query(
+      "INSERT INTO deployment (id, project_id, [commit], status, actor_user_id) VALUES ('release-a', 'one', ?, 'succeeded', 'admin')"
+    )
+    .run(commit)
+  const selection = {
+    projectId: "one",
+    resources: [
+      {
+        kind: "durable_object" as const,
+        name: object.name,
+        resourceId: "namespace-a",
+        generation: null,
+      },
+    ],
+  }
+  const reviewed = await inspectResourceRemoval(
+    f.database,
+    f.credentials,
+    selection,
+    commit,
+    f.request
+  )
+  expect(reviewed.baseCommit).toBe(commit)
+  expect(reviewed.resources[0]?.retirement).toEqual({
+    resourceId: "namespace-a",
+    generation: null,
+  })
+  expect(removalPreparationPrompt(reviewed)).toContain("Second checkpoint")
+  await expect(
+    inspectResourceRemoval(
+      f.database,
+      f.credentials,
+      selection,
+      "b".repeat(40),
+      f.request
+    )
+  ).rejects.toThrow("accepted commit")
+  const snapshot = {
+    deploymentId: "release-a",
+    projectId: "one",
+    commit,
+    baseCommit: null,
+    capturedAt: 1,
+    expiresAt: 9999999999999,
+    writesPaused: true,
+    inventoryComplete: true,
+    resources: [
+      {
+        id: "namespace-a",
+        kind: "durable-object",
+        backupRef: "actual-fixture-reference",
+        restoreVerifiedAt: 1,
+      },
+    ],
+  }
+  f.sqlite
+    .query("UPDATE deployment SET recovery_json = ? WHERE id = 'release-a'")
+    .run(JSON.stringify(snapshot))
+  const blocked = await inspectResourceRemoval(
+    f.database,
+    f.credentials,
+    selection,
+    commit,
+    f.request
+  )
+  expect(blocked.blockers).toHaveLength(1)
+  expect(() => requireCurrentRemovalPreparation(reviewed, blocked)).toThrow(
+    "recovery points changed"
+  )
+  await expect(
+    reserveProjectResources(
+      f.database,
+      f.credentials,
+      { ...f.owner, runId: "retire" },
+      [
+        ...f.plan,
+        {
+          ...object,
+          retirement: { resourceId: "namespace-a", generation: null },
+        },
+      ],
+      f.request
+    )
+  ).rejects.toThrow("invalidate saved recovery points")
+  const live = f.live.find((item) => item.kind === "durable_object")
+  if (!live) throw new Error("Namespace fixture missing")
+  live.id = "replacement"
+  await expect(
+    inspectResourceRemoval(
+      f.database,
+      f.credentials,
+      selection,
+      commit,
+      f.request
+    )
+  ).rejects.toThrow("Provider resource identity changed")
+})
+
+test("a source-retired namespace requires confirmed absence before retirement and removal", async () => {
+  const f = await setup("production")
+  const worker = f.plan.find((item) => item.kind === "worker")
+  if (!worker) throw new Error("Worker fixture missing")
+  const object = {
+    kind: "durable_object" as const,
+    name: `${worker.name}/Counter`,
+    worker: worker.name,
+    className: "Counter",
+  }
+  await reserveProjectResources(
+    f.database,
+    f.credentials,
+    f.owner,
+    [...f.plan, object],
+    f.request
+  )
+  f.deploy()
+  f.live.push({ ...object, id: "namespace-a" })
+  await captureProjectResources(
+    f.database,
+    f.credentials,
+    f.owner,
+    true,
+    f.request
+  )
+  await finishResourceOperation(f.database, f.credentials, f.owner, "complete")
+  const retirement = {
+    ...object,
+    retirement: { resourceId: "namespace-a", generation: null },
+  }
+  const next = { ...f.owner, runId: "retirement-release" }
+  await reserveProjectResources(
+    f.database,
+    f.credentials,
+    next,
+    [...f.plan, retirement],
+    f.request
+  )
+  const namespace = f.live.find((item) => item.kind === "durable_object")
+  if (!namespace) throw new Error("Namespace fixture missing")
+  namespace.name = `${worker.name}/Renamed`
+  namespace.className = "Renamed"
+  await expect(
+    captureProjectResources(f.database, f.credentials, next, true, f.request)
+  ).rejects.toThrow()
+  f.live.splice(f.live.indexOf(namespace), 1)
+  await captureProjectResources(
+    f.database,
+    f.credentials,
+    next,
+    true,
+    f.request
+  )
+  await finishResourceOperation(f.database, f.credentials, next, "complete")
+  const service = mutationService(f)
+  const review = await service.review({
+    projectId: "one",
+    scope: "production",
+    action: "retire",
+    resources: [object],
+  })
+  await service.confirm(review)
+  await service.execute(review)
+  expect(
+    (await readProjectResources(f.database, "one")).find(
+      (item) => item.kind === "durable_object"
+    )?.state
+  ).toBe("retired")
+  const removal = await service.review({
+    projectId: "one",
+    scope: "production",
+    action: "remove",
+    resources: [object],
+  })
+  await service.confirm(removal)
+  await service.execute(removal)
+  expect(
+    (await readProjectResources(f.database, "one")).find(
+      (item) => item.kind === "durable_object"
+    )?.state
+  ).toBe("deleted")
+  expect(f.deletes).toEqual([])
+})
