@@ -14,18 +14,11 @@ import {
 } from "../src/object"
 import { verifyObjectRecoveryDrill } from "../src/object-drill"
 
-const build = await Bun.build({
-  entrypoints: [
-    new URL("./fixtures/object-worker.ts", import.meta.url).pathname,
-  ],
-  target: "browser",
-  external: ["cloudflare:workers"],
-})
-if (!build.success || !build.outputs[0])
-  throw new Error("Object fixture build failed")
+import { objectWorkerScript } from "./fixtures/object-build"
+
 const runtime = new Miniflare({
   modules: true,
-  script: await build.outputs[0].text(),
+  script: objectWorkerScript,
   compatibilityDate: "2026-08-01",
   d1Databases: { CONTROL: "control" },
   durableObjects: { OBJECT: { className: "TestObject", useSQLite: true } },

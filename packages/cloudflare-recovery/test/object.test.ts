@@ -12,19 +12,11 @@ import {
   CloudflareObjectRecoveryLive,
 } from "../src/object"
 
-const build = await Bun.build({
-  entrypoints: [
-    new URL("./fixtures/object-worker.ts", import.meta.url).pathname,
-  ],
-  target: "browser",
-  external: ["cloudflare:workers"],
-})
+import { objectWorkerScript } from "./fixtures/object-build"
 
-if (!build.success || !build.outputs[0])
-  throw new Error("Object fixture build failed")
 const runtime = new Miniflare({
   modules: true,
-  script: await build.outputs[0].text(),
+  script: objectWorkerScript,
   compatibilityDate: "2026-08-01",
   d1Databases: { CONTROL: "control" },
   durableObjects: { OBJECT: { className: "TestObject", useSQLite: true } },

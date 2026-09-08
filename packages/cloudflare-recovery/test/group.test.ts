@@ -8,7 +8,10 @@ import {
 } from "@workspace/domain/cloudflare-recovery"
 import { CloudflareD1Recovery, CloudflareD1RecoveryLive } from "../src/recovery"
 import { CloudflareR2RecoveryLive } from "../src/r2"
-import { CloudflareObjectRecoveryLive } from "../src/object"
+import {
+  CloudflareObjectRecoveryLive,
+  objectSchemaFingerprint,
+} from "../src/object"
 import type { RecoveryObjectSnapshot } from "@workspace/domain/cloudflare-object-recovery"
 import { R2Provider, r2Object } from "./fixtures/r2-provider"
 import { verifyRecoveryDrill } from "../src/drill"
@@ -623,7 +626,7 @@ test.each(["prior-operation", "unavailable-bookmark"])(
   }
 )
 
-const withObject = () => {
+const withObject = async () => {
   const provider = new Provider()
   provider.object = {
     version: 1,
@@ -634,6 +637,22 @@ const withObject = () => {
   provider.control.exec(
     readFileSync(new URL("../src/object-control.sql", import.meta.url), "utf8")
   )
+  provider.control
+    .query(
+      "INSERT INTO sylph_recovery_object_drill (namespace_id, object_id, schema_fingerprint, verified_at, manifest_id) VALUES (?, ?, ?, ?, ?)"
+    )
+    .run(
+      "namespace",
+      "object",
+      await objectSchemaFingerprint(provider.object),
+      Date.now() - 1,
+      "fixture-drill-manifest"
+    )
+  provider.control
+    .query(
+      "INSERT INTO sylph_recovery_object_drill_operation (namespace_id, release_id, phase) VALUES (?, ?, ?)"
+    )
+    .run("namespace", "fixture-drill", "verified")
   provider.topology = {
     workers: provider.topology.workers.map((worker) =>
       worker.workerName === "front"
@@ -660,7 +679,7 @@ const withObject = () => {
 }
 
 test("group authenticates object snapshots before D1 writes and restores registered state", async () => {
-  const provider = withObject()
+  const provider = await withObject()
   const { target } = await prepare(provider)
   await run(provider, (group) => group.restore(target.id, "restore"))
   expect(provider.objectRestores).toBe(1)
@@ -669,7 +688,7 @@ test("group authenticates object snapshots before D1 writes and restores registe
 })
 
 test("corrupt object ciphertext prevents every grouped restore mutation", async () => {
-  const provider = withObject()
+  const provider = await withObject()
   const { target } = await prepare(provider)
   const manifest = target.objects?.[0]
   if (!manifest) throw new Error("Object manifest missing")
@@ -683,4 +702,12 @@ test("corrupt object ciphertext prevents every grouped restore mutation", async 
   ).rejects.toThrow()
   expect(provider.restored).toEqual([])
   expect(provider.objectRestores).toBe(0)
+})
+
+test("group capture refuses object fixtures without verified drill proof", async () => {
+  const provider = await withObject()
+  provider.control.exec("DELETE FROM sylph_recovery_object_drill_operation")
+  await expect(prepare(provider)).rejects.toThrow()
+  expect(provider.objectRestores).toBe(0)
+  expect(provider.restored).toEqual([])
 })
