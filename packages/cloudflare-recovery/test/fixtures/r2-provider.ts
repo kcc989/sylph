@@ -31,6 +31,10 @@ export class R2Provider {
   control: Database
   apiToken: string
   objects = new Map<string, R2RecoveryObject>()
+  buckets = new Map([["owned-bucket", this.objects]])
+  mutationRequests: Array<{ bucketName: string; key: string; method: string }> =
+    []
+  afterMutation: (() => void) | undefined
   generation = 0
   time = Date.now()
   mutations = 0
@@ -40,6 +44,8 @@ export class R2Provider {
   failMutation = 0
   lostMutation = 0
   dropMetadata = false
+  dropHttpMetadata = false
+  dropBytes = false
   failPage = false
   missingCompletion = false
   repeatCursor = false
@@ -115,16 +121,21 @@ export class R2Provider {
     const match = path.pathname.match(
       /\/r2\/buckets\/([a-z0-9-]+)\/objects(?:\/(.*))?$/
     )
-    if (!match || match[1] !== "owned-bucket")
-      throw new Error("Unexpected resource")
+    if (!match) throw new Error("Unexpected resource")
+    const bucketName = match[1] ?? ""
+    const objects = this.buckets.get(bucketName)
+    if (!objects) throw new Error("Unexpected bucket")
     if (match[2] === undefined) {
       this.pages++
       const start = Number(path.searchParams.get("cursor") ?? 0)
       if (start > 0 && this.failPage)
         return Response.json({ success: false }, { status: 500 })
-      const entries = [...this.objects.values()].sort((left, right) =>
-        left.key < right.key ? -1 : left.key > right.key ? 1 : 0
-      )
+      const prefix = path.searchParams.get("prefix") ?? ""
+      const entries = [...objects.values()]
+        .filter((value) => value.key.startsWith(prefix))
+        .sort((left, right) =>
+          left.key < right.key ? -1 : left.key > right.key ? 1 : 0
+        )
       const selected = entries.slice(
         this.duplicatePage ? 0 : start,
         (this.duplicatePage ? 0 : start) + this.pageSize
@@ -153,7 +164,7 @@ export class R2Provider {
     const key = decodeURIComponent(match[2])
     if (init.method === "GET") {
       this.reads++
-      const value = this.objects.get(key)
+      const value = objects.get(key)
       if (!value) return new Response(null, { status: 404 })
       return new Response(Buffer.from(value.bytes, "base64"), {
         headers: {
@@ -162,29 +173,36 @@ export class R2Provider {
       })
     }
     this.mutations++
+    this.mutationRequests.push({
+      bucketName,
+      key,
+      method: init.method ?? "GET",
+    })
     if (this.mutations === this.failMutation)
       return new Response("private-provider-body", { status: 500 })
     if (init.method === "PUT") {
-      const bytes = Buffer.from(await new Response(init.body).arrayBuffer())
+      let bytes = Buffer.from(await new Response(init.body).arrayBuffer())
       const httpMetadata = Schema.decodeUnknownSync(R2RecoveryHttpMetadata)(
         JSON.parse(headers.get("cf-r2-http-metadata") ?? "{}")
       )
       const customMetadata = Schema.decodeUnknownSync(R2RecoveryCustomMetadata)(
         JSON.parse(headers.get("cf-r2-custom-metadata") ?? "{}")
       )
-      this.objects.set(key, {
+      if (this.dropBytes) bytes = Buffer.from("xxxxxx")
+      objects.set(key, {
         key,
         bytes: bytes.toString("base64"),
         size: bytes.length,
-        httpMetadata,
+        httpMetadata: this.dropHttpMetadata ? {} : httpMetadata,
         customMetadata: this.dropMetadata ? {} : customMetadata,
         storageClass: Schema.decodeUnknownSync(R2RecoveryStorageClass)(
           headers.get("cf-r2-storage-class")
         ),
       })
-    } else if (init.method === "DELETE") this.objects.delete(key)
+    } else if (init.method === "DELETE") objects.delete(key)
     else throw new Error("Unexpected method")
     this.generation++
+    this.afterMutation?.()
     if (this.loseGate)
       this.control.exec(
         "UPDATE sylph_recovery_gate SET owner = 'different-release'"
@@ -201,7 +219,7 @@ export class R2Provider {
     encryptionKey: btoa("k".repeat(32)),
     fetch: this.fetch,
     now: () => this.time,
-    bucketNames: ["owned-bucket"],
+    bucketNames: [...this.buckets.keys()],
     drainTimeoutMs: 0,
   })
   layer = () =>

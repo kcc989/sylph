@@ -8,7 +8,8 @@
     "./worker": "./src/worker.ts",
     "./group": "./src/group.ts",
     "./drill": "./src/drill.ts",
-    "./r2": "./src/r2.ts"
+    "./r2": "./src/r2.ts",
+    "./r2-drill": "./src/r2-drill.ts"
   },
   "scripts": {
     "test": "bun test",

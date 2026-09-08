@@ -139,7 +139,7 @@ const createRecovery = (
   const buckets = new Set(configuration.bucketNames)
   if (
     buckets.size !== configuration.bucketNames.length ||
-    buckets.size > 20 ||
+    buckets.size > 21 ||
     [...buckets].some((name) => !/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(name))
   )
     throw new Error("Recovery bucket inventory is invalid")
