@@ -1,6 +1,7 @@
 import { createServer } from "node:http"
 import { Readable } from "node:stream"
 import { pipeline } from "node:stream/promises"
+import { CursorServerError } from "cursor-opencode-provider/errors"
 import { handleCursorRequest } from "./handler"
 
 export const cursorServer = (handle = handleCursorRequest) => {
@@ -39,7 +40,11 @@ export const cursorServer = (handle = handleCursorRequest) => {
       outgoing.writeHead(response.status, Object.fromEntries(response.headers))
       if (response.body) await pipeline(Readable.from(response.body), outgoing)
       else outgoing.end()
-    } catch {
+    } catch (error) {
+      console.error("Cursor request failed", {
+        name: error instanceof Error ? error.name : "UnknownError",
+        code: error instanceof CursorServerError ? error.code : undefined,
+      })
       if (!outgoing.headersSent) outgoing.writeHead(502)
       outgoing.end()
     } finally {
