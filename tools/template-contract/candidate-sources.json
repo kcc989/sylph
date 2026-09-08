@@ -32,8 +32,30 @@
     {
       "templatePath": "scripts/sylph-broker.ts",
       "platformPath": "tools/project-deployment/template/sylph-broker.ts"
+    },
+    {
+      "templatePath": "src/recovery/r2.ts",
+      "platformPath": "packages/cloudflare-recovery/src/r2.ts"
+    },
+    {
+      "templatePath": "src/recovery/r2-domain.ts",
+      "platformPath": "packages/domain/src/cloudflare-r2-recovery.ts"
+    },
+    {
+      "templatePath": "src/recovery/r2-drill.ts",
+      "platformPath": "packages/cloudflare-recovery/src/r2-drill.ts"
+    },
+    {
+      "templatePath": "recovery-migrations/0003-recovery-r2.sql",
+      "platformPath": "packages/cloudflare-recovery/src/r2-control.sql"
     }
   ],
-  "rewrites": [["@workspace/domain/cloudflare-recovery", "./domain"]],
-  "controlSchemas": ["packages/cloudflare-recovery/src/control.sql"]
+  "rewrites": [
+    ["@workspace/domain/cloudflare-recovery", "./domain"],
+    ["@workspace/domain/cloudflare-r2-recovery", "./r2-domain"]
+  ],
+  "controlSchemas": [
+    "packages/cloudflare-recovery/src/control.sql",
+    "packages/cloudflare-recovery/src/r2-control.sql"
+  ]
 }
