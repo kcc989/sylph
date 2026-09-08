@@ -1,6 +1,6 @@
 # Cursor provider registration verification — 2026-09-08
 
-PR #75 fixes Cursor registration inside OpenCode. The deployed implementation is `78311f6b1a8f963c22c744e59132eab7cb210594`. Live model inference remains blocked by a subsequent HTTP 500 from the container proxy.
+PR #75 fixes Cursor registration inside OpenCode and now uses a minimal bridge to the unmodified upstream provider. The sections below record earlier results; the latest continuation is at the end. Full live E2E remains unverified.
 
 ## Source and retained fixture
 
@@ -33,3 +33,19 @@ Retain the existing Cursor connection. Ask the user to log in only when authenti
 The earlier missing `/workspace/package.json` is no longer the latest observed Check failure: Check `check-05f31f23-e032-4def-8973-4c96fce5822c`, attempt 2, checkpoint `cc7c5b881ce52e65640208933c50ec2b6a20d10f`, passed installation and failed typecheck because fixture mocks omitted `FILES` and used invalid R2 types. The agent repaired four files before this continuation, but its Check enqueue returned HTTP 500. Those edits remain pending. No newer Check was created during the blocked Cursor verification.
 
 Private logs, deployment snapshots, previous run-record backups, and telemetry are under `/private/tmp/sylph-remaining-01a07d89`. Keep them private. The original lifecycle handoff remains applicable after this registration update; the complete E2E journey is still unverified.
+
+## Minimal bridge continuation
+
+The user chose to retain OpenCode in the Durable Object. The Node container hosts only the unmodified `cursor-opencode-provider@0.6.6` model transport. OpenCode retains conversations, tool execution, permission checks, and durable session recovery.
+
+Implementation `b1ee2f3d140ca41bb954898878db602eaf81ee04` imports `modelsToConfig` from the supported `cursor-opencode-provider/plugin` entrypoint. The bridge translates its output into OpenCode catalog fields, preserving wire model ids, model defaults, variants, output limits, and image support. Sylph's Max Mode inference and special Max Mode retry were deleted. Provider retries use upstream defaults. The remaining read-envelope and file-path translations adapt the pinned OpenCode tool API; no dependency internals are copied or patched.
+
+Focused bridge tests passed, web and provider typechecks passed, and lint passed. The Workerd regression passed with deterministic Cursor inference before and after restart. This is transport and recovery proof, not a live Cursor service result.
+
+Deployment of `b1ee2f3d140ca41bb954898878db602eaf81ee04` matched the source identity. Container application version 8 used digest `sha256:c68241b4140cdff929e942065fe5b513ba925db7f624ee3cef1aabbd3ac0e3fd`. A read-only `package.json` prompt through the authenticated in-app browser still returned `invalid_argument`. The next implementation uses upstream's public terminal-error formatter to preserve the rejection explanation while preventing unsafe host retries.
+
+Temporary container log collection was disabled and verified in Cloudflare configuration. The four earlier repair files were saved to checkpoint `58cc926f7fedfb9e6621b33e7718fb340fdd3af5`. Check `check-3608eab7-618d-46c6-b160-7ac9a70e61ea`, attempt 1, failed with an internal Cloudflare Workflow error. The existing Project, both Workspaces, and Cursor connection remain preserved. No application release, restore, undo, or cleanup was performed.
+
+The error-formatting implementation `616c8ce66b465eb375e692eac862b497292dfe2c` deployed successfully. Container version 9 used digest `sha256:80a8bdfd8b3bbddc738d26117e12070c1accdfea3cdcf1be3576838f1623ef4e`, with log collection disabled. The in-app model picker exposed the upstream Low, Medium, High, and Extra High variants after catalog refresh. A read-only prompt still failed with `Cursor API error (code=invalid_argument)`. Inspection of the unmodified provider's Connect error handling confirmed it intentionally constructs that generic message from the code without retaining the server message. No authentication rejection was observed.
+
+CI passed on the main minimal-bridge commit `b1ee2f3d140ca41bb954898878db602eaf81ee04`: https://github.com/kcc989/sylph/actions/runs/34280344206. The error-formatting follow-up has focused tests, provider typecheck, and lint passing; check its newer CI run separately. The integration reduction is implemented, but live inference and the remaining full lifecycle still need verification. Preserve the fixture and investigate the upstream protocol failure using supported diagnostics rather than adding protocol patches or another model orchestration layer.
