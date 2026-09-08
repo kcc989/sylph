@@ -72,6 +72,10 @@ export const CloudflareResourceResponse = Schema.Struct({
   result_info: Schema.optional(
     Schema.Struct({
       total_pages: Schema.optional(Schema.Number),
+      page: Schema.optional(Schema.Number),
+      per_page: Schema.optional(Schema.Number),
+      count: Schema.optional(Schema.Number),
+      total_count: Schema.optional(Schema.Number),
       cursor: Schema.optional(Schema.NullOr(Schema.String)),
     })
   ),

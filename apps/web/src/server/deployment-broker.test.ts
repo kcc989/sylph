@@ -1565,7 +1565,13 @@ test("class retirement requires exact owned prior namespace, no snapshots and re
                       class: "Counter",
                     },
                   ],
-                  result_info: { total_pages: 1 },
+                  result_info: {
+                    page: 1,
+                    per_page: 100,
+                    count: 1,
+                    total_count: 1,
+                    total_pages: 1,
+                  },
                 })
               : Response.json({
                   success: true,

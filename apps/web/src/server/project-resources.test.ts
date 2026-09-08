@@ -178,6 +178,14 @@ const setup = async (scope = "preview:check:1") => {
     if (path.endsWith("/workers/durable_objects/namespaces"))
       return Response.json({
         success: true,
+        result_info: {
+          page: 1,
+          per_page: 100,
+          count: live.filter((item) => item.kind === "durable_object").length,
+          total_count: live.filter((item) => item.kind === "durable_object")
+            .length,
+          total_pages: 1,
+        },
         result: live
           .filter((item) => item.kind === "durable_object")
           .map((item) => ({
@@ -1526,4 +1534,95 @@ test("a source-retired namespace requires confirmed absence before retirement an
     )?.state
   ).toBe("deleted")
   expect(f.deletes).toEqual([])
+})
+
+test("namespace absence requires a complete consistent unique provider inventory", async () => {
+  const credentials = { accountId: "account", token: "test" }
+  const namespace = { id: "namespace", script: "worker", class: "State" }
+  const info = {
+    page: 1,
+    per_page: 100,
+    count: 0,
+    total_count: 0,
+    total_pages: 0,
+  }
+  for (const total_pages of [0, 1]) {
+    const result = await listCloudflareResources(
+      credentials,
+      "durable_object",
+      async () =>
+        Response.json({
+          success: true,
+          result: [],
+          result_info: { ...info, total_pages },
+        })
+    )
+    expect(result).toEqual([])
+  }
+  for (const malformed of [
+    undefined,
+    { total_pages: 1 },
+    { ...info, total_count: 1, total_pages: 1 },
+    { ...info, page: 0 },
+    { ...info, count: 1 },
+    { ...info, per_page: 0 },
+    { ...info, total_count: -1 },
+    { ...info, total_pages: 2 },
+    { ...info, per_page: 1.5 },
+  ]) {
+    await expect(
+      listCloudflareResources(credentials, "durable_object", async () =>
+        Response.json({
+          success: true,
+          result: [],
+          result_info: malformed,
+        })
+      )
+    ).rejects.toThrow()
+  }
+  const pages: number[] = []
+  const complete: ResourceRequest = async (input) => {
+    const page = Number(new URL(String(input)).searchParams.get("page"))
+    pages.push(page)
+    return Response.json({
+      success: true,
+      result: [{ ...namespace, id: `namespace-${page}` }],
+      result_info: {
+        page,
+        per_page: 1,
+        count: 1,
+        total_count: 2,
+        total_pages: 2,
+      },
+    })
+  }
+  expect(
+    await listCloudflareResources(credentials, "durable_object", complete)
+  ).toHaveLength(2)
+  expect(pages).toEqual([1, 2])
+  for (const second of [
+    { id: "namespace-1", total_count: 2, page: 2 },
+    { id: "namespace-2", total_count: 3, page: 2 },
+    { id: "namespace-2", total_count: 2, page: 1 },
+    { id: "", total_count: 2, page: 2 },
+  ]) {
+    const request: ResourceRequest = async (input) => {
+      const page = Number(new URL(String(input)).searchParams.get("page"))
+      if (page === 1) return complete(input)
+      return Response.json({
+        success: true,
+        result: [{ ...namespace, id: second.id }],
+        result_info: {
+          page: second.page,
+          per_page: 1,
+          count: 1,
+          total_count: second.total_count,
+          total_pages: 2,
+        },
+      })
+    }
+    await expect(
+      listCloudflareResources(credentials, "durable_object", request)
+    ).rejects.toThrow()
+  }
 })

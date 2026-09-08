@@ -94,6 +94,9 @@ export const listCloudflareResources = async (
     className?: string
   }> = []
   let cursor = ""
+  let namespaceTotal: number | undefined
+  let namespacePageSize: number | undefined
+  const namespaceIds = new Set<string>()
   for (let page = 1; page <= 1000; page++) {
     const query =
       kind === "worker" || kind === "domain"
@@ -174,6 +177,40 @@ export const listCloudflareResources = async (
                       name: queue_name,
                     })
                   )
+    if (kind === "durable_object") {
+      const info = body.result_info
+      if (
+        !info ||
+        info.page !== page ||
+        info.count !== items.length ||
+        info.per_page === undefined ||
+        !Number.isSafeInteger(info.per_page) ||
+        info.per_page < 1 ||
+        info.per_page > 1000 ||
+        info.total_count === undefined ||
+        !Number.isSafeInteger(info.total_count) ||
+        info.total_count < 0 ||
+        info.total_pages === undefined ||
+        !Number.isSafeInteger(info.total_pages) ||
+        info.total_pages < 0 ||
+        info.total_pages > 1000 ||
+        (info.total_pages !== Math.ceil(info.total_count / info.per_page) &&
+          !(info.total_count === 0 && info.total_pages === 1)) ||
+        (namespaceTotal !== undefined && namespaceTotal !== info.total_count) ||
+        (namespacePageSize !== undefined &&
+          namespacePageSize !== info.per_page) ||
+        items.length !==
+          Math.min(info.per_page, info.total_count - resources.length)
+      )
+        throw new Error("Cloudflare namespace pagination is incomplete")
+      namespaceTotal = info.total_count
+      namespacePageSize = info.per_page
+      for (const item of items) {
+        if (!item.id || namespaceIds.has(item.id))
+          throw new Error("Cloudflare namespace identities are incomplete")
+        namespaceIds.add(item.id)
+      }
+    }
     resources.push(...items)
     if (
       kind === "worker" ||
