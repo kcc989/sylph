@@ -121,9 +121,14 @@ try {
     ),
     durableObjects: { PROBE: { className: "Probe", useSQLite: true } },
     outboundService: async (request) => {
-      if (new URL(request.url).hostname !== "fixture.test")
+      if (
+        !["fixture.test", "openrouter.ai"].includes(
+          new URL(request.url).hostname
+        )
+      )
         return new Response("External requests are disabled", { status: 503 })
       const body = await request.json()
+      if (body.model === "x-ai/grok-4.6") assert.equal(body.max_tokens, 4096)
       if (body.model === "anthropic/claude-sonnet-4.6")
         cacheRequests.push({
           body,
@@ -193,9 +198,22 @@ try {
         }
         chunks[1].choices[0].finish_reason = "tool_calls"
       }
+      const encoded = new TextEncoder().encode(
+        ": OPENROUTER PROCESSING\n\n" +
+          chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("") +
+          "data: [DONE]\n\n"
+      )
+      let offset = 0
       return new Response(
-        chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("") +
-          "data: [DONE]\n\n",
+        new ReadableStream({
+          async pull(controller) {
+            await new Promise((resolve) => setTimeout(resolve, 1))
+            if (offset === encoded.length) return controller.close()
+            const end = Math.min(offset + 37, encoded.length)
+            controller.enqueue(encoded.slice(offset, end))
+            offset = end
+          },
+        }),
         { headers: { "Content-Type": "text/event-stream" } }
       )
     },
@@ -304,6 +322,8 @@ try {
   for (const tool of patchTools)
     assert.equal(tool.state.status, "completed", JSON.stringify(tool))
   assert.deepEqual((await read("native-state")).files, ["native.txt"])
+  await read("smoke-start")
+  assert.equal((await read("complete")).outcome, "succeeded")
   const cacheSession = await read("cache-start")
   assert.equal((await read("complete")).outcome, "succeeded")
   const requestsBeforeNotice = cacheRequests.length

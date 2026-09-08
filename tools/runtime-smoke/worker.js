@@ -1,4 +1,9 @@
 import {
+  reserveSmokeRequest,
+  smokeModel,
+  smokeModelConfiguration,
+} from "../../apps/web/src/server/workspace-smoke-budget"
+import {
   WorkspaceChecks,
   newCheckRun,
 } from "../../apps/web/src/server/workspace-checks"
@@ -93,10 +98,11 @@ export class Probe extends DurableObject {
               openrouter: {
                 package: "@opencode-ai/ai/providers/openrouter",
                 settings: {
-                  baseURL: "https://fixture.test/v1",
+                  baseURL: "https://openrouter.ai/api/v1",
                   apiKey: "fixture",
                 },
                 models: {
+                  ...smokeModelConfiguration.providers.openrouter.models,
                   "anthropic/claude-sonnet-4.6": {
                     body: workspaceModelCacheBody(
                       "openrouter",
@@ -123,9 +129,14 @@ export class Probe extends DurableObject {
             {
               id: "recovery-probe",
               async setup(ctx) {
-                await ctx.session.hook("http.request", async (event) =>
-                  assertWorkspaceModelRequestSize(event.request, event.agent)
-                )
+                await ctx.session.hook("http.request", async (event) => {
+                  await assertWorkspaceModelRequestSize(
+                    event.request,
+                    event.agent
+                  )
+                  if (event.model.id === smokeModel)
+                    await reserveSmokeRequest(event.request, state.storage)
+                })
                 await ctx.tool.transform((draft) => {
                   draft.add(
                     workspaceBrowserTool(async (input) => ({
@@ -225,10 +236,20 @@ export class Probe extends DurableObject {
         content: await this.files.readFile("native.txt", "utf8"),
       })
     }
-    if (path === "/cache-start" || path === "/budget-start") {
+    if (
+      path === "/cache-start" ||
+      path === "/budget-start" ||
+      path === "/smoke-start"
+    ) {
       const session = await host.sessions.create({
         location: { directory: "/workspace" },
-        model: { providerID: "openrouter", id: "anthropic/claude-sonnet-4.6" },
+        model: {
+          providerID: "openrouter",
+          id:
+            path === "/smoke-start"
+              ? smokeModel
+              : "anthropic/claude-sonnet-4.6",
+        },
       })
       await this.ctx.storage.put("probeSession", session.id)
       await host.sessions.prompt({

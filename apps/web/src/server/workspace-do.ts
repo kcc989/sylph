@@ -7,7 +7,10 @@ import {
   WorkspaceBrowserResult,
 } from "@workspace/domain"
 import { WorkspacePreviewExpiry } from "@workspace/domain/checks"
-import { reserveSmokeRequest } from "./workspace-smoke-budget"
+import {
+  reserveSmokeRequest,
+  smokeModelConfiguration,
+} from "./workspace-smoke-budget"
 import type { Sandbox } from "@cloudflare/sandbox"
 import type { CodexContainer } from "./codex-container"
 import {
@@ -428,10 +431,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
             bindings.SYLPH_SMOKE_GROK_BUDGET === "true"
               ? {
                   ...workerdModelConfiguration,
-                  agents: {
-                    title: { model: "openrouter/x-ai/grok-4.6" },
-                    compaction: { model: "openrouter/x-ai/grok-4.6" },
-                  },
+                  ...smokeModelConfiguration,
                 }
               : workerdModelConfiguration,
           plugins: [

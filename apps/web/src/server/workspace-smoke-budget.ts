@@ -3,6 +3,16 @@ import { WorkspaceSmokeRequest } from "@workspace/domain"
 
 export const smokeModel = "x-ai/grok-4.6"
 
+export const smokeModelConfiguration = {
+  agents: {
+    title: { model: `openrouter/${smokeModel}` },
+    compaction: { model: `openrouter/${smokeModel}` },
+  },
+  providers: {
+    openrouter: { models: { [smokeModel]: { body: { max_tokens: 4096 } } } },
+  },
+}
+
 type BudgetStorage = {
   get(key: string): Promise<number | undefined>
   put(key: string, value: number): Promise<void>
