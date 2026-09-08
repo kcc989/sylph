@@ -2,6 +2,7 @@ import { openCodeLogging } from "./opencode-logging"
 import { OpenCode } from "@opencode-ai/client"
 import { PluginPromise } from "@opencode-ai/core/plugin/promise"
 import { ConfigPluginSource } from "@opencode-ai/core/config/plugin/source"
+import { SessionRestart } from "@opencode-ai/core/session/execution/restart"
 import { SdkPlugins } from "@opencode-ai/core/plugin/sdk"
 import type { Plugin } from "@opencode-ai/plugin"
 import { ServerFetch } from "@opencode-ai/server/fetch"
@@ -43,6 +44,13 @@ export const createOpenCodeRuntime = async (
       ServerFetch.make(ServerWorkerd.serverOptions(profile), {
         overrides: [
           ...ServerWorkerd.replacements(profile),
+          [
+            SessionRestart.node,
+            {
+              ...SessionRestart.node,
+              implementation: SessionRestart.layer({ maxAttempts: 2 }),
+            },
+          ],
           [
             ConfigPluginSource.node,
             {
