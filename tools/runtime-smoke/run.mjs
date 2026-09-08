@@ -235,7 +235,13 @@ try {
   const health = await read("health")
   assert.equal(health.health.healthy, true)
   const protocolInput = {
-    root_prompt_messages_json: ['{"role":"user","content":"fixture"}'],
+    root_prompt_messages_json: [
+      JSON.stringify({
+        role: "user",
+        content: "Cursor UTF-8 fixture 🧪 漢字 ".repeat(3000),
+      }),
+      "trailing message",
+    ],
   }
   const protocol = await read("cursor-protocol")
   assert.deepEqual(

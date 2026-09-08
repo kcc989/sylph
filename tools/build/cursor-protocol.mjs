@@ -27,7 +27,7 @@ export const cursorProtocolPlugin = () => ({
     const tail = source.indexOf("export function encodeMessage(")
     if (tail < 0) throw new Error("Cursor protocol exports changed")
     return {
-      code: `${generated}
+      code: `${generated.replaceAll("$Writer.create()", "new $Writer()")}
 const protobuf = $protobuf;
 export function createMessageTypes() {
   return { lookupType(name) {

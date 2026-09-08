@@ -253,7 +253,13 @@ export class Probe extends DurableObject {
     }
     if (path === "/cursor-protocol") {
       const input = {
-        root_prompt_messages_json: ['{"role":"user","content":"fixture"}'],
+        root_prompt_messages_json: [
+          JSON.stringify({
+            role: "user",
+            content: "Cursor UTF-8 fixture 🧪 漢字 ".repeat(3000),
+          }),
+          "trailing message",
+        ],
       }
       const encoded = encodeMessage("ConversationStateStructure", input)
       return Response.json({
