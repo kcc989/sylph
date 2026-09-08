@@ -1,3 +1,4 @@
+import { requestPreviewCleanup } from "@/server/preview-cleanup"
 import {
   ResourceMutationInput,
   ResourceMutationConfirmation,
@@ -88,22 +89,11 @@ export const maintainProjectResources = createServerFn({ method: "POST" })
     const operation = Schema.decodeUnknownSync(ProjectResourceOperation)(row)
     if (["deploying", "maintaining"].includes(operation.status))
       throw new Error("Wait for deployment to stop before managing resources")
-    if (
-      data.action === "cleanup" &&
-      (!data.scope.startsWith("preview:") ||
-        data.confirmedScope !== data.scope ||
-        operation.status !== "cleanup_failed")
-    ) {
-      throw new Error("Confirm a failed Preview cleanup before retrying it")
-    }
-    if (data.action === "cleanup") {
-      const original = await env.CI_WORKFLOW.get(operation.run_id)
-      const status = await original.status()
-      if (!["errored", "terminated", "complete"].includes(status.status))
-        throw new Error(
-          "Automatic cleanup is still running. Wait for its retries to finish."
-        )
-    }
+    if (data.action === "cleanup")
+      return requestPreviewCleanup(env.DB, data, context.user.id, {
+        ci: env.CI_WORKFLOW,
+        maintenance: env.RESOURCE_MAINTENANCE,
+      })
     const workflow = await env.RESOURCE_MAINTENANCE.create({
       id: crypto.randomUUID(),
       params: {

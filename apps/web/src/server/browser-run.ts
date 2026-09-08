@@ -9,6 +9,7 @@ import {
 import { Context, Effect, Layer } from "effect"
 
 import { browserNavigationGuard } from "./browser-navigation-guard"
+import { browserSessionOwner } from "./browser-session-owner"
 
 import { browserTargetUrl, bounded } from "./workspace-browser"
 import { browserEvidenceSelector } from "./workspace-ci-browser"
@@ -239,11 +240,48 @@ const actOnPage = async (
 export const browserRunLayer = (
   binding: Pick<BrowserRun, "fetch">,
   trace: (phase: string) => Promise<void> = async () => {}
-) =>
-  Layer.succeed(BrowserRunClient, {
+) => {
+  const endpoint = {
+    fetch: Object.assign(binding.fetch.bind(binding), globalThis.fetch),
+  }
+  const owner = browserSessionOwner(
+    async (policy: {
+      previewUrl: string
+      allowedOrigins: ReadonlyArray<string>
+    }) => {
+      const { default: puppeteer } = await import("@cloudflare/puppeteer")
+      const browser = await puppeteer.launch(endpoint, {
+        keep_alive: browserIdleTimeout,
+      })
+      try {
+        const checkUrl = (url: string) => browserTargetUrl({ ...policy, url })
+        const guard = await browserNavigationGuard(browser, checkUrl, trace)
+        return {
+          id: browser.sessionId(),
+          browser,
+          guard,
+          checkUrl,
+          connected: () => browser.connected,
+          async close() {
+            try {
+              if (browser.connected) await browser.close()
+            } finally {
+              await browser.disconnect()
+            }
+          },
+        }
+      } catch (error) {
+        await browser.close()
+        throw error
+      }
+    },
+    browserIdleTimeout
+  )
+  return Layer.succeed(BrowserRunClient, {
     close: Effect.fn("BrowserRunClient.close")((sessionId: string) =>
       Effect.tryPromise({
         try: async () => {
+          if (await owner.close(sessionId)) return
           const { default: puppeteer } = await import("@cloudflare/puppeteer")
           const endpoint = {
             fetch: Object.assign(binding.fetch.bind(binding), globalThis.fetch),
@@ -273,35 +311,16 @@ export const browserRunLayer = (
       ) =>
         Effect.tryPromise({
           try: async () => {
-            const { default: puppeteer } = await import("@cloudflare/puppeteer")
-            const endpoint = {
-              fetch: Object.assign(
-                binding.fetch.bind(binding),
-                globalThis.fetch
-              ),
-            }
             await trace("connect")
-            const browser = sessionId
-              ? await puppeteer.connect(endpoint, sessionId)
-              : await puppeteer.launch(endpoint, {
-                  keep_alive: browserIdleTimeout,
-                })
+            const retained = await owner.acquire(
+              { previewUrl, allowedOrigins: options?.allowedOrigins ?? [] },
+              sessionId
+            )
+            const { browser, guard, checkUrl } = retained
             try {
-              const checkUrl = (url: string) =>
-                browserTargetUrl({
-                  previewUrl,
-                  url,
-                  allowedOrigins: options?.allowedOrigins,
-                })
-              await trace("guard")
-              const guard = await browserNavigationGuard(
-                browser,
-                checkUrl,
-                trace
-              )
               await trace("pages")
               const pages = await browser.pages()
-              let page = pages[0] ?? (await browser.newPage())
+              let page = pages[0] ?? (await guard.newPage())
               const pageId = async (target: Page) => {
                 const session = await guard.prepare(target)
                 return (await session.send("Target.getTargetInfo")).targetInfo
@@ -378,7 +397,7 @@ export const browserRunLayer = (
                     await prepare(page)
                   } else if (action.type === "popup") {
                     checkUrl(action.url)
-                    page = await browser.newPage()
+                    page = await guard.newPage()
                     await prepare(page)
                     await page.goto(action.url, {
                       waitUntil: "domcontentloaded",
@@ -411,6 +430,7 @@ export const browserRunLayer = (
                 async observe(fullPage) {
                   await trace("observe-policy")
                   await ensureAllowed()
+                  await page.bringToFront()
                   try {
                     await page.waitForNetworkIdle({
                       idleTime: 300,
@@ -518,11 +538,21 @@ export const browserRunLayer = (
                     ),
                   }
                 },
-                disconnect: () => guard.disconnect(),
-                close: () => browser.close(),
+                async disconnect() {
+                  try {
+                    await guard.check()
+                    owner.release(retained)
+                  } catch (error) {
+                    await owner.close(retained.id)
+                    throw error
+                  }
+                },
+                async close() {
+                  await owner.close(retained.id)
+                },
               } satisfies BrowserConnection
             } catch (error) {
-              await browser.close()
+              await owner.close(retained.id)
               throw error
             }
           },
@@ -534,3 +564,4 @@ export const browserRunLayer = (
         })
     ),
   })
+}

@@ -9,7 +9,8 @@
     "strict": true,
     "paths": {
       "@/*": ["./apps/web/src/*"]
-    }
+    },
+    "resolveJsonModule": true
   },
   "include": [
     "alchemy.run.ts",

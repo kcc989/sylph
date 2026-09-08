@@ -1,5 +1,75 @@
 import puppeteer from "@cloudflare/puppeteer"
 
+export const ownedContextProbe = async (binding: BrowserRun, url: string) => {
+  const endpoint = {
+    fetch: Object.assign(binding.fetch.bind(binding), globalThis.fetch),
+  }
+  let browser = await puppeteer.launch(endpoint, { keep_alive: 60_000 })
+  const id = browser.sessionId()
+  const results: {
+    phase: string
+    bytes?: number
+    contexts?: string[]
+    error?: string
+  }[] = []
+  let phase = "context-create"
+  try {
+    const root = await browser.target().createCDPSession()
+    const { browserContextId } = await root.send(
+      "Target.createBrowserContext",
+      {
+        disposeOnDetach: true,
+      }
+    )
+    phase = "target-create"
+    await root.send("Target.createTarget", { url, browserContextId })
+    phase = "page-find"
+    const target = await browser.waitForTarget(
+      (target) => target.url() === new URL(url).href,
+      {
+        timeout: 15_000,
+      }
+    )
+    const page = await target.page()
+    if (!page) throw new Error("Owned context has no page")
+    await page.setViewport({ width: 800, height: 600 })
+    const session = await page.createCDPSession()
+    for (const capturePhase of ["owned-initial", "owned-idle"]) {
+      phase = capturePhase
+      if (phase === "owned-idle")
+        await new Promise((resolve) => setTimeout(resolve, 1_000))
+      const capture = await session.send(
+        "Page.captureScreenshot",
+        {
+          format: "png",
+        },
+        { timeout: 15_000 }
+      )
+      results.push({ phase, bytes: capture.data.length })
+    }
+    phase = "disconnect"
+    await browser.disconnect()
+    phase = "reconnect"
+    browser = await puppeteer.connect(endpoint, id)
+    const reconnected = await browser.target().createCDPSession()
+    const { browserContextIds } = await reconnected.send(
+      "Target.getBrowserContexts"
+    )
+    results.push({ phase: "owner-disconnected", contexts: browserContextIds })
+    if (browserContextIds.includes(browserContextId))
+      throw new Error("Owned browser context survived its transport owner")
+    return results
+  } catch (error) {
+    results.push({
+      phase,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    return results
+  } finally {
+    await browser.close()
+  }
+}
+
 export const captureProbe = async (binding: BrowserRun, url: string) => {
   const endpoint = {
     fetch: Object.assign(binding.fetch.bind(binding), globalThis.fetch),

@@ -103,7 +103,7 @@ GitHub App credentials are encrypted in D1. No second deployment or copying cred
 
 Alchemy retains generated secret values and token outputs in its Cloudflare deployment state. Access to that state is privileged. Keep it when updating. Destroying state and generating new encryption keys does not recover existing encrypted data.
 
-The first-release baseline requires fresh resources. This update applies `0002_project_operations.sql` and then `0003_resource_lifecycle.sql` to that baseline. The migrations preserve existing resource claims and add production observations, repair references, and resource lifecycle reviews. They do not convert earlier experimental schemas or transfer Durable Object state. Use [Installation transition and preservation](installation-transition.md) to preserve an earlier Installation, and keep its original Worker and Durable Object namespaces available.
+The first-release baseline requires fresh resources. This update applies `0002_project_operations.sql` and then `0003_resource_lifecycle.sql` to that baseline. The migrations preserve existing resource claims and add production observations, repair references, and resource lifecycle reviews. They do not convert earlier experimental schemas or transfer Durable Object state. Deploy this release as a fresh Installation. Earlier experimental Installations will be discarded; no data transfer is required.
 
 ## Production release safety
 
@@ -115,8 +115,8 @@ Data recovery requires an Admin to confirm the paired code commit and possible l
 
 ## Project resource management
 
-The matching template `0.2.0` is published and pinned. Complete the live lifecycle
-checks before production rollout. The reviewed template patch and rollout
+The previous template `0.2.0` remains published and pinned while the v0.3.0 candidate awaits approval. Complete the candidate publication, pin update and live lifecycle
+checks before production rollout. The external template release and rollout
 procedure are in [the resource management guide](../tools/resource-management/README.md).
 Existing Project repositories also need the new `sylph:plan` script and matching
 Alchemy resource names. Sylph does not rewrite their reviewed Checkpoints.
@@ -138,6 +138,16 @@ their resources have been reviewed and adopted. Legacy Previews without recorded
 reservations are not deleted automatically. Do not infer ownership from a URL.
 Run disposable deployed lifecycle checks before production rollout; the local
 test suite and build do not prove live deletion or configuration behavior.
+
+## Deployment isolation and recovery upgrades
+
+Apply the ordered `0004_project_deployment_broker.sql` and `0005_project_preview_cleanup.sql` migrations through the normal Alchemy deployment. They add expiring deployment capabilities, scoped Alchemy state and Preview cleanup audit records. No new manual credential is required. Keep the Installation credential encryption key unchanged.
+
+Project CI now uses the Installation broker for Cloudflare operations and Alchemy state. The starter v0.3.0 candidate lives in the external template repository; `tools/resource-management/template-candidate.json` records its exact commit and verification metadata. Publication and the built-in pin update are pending approval. Template pin changes affect new Projects only; existing Project source and accepted Checkpoints remain unchanged. See [candidate procedure](../tools/template-contract/README.md).
+
+The new starter retains a separate D1 drill database and, when R2 is declared, a separate R2 drill bucket. Their purpose is `recovery_control`; application cleanup and restore exclude them. First release checks initial Worker absence before migrations, runs isolated provider drills, then records the complete D1/R2 recovery group. Recovery requires guarded writers and inactive object-changing bucket policies. A failed or uncertain restore leaves the writer gate paused for inspection. Local tests do not establish live Time Travel or R2 metadata compatibility.
+
+An Admin can confirm immediate cleanup of a retained Preview in Project settings. The confirmation names the exact scope and run. Cleanup stops only a retention-waiting Workflow, independently checks its terminal state and saves an audit record before dispatch. Failed cleanup can be retried after its prior Workflow finishes. Production and recovery-control resources remain excluded.
 
 ## Production observations and browser acceptance
 
@@ -182,7 +192,7 @@ bun alchemy deploy --stage prod
 
 ## Advanced configuration
 
-Existing `BETTER_AUTH_SECRET`, `CREDENTIAL_ENCRYPTION_KEY`, `CF_TOKEN`, `RESOURCE_TOKEN`, and R2 credential overrides are supported. Supply both R2 values together. Keep overrides consistent between local deployments and Actions. Removing an override switches to Alchemy-managed credentials; do not do this for an existing Installation without planning rotation. Without a `RESOURCE_TOKEN` override, Alchemy creates the resource token automatically; no new manual credential is required. Both resource and CI tokens remain account-scoped, not isolated per Project. Application recovery and verification keys are derived from the retained Installation encryption key; changing that key breaks access to saved recovery secrets.
+Existing `BETTER_AUTH_SECRET`, `CREDENTIAL_ENCRYPTION_KEY`, `CF_TOKEN`, `RESOURCE_TOKEN`, and R2 credential overrides are supported. Supply both R2 values together. Keep overrides consistent between local deployments and Actions. Removing an override switches to Alchemy-managed credentials; do not do this for an existing Installation without planning rotation. Without a `RESOURCE_TOKEN` override, Alchemy creates the resource token automatically; no new manual credential is required. Installation resource and CI tokens remain account-scoped inside Installation services. Project commands receive only an expiring capability for their exact active resource plan; they do not receive either account token. Application recovery and verification keys are derived from the retained Installation encryption key; changing that key breaks access to saved recovery secrets.
 
 `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` can supply an existing connection when D1 has no saved App. A connection saved through `/setup` takes precedence.
 

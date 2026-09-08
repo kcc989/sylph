@@ -26,6 +26,9 @@ export const commandEnvironment = (
   if (deployment)
     names.push(
       "CLOUDFLARE_API_TOKEN",
+      "SYLPH_CLOUDFLARE_API_BASE_URL",
+      "SYLPH_ALCHEMY_STATE_URL",
+      "NODE_OPTIONS",
       "CLOUDFLARE_ACCOUNT_ID",
       "BETTER_AUTH_SECRET",
       "SYLPH_RESOURCE_PLAN",
@@ -42,7 +45,11 @@ export const commandEnvironment = (
     )
   return Object.fromEntries(
     names.flatMap((name) =>
-      values[name] === undefined ? [] : [[name, values[name]]]
+      values[name] === undefined ||
+      (name === "CLOUDFLARE_API_TOKEN" &&
+        !/^sylph-cap-[a-f0-9]{64}$/.test(values[name] ?? ""))
+        ? []
+        : [[name, values[name]]]
     )
   )
 }

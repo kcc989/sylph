@@ -2,7 +2,10 @@ import { Database } from "bun:sqlite"
 import { readFileSync } from "node:fs"
 import { describe, expect, test } from "bun:test"
 import { Effect, Schema } from "effect"
-import { RecoveryQueryInput } from "@workspace/domain/cloudflare-recovery"
+import {
+  RecoveryBinding,
+  RecoveryQueryInput,
+} from "@workspace/domain/cloudflare-recovery"
 import { CloudflareD1Recovery, CloudflareD1RecoveryLive } from "../src/recovery"
 
 class Provider {
@@ -14,7 +17,7 @@ class Provider {
   time = Date.now()
   corruptRestore = false
   failRestore = false
-  bindings = [
+  bindings: Array<typeof RecoveryBinding.Type> = [
     { name: "DB", type: "d1", id: "app" },
     { name: "SYLPH_RECOVERY_CONTROL", type: "d1", id: "control" },
   ]
@@ -113,6 +116,7 @@ const drill = (provider: Provider) =>
       })
       provider.application.exec("UPDATE notes SET body = 'changed'")
       provider.current = "bookmark-2"
+      yield* service.captureForDrill({ databaseId: "app", releaseId: "drill" })
       const evidence = yield* service.restore(manifest, "drill")
       yield* service.resume("drill")
       return { manifest, evidence }
@@ -162,7 +166,9 @@ describe("Cloudflare D1 recovery", () => {
     provider.corruptRestore = true
     await expect(drill(provider)).rejects.toThrow()
     expect(
-      provider.control.query("SELECT phase FROM sylph_recovery_operation").get()
+      provider.control
+        .query("SELECT phase FROM sylph_recovery_resource_operation")
+        .get()
     ).toEqual({ phase: "uncertain" })
     expect(
       provider.control.query("SELECT owner FROM sylph_recovery_gate").get()
@@ -309,4 +315,92 @@ describe("Cloudflare D1 recovery", () => {
     const after = await run(provider, (service) => service.fingerprint("app"))
     expect(after.fingerprint).not.toBe(before.fingerprint)
   })
+  test("R2 inventory requires every exact declared bucket and default jurisdiction", async () => {
+    const provider = new Provider()
+    const topology = {
+      workers: [
+        {
+          workerName: "app-worker",
+          databaseIds: ["app"],
+          bucketNames: ["owned-bucket"],
+          secretNames: [],
+          serviceTargets: [],
+        },
+      ],
+    }
+    provider.bindings.push({
+      name: "BUCKET",
+      type: "r2_bucket",
+      bucket_name: "owned-bucket",
+    })
+    await run(provider, (service) => service.inventoryTopology(topology))
+    await expect(
+      run(provider, (service) =>
+        service.inventoryTopology({
+          workers: [{ ...topology.workers[0], bucketNames: [] }],
+        })
+      )
+    ).rejects.toThrow()
+    provider.bindings[2] = {
+      name: "BUCKET",
+      type: "r2_bucket",
+      bucket_name: "different-bucket",
+    }
+    await expect(
+      run(provider, (service) => service.inventoryTopology(topology))
+    ).rejects.toThrow()
+    provider.bindings[2] = {
+      name: "BUCKET",
+      type: "r2_bucket",
+      bucket_name: "owned-bucket",
+      jurisdiction: "eu",
+    }
+    await expect(
+      run(provider, (service) => service.inventoryTopology(topology))
+    ).rejects.toThrow()
+  })
+  test("R2 declared duplicate and oversized inventories fail before querying providers", async () => {
+    const provider = new Provider()
+    for (const bucketNames of [
+      ["owned-bucket", "owned-bucket"],
+      Array.from({ length: 21 }, (_, index) => `bucket-${index}`),
+    ])
+      await expect(
+        run(provider, (service) =>
+          service.inventoryTopology({
+            workers: [
+              {
+                workerName: "app-worker",
+                databaseIds: ["app"],
+                bucketNames,
+                secretNames: [],
+                serviceTargets: [],
+              },
+            ],
+          })
+        )
+      ).rejects.toThrow()
+  })
+})
+
+test("D1 restore rejects data changes after the saved undo point before provider mutation", async () => {
+  const provider = new Provider()
+  await run(provider, (service) =>
+    Effect.gen(function* () {
+      yield* service.pause("stale-undo")
+      const target = yield* service.captureForDrill({
+        databaseId: "app",
+        releaseId: "stale-undo",
+      })
+      provider.application.exec("UPDATE notes SET body = 'outside-writer'")
+      const result = yield* Effect.result(service.restore(target, "stale-undo"))
+      expect(result._tag).toBe("Failure")
+    })
+  )
+  expect(provider.restoreCalls).toBe(0)
+  expect(
+    provider.control
+      .query("SELECT phase FROM sylph_recovery_resource_operation")
+      .get()
+  ).toBeNull()
 })

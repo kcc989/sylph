@@ -159,6 +159,36 @@ test("production saves recovery before publish and journeys before resuming writ
   const result = await pipeline("success")
   expect(result.deployment.status).toBe("succeeded")
   expect(result.check.status).toBe("passed")
+  const brokerCommands = result.commands.filter(
+    (command: { env?: { CLOUDFLARE_API_TOKEN?: string } }) =>
+      command.env?.CLOUDFLARE_API_TOKEN
+  )
+  expect(brokerCommands.length).toBeGreaterThan(0)
+  for (const command of brokerCommands) {
+    expect(command.capabilityVerified).toBe(true)
+    expect(command.cloudflareCredentials).toBe(false)
+    expect(command.sourceControlCredentials).toBe(false)
+    expect(command.secrets).toEqual([])
+    expect(command.env.CLOUDFLARE_API_TOKEN).toMatch(/^sylph-cap-[a-f0-9]{64}$/)
+    expect(command.env.SYLPH_CLOUDFLARE_API_BASE_URL).toBe(
+      "https://fixture.sylph.example/api/project-deployment"
+    )
+  }
+  expect(result.capabilities.length).toBe(brokerCommands.length)
+  expect(
+    result.capabilities.every(
+      (capability: {
+        project_id: string
+        run_id: string
+        scope: string
+        revoked: number
+      }) =>
+        capability.project_id === "project-1" &&
+        capability.run_id === "instance-1" &&
+        capability.scope === "production" &&
+        capability.revoked === 1
+    )
+  ).toBe(true)
   expect(result.observations).toEqual([
     { action: "public-page", status: 503, owner: "deployment-1" },
     { action: "private-probe", status: 200, owner: "deployment-1" },

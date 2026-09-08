@@ -22,9 +22,20 @@ let resourcesReserved = false
 mock.module("../../apps/web/src/server/project-resources.ts", () => ({
   ...resources,
   resourcePrefix: async () => "sylph-fixture",
-  reserveProjectResources: async () => {
+  reserveProjectResources: async (_database, credentials, owner, plan) => {
     if (process.argv[2] === "resource-conflict")
       throw new Error("Resource already belongs to another Project")
+    store
+      .query(
+        "INSERT INTO project_resource_operation (account_id, project_id, scope, run_id, plan_json, status) VALUES (?, ?, ?, ?, ?, 'deploying')"
+      )
+      .run(
+        credentials.accountId,
+        owner.projectId,
+        owner.scope,
+        owner.runId,
+        JSON.stringify(plan)
+      )
     resourcesReserved = true
   },
   captureProjectResources: async () => [
@@ -59,6 +70,8 @@ mock.module("../../apps/web/src/server/project-configuration.ts", () => ({
   }),
 }))
 
+const { capabilityHash } =
+  await import("../../apps/web/src/server/deployment-broker.ts")
 const { CI } = await import("../../apps/web/src/server/workspace-ci.ts")
 const mode = process.argv[2]
 const store = new Database(":memory:")
@@ -66,6 +79,14 @@ store.exec("PRAGMA foreign_keys = ON")
 store.exec(
   await Bun.file(
     new URL("../../packages/db/migrations/0001_initial.sql", import.meta.url)
+  ).text()
+)
+store.exec(
+  await Bun.file(
+    new URL(
+      "../../packages/db/migrations/0004_project_deployment_broker.sql",
+      import.meta.url
+    )
   ).text()
 )
 store.exec(`
@@ -208,6 +229,7 @@ const artifacts = []
 let selector = null
 const environment = {
   DB: database,
+  SYLPH_URL: "https://fixture.sylph.example",
   CLOUDFLARE_ACCOUNT_ID: "account-1",
   CREDENTIAL_ENCRYPTION_KEY: "fixture-installation-key",
   CI_VERIFICATION_CONCURRENCY: "1",
@@ -239,10 +261,21 @@ const environment = {
 }
 const url = "https://sylph-fixture-app.account.workers.dev"
 const runner = async (options) => {
+  const capability = options.env?.CLOUDFLARE_API_TOKEN
+    ? store
+        .query(
+          "SELECT c.id FROM project_deployment_capability c JOIN project_resource_operation o ON o.project_id = c.project_id AND o.account_id = c.account_id AND o.scope = c.scope AND o.run_id = c.run_id WHERE c.token_hash = ? AND c.revoked = 0 AND c.expires_at > ? AND c.plan_json = o.plan_json AND o.status = 'deploying'"
+        )
+        .get(await capabilityHash(options.env.CLOUDFLARE_API_TOKEN), Date.now())
+    : null
   commands.push({
     name: options.name,
+    capabilityVerified: capability !== null,
     resourcesReserved,
     env: options.env,
+    cloudflareCredentials: options.cloudflareCredentials,
+    sourceControlCredentials: options.sourceControlCredentials,
+    secrets: options.secrets,
     deployment: store
       .query(
         "SELECT status, recovery_json, verification_json FROM deployment WHERE id = 'deployment-1'"
@@ -335,6 +368,11 @@ console.log(
     selector,
     observations,
     gateOwner: gateOwner(),
+    capabilities: store
+      .query(
+        "SELECT project_id, scope, run_id, revoked FROM project_deployment_capability"
+      )
+      .all(),
     deployment: store
       .query("SELECT * FROM deployment WHERE id = 'deployment-1'")
       .get(),

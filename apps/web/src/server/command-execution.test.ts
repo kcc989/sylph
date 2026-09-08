@@ -10,7 +10,7 @@ test("verification excludes deployment credentials while deployment receives onl
     'printf "%s|%s|%s" "$CLOUDFLARE_API_TOKEN" "$SYLPH_PROJECT" "$UNRELATED_SECRET"'
   const env = {
     ...process.env,
-    CLOUDFLARE_API_TOKEN: "test-token",
+    CLOUDFLARE_API_TOKEN: `sylph-cap-${"a".repeat(64)}`,
     SYLPH_PROJECT: "test-project",
     UNRELATED_SECRET: "test-private",
   }
@@ -23,7 +23,9 @@ test("verification excludes deployment credentials while deployment receives onl
     env,
   })
   expect(deployment.exitCode).toBe(0)
-  expect(deployment.stdout.toString()).toBe("test-token|test-project|")
+  expect(deployment.stdout.toString()).toBe(
+    `sylph-cap-${"a".repeat(64)}|test-project|`
+  )
 })
 
 test("the shared process runner bounds output and stops timed-out processes", () => {
