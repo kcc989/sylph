@@ -616,7 +616,6 @@ const createRecovery = (
         )
       )
       if (
-        actual.length !== declared.length ||
         actual.some(
           (queue) =>
             !declared.some(
@@ -668,7 +667,7 @@ const createRecovery = (
           "Managed queue declarations disagree on journal identity"
         )
       if (
-        queue.consumers.length !== 1 ||
+        queue.consumers.length > 1 ||
         queue.consumers.some(
           (consumer) =>
             consumer.type !== "worker" ||
@@ -679,8 +678,10 @@ const createRecovery = (
             )
         )
       )
-        throw new Error("Managed queues require one owned gated consumer")
+        throw new Error("Managed queues allow at most one owned gated consumer")
       if (
+        new Set(queue.producers.map((producer) => producer.script)).size !==
+          queue.producers.length ||
         queue.producers.some(
           (producer) =>
             producer.type !== "worker" ||

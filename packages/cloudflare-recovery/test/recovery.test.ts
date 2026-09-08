@@ -511,3 +511,77 @@ test("consumer-only Workers cannot bypass the recovery inventory", async () => {
     )
   ).rejects.toThrow()
 })
+
+test("managed Queue consumer detachment preserves inventory identity and rejects invalid actors", async () => {
+  const provider = new Provider()
+  provider.bindings.push({ name: "JOBS", type: "queue", queue_name: "jobs" })
+  const topology: RecoveryTopology = {
+    workers: [
+      {
+        workerName: "app-worker",
+        databaseIds: ["app"],
+        secretNames: [],
+        serviceTargets: [],
+        managedQueues: [
+          {
+            bindingName: "JOBS",
+            queueId: "queue",
+            queueName: "jobs",
+            databaseId: "app",
+          },
+        ],
+        queueConsumers: [
+          { queueId: "queue", queueName: "jobs", databaseId: "app" },
+        ],
+      },
+    ],
+  }
+  const detached = {
+    queue_id: "queue",
+    queue_name: "jobs",
+    producers_total_count: 1,
+    consumers_total_count: 0,
+    producers: [{ type: "worker", script: "app-worker" }],
+    consumers: [],
+  }
+  provider.queues = [detached]
+  await run(provider, (service) => service.inventoryTopology(topology))
+  provider.queues = [
+    {
+      ...detached,
+      consumers_total_count: 1,
+      consumers: [{ type: "worker", script: "app-worker" }],
+    },
+  ]
+  await run(provider, (service) => service.inventoryTopology(topology))
+  for (const invalid of [
+    { consumers_total_count: 1 },
+    { producers_total_count: 2 },
+    {
+      consumers_total_count: 1,
+      consumers: [{ type: "worker", script: "outside" }],
+    },
+    { consumers_total_count: 1, consumers: [{ type: "http_pull" }] },
+    {
+      consumers_total_count: 2,
+      consumers: [
+        { type: "worker", script: "app-worker" },
+        { type: "worker", script: "app-worker" },
+      ],
+    },
+    {
+      producers_total_count: 2,
+      producers: [
+        { type: "worker", script: "app-worker" },
+        { type: "worker", script: "app-worker" },
+      ],
+    },
+    { producers: [{ type: "worker", script: "outside" }] },
+    { queue_id: "replacement" },
+  ]) {
+    provider.queues = [{ ...detached, ...invalid }]
+    await expect(
+      run(provider, (service) => service.inventoryTopology(topology))
+    ).rejects.toThrow()
+  }
+})
