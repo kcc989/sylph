@@ -23,7 +23,11 @@ export function ProjectResourcesPanel({
   const maintain = useServerFn(maintainProjectResources)
   const router = useRouter()
   const [pending, setPending] = useState<string | null>(null)
-  const [confirmation, setConfirmation] = useState<string | null>(null)
+  const [confirmation, setConfirmation] = useState<{
+    scope: string
+    runId: string
+    requestId: string
+  } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const act = async (scope: string, action: "inspect" | "cleanup") => {
@@ -36,13 +40,16 @@ export function ProjectResourcesPanel({
           projectId,
           scope,
           action,
-          confirmedScope: confirmation ?? undefined,
+          confirmedScope: confirmation?.scope,
+          confirmedRunId: confirmation?.runId,
+          requestId: confirmation?.requestId,
         },
       })
       setNotice("Resource maintenance started. Refresh to see the result.")
       setConfirmation(null)
       await router.invalidate()
     } catch (cause) {
+      setConfirmation(null)
       setError(failureMessage(cause, "Resource maintenance could not start"))
     } finally {
       setPending(null)
@@ -121,16 +128,27 @@ export function ProjectResourcesPanel({
                   >
                     Inspect resources
                   </Button>
-                  {operation.status === "cleanup_failed" && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={pending !== null}
-                      onClick={() => setConfirmation(operation.scope)}
-                    >
-                      Retry cleanup
-                    </Button>
-                  )}
+                  {operation.scope.startsWith("preview:") &&
+                    ["retained", "cleanup_failed"].includes(
+                      operation.status
+                    ) && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={pending !== null}
+                        onClick={() =>
+                          setConfirmation({
+                            scope: operation.scope,
+                            runId: operation.run_id,
+                            requestId: crypto.randomUUID(),
+                          })
+                        }
+                      >
+                        {operation.status === "retained"
+                          ? "Clean up Preview"
+                          : "Retry cleanup"}
+                      </Button>
+                    )}
                 </div>
               )}
           </div>
@@ -170,11 +188,12 @@ export function ProjectResourcesPanel({
               {operation.error}
             </p>
           )}
-          {confirmation === operation.scope && (
+          {confirmation?.scope === operation.scope && (
             <div className="mt-3 space-y-3">
               <p className="text-sm">
-                Delete this Preview’s remaining resources and their data? This
-                cannot be undone.
+                Delete the remaining application resources and data for{" "}
+                <span className="font-mono break-all">{operation.scope}</span>?
+                This cannot be undone. Recovery control resources stay retained.
               </p>
               <div className="flex gap-2">
                 <Button

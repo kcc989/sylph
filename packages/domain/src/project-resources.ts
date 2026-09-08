@@ -142,6 +142,8 @@ export const ProjectResourceAction = Schema.Struct({
   scope: Schema.NonEmptyString,
   action: Schema.Literals(["inspect", "cleanup"]),
   confirmedScope: Schema.optional(Schema.String),
+  confirmedRunId: Schema.optional(Schema.NonEmptyString),
+  requestId: Schema.optional(Schema.NonEmptyString),
 })
 export const ProjectResourceMaintenance = Schema.Struct({
   projectId: Schema.NonEmptyString,
