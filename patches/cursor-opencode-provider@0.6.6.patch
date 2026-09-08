@@ -113,9 +113,10 @@ diff --git a/dist/session.d.ts b/dist/session.d.ts
 +export declare function getSessionManager(): SessionManager;
 +export declare function createScopedReadableStream<T>(source: UnderlyingDefaultSource<T>): ReadableStream<T>;
 diff --git a/dist/language-model.js b/dist/language-model.js
+index 9c3ec0f74ff9f1f2f8c139dcf61024cee73e693c..db5122eb416e744566fe1ea9c41307eb8467b293 100644
 --- a/dist/language-model.js
 +++ b/dist/language-model.js
-@@ -27,7 +27,7 @@
+@@ -27,7 +27,7 @@ import { clearConversationBlobs, conversationBlobCount, inspectConversationBlobG
  import { bindConversationId, resolveConversationGroupId, } from "./protocol/conversation-bind.js";
  import { clearPersistedConversationState, hydrateConversationState, persistConversationState, } from "./protocol/conversation-state.js";
  import { initializeConversationPersistence } from "./protocol/conversation-persistence.js";
@@ -124,7 +125,23 @@ diff --git a/dist/language-model.js b/dist/language-model.js
  import { CursorAuthError, CursorLocalCancellationError, CursorProtocolError, CursorProviderError, CursorRetryExhaustedError, CursorServerError, CursorTransportError, isTransientGrpcStatus, retrySuppressedError, toCursorProviderError, } from "./errors.js";
  import { readCache, cacheFilePath, resolveVariantParameters, resolveVariantMaxMode, extractCursorVariantParameters, resolveCursorWireModelId } from "./models.js";
  import { getOrBuildRequestContext } from "./context/frozen.js";
-@@ -455,7 +455,7 @@
+@@ -240,7 +240,14 @@ export function connectFrameError(payload) {
+                 }
+             }
+         }
+-        return new CursorServerError(`Cursor API error (code=${code})`, {
++        const detail = typeof envelope.error?.message === "string"
++            ? envelope.error.message
++                .replace(/\bBearer\s+\S+/gi, "Bearer [redacted]")
++                .replace(/\bsk-[\w-]+/g, "[redacted]")
++                .replace(/\b(token|secret|password|authorization|api[-_ ]?key)\s*[:=]\s*\S+/gi, "$1=[redacted]")
++                .slice(0, 1000)
++            : "";
++        return new CursorServerError(`Cursor API error (code=${code})${detail ? `: ${detail}` : ""}`, {
+             transient: isTransientGrpcStatus(code) || hasRetryInfo,
+             replaySafe: true,
+             code,
+@@ -455,7 +462,7 @@ async function doStreamImpl(modelId, options, callOptions) {
      }
      let activeSession = session;
      return {
@@ -133,7 +150,7 @@ diff --git a/dist/language-model.js b/dist/language-model.js
              async pull(controller) {
                  // The outer try is a safety net for any throw that escapes pump() —
                  // e.g. an unhandled decode/gunzip error or a frames-iterator throw on
-@@ -505,7 +505,7 @@
+@@ -505,7 +512,7 @@ async function doStreamImpl(modelId, options, callOptions) {
                  catch (e) {
                      activeSession.pumpActive = false;
                      trace(`pull: pump threw (cleaning up): ${e.message}`);
@@ -142,7 +159,7 @@ diff --git a/dist/language-model.js b/dist/language-model.js
                      try {
                          controller.error(e instanceof Error ? e : new Error(String(e)));
                      }
-@@ -518,7 +518,7 @@
+@@ -518,7 +525,7 @@ async function doStreamImpl(modelId, options, callOptions) {
                  // OpenCode cancels the ReadableStream after "tool-calls"; keep the
                  // Cursor Run stream alive so the next doStream can write results.
                  trace("ReadableStream cancel() → closeUnlessPending");
@@ -151,7 +168,7 @@ diff --git a/dist/language-model.js b/dist/language-model.js
              },
          }),
      };
-@@ -534,7 +534,7 @@
+@@ -534,7 +541,7 @@ export async function pumpWithRecovery(input) {
      for (let attempt = 0;; attempt++) {
          const pumpedSession = session;
          const pumpOwner = Symbol("cursor-pump");
@@ -160,7 +177,7 @@ diff --git a/dist/language-model.js b/dist/language-model.js
          try {
              await pump(pumpedSession, input.controller, {
                  textId: crypto.randomUUID(),
-@@ -558,7 +558,7 @@
+@@ -558,7 +565,7 @@ export async function pumpWithRecovery(input) {
              }
              trace(`Run interrupted: sessionId=${pumpedSession.sessionId} attempt=${attempt + 1}/${maxRecoveries} ` +
                  `err=${failure.message} — ${checkpoint ? `resuming ${checkpoint.length}B checkpoint` : "rebasing fresh Run"}`);
@@ -169,7 +186,7 @@ diff --git a/dist/language-model.js b/dist/language-model.js
              const delayMs = retryDelayMs(failure, attempt + 1, retryPolicy);
              trace(`Run retry backoff: attempt=${attempt + 1}/${maxRecoveries} delayMs=${delayMs}`);
              await sleepForRetry(delayMs, input.abortSignal);
-@@ -577,7 +577,7 @@
+@@ -577,7 +584,7 @@ export async function pumpWithRecovery(input) {
              input.onSession?.(session);
          }
          finally {
@@ -178,7 +195,7 @@ diff --git a/dist/language-model.js b/dist/language-model.js
          }
      }
  }
-@@ -613,12 +613,12 @@
+@@ -613,12 +620,12 @@ export function attachSessionHeartbeat(session) {
              .then(() => {
              if (!isCurrentHeartbeatGeneration(session, generation) || session.closed)
                  return;
@@ -193,7 +210,7 @@ diff --git a/dist/language-model.js b/dist/language-model.js
                  replaySafe: false,
                  fallback: "Cursor heartbeat write failed",
              }));
-@@ -1001,7 +1001,7 @@
+@@ -1001,7 +1008,7 @@ async function startSession(modelId, token, callOptions, options, startOptions)
          closeError: null,
          closed: false,
      };
@@ -202,7 +219,7 @@ diff --git a/dist/language-model.js b/dist/language-model.js
      attachSessionHeartbeat(session);
      const abortIfNeeded = (stream) => {
          if (!session.closed && !callOptions.abortSignal?.aborted)
-@@ -1055,13 +1055,13 @@
+@@ -1055,13 +1062,13 @@ async function startSession(modelId, token, callOptions, options, startOptions)
          session.heartbeatCancel?.();
          await waitForStreamWrites(session.stream);
          abortIfNeeded(next);
@@ -218,7 +235,7 @@ diff --git a/dist/language-model.js b/dist/language-model.js
      }, { once: true });
      return session;
  }
-@@ -1072,7 +1072,7 @@
+@@ -1072,7 +1079,7 @@ async function startSession(modelId, token, callOptions, options, startOptions)
  export function findContinuationSession(toolResults) {
      for (let i = toolResults.length - 1; i >= 0; i--) {
          const r = toolResults[i];
@@ -227,7 +244,7 @@ diff --git a/dist/language-model.js b/dist/language-model.js
          if (s)
              return s;
      }
-@@ -1208,7 +1208,7 @@
+@@ -1208,7 +1215,7 @@ export function deliverContinuationResults(session, trailingToolResults) {
          `${pendingResults.length} pending for sessionId=${session.sessionId} ` +
          `pending={${[...session.pending.keys()].join(",")}}`);
      for (const r of pendingResults) {
@@ -236,7 +253,7 @@ diff --git a/dist/language-model.js b/dist/language-model.js
          if ("kind" in claim) {
              if (claim.kind === "deliverable") {
                  throw new CursorProtocolError("Cursor continuation claim remained unclaimed");
-@@ -1232,7 +1232,7 @@
+@@ -1232,7 +1239,7 @@ export function deliverContinuationResults(session, trailingToolResults) {
              }
              catch (error) {
                  trace(`continuation: ask_question encode FAILED execId=${r.execId} err=${error.message}`);
@@ -245,7 +262,7 @@ diff --git a/dist/language-model.js b/dist/language-model.js
                  return undefined;
              }
          }
-@@ -1245,7 +1245,7 @@
+@@ -1245,7 +1252,7 @@ export function deliverContinuationResults(session, trailingToolResults) {
              }
              catch (error) {
                  trace(`continuation: switch_mode encode FAILED execId=${r.execId} err=${error.message}`);
@@ -254,7 +271,7 @@ diff --git a/dist/language-model.js b/dist/language-model.js
                  return undefined;
              }
          }
-@@ -1255,7 +1255,7 @@
+@@ -1255,7 +1262,7 @@ export function deliverContinuationResults(session, trailingToolResults) {
              }
              catch (error) {
                  trace(`continuation: create_plan encode FAILED execId=${r.execId} err=${error.message}`);
@@ -263,7 +280,7 @@ diff --git a/dist/language-model.js b/dist/language-model.js
                  return undefined;
              }
          }
-@@ -1351,11 +1351,11 @@
+@@ -1351,11 +1358,11 @@ export function deliverContinuationResults(session, trailingToolResults) {
              }
              catch (error) {
                  trace(`continuation: result encode FAILED execId=${r.execId} err=${error.message}`);
@@ -277,7 +294,7 @@ diff --git a/dist/language-model.js b/dist/language-model.js
          if (outcome.kind !== "delivered") {
              trace(`continuation: delivery stopped execId=${r.execId} reason=${outcome.reason}`);
              if (outcome.kind === "duplicate")
-@@ -1513,7 +1513,7 @@
+@@ -1513,7 +1520,7 @@ async function nextFrameWithSemanticDeadline(session) {
   *  - transport EOF before turn_ended → throw for one fresh-Run recovery.
   */
  export async function pump(session, controller, ids, abortSignal) {
@@ -286,7 +303,7 @@ diff --git a/dist/language-model.js b/dist/language-model.js
      const cacheDiagnostics = session.cacheDiagnostics ??= {
          sessionKey: session.openCodeSessionId,
          conversationId: session.conversationId,
-@@ -1542,7 +1542,7 @@
+@@ -1542,7 +1549,7 @@ export async function pump(session, controller, ids, abortSignal) {
      const failRunProtocol = (message, code) => {
          replaySafety.markBarrier("unknown-or-malformed-frame");
          const error = new CursorProtocolError(message, { code });
@@ -295,7 +312,7 @@ diff --git a/dist/language-model.js b/dist/language-model.js
          throw error;
      };
      const rethrowTransportWriteFailure = (error) => {
-@@ -1561,7 +1561,7 @@
+@@ -1561,7 +1568,7 @@ export async function pump(session, controller, ids, abortSignal) {
              const wrapped = new Error(`Failed to ${operation}: ${error.message}`);
              trace(`exec: reply FAILED ${wrapped.message}`);
              safeError(wrapped);
@@ -304,7 +321,7 @@ diff --git a/dist/language-model.js b/dist/language-model.js
              return false;
          }
      };
-@@ -1709,7 +1709,7 @@
+@@ -1709,7 +1716,7 @@ export async function pump(session, controller, ids, abortSignal) {
              const error = new Error(`Failed to recover Cursor edit read: ${e.message}`);
              trace(`exec: edit read recovery FAILED ${error.message}`);
              safeError(error);
@@ -313,7 +330,7 @@ diff --git a/dist/language-model.js b/dist/language-model.js
              return true;
          }
      };
-@@ -1759,7 +1759,7 @@
+@@ -1759,7 +1766,7 @@ export async function pump(session, controller, ids, abortSignal) {
              const error = new Error(`Failed to reject Cursor read of a missing path: ${e.message}`);
              trace(`exec: missing read rejection FAILED ${error.message}`);
              safeError(error);
@@ -322,7 +339,7 @@ diff --git a/dist/language-model.js b/dist/language-model.js
              return true;
          }
      };
-@@ -1882,14 +1882,14 @@
+@@ -1882,14 +1889,14 @@ export async function pump(session, controller, ids, abortSignal) {
          // keeping the loop alive would discard frames the next pump needs.
          if (streamClosed) {
              trace(`pump: stream closed (consumer cancelled) pending=${session.pending.size}`);
@@ -339,7 +356,7 @@ diff --git a/dist/language-model.js b/dist/language-model.js
              return;
          }
          let next;
-@@ -1982,7 +1982,7 @@
+@@ -1982,7 +1989,7 @@ export async function pump(session, controller, ids, abortSignal) {
              checkpointBytes: checkpointProgress,
          });
          if (replayFrame.semanticProgress) {
@@ -348,7 +365,7 @@ diff --git a/dist/language-model.js b/dist/language-model.js
          }
          if (replayFrame.barrier)
              replaySafety.markBarrier(replayFrame.barrier);
-@@ -2062,7 +2062,7 @@
+@@ -2062,7 +2069,7 @@ export async function pump(session, controller, ids, abortSignal) {
                      }
                  }
                  emitFinish(turnEnded, { unified: "stop", raw: undefined });
@@ -357,7 +374,7 @@ diff --git a/dist/language-model.js b/dist/language-model.js
                  return;
              }
              else if (iu?.tool_call_started) {
-@@ -2135,7 +2135,7 @@
+@@ -2135,7 +2142,7 @@ export async function pump(session, controller, ids, abortSignal) {
                          }
                          else {
                              const execId = session.nextBridgedExecId++;
@@ -366,7 +383,7 @@ diff --git a/dist/language-model.js b/dist/language-model.js
                              const toolCallId = `cursor_${session.sessionId}_${execId}`;
                              const input = JSON.stringify(bridged.args ?? {});
                              trace(`display BRIDGED tool-call toolCallId=${toolCallId} toolName=${bridged.toolName} ` +
-@@ -2337,7 +2337,7 @@
+@@ -2337,7 +2344,7 @@ export async function pump(session, controller, ids, abortSignal) {
                              }
                              if (displayCallId)
                                  session.displayToolCalls.delete(displayCallId);
@@ -375,7 +392,7 @@ diff --git a/dist/language-model.js b/dist/language-model.js
                                  ...parsed.resultMetadata,
                                  path: target,
                                  binaryWriteBytes: undefined,
-@@ -2395,7 +2395,7 @@
+@@ -2395,7 +2402,7 @@ export async function pump(session, controller, ids, abortSignal) {
                              registerCursorShellCall(tc.toolCallId, parsed.resultMetadata);
                          }
                          // Keep the stream open; the result arrives on the next doStream call.
@@ -384,7 +401,7 @@ diff --git a/dist/language-model.js b/dist/language-model.js
                          // tc.input is already a JSON string (LanguageModelV3ToolCall.input).
                          trace(`exec: EMITTED tool-call toolCallId=${tc.toolCallId} toolName=${tc.toolName} inputLen=${tc.input.length}`);
                          emittedHostTools++;
-@@ -2504,7 +2504,7 @@
+@@ -2504,7 +2511,7 @@ export async function pump(session, controller, ids, abortSignal) {
                      // ConversationAction when it was already acknowledged with `async`).
                      const ask = handled.askQuestion;
                      const execId = session.nextBridgedExecId++;
@@ -393,7 +410,7 @@ diff --git a/dist/language-model.js b/dist/language-model.js
                          interactionId: handled.id,
                          askQuestionArgs: ask.args,
                          askQuestionRawArgs: ask.rawArgs,
-@@ -2550,7 +2550,7 @@
+@@ -2550,7 +2557,7 @@ export async function pump(session, controller, ids, abortSignal) {
                      const bridgeKind = sw.bridge.kind;
                      const toolName = sw.toolName ?? "plan_exit";
                      const execId = session.nextBridgedExecId++;
@@ -402,7 +419,7 @@ diff --git a/dist/language-model.js b/dist/language-model.js
                          interactionId: handled.id,
                          switchModeTarget: sw.args.targetModeId,
                          switchModeToolCallId: sw.toolCallId,
-@@ -2582,7 +2582,7 @@
+@@ -2582,7 +2589,7 @@ export async function pump(session, controller, ids, abortSignal) {
                      const planUri = staged?.plan_uri ?? plan.planUri ?? "";
                      const input = staged ?? plan.questionInput ?? {};
                      const stageExecId = session.nextBridgedExecId++;
