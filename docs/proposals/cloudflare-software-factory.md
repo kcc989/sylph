@@ -17,18 +17,18 @@ The one-sentence version: **Sylph turns an Issue into a verified, deployed Cloud
 
 Most of the factory's stations already exist as separate features. The table compares Emdash, Sylph today, and the factory target.
 
-| Capability | Emdash | Sylph today | Factory target |
-| --- | --- | --- | --- |
-| Isolation per task | Git worktree and branch on a host | Artifacts fork plus one Durable Object per Workspace | Same, plus a Workspace pool that Sylph opens on its own |
-| Where agents run | Local CLIs, SSH remote | OpenCode in the Durable Object; commands in a Cloudflare Sandbox; Codex and Cursor through Containers | Named Agent runtimes selected per Issue |
-| Supported agents | Claude Code, Codex, Cursor, OpenCode, Amp, Devin, Qwen, Droid, Copilot | OpenCode with many Providers; Codex and Cursor subscriptions | OpenCode by default; sandboxed CLI agents as additional runtimes |
-| Work intake | Linear, GitHub, Jira, GitLab, Asana, and others | Sylph Issues; GitHub Upstream Repository | Sylph Issues fed by GitHub Issues, Linear, telemetry incidents, and plans |
-| Review | Diff, PR, CI checks, merge in one view | Review, Acceptance, Delivery by push or PR | Same, plus Merge queue and an automated first review |
-| Verification | Whatever the host's CI does | Checks, Preview, browser Evidence, journeys, automatic repair | Same, run by policy on every Checkpoint that reaches the queue |
-| Deployment | Out of scope | Production Deployments, release gates, recovery, Rollback | Same, with Release trains and observation feedback |
-| Observability | Notifications and lifecycle hooks | Production health, incidents, repair Workspaces | Incidents open Issues; the line closes them |
-| Where state lives | Local SQLite | D1, Durable Objects, Artifacts | Same |
-| Shape | Desktop app | Web app on Workers | Web app on Workers, plus a Slack and GitHub surface |
+| Capability         | Emdash                                                                 | Sylph today                                                                                           | Factory target                                                            |
+| ------------------ | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Isolation per task | Git worktree and branch on a host                                      | Artifacts fork plus one Durable Object per Workspace                                                  | Same, plus a Workspace pool that Sylph opens on its own                   |
+| Where agents run   | Local CLIs, SSH remote                                                 | OpenCode in the Durable Object; commands in a Cloudflare Sandbox; Codex and Cursor through Containers | Named Agent runtimes selected per Issue                                   |
+| Supported agents   | Claude Code, Codex, Cursor, OpenCode, Amp, Devin, Qwen, Droid, Copilot | OpenCode with many Providers; Codex and Cursor subscriptions                                          | OpenCode by default; sandboxed CLI agents as additional runtimes          |
+| Work intake        | Linear, GitHub, Jira, GitLab, Asana, and others                        | Sylph Issues; GitHub Upstream Repository                                                              | Sylph Issues fed by GitHub Issues, Linear, telemetry incidents, and plans |
+| Review             | Diff, PR, CI checks, merge in one view                                 | Review, Acceptance, Delivery by push or PR                                                            | Same, plus Merge queue and an automated first review                      |
+| Verification       | Whatever the host's CI does                                            | Checks, Preview, browser Evidence, journeys, automatic repair                                         | Same, run by policy on every Checkpoint that reaches the queue            |
+| Deployment         | Out of scope                                                           | Production Deployments, release gates, recovery, Rollback                                             | Same, with Release trains and observation feedback                        |
+| Observability      | Notifications and lifecycle hooks                                      | Production health, incidents, repair Workspaces                                                       | Incidents open Issues; the line closes them                               |
+| Where state lives  | Local SQLite                                                           | D1, Durable Objects, Artifacts                                                                        | Same                                                                      |
+| Shape              | Desktop app                                                            | Web app on Workers                                                                                    | Web app on Workers, plus a Slack and GitHub surface                       |
 
 The gap is not features. The gap is the loop. Today a User creates a Workspace, prompts an agent, requests Checks, reviews, accepts, and deploys, one click at a time. The factory does those steps by policy and asks the User only where a decision is required.
 
