@@ -19,6 +19,7 @@ import type {
 import type { WorkspaceMergeInput } from "./apps/web/src/server/workspace-merge"
 import type { WorkspaceRetentionInput } from "./apps/web/src/server/workspace-retention"
 import type { CiSandbox } from "@cloudflare/ci/worker"
+import type { Sandbox } from "@cloudflare/sandbox"
 import * as Config from "effect/Config"
 import * as Effect from "effect/Effect"
 import * as Redacted from "effect/Redacted"
@@ -105,6 +106,13 @@ export class Website extends Cloudflare.Website.Vite<Website>()(
         ).pipe(Config.withDefault("")),
         R2_ACCESS_KEY_ID: credentials.accessKeyId,
         R2_SECRET_ACCESS_KEY: credentials.secretAccessKey,
+        WORKSPACE_SANDBOX: Cloudflare.Container<Sandbox>("WorkspaceSandbox", {
+          image:
+            "docker.io/cloudflare/sandbox:0.12.1@sha256:ea9b35e61c800eddbc4450fad333e5dd26033a06f7d36624388b0711bef9f8c5",
+          className: "WorkspaceSandbox",
+          instanceType: "standard-1",
+          maxInstances: 10,
+        }),
         SANDBOX: Cloudflare.Container<CiSandbox>("CiSandbox", {
           image:
             "docker.io/cloudflare/sandbox:0.12.1@sha256:ea9b35e61c800eddbc4450fad333e5dd26033a06f7d36624388b0711bef9f8c5",
