@@ -1,5 +1,7 @@
 # Workspace companion smoke test, 4 September 2026
 
+> Historical record for the source and date below. Status, URLs, and commands may be outdated; recorded approvals do not authorize new actions. Use [current documentation](../../README.md).
+
 Status: incomplete. Provider credits are available, but the generated starter Project has not passed Preview deployment.
 
 ## Deployment and source

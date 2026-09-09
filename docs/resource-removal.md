@@ -1,11 +1,21 @@
 # Prepare resource removal
 
-An Admin can select active application Queues and Durable Object namespaces in Project resource settings and prepare a Workspace. The review records the accepted commit, successful production deployment, resource operation, provider IDs and generations. Creation checks them again. A changed source revision, deployment, resource identity or recovery record requires another review.
+An Admin can select active application Queues and Durable Object namespaces in Project resource settings and prepare a removal Workspace. The review records the Accepted commit, successful production deployment, operation, provider IDs, and generations. Workspace creation rechecks them. Changes to source, deployment, resource identity, or recovery records require a new review.
 
-Use two source checkpoints. First remove references while keeping the historical resource declaration in the Alchemy plan. Queue consumer deletion requires the exact owned Queue and an owned Worker consumer. The broker verifies the consumer is absent through a successful collection after deletion. Remove producer bindings too before requesting retirement. The starter currently permits consumer detachment through `scripts/managed-queue-consumers.json` only. This requires an empty pending journal and disables the managed producer, but keeps the physical binding and recovery topology. That retained binding still blocks Queue retirement; full removal requires a separate reviewed source transition.
+Use two Checkpoints. First remove references while retaining the historical Alchemy resource declaration. After deployment, verification, and reviewed retirement/removal, remove that declaration in the second Checkpoint. A Workspace prompt does not authorize deployment or bypass resource checks.
 
-A Durable Object class migration needs a `retirement` descriptor on its historical plan entry containing the exact `resourceId` and `generation`. It cannot create the class again or retain a binding to it. This authority applies only to production and requires provider identity verification and no saved recovery point containing that namespace. After the source deployment, capture and retirement both require a successful namespace collection proving the original ID is absent. A failed request or bare 404 is not proof.
+## Queues
 
-Deleting a namespace permanently removes its data. A snapshot cannot recreate the original namespace ID. Current and older saved recovery points therefore block class deletion before the provider mutation. Normal release capture may add a recovery point and block deletion even when the Workspace was prepared without older snapshots. The Workspace can still remove references, but this is not an irreversible release mode and does not provide managed namespace deletion through the normal recovery contract. Saved recovery points are never discarded implicitly.
+Consumer deletion requires an owned Queue and Worker consumer. The broker must confirm absence through a successful provider collection after deletion. Remove producer bindings before requesting retirement.
 
-After the deployed source passes the existing release gates and provider checks confirm detachment or permitted class deletion, use the existing reviewed retirement and removal actions. Then remove the historical declaration in a second Workspace checkpoint. A Workspace prompt does not authorize deployment or bypass resource checks.
+The starter supports consumer detachment only through `scripts/managed-queue-consumers.json`. It requires an empty pending journal and disables the managed producer, but retains the physical binding and recovery configuration. The retained binding blocks retirement. Full removal requires another reviewed source change.
+
+## Durable Objects
+
+Class removal needs a `retirement` descriptor on the historical plan entry with the exact `resourceId` and `generation`. The migration cannot recreate the class or retain a binding to it. This permission applies only to production. It requires verified provider identity and no saved recovery point containing the namespace.
+
+After deployment, capture and retirement require a successful namespace collection showing that the original ID is absent. A failed request or a 404 alone is insufficient.
+
+Deleting a namespace permanently deletes its data; a snapshot cannot recreate its ID. Any saved recovery point containing it blocks deletion. Normal release capture can add such a point even if none existed when the Workspace was prepared. That release can remove references, but cannot delete the namespace through the managed recovery process. Saved recovery points are never deleted implicitly.
+
+After the release passes its checks and the provider confirms detachment or permitted class removal, use the reviewed retirement and removal actions. Then save the second Checkpoint without the historical declaration.

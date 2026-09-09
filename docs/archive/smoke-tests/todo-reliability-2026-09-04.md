@@ -1,5 +1,7 @@
 # Todo reliability smoke test, 4 September 2026
 
+> Historical record for the source and date below. Status, URLs, and commands may be outdated; recorded approvals do not authorize new actions. Use [current documentation](../../README.md).
+
 Status: in progress. This run is independent of the earlier todo smoke reports.
 
 ## Target
@@ -39,7 +41,7 @@ The user clarified that Sylph should use native OpenCode tools wherever possible
 
 Current inspection shows `WorkspaceDO` starts OpenCode Workerd with plugins and creates sessions at `/workspace`, without binding an OpenCode workspace provider. The plugin instead registers custom durable file tools and instructs the model to use them. The live native read and shell failures above demonstrate the resulting mismatch.
 
-The installed SDK exposes `Environment.Driver` with file-operation overrides and a process spawner, and `WorkspaceDriver` with create, connect, idle, and destroy operations. Native reads consume the environment file interface. This is the integration point to evaluate, preserving native tool arguments, output, and permissions. Shell execution must use Cloudflare CI and share the same working-copy contents with native file tools; changing tool names alone does not satisfy this requirement.
+The installed SDK exposes `Environment.Driver` with file-operation overrides and a process spawner, and `WorkspaceDriver` with create, connect, idle, and destroy operations. Native reads consume the environment file interface. Evaluate this integration API, preserving native tool arguments, output, and permissions. Shell execution must use Cloudflare CI and share the same working-copy contents with native file tools; changing tool names alone does not satisfy this requirement.
 
 The local implementation now binds OpenCode's native Environment files interface to WorkspaceFilesystem through the SDK's existing embedded Layer override mechanism. The Workerd SDK wrapper patch exposes that mechanism; native tool implementations are unchanged. Read, write, edit, and GPT patch operations passed a Workerd runtime probe with explicit completed-tool assertions. File changes survived Durable Object restart. The final probe took 1.47 seconds with a deterministic local model fixture, not a real provider.
 
@@ -69,11 +71,11 @@ The live agent also reported OpenRouter insufficient credits. No credit purchase
 
 ## Runner diagnosis
 
-Cloudflare telemetry for the failed lockfile-only attempt identifies a successful source checkout in 1,758 ms, followed by a canceled CiSandbox.startProcess RPC lasting 260,299 ms. The CI invocation reported that the Workers runtime canceled a hung request. This narrows the failure to process startup, before the snapshot step.
+Cloudflare telemetry for the failed lockfile-only attempt identifies a successful source checkout in 1,758 ms, followed by a canceled CiSandbox.startProcess RPC lasting 260,299 ms. The CI invocation reported that the Workers runtime canceled a hung request. The logs point to process startup, before the snapshot step.
 
 The CI dependency patch now uses bounded sandbox.exec, preserves heredoc boundaries with newlines around the command, and retains direct stderr if the shell fails before creating log files. A first exec probe returned in 3.4 seconds with exit 2, exposing the missing heredoc boundary. A real shell regression test now checks heredocs, quoted output paths, and failure status. Cloudflare also reported SDK 0.12.9 against container 0.12.1; the root SDK dependency is now pinned to the image's 0.12.1 version.
 
-The corrected adapter was deployed to the isolated stage. Dependency probes were started through the Cloudflare API with the existing Sylph checkpoint and Workspace, without requiring a successful model turn. The initial API request followed a string params schema but was rejected before any step ran; the corrected request uses an object payload. Probe dependencies-native-exec-heredoc-0904-attempt-1 returned a concrete failure in 4.6 seconds: dependency repair required git ls-files, but CI exports source without .git. Repair now reads source files directly, pruning dependency/cache/Git directories. Regression fixtures now omit Git metadata, matching the real CI layout.
+The corrected adapter was deployed to the isolated stage. Dependency probes were started through the Cloudflare API with the existing Sylph checkpoint and Workspace, without requiring a successful model turn. The initial API request followed a string params schema but was rejected before any step ran; the corrected request uses an object payload. Probe dependencies-native-exec-heredoc-0904-attempt-1 returned a specific failure in 4.6 seconds: dependency repair required git ls-files, but CI exports source without .git. Repair now reads source files directly, pruning dependency/cache/Git directories. Regression fixtures now omit Git metadata, matching the real CI layout.
 
 Dependency Workflow dependencies-native-source-0904-attempt-1 passed. Its runner took 4,650 ms; the complete pipeline from first publish to final publish took 6,791 ms. The generated lockfile was saved in the DO, a checkpoint was created, and dependencies-native-source-0904-verification-attempt-1 started automatically. The authenticated browser confirmed the successful repair and running normal Check. Model delivery still encounters insufficient credits.
 

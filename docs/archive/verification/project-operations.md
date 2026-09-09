@@ -1,5 +1,7 @@
 # Project operations: production health to repair
 
+> Historical record for the source and date below. Status, URLs, and commands may be outdated; recorded approvals do not authorize new actions. Use [current documentation](../../README.md).
+
 Implemented on `codex/e2e-operations`, based on `301860e7b33af5dfb68b14e04148bb2681709b7b`.
 
 Project settings now has a Production health section. A Project member can collect recent invocation observations, inspect retained diagnostic fields, acknowledge incidents, and create a repair Workspace. The existing minute schedule also collects health for up to three eligible Projects concurrently, selecting the oldest observations first. Scheduled collection waits at least five minutes between observations and shares the per-Project lease with manual collection. Larger installations can have longer collection intervals. Alerts remain inside Sylph; there is no external notification delivery.

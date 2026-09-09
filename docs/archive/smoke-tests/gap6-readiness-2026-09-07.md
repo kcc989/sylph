@@ -1,5 +1,7 @@
 # Gap 6 implementation and evidence
 
+> Historical record for the source and date below. Status, URLs, and commands may be outdated; recorded approvals do not authorize new actions. Use [current documentation](../../README.md).
+
 The action implementation described as pending in this initial snapshot is now recorded in [the action handoff](gap6-actions-2026-09-07.md). Combined deployed proof remains pending.
 
 Branch: `codex/e2e-proof`. Base: `301860e7b33af5dfb68b14e04148bb2681709b7b`.
@@ -33,7 +35,7 @@ Outstanding work:
 1. Integrate all relevant implementation branches, publish the compatible starter after explicit approval, and record the exact integrated source/template commits.
 2. Implement the concrete scenario action files against those final APIs and selectors. The general runner is not a substitute for those actions. Review every probe against the required observations in `tests/release-smoke/COMBINED.md`.
 3. Deploy a fresh stage using Node 24, open it and execute the approved paths. Model generation must use the persistent bounded budget; no inference retry was run here.
-4. Prepare exact production/failure/restore/undo/cleanup targets and obtain explicit approval immediately before those actions. No such live action was executed here.
+4. Prepare exact production/failure/restore/undo/cleanup targets and obtain explicit approval immediately before those actions. No such live action ran.
 5. Supply the earlier Installation's actual source descriptor and private key configuration before real D1 capture. Local fixture round trips do not establish live preservation. Verify old Workspace files/transcripts/pending state through the retained old runtime.
 
 The combined lifecycle and a live earlier-Installation transition remain **unverified**. The new D1 archive is not a complete Installation backup and does not convert the old schema into the reset schema.
