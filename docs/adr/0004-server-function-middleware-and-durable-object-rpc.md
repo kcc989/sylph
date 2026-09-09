@@ -1,3 +1,7 @@
-# Guard server functions with middleware and call the Workspace runtime over RPC
+# Guard server functions with middleware and use Durable Object RPC
 
-Sylph keeps TanStack Start server functions as its only first-party backend surface. Each function declares its access requirement through composed middleware in `apps/web/src/functions/middleware.ts` (session, authenticated, organization member, connection manager, project member, workspace member, writable workspace), and handlers receive the session, database handle, and the guarded resource as context instead of re-querying membership. Failures are `Schema.TaggedError` values from `@workspace/domain` that cross the server-function boundary through a serialization adapter registered in `apps/web/src/start.ts`, so the UI can branch on the failure tag rather than on message text. The Workspace Durable Object exposes typed RPC methods whose payloads are the encoded forms of domain schemas; only the Server-Sent Events stream remains on `fetch`. A hand-written HTTP router inside the Durable Object or a second framework such as Hono should be introduced only when a public, non-browser API surface actually exists.
+Product actions use TanStack Start server functions. Each function declares its access checks through `apps/web/src/functions/middleware.ts`. Middleware supplies the session, database, and authorized resource to the handler.
+
+Failures use `Schema.TaggedError` from `@workspace/domain`. The adapter in `apps/web/src/start.ts` serializes them so the UI can check failure tags instead of matching messages. Workspace Durable Object RPC methods accept encoded domain schemas.
+
+The browser event stream uses a Hibernatable WebSocket on `fetch`, as described in [ADR 0007](0007-hibernatable-workspace-websocket.md). Authentication, setup callbacks, and the scoped deployment broker have dedicated HTTP endpoints. Add another HTTP router or framework only when a public API requires it.

@@ -1,12 +1,12 @@
 # Maintaining Sylph
 
-This guide is for people who publish releases and run the shared test infrastructure. Operators of a single Installation should read `docs/operators.md` instead.
+This guide is for people who publish releases and run the shared test infrastructure. Operators of a single Installation should read [the operator guide](operators.md).
 
 ## Releasing
 
-1. Move the `Unreleased` entries in `CHANGELOG.md` under a new version heading with today's date. Call out anything an operator must do during the upgrade.
+1. Move the `Unreleased` entries in `CHANGELOG.md` under a new version heading with today's date. List required operator actions.
 2. Set `version` in the root `package.json` to match.
-3. Merge to `main` and confirm the `Test` and `Deploy production` workflows pass.
+3. For code releases, merge to `main` and confirm the `Test` workflow passes. Run **Deploy production** for the intended Installation and verify the deployment. Documentation-only changes do not trigger these workflows.
 4. Tag and publish:
 
 ```sh
@@ -15,7 +15,7 @@ git push origin v0.1.0
 gh release create v0.1.0 --title "Sylph 0.1.0" --notes-file <(sed -n '/^## \[0.1.0\]/,/^## \[/p' CHANGELOG.md | sed '$d')
 ```
 
-Operators pin to tags when they report issues, so never move a published tag.
+Keep published tags unchanged so issue reports identify the same source.
 
 ## Release smoke tests
 
@@ -26,13 +26,13 @@ bun run smoke:release:doctor -- --auth magic
 bun run smoke:release:deploy -- --auth magic
 ```
 
-Run the test command printed by the deploy runner. Deployment is independent of Playwright and provider credits. Open the printed URL for manual verification, or run the optional browser suite. Use the default GitHub mode and add `--headed` to the test command when testing OAuth. Reuse an existing App configuration with `SYLPH_SMOKE_GITHUB_ENV_FILE` when its values live outside the shared smoke file. Magic-link mode tests the runtime and does not establish GitHub OAuth correctness. `gh auth` does not authenticate Playwright.
+Open the printed URL for manual verification. The optional browser suite uses the printed test command. Deployment needs neither Playwright nor provider credits. Use the default GitHub mode and add `--headed` to the test command when testing OAuth. Reuse an existing App configuration with `SYLPH_SMOKE_GITHUB_ENV_FILE` when its values live outside the shared smoke file. Magic-link mode does not test GitHub OAuth. `gh auth` does not authenticate Playwright.
 
 `scripts/setup-release-smoke.sh` is the one-time manual credential wizard. Existing credentials are reused across worktrees. Never rely on exported variables to override a checkout's `.env`; the runner passes a private snapshot through Alchemy's `--env-file` flag.
 
 ## OAuth across preview stages
 
-GitHub Apps accept one callback URL, so branch and smoke-test deployments with changing URLs cannot each register their own. Use Better Auth's OAuth Proxy: deploy one permanent Sylph stage as the proxy and register only its callback URL with GitHub:
+Use Better Auth's OAuth Proxy to give changing branch and smoke-stage URLs a stable GitHub callback. Configure one permanent Sylph stage as the proxy and register its callback URL with the existing GitHub App:
 
 ```text
 https://your-permanent-proxy.example/api/auth/callback/github
@@ -46,7 +46,7 @@ OAUTH_PROXY_SECRET=one-shared-random-secret-with-at-least-32-characters
 OAUTH_PROXY_TRUSTED_ORIGINS=https://sylph-*.your-test-domain.example
 ```
 
-Keep `OAUTH_PROXY_TRUSTED_ORIGINS` limited to domains controlled by the test system. Use a dedicated proxy secret instead of sharing `BETTER_AUTH_SECRET`. When these values are absent, Sylph uses the direct GitHub OAuth flow of a standalone Installation. The production setup wizard asks whether the Installation should act as a proxy and leaves all three values empty when the answer is no.
+Keep `OAUTH_PROXY_TRUSTED_ORIGINS` limited to domains controlled by the test system. Use a separate proxy secret. When these values are absent, Sylph uses the direct GitHub OAuth flow of a standalone Installation. Set proxy values in the private deployment environment or Actions settings.
 
 ## Local development
 

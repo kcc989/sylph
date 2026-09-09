@@ -1,5 +1,7 @@
 # OpenCode recovery and resource verification
 
+> Historical record for the source and date below. Status, URLs, and commands may be outdated; recorded approvals do not authorize new actions. Use [current documentation](../../README.md).
+
 The implementation patches OpenCode SDK and core version `0.0.0-dev-18308`. Bun applies both patches from the checked-in lockfile. SDK upgrades must update or remove these patches and pass the runtime smoke test.
 
 ## Fixed behavior

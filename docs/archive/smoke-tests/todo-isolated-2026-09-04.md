@@ -1,5 +1,7 @@
 # Isolated todo smoke test, 4 September 2026
 
+> Historical record for the source and date below. Status, URLs, and commands may be outdated; recorded approvals do not authorize new actions. Use [current documentation](../../README.md).
+
 Status: completed. This is a separate run from `todo-2026-09-04.md` and does not change that earlier run's results.
 
 ## Deployed evidence
@@ -23,8 +25,8 @@ An archive-only dependency-cache experiment was removed. Its verification runner
 
 ## Scope and limits
 
-The Sylph changes cover provider input serialization, template ref selection, shared verification, timing output, and browser readiness. The generated app also needed dependency repairs, a same-element DOM identity marker, and an Alchemy-managed persistent authentication secret. Those app edits live in the accepted Sylph Project repository, not in this platform PR or the upstream template repository. The disposable app currently lacks a committed dependency lockfile; this is not a reproducible-template proof.
+The Sylph changes cover provider input serialization, template ref selection, shared verification, timing output, and browser readiness. The generated app also needed dependency repairs, a same-element DOM identity marker, and an Alchemy-managed persistent authentication secret. Those app edits are stored in the accepted Sylph Project repository, not in this platform PR or the upstream template repository. The disposable app currently lacks a committed dependency lockfile; this is not a reproducible-template proof.
 
 The deployed Sylph checkout started at `dd8ed67` with these fixes applied. The PR was then rebased onto `935d8dc`, preserving main's disabled inner verification retries. Local checks apply to the rebased branch; the deployed lifecycle evidence does not claim that the exact rebased PR head was deployed. Earlier recovery and shell changes already on main are not reintroduced here.
 
-The browser readiness attributes are now an explicit Project contract. Existing Projects and upstream templates need those attributes before their next browser check. Failure-stage display and stale live UI state still warrant follow-up; passing this lifecycle is not a claim that all runtime reliability issues are solved.
+The browser readiness attributes are now an explicit Project contract. Existing Projects and upstream templates need those attributes before their next browser check. Failure-stage display and stale live UI state still need investigation; passing this lifecycle is not a claim that all runtime reliability issues are solved.

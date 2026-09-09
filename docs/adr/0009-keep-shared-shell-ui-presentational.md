@@ -1,3 +1,5 @@
 # Keep shared shell UI presentational
 
-The shared UI package owns shell layout, visual state, and presentational navigation data. The web app owns authentication, route construction, active-route selection, and Workspace actions, then supplies plain data and links to the UI package. This boundary keeps the shell reusable in Storybook and other runtimes without coupling shared components to the application domain or TanStack Router.
+The UI package supplies shell layout, visual state, and navigation components. The web app handles authentication, routes, active-route selection, and Workspace actions, then passes plain data and links to the components.
+
+This keeps the shell usable in Storybook and other runtimes without dependencies on the application domain or TanStack Router.

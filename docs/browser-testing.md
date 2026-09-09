@@ -1,12 +1,14 @@
 # Browser journeys and acceptance
 
-`workspace_browser` uses the Workspace's persistent Cloudflare Browser Run. The Browser tab can operate that same remote page. The application iframe is a separate context; its activity does not count as journey proof.
+`workspace_browser` and the Browser tab control the same persistent Cloudflare Browser Run session. The application iframe has a separate browser context; actions there do not count as journey evidence.
 
-Browser evidence and journey requirements are optional. Checks do not create a Preview or start a browser. Request a Preview first; select **Capture browser evidence** only when needed. The Preview tab initially shows the application iframe. Select **Browser Run** to operate the shared testing session.
+Browser evidence is optional. Request a Preview, then select **Browser Run** to use the shared session. Select **Capture browser evidence** when needed. A Check alone does not create a Preview or start a browser.
 
-Acceptance requires browser proof only when a User has configured required journeys. A missing or empty policy adds no acceptance requirement. Set named journeys, ordered assertions, required desktop/mobile viewports, and a reason to opt in. Each policy revision records the User and timestamp and closes the old browser.
+## Required journeys
 
-Every journey result is bound to the exact Workspace, Conversation, Check ID, attempt, commit, policy revision, and browser session. A journey must pass all required assertions at every required viewport and finish on the application Preview. Changing a Check attempt, commit, Conversation, or policy makes older proof inapplicable. An unrelated verification Check does not invalidate Preview evidence.
+Acceptance requires browser evidence only when a User configures required journeys. The policy specifies named journeys, ordered assertions, desktop/mobile viewports, and a reason. A policy change records the User and time, closes the browser, and requires new evidence. An empty policy adds no requirement.
+
+Each result records the Workspace, Conversation, Check ID, attempt, commit, policy revision, and browser session. A journey must pass every assertion at each required viewport and finish on the Preview. A change to any recorded binding invalidates the result. An unrelated verification Check does not invalidate Preview evidence.
 
 ```json
 {"requestId":"start-1","action":{"type":"start"}}
@@ -17,26 +19,28 @@ Every journey result is bound to the exact Workspace, Conversation, Check ID, at
 {"requestId":"mobile-1","sessionId":"<session>","action":{"type":"viewport","viewport":"mobile"}}
 ```
 
-Repeat the required assertions at each viewport, then call `journey_finish`. Desktop is 1440 × 900; mobile is 390 × 844. The browser checks actual viewport dimensions and saves each assertion's Evidence with its sequence and viewport. Screenshots and observations alone cannot complete a required journey.
+Repeat the assertions at each viewport, then call `journey_finish`. Desktop is 1440 × 900; mobile is 390 × 844. The browser verifies these dimensions and stores each assertion's Evidence, sequence, and viewport. Screenshots and observations alone do not complete a journey.
 
-Policies require screenshots and accessibility Evidence by default. A User can explicitly select **DOM testing (no screenshots or pointer checks)** and record a reason. This creates a new policy revision and requires new proof. DOM-only mode still uses the actual browser, cookies, guarded navigation, viewport dimensions, and ordered assertions. Selector clicks activate the real document's control with `HTMLElement.click()`; waits poll DOM state. Coordinate clicks are rejected. This mode does not verify visual appearance or pointer hit targets. The UI shows page text and selector controls without a stale screenshot.
+Policies require screenshots and accessibility Evidence by default. A User can choose **DOM testing (no screenshots or pointer checks)** and record a reason. That creates a new policy revision. DOM-only mode checks cookies, navigation, viewport dimensions, and ordered assertions. Selector clicks use `HTMLElement.click()`; waits poll DOM state. Coordinate clicks are rejected. The UI shows text and selector controls. This mode does not test appearance or pointer hit targets.
 
-The browser owner keeps its guarded rendering connection open between actions. The earlier freeze/resume implementation caused Cloudflare screenshot timeouts; it is no longer used. Screenshots remain the default acceptance evidence. An explicit DOM-only policy still cannot prove appearance or pointer hit targets.
+The browser keeps its rendering connection and navigation checks active between actions. It no longer freezes and resumes the page, which caused screenshot timeouts.
 
-A failed assertion or action invalidates that attempt. Start a new journey attempt and repeat its required proof. When required journeys are configured, failures outside a named journey block acceptance until every required journey is repeated or a User records an exception. Starting another journey, closing the browser, expiry, failed reconnect, failed Evidence storage, or interruption cannot turn incomplete proof into a pass. Results and failed attempts remain in durable storage.
+## Failures and retries
 
-Use a unique `requestId` for every action except an optional observation. Retrying the same input and ID returns its saved result. Changing that input or its Check binding is rejected. A pending receipt is never replayed: observe the page and begin a new attempt after checking its state. Human controls also send the observed sequence to prevent a click on an outdated screenshot.
+A failed action or assertion fails the attempt. Start a new attempt and repeat the required assertions. With required journeys configured, a failure outside a named journey requires all journeys to be repeated or a User exception. Closing, expiring, reconnecting, or interrupting the browser cannot complete an unfinished journey. Failed Evidence storage also prevents a pass. Results and failed attempts remain stored.
 
-A policy exception records the User, reason, exact binding, and event order. Later activity can invalidate it. Agents cannot configure policy, record exceptions, or take control away from a User. Acceptance rechecks browser proof in the same serialized queue as browser actions, closes the browser, and reserves the Workspace before merge creation.
+Use a unique `requestId` for each action; observation can omit it. Retrying the same ID and input returns the saved result. Changed input or Check binding is rejected. Pending actions are not replayed: inspect the page before starting another attempt. Human controls include the observed sequence to reject clicks on outdated screenshots.
 
-# Human control and authentication
+A User exception records the reason, exact binding, and event order. Later actions can invalidate it. Agents cannot change policy, record exceptions, or take control from a User. Before merging, Acceptance rechecks evidence in the browser action queue, closes the browser, and reserves the Workspace.
 
-Start the shared browser or select **Take control**. The agent can observe while human control is active, but it cannot mutate, restart, or close the session. The Browser tab sends clicks, field input, keyboard actions, viewport changes, and assertions through the same service. **Release to agent** returns control without transferring or recreating cookies. Text typed here goes to the actual remote page. Receipts keep input fingerprints rather than field input. Page-visible content, accessibility, and screenshots remain normal Workspace Evidence.
+## Human control and authentication
 
-Navigation defaults to the Preview origin. Only a User can add exact public HTTPS origins to the browser policy. These can be used for external test-account sign-in, redirects, and popups. Wildcards, credentials in URLs, ports, local names, and IP literals are rejected. New popup documents are paused and guarded before navigation. Observe the returned `pages`, then use `switch_page` with an observed page ID. `popup` opens an explicitly allowed URL in the same browser context. No arbitrary JavaScript is exposed.
+Select **Take control** to use the shared browser. The agent can observe but cannot change, restart, or close it. **Release to agent** keeps the same session and cookies. Input goes to the remote page. Action receipts store input fingerprints, not field values; page text, accessibility data, and screenshots remain Workspace Evidence.
 
-The Workspace Durable Object retains one browser owner and its navigation interceptor between action connections. Every application tab belongs to a Chromium context created with `disposeOnDetach: true`. Timers and popups remain guarded while the browser is idle. Closing the owner transport destroys that context, so eviction or connection loss expires authentication instead of leaving unguarded pages. Reconstructing the Workspace service can reuse a retained owner; a new Durable Object instance cannot recover the old login. Sessions close after ten idle minutes. Start again and sign in with a test account after expiry.
+Navigation allows the Preview origin by default. A User can add exact public HTTPS origins for sign-in, redirects, and popups. Wildcards, URL credentials, ports, local names, and IP literals are rejected. New popup pages are paused and checked before navigation. Read `pages`, then call `switch_page` with an observed page ID. `popup` opens an allowed URL in the same context. Arbitrary JavaScript is not supported.
 
-Cloudflare also offers [Live View](https://developers.cloudflare.com/browser-run/features/live-view/). This implementation does not mint transferable Live View control URLs: human actions stay behind Workspace authorization, ownership, ordering, and navigation policy. It is an action-driven shared browser, with an updated screenshot after each action. It does not stream video or transfer the application iframe's login. External identity providers can still reject Browser Run traffic; a blocked provider is a failed/incomplete journey, not proof of successful OAuth.
+The Durable Object retains the browser connection and navigation interceptor. Tabs use a Chromium context with `disposeOnDetach: true`; navigation checks remain active while idle. Closing the connection destroys the context. A reconstructed Workspace service can reuse a retained browser connection, but a new Durable Object instance cannot recover the login. Sessions close after ten idle minutes. After expiry, start a session and sign in again.
 
-Run the [Browser Run smoke](../tools/browser-smoke/README.md) for exact-source runtime evidence. The fixture tests external sign-in and popup mechanics, not a real identity provider's OAuth protocol.
+Sylph does not issue transferable [Live View](https://developers.cloudflare.com/browser-run/features/live-view/) URLs. Human actions use Workspace access checks and navigation policy. Screenshots update after each action; video streaming and iframe login transfer are not supported. If an identity provider rejects Browser Run traffic, the sign-in journey remains failed or incomplete.
+
+Run the [Browser Run smoke](../tools/browser-smoke/README.md) to test a specific source revision. Its fixture tests external sign-in and popups, not a real identity provider's OAuth protocol.

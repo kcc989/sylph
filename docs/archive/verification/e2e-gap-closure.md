@@ -1,5 +1,7 @@
 # Cloudflare agent lifecycle integration
 
+> Historical record for the source and date below. Status, URLs, and commands may be outdated; recorded approvals do not authorize new actions. Use [current documentation](../../README.md).
+
 This follow-up extends the original gap fixes. Installations will deploy fresh, so historical Installation migration is out of scope. Implementation, external starter publication, and live proof have separate checkpoints.
 
 | Area                  | Current implementation                                                                                                                                                    | Required deployed evidence                                                                                                                                                                                       |
@@ -16,11 +18,11 @@ Adapter bounds remain subject to the Project resource plan limit of twenty total
 
 R2 snapshots are bounded to 10,000 objects, 16 MiB per object and 64 MiB of object bytes per bucket. Encrypted chunks remain below D1 row limits. A recovery group authenticates all saved bucket chunks and checks fresh undo state before restoring any database. Unknown restore outcomes keep writers paused and cannot be replayed as a new successful attempt.
 
-See [combined lifecycle procedure](../../tests/release-smoke/COMBINED.md) and [starter candidate procedure](../../tools/template-contract/README.md). No live application restore, resource deletion, earlier Installation migration or production release has been performed by the follow-up integration owner.
+See [combined lifecycle procedure](../../../tests/release-smoke/COMBINED.md) and [starter candidate procedure](../../../tools/template-contract/README.md). No live application restore, resource deletion, earlier Installation migration or production release has been performed by the follow-up integration owner.
 
 ## Current local checks
 
-Platform source `8f9a885` passed all 803 tests, formatting, lint and the local Workerd agent-runtime smoke. Production build and typechecks passed before the final test-only fixture changes. External starter `33482d3892652237dccfb80a9d2f4e479a6d51e0` passed 59 tests, typecheck, lint, formatting and production build. The platform contract checker also passed, including exact copied-source comparison and recovery schema reconciliation. The user-approved candidate was published on `codex/project-capability-broker`; its remote hash was verified before the immutable pin changed.
+Platform source `8f9a885` passed all 803 tests, formatting, lint and the local Workerd agent-runtime smoke. Build and typechecks passed before the final test-only fixture changes. External starter `33482d3892652237dccfb80a9d2f4e479a6d51e0` passed 59 tests, typecheck, lint, formatting and production build. The platform contract checker also passed, including exact copied-source comparison and recovery schema reconciliation. The user-approved candidate was published on `codex/project-capability-broker`; its remote hash was verified before the immutable pin changed.
 
 These results do not establish fresh deployed journey, application restore/undo, or partial-cleanup proof. The combined source is in draft PR #73 until live evidence is complete.
 

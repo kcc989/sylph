@@ -1,5 +1,7 @@
 # Cursor subscription through OpenCode
 
+> Historical record for the source and date below. Status, URLs, and commands may be outdated; recorded approvals do not authorize new actions. Use [current documentation](../../README.md).
+
 For current deployed verification status and continuation steps, read the
 [E2E handoff](e2e-handoff-2026-09-08.md).
 

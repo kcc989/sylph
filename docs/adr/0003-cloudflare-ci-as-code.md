@@ -1,3 +1,5 @@
-# Extend Cloudflare CI without a Project manifest
+# Define Cloudflare CI in application code
 
-Sylph defines its CI pipeline as application-owned TypeScript using `@cloudflare/ci`, following Cloudflare's authored-pipeline model. Project Repositories expose recognizable package scripts, while Sylph layers Check persistence, diagnostics, repair, Preview identity, and browser evidence onto the pipeline; Projects do not need proprietary Sylph execution metadata, and a configurable adapter seam should be introduced only when multiple real execution models require one.
+Sylph defines its pipeline in TypeScript with `@cloudflare/ci`. Project Repositories supply package scripts; Sylph records Checks, reports diagnostics, handles repair, identifies Previews, and stores browser evidence.
+
+Projects need no separate Sylph execution manifest. Add a configurable execution adapter only when multiple supported execution models require it.

@@ -1,5 +1,7 @@
 # Cursor provider registration verification — 2026-09-08
 
+> Historical record for the source and date below. Status, URLs, and commands may be outdated; recorded approvals do not authorize new actions. Use [current documentation](../../README.md).
+
 PR #75 fixes Cursor registration inside OpenCode and now uses a minimal bridge to the unmodified upstream provider. The sections below record earlier results; the latest continuation is at the end. Full live E2E remains unverified.
 
 ## Source and retained fixture
@@ -26,7 +28,7 @@ The existing authenticated in-app browser session worked. No new Cursor login wa
 
 ## Next verification
 
-Inspect the container proxy's actual error response and startup behavior. The current language-model adapter exposes only the status. The container HTTP server uses 502 for its own caught handler failures; the Cloudflare Container proxy can produce 500 during startup or proxying. This narrows the investigation but does not establish the cause. The scoped container telemetry query returned no container log events.
+Inspect the container proxy's actual error response and startup behavior. The current language-model adapter exposes only the status. The container HTTP server uses 502 for its own caught handler failures; the Cloudflare Container proxy can produce 500 during startup or proxying. The cause remains unknown. The scoped container telemetry query returned no container log events.
 
 Retain the existing Cursor connection. Ask the user to log in only when authentication is actually required. Then repeat file read/write, shell execution, checkpoint/Check, continuation, cancellation, and session isolation in the in-app browser. None of those operations has passed on this unpatched live implementation yet.
 

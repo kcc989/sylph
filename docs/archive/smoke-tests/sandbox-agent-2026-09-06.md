@@ -1,5 +1,7 @@
 # Sandbox agent and D1 todo smoke, 6 September 2026
 
+> Historical record for the source and date below. Status, URLs, and commands may be outdated; recorded approvals do not authorize new actions. Use [current documentation](../../README.md).
+
 The deployed verification passed. Acceptance and archival are not verified.
 
 ## Identity
@@ -37,4 +39,4 @@ The harness was corrected to wait for current Checks, asynchronous checkbox upda
 - `.alchemy/smoke-runs/smoke-mtqjj5in-7d0333/run.json` records the passing verification-only scope.
 - `.alchemy/smoke-runs/smoke-mtqjj5in-7d0333/budget.json` records model usage.
 - `playwright-report/release-smoke/smoke-mtqjj5in-7d0333/index.html` contains D1 rows, the todo screenshot, and the explicit `acceptanceVerified: false` attachment.
-- `docs/sandbox-agent.md` describes the execution boundary and limitations.
+- `docs/sandbox-agent.md` describes the execution behavior and limits.
