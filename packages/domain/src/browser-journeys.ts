@@ -195,5 +195,5 @@ export const WorkspaceBrowserExceptionInput = Schema.Struct({
 
 export const WorkspaceBrowserAcceptanceInput = Schema.Struct({
   workspaceId: WorkspaceId,
-  binding: BrowserProofBinding,
+  binding: Schema.NullOr(BrowserProofBinding),
 })

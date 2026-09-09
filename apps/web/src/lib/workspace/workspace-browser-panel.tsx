@@ -50,7 +50,7 @@ export function WorkspaceBrowserPanelView({
   const request = useRef<WorkspaceBrowserToolInput | null>(null)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [mode, setMode] = useState<"run" | "iframe">("run")
+  const [mode, setMode] = useState<"run" | "iframe">("iframe")
   const [text, setText] = useState("")
   const [selector, setSelector] = useState("")
   const [location, setLocation] = useState("")
@@ -67,11 +67,11 @@ export function WorkspaceBrowserPanelView({
   const controlling =
     session?.controller === "human" && session.controllerUserId === userId
   const disabled = pending || readOnly
-  const blockers = proof?.binding
-    ? browserJourneyBlockers(proof, proof.binding)
-    : [
-        "Check the current changes to create a Preview, then set the required journeys.",
-      ]
+  const blockers = !proof?.policy?.requirements.length
+    ? []
+    : proof?.binding
+      ? browserJourneyBlockers(proof, proof.binding)
+      : ["Create a Preview to complete the configured journeys."]
   const run = async (operation: () => Promise<void>) => {
     if (pending) return
     setPending(true)
@@ -267,7 +267,7 @@ export function WorkspaceBrowserPanelView({
               </ul>
             ) : (
               <p className="text-xs text-foreground">
-                Browser acceptance requirement satisfied
+                No browser requirements are blocking acceptance
                 {proof?.exception
                   ? "; policy exception recorded when applicable"
                   : ""}

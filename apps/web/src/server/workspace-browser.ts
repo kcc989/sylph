@@ -31,12 +31,16 @@ export const previewForBrowser = (
   runs: ReadonlyArray<WorkspaceCheckRun>,
   forkHead: string
 ) => {
-  const checkpoints = runs.filter((run) => run.kind === "checkpoint")
-  const current = checkpoints.find((run) => run.commit === forkHead)
+  const checkpoints = runs.filter(
+    (run) => run.kind === "preview" || run.kind === "checkpoint"
+  )
+  const current = checkpoints.find(
+    (run) => run.commit === forkHead && run.previewUrl
+  )
   const preview = current ? withPreview(current) : null
   if (!preview) {
     throw new Error(
-      "No Preview exists for the current Checkpoint. Run workspace_run_checks to build and preview it first."
+      "No Preview exists for the current Checkpoint. Use workspace_preview to create one first."
     )
   }
   if (preview.run.status === "running" || preview.run.status === "queued") {

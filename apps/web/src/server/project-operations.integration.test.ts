@@ -23,7 +23,7 @@ test("D1 operations retain incidents across requests and reject non-members", as
   })
   try {
     const db = await runtime.getD1Database("DB")
-    for (const name of ["0001_initial.sql", "0002_project_operations.sql"]) {
+    for (const name of ["0001_initial.sql"]) {
       const migration = readFileSync(
         new URL(`../../../../packages/db/migrations/${name}`, import.meta.url),
         "utf8"

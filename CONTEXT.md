@@ -69,19 +69,19 @@ The mutable files inside a Workspace, including work not yet saved as a Checkpoi
 A durable commit that records the Working copy in the Workspace fork.
 
 **Check**:
-An evaluation of one exact Checkpoint through the Project's install, typecheck, lint, test, and build requirements. A Check may also create and test that Checkpoint's Preview.
+An optional evaluation of one exact source commit using the Project's verification commands. A Check does not create a Preview.
 
 **Check continuation**:
-A normal agent Turn started automatically after a failed Check to fix its cause and run another Check. An Installation bounds consecutive Check continuations within each Workspace.
+A normal agent Turn started after a failed Check when the User has opted in to automatic repair, to fix its cause and run another Check. An Installation bounds consecutive Check continuations within each Workspace.
 
 **Preview**:
-An isolated deployment of one exact Checkpoint that can be inspected by a User or a browser test.
+An optional isolated deployment of one exact source commit that can be inspected by a User or a browser test.
 
 **Evidence**:
-A durable observation captured while testing a Preview, such as a screenshot or accessibility snapshot, and linked to the Check that produced it.
+An optional durable observation of a deployed source commit, such as a screenshot or accessibility snapshot, linked to the operation that captured it.
 
 **Acceptance**:
-The User's decision to merge a checked Checkpoint from a Workspace fork into the Project Repository.
+The User's decision to merge a reviewed Checkpoint from a Workspace fork into the Project Repository.
 
 **Base commit**:
 The exact Project Repository commit from which a Workspace fork was created.

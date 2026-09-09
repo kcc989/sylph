@@ -307,7 +307,24 @@ test("setup through eviction recovery", async ({ page, browser }, testInfo) => {
     await openToolMenu(page)
     await page.getByRole("menuitem", { name: "Checks and evidence" }).click()
     const checks = inspector
-    await expect(checks.getByText("passed", { exact: true })).toHaveCount(7, {
+    await inspector
+      .getByRole("button", { name: "Run checks", exact: true })
+      .click()
+    await expect
+      .poll(() => checks.getByText("passed", { exact: true }).count(), {
+        timeout: 10 * 60 * 1000,
+      })
+      .toBeGreaterThanOrEqual(5)
+    await expect(checks.getByText(/^(queued|running|failed)$/)).toHaveCount(0, {
+      timeout: 10 * 60 * 1000,
+    })
+    await inspector
+      .getByRole("checkbox", { name: "Capture browser evidence", exact: true })
+      .check()
+    await inspector
+      .getByRole("button", { name: "Create Preview", exact: true })
+      .click()
+    await expect(checks.getByText("passed", { exact: true })).toHaveCount(9, {
       timeout: 10 * 60 * 1000,
     })
     await expect(checks).toContainText("Evidence captured")

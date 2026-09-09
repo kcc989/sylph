@@ -107,6 +107,14 @@ export async function deploy(
       .locator("div.border-b")
       .filter({ hasText: commit.slice(0, 7) })
     await row.getByRole("button", { name: /^(Deploy|Redeploy)$/ }).click()
+    await row
+      .getByRole("checkbox", {
+        name: "Use managed recovery and release verification",
+      })
+      .check()
+    await row
+      .getByRole("checkbox", { name: "Capture browser evidence" })
+      .check()
   }
   let requestChecked = false
   await r.page.route("**/_serverFn/**", async (route) => {

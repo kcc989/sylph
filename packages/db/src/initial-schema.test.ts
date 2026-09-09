@@ -25,6 +25,16 @@ test("a fresh installation is unclaimed with an empty model policy", () => {
   expect(database.query("PRAGMA integrity_check").get()).toEqual({
     integrity_check: "ok",
   })
+  expect(
+    database
+      .query(
+        "SELECT name, dflt_value FROM pragma_table_info('deployment') WHERE name IN ('managed_release', 'capture_evidence') ORDER BY name"
+      )
+      .all()
+  ).toEqual([
+    { name: "capture_evidence", dflt_value: "0" },
+    { name: "managed_release", dflt_value: "0" },
+  ])
   expect(() =>
     database.exec(
       "INSERT INTO project_auth_secret (project_id, encrypted, iv) VALUES ('missing', 'secret', 'iv')"
@@ -32,7 +42,7 @@ test("a fresh installation is unclaimed with an empty model policy", () => {
   ).toThrow("FOREIGN KEY constraint failed")
 })
 
-test("resource lifecycle migration preserves claims and permits reviewed retirement", () => {
+test("fresh resource schema permits reviewed retirement and prevents duplicate claims", () => {
   using database = new Database(":memory:")
   database.exec("PRAGMA foreign_keys = ON")
   database.exec(initialSchema)
@@ -46,12 +56,6 @@ test("resource lifecycle migration preserves claims and permits reviewed retirem
     INSERT INTO project_resource_operation (account_id, project_id, scope, run_id, plan_json, status)
     VALUES ('account', 'project', 'production', 'run', '[]', 'complete');
   `)
-  database.exec(
-    readFileSync(
-      new URL("../migrations/0003_resource_lifecycle.sql", import.meta.url),
-      "utf8"
-    )
-  )
   expect(
     database
       .query("SELECT resource_id, purpose, state FROM project_resource")

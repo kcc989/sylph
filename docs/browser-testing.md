@@ -2,9 +2,11 @@
 
 `workspace_browser` uses the Workspace's persistent Cloudflare Browser Run. The Browser tab can operate that same remote page. The application iframe is a separate context; its activity does not count as journey proof.
 
-A passing Check verifies the homepage's rendered Checkpoint identity. Acceptance also requires a User-configured browser policy. In the Browser tab, set named journeys, ordered assertions, required desktop/mobile viewports, and a reason. Each policy revision records the User and timestamp and closes the old browser. Empty policies block acceptance until a User records an explicit exception.
+Browser evidence and journey requirements are optional. Checks do not create a Preview or start a browser. Request a Preview first; select **Capture browser evidence** only when needed. The Preview tab initially shows the application iframe. Select **Browser Run** to operate the shared testing session.
 
-Every journey result is bound to the exact Workspace, Conversation, Check ID, attempt, commit, policy revision, and browser session. A journey must pass all required assertions at every required viewport and finish on the application Preview. Changing a Check attempt, commit, Conversation, or policy makes older proof inapplicable. A newer failed Check cannot fall back to an older passing Check.
+Acceptance requires browser proof only when a User has configured required journeys. A missing or empty policy adds no acceptance requirement. Set named journeys, ordered assertions, required desktop/mobile viewports, and a reason to opt in. Each policy revision records the User and timestamp and closes the old browser.
+
+Every journey result is bound to the exact Workspace, Conversation, Check ID, attempt, commit, policy revision, and browser session. A journey must pass all required assertions at every required viewport and finish on the application Preview. Changing a Check attempt, commit, Conversation, or policy makes older proof inapplicable. An unrelated verification Check does not invalidate Preview evidence.
 
 ```json
 {"requestId":"start-1","action":{"type":"start"}}
@@ -21,7 +23,7 @@ Policies require screenshots and accessibility Evidence by default. A User can e
 
 The browser owner keeps its guarded rendering connection open between actions. The earlier freeze/resume implementation caused Cloudflare screenshot timeouts; it is no longer used. Screenshots remain the default acceptance evidence. An explicit DOM-only policy still cannot prove appearance or pointer hit targets.
 
-A failed assertion or action invalidates that attempt. Start a new journey attempt and repeat its required proof. Failures outside a named journey block acceptance until every required journey is repeated or a User records an exception. Starting another journey, closing the browser, expiry, failed reconnect, failed Evidence storage, or interruption cannot turn incomplete proof into a pass. Results and failed attempts remain in durable storage.
+A failed assertion or action invalidates that attempt. Start a new journey attempt and repeat its required proof. When required journeys are configured, failures outside a named journey block acceptance until every required journey is repeated or a User records an exception. Starting another journey, closing the browser, expiry, failed reconnect, failed Evidence storage, or interruption cannot turn incomplete proof into a pass. Results and failed attempts remain in durable storage.
 
 Use a unique `requestId` for every action except an optional observation. Retrying the same input and ID returns its saved result. Changing that input or its Check binding is rejected. A pending receipt is never replayed: observe the page and begin a new attempt after checking its state. Human controls also send the observed sequence to prevent a click on an outdated screenshot.
 

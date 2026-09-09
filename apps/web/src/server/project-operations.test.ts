@@ -48,7 +48,7 @@ afterEach(() => {
 const fixture = () => {
   const db = new Database(":memory:")
   databases.push(db)
-  for (const name of ["0001_initial.sql", "0002_project_operations.sql"])
+  for (const name of ["0001_initial.sql"])
     db.exec(
       readFileSync(
         new URL(`../../../../packages/db/migrations/${name}`, import.meta.url),

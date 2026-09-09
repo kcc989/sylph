@@ -149,6 +149,8 @@ export const getProjectDeployments = createServerFn({ method: "GET" })
           recoveryJson: schema.deployment.recoveryJson,
           verificationJson: schema.deployment.verificationJson,
           recoveryDeploymentId: schema.deployment.recoveryDeploymentId,
+          managedRelease: schema.deployment.managedRelease,
+          captureEvidence: schema.deployment.captureEvidence,
           startedAt: schema.deployment.startedAt,
           completedAt: schema.deployment.completedAt,
           createdAt: schema.deployment.createdAt,
@@ -261,18 +263,25 @@ export const deployProjectCommit = createServerFn({ method: "POST" })
         message: "Only an Accepted commit can be deployed",
       })
     }
+    const managedRelease =
+      data.managedRelease === true || Boolean(data.recoveryDeploymentId)
+    const captureEvidence = data.captureEvidence === true
     const deploymentId = `${data.projectId}-${data.idempotencyKey}`
     const existing = await database
       .select({
         status: schema.deployment.status,
         commit: schema.deployment.commit,
         recoveryDeploymentId: schema.deployment.recoveryDeploymentId,
+        managedRelease: schema.deployment.managedRelease,
+        captureEvidence: schema.deployment.captureEvidence,
       })
       .from(schema.deployment)
       .where(eq(schema.deployment.id, deploymentId))
       .get()
     if (existing) {
       if (
+        existing.managedRelease !== managedRelease ||
+        existing.captureEvidence !== captureEvidence ||
         existing.commit !== data.commit ||
         existing.recoveryDeploymentId !== (data.recoveryDeploymentId ?? null)
       )
@@ -342,6 +351,8 @@ export const deployProjectCommit = createServerFn({ method: "POST" })
         user.id,
         baseline?.id ?? null,
         data.recoveryDeploymentId ?? null,
+        managedRelease ? 1 : 0,
+        captureEvidence ? 1 : 0,
         Math.floor(createdAt / 1000),
         Math.floor(createdAt / 1000),
         data.projectId,
@@ -370,6 +381,8 @@ export const deployProjectCommit = createServerFn({ method: "POST" })
       agentSessionId: null,
       checkpointId: null,
       kind: "production",
+      managedRelease,
+      captureEvidence,
       attempt: 1,
       deploymentId,
       createdAt,

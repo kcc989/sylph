@@ -5,7 +5,7 @@ import { releaseContextSql } from "./release-reservation"
 test("published identity keeps commit and URL together across failed releases", () => {
   const database = new Database(":memory:")
   database.exec(
-    "CREATE TABLE deployment (id TEXT, project_id TEXT, [commit] TEXT, status TEXT, production_url TEXT, recovery_deployment_id TEXT, recovery_json TEXT, created_at INTEGER, mutation_started INTEGER)"
+    "CREATE TABLE deployment (id TEXT, project_id TEXT, [commit] TEXT, status TEXT, production_url TEXT, recovery_deployment_id TEXT, recovery_json TEXT, created_at INTEGER, mutation_started INTEGER, managed_release INTEGER DEFAULT 0, capture_evidence INTEGER DEFAULT 0)"
   )
   const insert = database.query(
     "INSERT INTO deployment (id, project_id, [commit], status, production_url, created_at, mutation_started) VALUES (?, 'project', ?, ?, ?, ?, ?)"

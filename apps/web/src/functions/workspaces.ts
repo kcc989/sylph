@@ -1,4 +1,8 @@
 import {
+  WorkspaceRunChecksInput,
+  WorkspaceCreatePreviewInput,
+} from "@workspace/domain"
+import {
   WorkspaceHumanBrowserInput,
   WorkspaceBrowserPolicyInput,
   WorkspaceBrowserExceptionInput,
@@ -685,7 +689,8 @@ export const checkpointWorkspace = createServerFn({ method: "POST" })
     const snapshot = await runtime.snapshot()
     if (!snapshot.opencode.healthy || snapshot.status === "running") {
       throw new PreconditionFailed({
-        message: "Wait for the Workspace checks to pass before checkpointing",
+        message:
+          "Wait for the agent Turn to finish and the Workspace runtime to be ready before checkpointing",
       })
     }
     const result = await runtime.checkpoint(data)
@@ -821,11 +826,7 @@ export const acceptWorkspace = createServerFn({ method: "POST" })
       throw new PreconditionFailed({ message: acceptance.blockers.join(" ") })
     }
 
-    const browserBinding = snapshot.browserProof?.binding
-    if (!browserBinding)
-      throw new PreconditionFailed({
-        message: "Current browser proof is missing",
-      })
+    const browserBinding = snapshot.browserProof?.binding ?? null
     await runtime.reserveBrowserAcceptance({
       workspaceId: data.workspaceId,
       binding: browserBinding,
@@ -1006,4 +1007,18 @@ export const exceptWorkspaceBrowser = createServerFn({ method: "POST" })
   )
   .handler(({ data, context }) =>
     workspaceRuntime(data.workspaceId).exceptBrowser(data, context.user.id)
+  )
+
+export const runWorkspaceChecks = createServerFn({ method: "POST" })
+  .middleware([writableWorkspace])
+  .validator(Schema.decodeUnknownPromise(WorkspaceRunChecksInput))
+  .handler(async ({ data }) =>
+    workspaceRuntime(data.workspaceId).runChecks(data)
+  )
+
+export const createWorkspacePreview = createServerFn({ method: "POST" })
+  .middleware([writableWorkspace])
+  .validator(Schema.decodeUnknownPromise(WorkspaceCreatePreviewInput))
+  .handler(async ({ data }) =>
+    workspaceRuntime(data.workspaceId).createPreview(data)
   )

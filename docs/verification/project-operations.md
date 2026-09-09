@@ -33,7 +33,7 @@ The shared dependency tree was used read-only through local links. The already-d
 
 ## Integration and live proof still required
 
-1. Apply `0002_project_operations.sql` followed by `0003_resource_lifecycle.sql` through Alchemy. Integration preserves the new deployment/workspace columns and both sets of tables.
+1. Apply `0001_initial.sql` through Alchemy to a fresh database. The initial schema includes the deployment/workspace columns and the operations and resource lifecycle tables.
 2. Apply the migration and runtime-token policy through the existing Alchemy deployment. The telemetry query API requires **Workers Observability Write**, even for temporary queries. Alchemy-created runtime tokens now request it. An explicitly supplied `CF_TOKEN` must already have it, plus Workers Scripts read capability. No token was read or used by this task.
 3. Enable Workers Logs with invocation logging in the application template's Alchemy Worker settings. The prepared starter includes that change. Old releases without deployment identity remain unknown until a new verified release captures identity.
 4. The combined lifecycle owner must use a disposable stage and the authorized release-smoke flow, then release a disposable application through its verified delivery path. Generate successful, failing and slow requests; collect the real API data; assert Cloudflare deployment/version IDs, commit, incidents and private membership boundaries. Repeat collection and repair clicks, then advance Project main and verify that the repair Workspace contains the deployed files and receives the diagnostic prompt.

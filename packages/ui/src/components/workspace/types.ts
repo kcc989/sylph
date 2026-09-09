@@ -137,7 +137,7 @@ export type BrowserState = {
   commit?: string
   url: string
   title: string
-  status: "live" | "loading" | "error"
+  status: "live" | "loading" | "error" | "idle"
 }
 
 export type CheckItem = {

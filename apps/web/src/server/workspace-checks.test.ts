@@ -7,7 +7,7 @@ import {
   WorkspaceId,
 } from "@workspace/domain"
 
-import { checkStage, WorkspaceChecks } from "./workspace-checks"
+import { checkStage, newCheckRun, WorkspaceChecks } from "./workspace-checks"
 
 class TestSqlStorage {
   readonly #database = new Database(":memory:")
@@ -46,6 +46,7 @@ const run = () =>
     checkpointId: "checkpoint-1",
     commit: GitCommitId.make("1234567890123456789012345678901234567890"),
     kind: "checkpoint",
+    autoRepair: true,
     status: "queued",
     attempt: 1,
     previewUrl: null,
@@ -178,7 +179,7 @@ const finish = (
 }
 
 describe("Check completion hook", () => {
-  test("failed Checks continue the normal agent by default and passed Checks do not", async () => {
+  test("opted-in failed Checks continue the agent and passed Checks do not", async () => {
     const checks = new WorkspaceChecks(new TestSqlStorage())
     checks.initialize()
     finish(checks, "failed")
@@ -397,4 +398,63 @@ test("Preview expiry clears terminal Check URLs without overwriting newer attemp
       callbackId: "retry",
     })
   ).toBeNull()
+})
+
+test("checks are independent operations and automatic repair defaults off", async () => {
+  const checks = new WorkspaceChecks(new TestSqlStorage())
+  checks.initialize()
+  const requested = newCheckRun({ ...run(), autoRepair: undefined })
+  expect(requested.stages.map((stage) => stage.name)).toEqual([
+    "install",
+    "typecheck",
+    "lint",
+    "test",
+    "build",
+  ])
+  checks.create(requested)
+  checks.apply(
+    new WorkspaceCheckUpdate({
+      callbackId: "manual-failure",
+      run: new WorkspaceCheckRun({ ...requested, status: "failed" }),
+    })
+  )
+  const resumes: boolean[] = []
+  await checks.deliverCompletions(async (completion) => {
+    resumes.push(completion.resume)
+  })
+  expect(resumes).toEqual([false])
+  expect(checks.checkContinuationsUsed()).toBe(0)
+})
+
+test("preview deployment skips quality checks and captures evidence only when requested", () => {
+  const preview = newCheckRun({ ...run(), kind: "preview" })
+  expect(preview.stages.map((stage) => stage.name)).toEqual([
+    "install",
+    "build",
+    "preview",
+  ])
+  expect(
+    newCheckRun({ ...preview, captureEvidence: true }).stages.map(
+      (stage) => stage.name
+    )
+  ).toEqual(["install", "build", "preview", "browser"])
+})
+
+test("production release stages require explicit managed recovery opt-in", () => {
+  const deployment = newCheckRun({ ...run(), kind: "production" })
+  expect(deployment.stages.map((stage) => stage.name)).toEqual([
+    "install",
+    "build",
+    "production",
+  ])
+  expect(
+    newCheckRun({ ...deployment, managedRelease: true }).stages.map(
+      (stage) => stage.name
+    )
+  ).toContain("release-prepare")
+  expect(
+    newCheckRun({ ...deployment, managedRelease: true }).stages.map(
+      (stage) => stage.name
+    )
+  ).not.toContain("browser")
 })

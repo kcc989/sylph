@@ -39,7 +39,11 @@ export type DeploymentPanelProps = {
   pendingCommit?: string | null
   error?: string | null
   currentWorkspaceAcceptedCommit?: string | null
-  onDeploy: (commit: string, recoveryDeploymentId?: string) => Promise<void>
+  onDeploy: (
+    commit: string,
+    recoveryDeploymentId?: string,
+    options?: { managedRelease?: boolean; captureEvidence?: boolean }
+  ) => Promise<void>
   className?: string
 }
 
@@ -61,6 +65,9 @@ function DeploymentPanel({
   className,
 }: DeploymentPanelProps) {
   const [confirmingCommit, setConfirmingCommit] = useState<string | null>(null)
+
+  const [managedRelease, setManagedRelease] = useState(false)
+  const [captureEvidence, setCaptureEvidence] = useState(false)
 
   const active = deployments.some(
     (deployment) =>
@@ -116,7 +123,11 @@ function DeploymentPanel({
                         disabled={
                           active || pendingCommit !== null || confirming
                         }
-                        onClick={() => setConfirmingCommit(accepted.commit)}
+                        onClick={() => {
+                          setManagedRelease(false)
+                          setCaptureEvidence(false)
+                          setConfirmingCommit(accepted.commit)
+                        }}
                       >
                         {pending ? (
                           <LoaderCircle className="animate-spin motion-reduce:animate-none" />
@@ -143,13 +154,40 @@ function DeploymentPanel({
                         to production? This replaces the live Deployment for
                         every user of this Project.
                       </p>
+                      <div className="mt-2 space-y-2 text-xs">
+                        <label className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={managedRelease}
+                            disabled={pending}
+                            onChange={(event) =>
+                              setManagedRelease(event.target.checked)
+                            }
+                          />
+                          Use managed recovery and release verification
+                        </label>
+                        <label className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={captureEvidence}
+                            disabled={pending}
+                            onChange={(event) =>
+                              setCaptureEvidence(event.target.checked)
+                            }
+                          />
+                          Capture browser evidence
+                        </label>
+                      </div>
                       <div className="mt-2 flex gap-2">
                         <Button
                           size="sm"
                           disabled={active || pendingCommit !== null}
                           onClick={async () => {
                             try {
-                              await onDeploy(accepted.commit)
+                              await onDeploy(accepted.commit, undefined, {
+                                managedRelease,
+                                captureEvidence,
+                              })
                               setConfirmingCommit(null)
                             } catch {}
                           }}

@@ -38,8 +38,6 @@ const checkpointStages: ReadonlyArray<WorkspaceCheckStageName> = [
   "lint",
   "test",
   "build",
-  "preview",
-  "browser",
 ]
 const productionStages: ReadonlyArray<WorkspaceCheckStageName> = [
   "install",
@@ -54,12 +52,31 @@ const productionStages: ReadonlyArray<WorkspaceCheckStageName> = [
   "production-journey-live",
 ]
 
-export const checkStages = (kind: WorkspaceCheckKind) =>
+export const checkStages = (
+  kind: WorkspaceCheckKind,
+  options: { captureEvidence?: boolean; managedRelease?: boolean } = {}
+) =>
   kind === "dependencies"
     ? (["install"] as const)
     : kind === "production"
-      ? productionStages
-      : checkpointStages
+      ? options.managedRelease
+        ? productionStages.filter(
+            (name) => name !== "browser" || options.captureEvidence
+          )
+        : ([
+            "install",
+            "build",
+            "production",
+            ...(options.captureEvidence ? ["browser" as const] : []),
+          ] as const)
+      : kind === "preview"
+        ? ([
+            "install",
+            "build",
+            "preview",
+            ...(options.captureEvidence ? ["browser" as const] : []),
+          ] as const)
+        : checkpointStages
 
 export const checkStage = (
   name: WorkspaceCheckStageName,
@@ -76,6 +93,9 @@ export const newCheckRun = (input: {
   kind: WorkspaceCheckKind
   attempt: number
   createdAt: number
+  autoRepair?: boolean
+  captureEvidence?: boolean
+  managedRelease?: boolean
 }) =>
   new WorkspaceCheckRun({
     id: input.id,
@@ -83,11 +103,14 @@ export const newCheckRun = (input: {
     checkpointId: input.checkpointId,
     commit: GitCommitId.make(input.commit),
     kind: input.kind,
+    autoRepair: input.autoRepair ?? false,
+    captureEvidence: input.captureEvidence ?? false,
+    managedRelease: input.managedRelease ?? false,
     status: "queued",
     attempt: input.attempt,
     maxAttempts: maxWorkspaceCheckAttempts,
     previewUrl: null,
-    stages: checkStages(input.kind).map((name) =>
+    stages: checkStages(input.kind, input).map((name) =>
       checkStage(name, "queued", "Waiting")
     ),
     diagnostics: [],

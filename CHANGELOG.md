@@ -45,7 +45,9 @@ All notable changes to Sylph are recorded here. The format follows [Keep a Chang
 
 ### Changed
 
-- Apply ordered operations and resource-lifecycle migrations after the current initial schema. Provision a separate resource-maintenance token and add Workers Observability Write to the managed runtime token; configured token overrides need matching permissions. See `docs/operators.md` before upgrading.
+- Make checks, previews, browser evidence, automatic repair, and managed release verification optional. Saving and accepting work no longer require checks or previews; authorization and resource isolation remain enforced.
+- Consolidate all pre-launch database migrations into `0001_initial.sql` for a fresh Installation. Optional release capabilities default off. No upgrade or data transfer from experimental databases is provided.
+- Provision a separate resource-maintenance token and add Workers Observability Write to the managed runtime token; configured token overrides need matching permissions. See `docs/operators.md` for first-launch setup.
 
 - Combine Website and WorkspaceRuntime into one Worker and replace pre-release database upgrades with one initial schema. Deploy to fresh resources; existing D1 and Durable Object state is not migrated.
 - Resume the normal coding agent after eligible failed Checkpoints, with durable delivery and a three-Turn limit. Consolidate Workspace restart into the provisioning Workflow and browser state into one synchronization module.

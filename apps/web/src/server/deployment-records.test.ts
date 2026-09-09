@@ -5,6 +5,7 @@ import {
   deploymentFailedSql,
   deploymentRunningSql,
   deploymentSucceededSql,
+  deploymentWithoutHooksSucceededSql,
   deploymentWorkflowAlreadyStarted,
   productionUrl,
 } from "./deployment-records"
@@ -12,7 +13,7 @@ import {
 const database = () => {
   const database = new Database(":memory:")
   database.exec(
-    "CREATE TABLE deployment (id TEXT PRIMARY KEY, status TEXT, production_url TEXT, failure_details TEXT, started_at INTEGER, completed_at INTEGER, updated_at INTEGER, review_json TEXT, recovery_json TEXT, verification_json TEXT, recovery_deployment_id TEXT, restore_json TEXT)"
+    "CREATE TABLE deployment (id TEXT PRIMARY KEY, status TEXT, production_url TEXT, failure_details TEXT, started_at INTEGER, completed_at INTEGER, updated_at INTEGER, review_json TEXT, recovery_json TEXT, verification_json TEXT, recovery_deployment_id TEXT, restore_json TEXT, managed_release INTEGER DEFAULT 0)"
   )
   database.exec(
     "INSERT INTO deployment (id, status) VALUES ('deployment-1', 'queued')"
@@ -81,4 +82,35 @@ test("a URL alone cannot complete a production release", () => {
       .query(deploymentSucceededSql)
       .run("https://example.com", "deployment-1").changes
   ).toBe(0)
+})
+
+test("a confirmed deployment without managed hooks can complete without recovery receipts", () => {
+  const store = database()
+  store.query(deploymentRunningSql).run("deployment-1")
+  expect(
+    store
+      .query(deploymentWithoutHooksSucceededSql)
+      .run("https://example.com", "deployment-1").changes
+  ).toBe(1)
+  store.close()
+})
+
+test("the deployment path without hooks cannot bypass managed recovery or a requested restore", () => {
+  const store = database()
+  store.query(deploymentRunningSql).run("deployment-1")
+  store.exec("UPDATE deployment SET managed_release = 1")
+  expect(
+    store
+      .query(deploymentWithoutHooksSucceededSql)
+      .run("https://example.com", "deployment-1").changes
+  ).toBe(0)
+  store.exec(
+    "UPDATE deployment SET managed_release = 0, recovery_deployment_id = 'restore'"
+  )
+  expect(
+    store
+      .query(deploymentWithoutHooksSucceededSql)
+      .run("https://example.com", "deployment-1").changes
+  ).toBe(0)
+  store.close()
 })

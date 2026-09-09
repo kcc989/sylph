@@ -68,6 +68,7 @@ import {
   deploymentFailedSql,
   deploymentRunningSql,
   deploymentSucceededSql,
+  deploymentWithoutHooksSucceededSql,
   productionUrl,
 } from "./deployment-records"
 import { ciRunUpsertBindings, ciRunUpsertSql } from "./ci-run-records"
@@ -142,7 +143,10 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
     ci: CiContext
   ) {
     const input = decodeWorkspaceCiInput(event.payload)
-    let run = this.#initialRun(input)
+    const managedRelease =
+      input.kind === "production" && input.managedRelease !== false
+    const captureEvidence = input.captureEvidence ?? input.kind === "production"
+    let run = this.#initialRun({ ...input, managedRelease, captureEvidence })
     this.#projectId = input.projectId
     this.#agentSessionId = input.agentSessionId ?? null
     this.#workflowInstanceId = event.instanceId
@@ -194,12 +198,21 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
               commit: string
               base_commit: string | null
               base_url: string | null
+              managed_release: number
+              capture_evidence: number
               recovery_deployment_id: string | null
               recovery_json: string | null
             }>()
           if (!row || row.commit !== input.sha)
             throw new Error(
               "The production reservation does not match this CI commit"
+            )
+          if (
+            Boolean(row.managed_release) !== managedRelease ||
+            Boolean(row.capture_evidence) !== captureEvidence
+          )
+            throw new Error(
+              "Release options do not match the confirmed Deployment"
             )
           if (row.recovery_deployment_id) {
             if (!row.recovery_json)
@@ -281,141 +294,144 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
           SYLPH_RESOURCE_PREFIX: planned.prefix,
           SYLPH_RESOURCE_PLAN: JSON.stringify(resourcePlan),
         }
-        const review = await this.#runner(
-          step,
-          planned.result,
-          run,
-          "release-review",
-          {
-            name: "release-review",
-            config: verificationRunnerConfig,
-            command: `${releasePreflightCommand} && ${requiredScriptCommand("sylph:release:review", "migration compatibility review")}`,
-            env: releaseEnv,
-            cloudflareCredentials: {
-              accountId: this.env.CLOUDFLARE_ACCOUNT_ID,
-            },
-          }
-        )
-        run = review.run
-        const reviewed = readMigrationReview(review.logs.stdout, identity)
-        await step.do("save-migration-review", async () => {
-          const result = await this.env.DB.prepare(
-            "UPDATE deployment SET review_json = ? WHERE id = ? AND status = 'running'"
-          )
-            .bind(JSON.stringify(reviewed), deploymentId)
-            .run()
-          if (result.meta.changes !== 1)
-            throw new Error("The release reservation was lost")
-        })
-        await step.do("record-release-mutation-started", async () => {
-          const result = await this.env.DB.prepare(releaseMutationStartedSql)
-            .bind(deploymentId, input.projectId)
-            .run()
-          if (result.meta.changes !== 1)
-            throw new Error("The release reservation was lost")
-        })
-        const prepared = await this.#runner(
-          step,
-          review.result,
-          run,
-          "release-prepare",
-          {
-            name: "release-prepare",
-            config: verificationRunnerConfig,
-            command: requiredScriptCommand(
-              "sylph:release:prepare",
-              "coordinated data recovery capture"
-            ),
-            env: {
-              ...releaseEnv,
-              ...recoverySecretEnv,
-              SYLPH_RECOVERY_SECRETS: JSON.stringify(releaseSecrets),
-            },
-            cloudflareCredentials: {
-              accountId: this.env.CLOUDFLARE_ACCOUNT_ID,
-            },
-          }
-        )
-        run = prepared.run
-        const savedRecovery = await step.do(
-          "save-data-recovery-point",
-          async () => {
-            const point = readRecoveryPoint(
-              prepared.logs.stdout,
-              identity,
-              Date.now()
-            )
-            const inventory = await captureProjectResources(
-              this.env.DB,
-              credentials,
-              owner,
-              false
-            )
-            validateRecoveryInventory(point, inventory)
-            const result = await this.env.DB.prepare(
-              "UPDATE deployment SET recovery_json = ? WHERE id = ? AND status = 'running'"
-            )
-              .bind(JSON.stringify(point), deploymentId)
-              .run()
-            if (result.meta.changes !== 1)
-              throw new Error("The release reservation was lost")
-            return JSON.stringify(point)
-          }
-        )
-        let releaseParent = prepared.result
-        if (context.recovery_json) {
-          const restoredPoint = decodeRecoveryPoint(
-            context.recovery_json,
-            Date.now()
-          )
-          const restored = await this.#runner(
+        let releaseParent = planned.result
+        if (managedRelease || context.recovery_deployment_id) {
+          const review = await this.#runner(
             step,
-            releaseParent,
+            planned.result,
             run,
-            "data-restore",
+            "release-review",
             {
-              name: "data-restore",
+              name: "release-review",
               config: verificationRunnerConfig,
-              command: requiredScriptCommand(
-                "sylph:release:restore",
-                "Admin-confirmed data recovery"
-              ),
-              env: { ...releaseEnv, ...recoverySecretEnv },
+              command: `${releasePreflightCommand} && ${requiredScriptCommand("sylph:release:review", "migration compatibility review")}`,
+              env: releaseEnv,
               cloudflareCredentials: {
                 accountId: this.env.CLOUDFLARE_ACCOUNT_ID,
               },
             }
           )
-          run = restored.run
-          const restoreReceipt = readDataRestore(
-            restored.logs.stdout,
-            identity,
-            restoredPoint
-          )
-          await step.do("save-data-restore", async () => {
+          run = review.run
+          const reviewed = readMigrationReview(review.logs.stdout, identity)
+          await step.do("save-migration-review", async () => {
             const result = await this.env.DB.prepare(
-              "UPDATE deployment SET restore_json = ? WHERE id = ? AND status = 'running'"
+              "UPDATE deployment SET review_json = ? WHERE id = ? AND status = 'running'"
             )
-              .bind(JSON.stringify(restoreReceipt), deploymentId)
+              .bind(JSON.stringify(reviewed), deploymentId)
               .run()
             if (result.meta.changes !== 1)
               throw new Error("The release reservation was lost")
           })
-          releaseParent = restored.result
-        } else {
-          run = await this.#publish(step, "data-restore-skipped", run, {
-            stages: run.stages.map((stage) =>
-              stage.name === "data-restore"
-                ? checkStage(
-                    "data-restore",
-                    "skipped",
-                    "No data restore requested"
-                  )
-                : stage
-            ),
+          await step.do("record-release-mutation-started", async () => {
+            const result = await this.env.DB.prepare(releaseMutationStartedSql)
+              .bind(deploymentId, input.projectId)
+              .run()
+            if (result.meta.changes !== 1)
+              throw new Error("The release reservation was lost")
           })
+          const prepared = await this.#runner(
+            step,
+            review.result,
+            run,
+            "release-prepare",
+            {
+              name: "release-prepare",
+              config: verificationRunnerConfig,
+              command: requiredScriptCommand(
+                "sylph:release:prepare",
+                "coordinated data recovery capture"
+              ),
+              env: {
+                ...releaseEnv,
+                ...recoverySecretEnv,
+                SYLPH_RECOVERY_SECRETS: JSON.stringify(releaseSecrets),
+              },
+              cloudflareCredentials: {
+                accountId: this.env.CLOUDFLARE_ACCOUNT_ID,
+              },
+            }
+          )
+          run = prepared.run
+          const savedRecovery = await step.do(
+            "save-data-recovery-point",
+            async () => {
+              const point = readRecoveryPoint(
+                prepared.logs.stdout,
+                identity,
+                Date.now()
+              )
+              const inventory = await captureProjectResources(
+                this.env.DB,
+                credentials,
+                owner,
+                false
+              )
+              validateRecoveryInventory(point, inventory)
+              const result = await this.env.DB.prepare(
+                "UPDATE deployment SET recovery_json = ? WHERE id = ? AND status = 'running'"
+              )
+                .bind(JSON.stringify(point), deploymentId)
+                .run()
+              if (result.meta.changes !== 1)
+                throw new Error("The release reservation was lost")
+              return JSON.stringify(point)
+            }
+          )
+          releaseParent = prepared.result
+          if (context.recovery_json) {
+            const restoredPoint = decodeRecoveryPoint(
+              context.recovery_json,
+              Date.now()
+            )
+            const restored = await this.#runner(
+              step,
+              releaseParent,
+              run,
+              "data-restore",
+              {
+                name: "data-restore",
+                config: verificationRunnerConfig,
+                command: requiredScriptCommand(
+                  "sylph:release:restore",
+                  "Admin-confirmed data recovery"
+                ),
+                env: { ...releaseEnv, ...recoverySecretEnv },
+                cloudflareCredentials: {
+                  accountId: this.env.CLOUDFLARE_ACCOUNT_ID,
+                },
+              }
+            )
+            run = restored.run
+            const restoreReceipt = readDataRestore(
+              restored.logs.stdout,
+              identity,
+              restoredPoint
+            )
+            await step.do("save-data-restore", async () => {
+              const result = await this.env.DB.prepare(
+                "UPDATE deployment SET restore_json = ? WHERE id = ? AND status = 'running'"
+              )
+                .bind(JSON.stringify(restoreReceipt), deploymentId)
+                .run()
+              if (result.meta.changes !== 1)
+                throw new Error("The release reservation was lost")
+            })
+            releaseParent = restored.result
+          } else {
+            run = await this.#publish(step, "data-restore-skipped", run, {
+              stages: run.stages.map((stage) =>
+                stage.name === "data-restore"
+                  ? checkStage(
+                      "data-restore",
+                      "skipped",
+                      "No data restore requested"
+                    )
+                  : stage
+              ),
+            })
+          }
+          decodeRecoveryPoint(savedRecovery, Date.now())
         }
-        decodeRecoveryPoint(savedRecovery, Date.now())
         const deployment = await this.#runner(
           step,
           releaseParent,
@@ -471,157 +487,179 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
             .bind(url, deploymentId)
             .run()
         })
-        const verified = await this.#runner(
-          step,
-          deployment.result,
-          run,
-          "production-journey",
-          {
-            name: "production-journey",
-            config: verificationRunnerConfig,
-            command: requiredScriptCommand(
-              "sylph:release:verify",
-              "production application journey"
-            ),
-            env: { ...releaseEnv, SYLPH_PRODUCTION_URL: url },
-          }
-        )
-        run = verified.run
-        const journey = readProductionJourney(
-          verified.logs.stdout,
-          identity,
-          url
-        )
-        await step.do("save-production-journey", async () => {
-          const result = await this.env.DB.prepare(
-            "UPDATE deployment SET verification_json = ? WHERE id = ? AND status = 'running'"
+        if (managedRelease || context.recovery_deployment_id) {
+          const verified = await this.#runner(
+            step,
+            deployment.result,
+            run,
+            "production-journey",
+            {
+              name: "production-journey",
+              config: verificationRunnerConfig,
+              command: requiredScriptCommand(
+                "sylph:release:verify",
+                "production application journey"
+              ),
+              env: { ...releaseEnv, SYLPH_PRODUCTION_URL: url },
+            }
           )
-            .bind(JSON.stringify(journey), deploymentId)
-            .run()
-          if (result.meta.changes !== 1)
-            throw new Error("The release reservation was lost")
-        })
-        const resumed = await this.#runner(
-          step,
-          verified.result,
-          run,
-          "release-resume",
-          {
-            name: "release-resume",
-            config: verificationRunnerConfig,
-            command: requiredScriptCommand(
-              "sylph:release:resume",
-              "resume application writes after verification"
-            ),
-            env: { ...releaseEnv, SYLPH_PRODUCTION_URL: url },
-            cloudflareCredentials: {
-              accountId: this.env.CLOUDFLARE_ACCOUNT_ID,
-            },
-          }
-        )
-        run = resumed.run
-        run = await this.#browserEvidence(step, run, url)
-        const live = await this.#runner(
-          step,
-          resumed.result,
-          run,
-          "production-journey-live",
-          {
-            name: "production-journey-live",
-            config: verificationRunnerConfig,
-            command: requiredScriptCommand(
-              "sylph:release:verify",
-              "production journey after writes resume"
-            ),
-            env: { ...releaseEnv, SYLPH_PRODUCTION_URL: url },
-          }
-        )
-        run = live.run
-        const liveJourney = readProductionJourney(
-          live.logs.stdout,
-          identity,
-          url
-        )
-        await step.do("save-live-production-journey", async () => {
-          const result = await this.env.DB.prepare(
-            "UPDATE deployment SET verification_json = ? WHERE id = ? AND status = 'running'"
+          run = verified.run
+          const journey = readProductionJourney(
+            verified.logs.stdout,
+            identity,
+            url
           )
-            .bind(JSON.stringify(liveJourney), deploymentId)
-            .run()
-          if (result.meta.changes !== 1)
-            throw new Error("The release reservation was lost")
-        })
+          await step.do("save-production-journey", async () => {
+            const result = await this.env.DB.prepare(
+              "UPDATE deployment SET verification_json = ? WHERE id = ? AND status = 'running'"
+            )
+              .bind(JSON.stringify(journey), deploymentId)
+              .run()
+            if (result.meta.changes !== 1)
+              throw new Error("The release reservation was lost")
+          })
+          const resumed = await this.#runner(
+            step,
+            verified.result,
+            run,
+            "release-resume",
+            {
+              name: "release-resume",
+              config: verificationRunnerConfig,
+              command: requiredScriptCommand(
+                "sylph:release:resume",
+                "resume application writes after verification"
+              ),
+              env: { ...releaseEnv, SYLPH_PRODUCTION_URL: url },
+              cloudflareCredentials: {
+                accountId: this.env.CLOUDFLARE_ACCOUNT_ID,
+              },
+            }
+          )
+          run = resumed.run
+          if (captureEvidence) run = await this.#browserEvidence(step, run, url)
+          const live = await this.#runner(
+            step,
+            resumed.result,
+            run,
+            "production-journey-live",
+            {
+              name: "production-journey-live",
+              config: verificationRunnerConfig,
+              command: requiredScriptCommand(
+                "sylph:release:verify",
+                "production journey after writes resume"
+              ),
+              env: { ...releaseEnv, SYLPH_PRODUCTION_URL: url },
+            }
+          )
+          run = live.run
+          const liveJourney = readProductionJourney(
+            live.logs.stdout,
+            identity,
+            url
+          )
+          await step.do("save-live-production-journey", async () => {
+            const result = await this.env.DB.prepare(
+              "UPDATE deployment SET verification_json = ? WHERE id = ? AND status = 'running'"
+            )
+              .bind(JSON.stringify(liveJourney), deploymentId)
+              .run()
+            if (result.meta.changes !== 1)
+              throw new Error("The release reservation was lost")
+          })
+        }
+        if (
+          captureEvidence &&
+          !managedRelease &&
+          !context.recovery_deployment_id
+        )
+          run = await this.#browserEvidence(step, run, url)
         await step.do("record-deployment-succeeded", async () => {
-          const result = await this.env.DB.prepare(deploymentSucceededSql)
+          const result = await this.env.DB.prepare(
+            managedRelease || context.recovery_deployment_id
+              ? deploymentSucceededSql
+              : deploymentWithoutHooksSucceededSql
+          )
             .bind(url, deploymentId)
             .run()
           if (result.meta.changes !== 1)
             throw new Error(
-              "Production success requires saved recovery and verification evidence"
+              "The Deployment could not be completed with the requested release options"
             )
         })
       } else {
-        const verification = await this.#verification(step, ci, run)
+        const verification = await this.#verification(
+          step,
+          ci,
+          run,
+          input.kind === "preview"
+            ? ["install", "build"]
+            : verificationStageNames
+        )
         run = verification.run
 
-        const planned = await this.#planResources(
-          step,
-          verification.result,
-          input,
-          owner,
-          projectSlug
-        )
-        resourcePlan = planned.plan
-        resourcesReserved = true
-        const preview = await this.#runner(
-          step,
-          planned.result,
-          run,
-          "preview",
-          {
-            name: "preview",
-            config: verificationRunnerConfig,
-            command: requiredScriptCommand(
-              "sylph:preview",
-              "Checkpoint preview"
-            ),
-            cloudflareCredentials: {
-              accountId: this.env.CLOUDFLARE_ACCOUNT_ID,
-            },
-            env: {
-              ...projectDeployEnvironment({
-                slug: projectSlug,
-                checkpoint: input.sha,
-                deployment: "preview",
-              }),
-              ...(await projectSecretEnvironment(
-                this.env.DB,
-                input.projectId,
-                "preview",
-                this.env.CREDENTIAL_ENCRYPTION_KEY
-              )),
-              SYLPH_RESOURCE_PREFIX: planned.prefix,
-              SYLPH_RESOURCE_PLAN: JSON.stringify(resourcePlan),
-            },
-          }
-        )
-        run = preview.run
-        const url = previewUrl(`${preview.logs.stdout}\n${preview.logs.stderr}`)
-        if (!url) {
-          throw new Error(
-            "The sylph:preview script must print SYLPH_PREVIEW_URL=https://..."
+        if (input.kind === "preview") {
+          const planned = await this.#planResources(
+            step,
+            verification.result,
+            input,
+            owner,
+            projectSlug
           )
+          resourcePlan = planned.plan
+          resourcesReserved = true
+          const preview = await this.#runner(
+            step,
+            planned.result,
+            run,
+            "preview",
+            {
+              name: "preview",
+              config: verificationRunnerConfig,
+              command: requiredScriptCommand(
+                "sylph:preview",
+                "Checkpoint preview"
+              ),
+              cloudflareCredentials: {
+                accountId: this.env.CLOUDFLARE_ACCOUNT_ID,
+              },
+              env: {
+                ...projectDeployEnvironment({
+                  slug: projectSlug,
+                  checkpoint: input.sha,
+                  deployment: "preview",
+                }),
+                ...(await projectSecretEnvironment(
+                  this.env.DB,
+                  input.projectId,
+                  "preview",
+                  this.env.CREDENTIAL_ENCRYPTION_KEY
+                )),
+                SYLPH_RESOURCE_PREFIX: planned.prefix,
+                SYLPH_RESOURCE_PLAN: JSON.stringify(resourcePlan),
+              },
+            }
+          )
+          run = preview.run
+          const url = previewUrl(
+            `${preview.logs.stdout}\n${preview.logs.stderr}`
+          )
+          if (!url) {
+            throw new Error(
+              "The sylph:preview script must print SYLPH_PREVIEW_URL=https://..."
+            )
+          }
+          verifyResourceUrl(url, resourcePlan)
+          await step.do("inspect-preview-resources", () =>
+            captureProjectResources(this.env.DB, credentials, owner, true)
+          )
+          run = await this.#publish(step, "preview-url", run, {
+            previewUrl: url,
+          })
+          if (captureEvidence) run = await this.#browserEvidence(step, run, url)
         }
-        verifyResourceUrl(url, resourcePlan)
-        await step.do("inspect-preview-resources", () =>
-          captureProjectResources(this.env.DB, credentials, owner, true)
-        )
-        run = await this.#publish(step, "preview-url", run, {
-          previewUrl: url,
-        })
-        run = await this.#browserEvidence(step, run, url)
       }
-
       run = await this.#publish(step, "run-passed", run, {
         status: "passed",
       })
@@ -782,6 +820,9 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
       kind: input.kind,
       attempt: input.attempt,
       createdAt: input.createdAt,
+      autoRepair: input.autoRepair,
+      captureEvidence: input.captureEvidence,
+      managedRelease: input.managedRelease,
     })
   }
 

@@ -94,7 +94,7 @@ GitHub App credentials are encrypted in D1. No second deployment or copying cred
 ## What is created
 
 - One Website Worker hosting the app, Durable Objects, Workflows, and container bindings.
-- One D1 database, initialized and updated by the ordered migrations in `packages/db/migrations`.
+- One D1 database, initialized by `packages/db/migrations/0001_initial.sql`.
 - An Artifacts namespace for repositories and workspace forks.
 - Two R2 buckets for check backups and evidence.
 - Sandbox and Codex container applications.
@@ -103,13 +103,13 @@ GitHub App credentials are encrypted in D1. No second deployment or copying cred
 
 Alchemy retains generated secret values and token outputs in its Cloudflare deployment state. Access to that state is privileged. Keep it when updating. Destroying state and generating new encryption keys does not recover existing encrypted data.
 
-The first-release baseline requires fresh resources. This update applies `0002_project_operations.sql` and then `0003_resource_lifecycle.sql` to that baseline. The migrations preserve existing resource claims and add production observations, repair references, and resource lifecycle reviews. They do not convert earlier experimental schemas or transfer Durable Object state. Deploy this release as a fresh Installation. Earlier experimental Installations will be discarded; no data transfer is required.
+The first release requires fresh resources. The single `0001_initial.sql` migration creates the complete Installation database, including production observations, resource lifecycle reviews, deployment capabilities, and Preview cleanup audit records. Deploy this release as a fresh Installation. Earlier experimental Installations will be discarded; no data transfer is required.
 
 ## Production release safety
 
 The initial schema stores release evidence and permits only one queued or running production operation per Project.
 
-Before a Project production release, implement and test the application's migration, backup, restore, journey, and writer coordination hooks described in [Production releases and application data](release-safety.md). The pinned `0.2.0` starter supplies these hooks for one Worker and one application D1 database, with a separate retained recovery-control D1 database. Its first release also requires a real provider restore drill for the application schema. Other stateful topologies need tested adapters. Missing hooks or drill evidence block production; storage permissions depend on those adapters.
+A basic Project production release builds and deploys the accepted source with authorization and resource isolation enforced. Managed recovery, release verification, and browser evidence are optional. When opting into managed recovery, implement and test the application commands described in [Production releases and application data](release-safety.md). Those commands and recovery evidence are required only for that selected capability.
 
 Data recovery requires an Admin to confirm the paired code commit and possible loss of writes since the selected recovery point. It creates an undo point and verifies production before reporting success. Repository exports provide Git access only; application data, secret values, and Workspace runtime state require separate recovery procedures. Validate real backup and restore behavior in an isolated stage before production rollout.
 
@@ -141,7 +141,7 @@ test suite and build do not prove live deletion or configuration behavior.
 
 ## Deployment isolation and recovery upgrades
 
-Apply the ordered `0004_project_deployment_broker.sql` and `0005_project_preview_cleanup.sql` migrations through the normal Alchemy deployment. They add expiring deployment capabilities, scoped Alchemy state and Preview cleanup audit records. No new manual credential is required. Keep the Installation credential encryption key unchanged.
+The initial database migration includes expiring deployment capabilities, scoped Alchemy state, and Preview cleanup audit records. Alchemy applies it when creating the fresh Installation. No new manual credential is required. Keep the Installation credential encryption key unchanged.
 
 Project CI now uses the Installation broker for Cloudflare operations and Alchemy state. The starter v0.3.0 candidate lives in the external template repository; `tools/resource-management/template-candidate.json` records its exact commit and verification metadata. Publication and the built-in pin update are pending approval. Template pin changes affect new Projects only; existing Project source and accepted Checkpoints remain unchanged. See [candidate procedure](../tools/template-contract/README.md).
 

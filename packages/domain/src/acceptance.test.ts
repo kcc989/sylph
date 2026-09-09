@@ -103,10 +103,10 @@ describe("Workspace Acceptance", () => {
       passingCheckId: "check",
     })
   })
-  test("blocks a homepage-only Check without explicit journey handling", () => {
+  test("does not require browser proof without configured journeys", () => {
     expect(
       workspaceAcceptance({ ...input(), browserProof: undefined }).ready
-    ).toBe(false)
+    ).toBe(true)
   })
   test("a newer failed attempt cannot reuse an older passing Check", () => {
     const current = input()
@@ -133,14 +133,14 @@ describe("Workspace Acceptance", () => {
         .ready
     ).toBe(false)
   })
-  test("does not accept checks from an older commit", () => {
+  test("does not let checks from an older commit block acceptance", () => {
     const current = input()
     expect(
       workspaceAcceptance({
         ...current,
         checks: current.checks.map((run) => ({ ...run, commit: base })),
       }).ready
-    ).toBe(false)
+    ).toBe(true)
   })
   test("blocks active turns, unhealthy runtimes, and read-only Workspaces", () => {
     const current = input()
@@ -166,7 +166,24 @@ describe("Workspace Acceptance", () => {
       },
     })
     expect(result.ready).toBe(false)
-    expect(result.blockers).toHaveLength(4)
+    expect(result.blockers).toHaveLength(3)
     expect(result.passingCheckId).toBeNull()
   })
+})
+
+test("acceptance does not require checks, previews, or evidence", () => {
+  expect(
+    workspaceAcceptance({ ...input(), checks: [], browserProof: undefined })
+  ).toEqual({ ready: true, blockers: [], passingCheckId: null })
+  const current = input()
+  expect(
+    workspaceAcceptance({
+      ...current,
+      browserProof: undefined,
+      checks: current.checks.map((run) => ({
+        ...run,
+        status: "failed" as const,
+      })),
+    }).ready
+  ).toBe(true)
 })

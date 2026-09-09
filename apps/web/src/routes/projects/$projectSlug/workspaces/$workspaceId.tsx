@@ -1,3 +1,4 @@
+import { WorkspaceOperationControls } from "@/lib/workspace/workspace-operation-controls"
 import { WorkspaceBrowserPanel } from "@/lib/workspace/workspace-browser-panel-controller"
 import { useWorkspaceSynchronization } from "@/lib/workspace/use-workspace-synchronization"
 import {
@@ -248,6 +249,10 @@ function WorkspaceScreen() {
     0
   )
   const checkpointCheck = result.checks.find((run) => run.kind === "checkpoint")
+  const previewCheck = result.checks.find(
+    (run) =>
+      run.commit === forkHead && (run.kind === "preview" || run.previewUrl)
+  )
   const productionCheck = result.checks.find((run) => run.kind === "production")
   const checkItems = workspaceCheckItems(checkpointCheck, productionCheck, {
     limits: runtime.limits,
@@ -257,18 +262,32 @@ function WorkspaceScreen() {
     projectChanged: result.versionControl?.projectChanged ?? false,
     workingChanges: workingChanges.length,
   })
+  if (previewCheck && previewCheck !== checkpointCheck)
+    checkItems.push(
+      ...workspaceCheckItems(previewCheck, undefined, {
+        limits: runtime.limits,
+        onRetry: (run) => actions.runRetry(run.id),
+        onUpdateProject: actions.runUpdateProject,
+        pending: actions.checkActionPending,
+        projectChanged: false,
+        workingChanges: workingChanges.length,
+      })
+    )
   const isPending = actions.isPending
   const browser = {
-    commit: checkpointCheck?.commit,
-    url: checkpointCheck?.previewUrl ?? "",
-    title: checkpointCheck?.previewUrl
-      ? `Checkpoint ${checkpointCheck.commit.slice(0, 7)} Preview`
-      : "A preview will appear after its Check passes.",
-    status: checkpointCheck?.previewUrl
+    commit: previewCheck?.commit,
+    url: previewCheck?.previewUrl ?? "",
+    title: previewCheck?.previewUrl
+      ? `Checkpoint ${previewCheck.commit.slice(0, 7)} Preview`
+      : "Create a Preview when you want to inspect the running app.",
+    status: previewCheck?.previewUrl
       ? ("live" as const)
-      : checkpointCheck?.status === "failed"
+      : previewCheck?.status === "failed"
         ? ("error" as const)
-        : ("loading" as const),
+        : previewCheck?.status === "running" ||
+            previewCheck?.status === "queued"
+          ? ("loading" as const)
+          : ("idle" as const),
   }
   const skills = result.skills
     .filter((skill) => skill.metadata.userInvokable)
@@ -310,8 +329,7 @@ function WorkspaceScreen() {
             <WorkspaceChat
               checks={checkItems}
               reviewReady={
-                checkpointCheck?.status === "passed" &&
-                checkpointCheck.commit === forkHead &&
+                Boolean(result.versionControl?.branch.length) &&
                 workingChanges.length === 0
               }
               activeTurnStartedAt={runtime.activeTurnStartedAt}
@@ -390,6 +408,16 @@ function WorkspaceScreen() {
           }
         >
           <WorkspaceToolPane
+            operationControls={
+              <WorkspaceOperationControls
+                key={workspaceId}
+                workspaceId={workspaceId}
+                disabled={
+                  workspace.status !== "ready" || runtime.status === "running"
+                }
+                refresh={() => refreshLive("workspace")}
+              />
+            }
             changeError={
               actions.errorFor("checkpoint") ?? actions.errorFor("accept")
             }
@@ -410,19 +438,21 @@ function WorkspaceScreen() {
 
             browser={browser}
             previewContent={
-              <WorkspaceBrowserPanel
-                workspaceId={workspaceId}
-                userId={result.currentReviewer.id}
-                proof={runtime.browserProof}
-                previewUrl={browser.url}
-                refresh={async () => {
-                  await refreshLive("workspace")
-                }}
-                readOnly={
-                  workspace.status === "archived" ||
-                  workspace.status === "merging"
-                }
-              />
+              browser.url ? (
+                <WorkspaceBrowserPanel
+                  workspaceId={workspaceId}
+                  userId={result.currentReviewer.id}
+                  proof={runtime.browserProof}
+                  previewUrl={browser.url}
+                  refresh={async () => {
+                    await refreshLive("workspace")
+                  }}
+                  readOnly={
+                    workspace.status === "archived" ||
+                    workspace.status === "merging"
+                  }
+                />
+              ) : undefined
             }
             changedFileCount={workingChanges.length}
             changeSummary={

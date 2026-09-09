@@ -514,6 +514,12 @@ export const deployment = sqliteTable(
     identityJson: text("identity_json"),
     baseDeploymentId: text("base_deployment_id"),
     recoveryDeploymentId: text("recovery_deployment_id"),
+    managedRelease: integer("managed_release", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    captureEvidence: integer("capture_evidence", { mode: "boolean" })
+      .notNull()
+      .default(false),
     reviewJson: text("review_json"),
     recoveryJson: text("recovery_json"),
     verificationJson: text("verification_json"),
