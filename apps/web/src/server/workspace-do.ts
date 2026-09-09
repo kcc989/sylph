@@ -301,7 +301,7 @@ const subscriptionMethodId = "chatgpt-headless"
 
 interface WorkspaceBindings extends Cloudflare.Env {
   SYLPH_SMOKE_GROK_BUDGET?: string
-  SANDBOX: DurableObjectNamespace<Sandbox>
+  WORKSPACE_SANDBOX: DurableObjectNamespace<Sandbox>
   CODEX: DurableObjectNamespace<CodexContainer>
   CURSOR: DurableObjectNamespace<CursorConnectionObject>
   BROWSER: BrowserRun
@@ -413,7 +413,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         await import("./workspace-shell-selection")
       const { workspaceSandboxProvider } = await import("./workspace-sandbox")
       const sandbox = workspaceSandboxProvider(
-        bindings.SANDBOX,
+        bindings.WORKSPACE_SANDBOX,
         context.storage,
         this.#filesystem,
         () => this.#assertWritable(),
