@@ -7,9 +7,11 @@
   "private": true,
   "scripts": {
     "build": "turbo build",
+    "desktop:dev": "bun --cwd apps/desktop dev",
+    "desktop:build": "bun --cwd apps/desktop build:app",
     "storybook": "bun --cwd packages/ui storybook",
     "build:storybook": "bun --cwd packages/ui build-storybook",
-    "dev": "turbo dev",
+    "dev": "turbo dev --filter='!desktop'",
     "dev:cloudflare": "alchemy dev",
     "lint": "node scripts/check-dependency-policy.mjs && oxlint . --deny-warnings",
     "format": "oxfmt --write .",

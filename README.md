@@ -18,7 +18,7 @@ For local setup, clone your fork and run `./scripts/setup.sh` with Bun and Docke
 
 Build a web IDE for parallel coding-agent work on Cloudflare. The interface should borrow bb's dense, keyboard-first workspace and Conductor's task-focused parallelism. It should not reproduce bb's local-host architecture.
 
-Sylph is a Bun monorepo managed with Turborepo. The web app lives in `apps/web`. Shared database code lives in `packages/db`, and the shared design system lives in `packages/ui`. This keeps both packages available to a future `apps/desktop` client without coupling them to TanStack Start.
+Sylph is a Bun monorepo managed with Turborepo. The web app lives in `apps/web`. The macOS desktop shell lives in `apps/desktop`. Shared database code lives in `packages/db`, and the shared design system lives in `packages/ui`. This keeps both packages available to the desktop app without coupling them to TanStack Start.
 
 ## Local development
 
@@ -47,6 +47,17 @@ The core unit is a **workspace**:
 
 The coding agent runs in the Durable Object. It can reason, read, search, and edit through OpenCode's Workerd-safe services. It must send process-heavy work to Cloudflare CI. This keeps `node_modules`, build output, and arbitrary processes out of Durable Object storage.
 
+## Desktop app
+
+`apps/desktop` is a Tauri shell for macOS 12 or later. It connects to one deployed Installation and loads its pages in the system WebView. It ships no product UI of its own.
+
+```sh
+bun run desktop:dev
+bun run desktop:build
+```
+
+`desktop:dev` needs a stable Rust toolchain and the Xcode Command Line Tools. `desktop:build` writes an unsigned `.app` and `.dmg` under `apps/desktop/src-tauri/target/release/bundle`. Read [the desktop guide](docs/desktop.md) for the connect flow, the navigation policy, session persistence, and signing.
+
 ## Monorepo conventions
 
 - Use Bun for package installation, scripts, tests, and lockfile management.
@@ -55,7 +66,7 @@ The coding agent runs in the Durable Object. It can reason, read, search, and ed
 - Use Turborepo for `dev`, `build`, `typecheck`, `lint`, and `test` task orchestration.
 - Commit one root `bun.lock`. Do not add npm, pnpm, or Yarn lockfiles.
 - Keep deployable applications in `apps/` and reusable code in `packages/`.
-- Do not create `apps/desktop` until desktop work starts. Keep package APIs runtime-neutral where practical so the desktop app can reuse them later.
+- Keep `apps/desktop` a thin native shell for one deployed Installation. Do not move product UI into it, and keep package APIs runtime-neutral so it can reuse them.
 
 ## The architecture
 
@@ -415,7 +426,7 @@ The workspace list is the product's home screen. Each row should answer four que
 apps/
   web/                       TanStack Start UI and authenticated routes
   ci/                        Cloudflare CI Workflow Worker
-  desktop/                   Future desktop client; not created for the MVP
+  desktop/                   Tauri macOS shell for one Installation
 packages/
   auth/                      Better Auth configuration
   db/                        Shared D1 Drizzle schema and repositories

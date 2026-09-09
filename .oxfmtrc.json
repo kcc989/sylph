@@ -34,6 +34,8 @@
     "**/.vinxi/**",
     "**/coverage/**",
     "apps/web/src/routeTree.gen.ts",
+    "apps/desktop/src-tauri/target/**",
+    "apps/desktop/src-tauri/gen/**",
     "README.md",
     "pnpm-lock.yaml",
     ".pnpm-store/"

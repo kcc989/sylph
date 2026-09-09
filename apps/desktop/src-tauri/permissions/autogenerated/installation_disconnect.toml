@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-installation-disconnect"
+description = "Enables the installation_disconnect command without any pre-configured scope."
+commands.allow = ["installation_disconnect"]
+
+[[permission]]
+identifier = "deny-installation-disconnect"
+description = "Denies the installation_disconnect command without any pre-configured scope."
+commands.deny = ["installation_disconnect"]

@@ -24,3 +24,7 @@ playwright/.auth
 playwright-report/release-smoke
 test-results/release-smoke
 .dev.vars
+
+# tauri
+apps/desktop/src-tauri/target
+apps/desktop/src-tauri/gen/schemas

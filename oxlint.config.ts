@@ -26,6 +26,8 @@ export default defineConfig({
     "**/.tanstack/**",
     "**/.turbo/**",
     "apps/web/src/routeTree.gen.ts",
+    "apps/desktop/src-tauri/target/**",
+    "apps/desktop/src-tauri/gen/**",
   ],
   jsPlugins: [
     {

@@ -34,7 +34,7 @@ Users work remotely in a Workspace belonging to a Project. They converse with co
 - Cloudflare CI performs process-heavy installs, builds, tests, previews, and deployments outside the agent runtime.
 - The Workspace is the primary operating surface. Change inspection and acceptance remain in that context; standalone routes are secondary entry points.
 - Projects and their Workspaces remain in a persistent left rail across the primary operating surface.
-- The initial product is web-based and keyboard-friendly. A future desktop client may reuse shared packages, but it is not part of the current surface.
+- The product surface is web-based and keyboard-friendly. The macOS desktop app is a native shell that connects to one Installation and loads that web surface; it adds a connect screen, a menu bar, and external-link handling, and it must not carry product UI of its own.
 
 ## Brand Commitments
 

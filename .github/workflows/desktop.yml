@@ -1,0 +1,60 @@
+name: Desktop
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/desktop.yml"
+      - ".oxfmtrc.json"
+      - "apps/desktop/**"
+      - "bun.lock"
+      - "oxlint.config.ts"
+      - "package.json"
+      - "packages/ui/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    env:
+      CARGO_TERM_COLOR: never
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-desktop-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-desktop-
+      - run: bun install --frozen-lockfile
+      - run: cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --check
+      - run: cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
+      - run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
+      - run: bun run --cwd apps/desktop build:app
+      - name: Archive the app bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle=apps/desktop/src-tauri/target/release/bundle/macos
+          ditto -c -k --keepParent "$bundle/Sylph.app" "$bundle/Sylph.app.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sylph-macos
+          if-no-files-found: error
+          path: |
+            apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
+            apps/desktop/src-tauri/target/release/bundle/macos/Sylph.app.zip

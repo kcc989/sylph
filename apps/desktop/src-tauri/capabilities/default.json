@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Permissions for the local Sylph connect screen.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "allow-installation-read",
+    "allow-installation-connect",
+    "allow-installation-disconnect"
+  ]
+}

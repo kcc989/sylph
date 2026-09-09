@@ -7,6 +7,14 @@ Sylph gives people durable coding workspaces for Projects inside an Installation
 **Installation**:
 A deployed Sylph system operated as one security and data boundary. An Installation contains one Organization.
 
+**Installation address**:
+The origin of a deployed Installation, holding its scheme, host, and port and nothing else. It must use `https:` unless its host is a local development host.
+_Avoid_: Installation URL, server address, endpoint
+
+**Desktop app**:
+The native macOS shell that connects to one Installation and loads its pages in the system WebView. It stores only the connected Installation address and renders no product screen of its own.
+_Avoid_: Desktop client, native client, local app
+
 **Installation claim**:
 The one-time act that creates the Installation's Organization and makes an authenticated claimant with a verified, explicitly confirmed email its first Admin.
 
