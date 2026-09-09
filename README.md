@@ -125,8 +125,7 @@ Never persist an Artifacts access token in D1 or Durable Object SQLite. Use the 
 
 The OpenCode host must not depend on a long-lived local process or terminal. Replace shell-oriented work with typed tools supplied by an Effect plugin:
 
-- `ci.run` (`workspace_run_checks`): install, type-check, lint, test, build, preview, and verify a commit.
-- `ci.status` (`workspace_check_status`): read the current run state and its concise diagnostics.
+- `ci.run` (`workspace_run_checks`): optionally install, type-check, lint, test, and build a commit without deploying.
 - `artifact.checkpoint` (`workspace_checkpoint`): write the working tree and create a commit without CI.
 - `artifact.diff` (`workspace_diff`): compare the working copy or the workspace head with its base.
 - `artifact.merge` (`workspace_request_merge`): report acceptance readiness; a User performs the merge.
@@ -138,13 +137,15 @@ An Artifacts push event starts a Cloudflare CI Workflow. Each command runs in a 
 
 [`workspace-ci.ts`](./apps/web/src/server/workspace-ci.ts) is Sylph's CI-as-Code pipeline built on `@cloudflare/ci`, following Cloudflare's [authored pipeline example](https://github.com/cloudflare/ci/blob/main/examples/cloudflare-artifacts/cloudflare.ci.ts). Project Repositories do not need a Sylph-specific execution manifest. They expose recognizable package scripts; Sylph owns the surrounding Check lifecycle, credential scoping, diagnostics, repair, Preview identity, and browser evidence in application code. Add an execution adapter seam only when more than one real Project execution model exists.
 
-Each Project repository must define `typecheck`, `lint`, `test`, `build`, `sylph:preview`, and `sylph:deploy` package scripts. Sylph sets `SYLPH_CHECKPOINT` to the exact commit under test and `SYLPH_DEPLOYMENT` to `preview` or `production`. The preview page must render these values and expose `data-sylph-checkpoint="<exact commit SHA>"` and `data-sylph-deployment="preview"` on the same visible element. The preview script must print `SYLPH_PREVIEW_URL=https://...` after the deployment is reachable. The production script must print `SYLPH_PRODUCTION_URL=https://...`. A missing script or URL fails its Check rather than silently weakening acceptance or deployment history.
+Saving a Checkpoint, synchronizing a Workspace, and accepting reviewed work do not run or require CI. **Run checks** requests the repository's `typecheck`, `lint`, `test`, and `build` scripts. **Create Preview** only installs, builds, plans isolated resources through `sylph:plan`, and calls `sylph:preview`. Browser evidence and automatic repair are separate opt-ins. A basic production release installs, builds, plans authorized resources, and calls `sylph:deploy`; managed recovery and release verification run only when selected. A requested data restore always uses the managed recovery contract.
+
+Sylph sets `SYLPH_CHECKPOINT` to the exact commit and `SYLPH_DEPLOYMENT` to `preview` or `production`. Deployment scripts print `SYLPH_PREVIEW_URL=https://...` or `SYLPH_PRODUCTION_URL=https://...`. Requested browser evidence requires a visible element with the matching `data-sylph-checkpoint` and `data-sylph-deployment` attributes. No screenshot or homepage marker is required for a basic deployment. Missing prerequisites fail the requested operation, not Acceptance. User-defined event hooks are not yet implemented; the built-in operations remain independently callable.
 
 Do not keep a Durable Object request open while CI runs. `ci.run` should checkpoint the tree, create a run, and return its ID. When the Workflow completes, it calls the `WorkspaceDO`. The object appends a product event and sends a synthetic OpenCode message with the result. A resume policy can start a repair turn when the user enabled automatic repair.
 
 This callback must be idempotent. Key it by the Workflow instance ID and attempt number.
 
-The object owns the resume policy. Automatic repair is bounded twice: each Check accepts at most two repair turns, and the Workspace accepts at most three automatic repair turns in a row. A User prompt or a passing Check restores the Workspace budget; when it is exhausted, the agent is told the Check failed and waits for direction. See [ADR 0008](./docs/adr/0008-workspace-owned-check-loop.md).
+The object owns the resume policy. Automatic repair is off by default. When requested, each Check allows up to three attempts, and the Workspace accepts at most three automatic repair turns in a row. A User prompt or a passing Check restores the Workspace budget; when it is exhausted, the agent is told the Check failed and waits for direction. See [ADR 0008](./docs/adr/0008-workspace-owned-check-loop.md).
 
 The agent also gets the Preview browser. `workspace_browser` opens a path on the current Preview through the Cloudflare Browser Run binding, returns the rendered markdown and accessibility tree, and stores a screenshot as Check evidence. The tool refuses every origin other than the Preview.
 

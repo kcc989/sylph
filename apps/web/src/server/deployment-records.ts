@@ -12,3 +12,6 @@ export const productionUrl = (output: string) =>
 
 export const deploymentWorkflowAlreadyStarted = (cause: unknown) =>
   cause instanceof Error && cause.message.includes("instance.already_exists")
+
+export const deploymentWithoutHooksSucceededSql =
+  "UPDATE deployment SET status = 'succeeded', production_url = ?, failure_details = NULL, completed_at = unixepoch(), updated_at = unixepoch() WHERE id = ? AND status = 'running' AND managed_release = 0 AND recovery_deployment_id IS NULL"

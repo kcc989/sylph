@@ -17,16 +17,13 @@ const setup = async () => {
   sql.exec(
     await Bun.file(
       new URL(
-        "../../../../packages/db/migrations/0004_project_deployment_broker.sql",
+        "../../../../packages/db/migrations/0001_initial.sql",
         import.meta.url
       )
     ).text()
   )
   sql.exec(
-    "CREATE TABLE project_resource_operation (account_id TEXT, project_id TEXT, scope TEXT, run_id TEXT, plan_json TEXT, status TEXT); CREATE TABLE project_resource (account_id TEXT, project_id TEXT, scope TEXT, kind TEXT, name TEXT, resource_id TEXT, state TEXT)"
-  )
-  sql.exec(
-    "INSERT INTO project_resource_operation VALUES ('account','a','production','run-a','[]','deploying'),('account','b','production','run-b','[]','deploying')"
+    "INSERT INTO project_resource_operation (account_id, project_id, scope, run_id, plan_json, status) VALUES ('account','a','production','run-a','[]','deploying'),('account','b','production','run-b','[]','deploying')"
   )
   const prepare = (
     statement: string,

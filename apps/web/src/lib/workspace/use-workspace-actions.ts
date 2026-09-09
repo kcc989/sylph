@@ -59,7 +59,11 @@ type WorkspaceActionProps = {
   onCancelTurn: () => Promise<void>
   onCheckpoint?: () => Promise<void>
   onDiscardWorkspace: () => Promise<void>
-  onDeploy: (commit: string, recoveryDeploymentId?: string) => Promise<void>
+  onDeploy: (
+    commit: string,
+    recoveryDeploymentId?: string,
+    options?: { managedRelease?: boolean; captureEvidence?: boolean }
+  ) => Promise<void>
   onModelChange: (model: {
     providerId: string
     modelId: string
@@ -264,7 +268,7 @@ export function useWorkspaceActions({
         { refresh: false }
       )
     },
-    onDeploy: async (commit, recoveryDeploymentId) => {
+    onDeploy: async (commit, recoveryDeploymentId, options) => {
       const started = await commands.run(
         "deploy",
         async () => {
@@ -275,6 +279,8 @@ export function useWorkspaceActions({
               confirmedCommit: commit,
               idempotencyKey: deployKey,
               recoveryDeploymentId,
+              managedRelease: options?.managedRelease,
+              captureEvidence: options?.captureEvidence,
               confirmedDataLoss: recoveryDeploymentId ? true : undefined,
             },
           })

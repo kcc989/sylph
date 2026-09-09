@@ -62,6 +62,7 @@ mock.module("../../apps/web/src/server/project-resources.ts", () => ({
     },
   ],
   finishResourceOperation: async () => {},
+  removePreviewResources: async () => {},
 }))
 mock.module("../../apps/web/src/server/project-configuration.ts", () => ({
   readProjectDomain: async () => null,
@@ -79,14 +80,6 @@ store.exec("PRAGMA foreign_keys = ON")
 store.exec(
   await Bun.file(
     new URL("../../packages/db/migrations/0001_initial.sql", import.meta.url)
-  ).text()
-)
-store.exec(
-  await Bun.file(
-    new URL(
-      "../../packages/db/migrations/0004_project_deployment_broker.sql",
-      import.meta.url
-    )
   ).text()
 )
 store.exec(`
@@ -140,6 +133,19 @@ store
     "INSERT INTO deployment (id, project_id, [commit], status, actor_user_id, base_deployment_id, recovery_deployment_id, created_at) VALUES ('deployment-1', 'project-1', ?, 'queued', 'admin', ?, ?, 3)"
   )
   .run(commit, recovering ? "baseline" : null, recovering ? "baseline" : null)
+const basic = mode.startsWith("basic")
+const checkpoint = mode === "checks-only"
+const preview = mode.startsWith("preview")
+const captureEvidence =
+  mode === "basic-evidence" ||
+  mode === "preview-evidence" ||
+  (!basic && !checkpoint && !preview)
+const managedRelease = !basic && !checkpoint && !preview
+store
+  .query(
+    "UPDATE deployment SET managed_release = ?, capture_evidence = ? WHERE id = 'deployment-1'"
+  )
+  .run(managedRelease ? 1 : 0, captureEvidence ? 1 : 0)
 const database = {
   prepare(sql) {
     return {
@@ -229,6 +235,13 @@ const artifacts = []
 let selector = null
 const environment = {
   DB: database,
+  WORKSPACES: {
+    idFromName: (id) => id,
+    get: () => ({
+      applyCheckUpdate: async () => {},
+      expireCheckPreview: async () => {},
+    }),
+  },
   SYLPH_URL: "https://fixture.sylph.example",
   CLOUDFLARE_ACCOUNT_ID: "account-1",
   CREDENTIAL_ENCRYPTION_KEY: "fixture-installation-key",
@@ -270,6 +283,7 @@ const runner = async (options) => {
     : null
   commands.push({
     name: options.name,
+    command: options.command,
     capabilityVerified: capability !== null,
     resourcesReserved,
     env: options.env,
@@ -324,6 +338,7 @@ const runner = async (options) => {
       mode === "missing-backup"
         ? ""
         : `SYLPH_RECOVERY_POINT=${JSON.stringify({ ...point, resources: mode === "missing-inventory" ? [] : mode === "extra-inventory" ? [...point.resources, { ...point.resources[0], id: "extra-db" }] : point.resources, expiresAt: mode === "expired-backup" ? now - 1 : point.expiresAt })}`
+  if (options.name === "preview") stdout = `SYLPH_PREVIEW_URL=${url}`
   if (options.name === "production") stdout = `SYLPH_PRODUCTION_URL=${url}`
   if (options.name.startsWith("production-journey"))
     stdout = `SYLPH_PRODUCTION_JOURNEY=${JSON.stringify({ deploymentId: identity.deploymentId, commit: mode === "wrong-commit" ? "b".repeat(40) : commit, url, passed: true, journeys: ["Create, read, update, and delete an authenticated record"] })}`
@@ -349,16 +364,21 @@ await new CI(environment).run(
       trigger: "push",
       ref: "refs/heads/main",
       checkRunId: "deployment-1",
-      deploymentId: "deployment-1",
+      deploymentId: checkpoint || preview ? null : "deployment-1",
       projectId: "project-1",
       workspaceId: "workspace-1",
       checkpointId: null,
-      kind: "production",
+      kind: checkpoint ? "checkpoint" : preview ? "preview" : "production",
+      managedRelease,
+      captureEvidence,
       attempt: 1,
       createdAt: now,
     },
   },
-  { do: async (_name, body) => body() },
+  {
+    do: async (_name, options, body) => (body ?? options)(),
+    sleep: async () => {},
+  },
   { runner }
 )
 console.log(

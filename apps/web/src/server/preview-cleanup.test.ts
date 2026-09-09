@@ -81,17 +81,14 @@ const fixture = async () => {
   sql.exec(
     await Bun.file(
       new URL(
-        "../../../../packages/db/migrations/0005_project_preview_cleanup.sql",
+        "../../../../packages/db/migrations/0001_initial.sql",
         import.meta.url
       )
     ).text()
   )
-  sql.exec(
-    "CREATE TABLE project_resource_operation (project_id TEXT, account_id TEXT, scope TEXT, run_id TEXT, status TEXT, plan_json TEXT, error TEXT, inspected_at INTEGER)"
-  )
   sql
     .query(
-      "INSERT INTO project_resource_operation VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO project_resource_operation (project_id, account_id, scope, run_id, status, plan_json, error, inspected_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
     )
     .run(
       operation.project_id,

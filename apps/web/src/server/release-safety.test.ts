@@ -119,6 +119,8 @@ test("production reservation serializes concurrent requests and rejects stale ba
         "admin",
         baseline,
         null,
+        0,
+        0,
         1000,
         1000,
         "project",
@@ -437,3 +439,57 @@ test.each(["browser-failure", "live-journey-failure"])(
     ).toBe(mode === "live-journey-failure")
   }
 )
+
+test("production without managed recovery only builds, plans resources, and deploys", async () => {
+  const result = await pipeline("basic")
+  expect(result.deployment.status).toBe("succeeded")
+  expect(
+    result.commands.map((command: { name: string }) => command.name)
+  ).toEqual(["verification", "resource-plan", "production"])
+  expect(result.deployment.recovery_json).toBeNull()
+  expect(result.deployment.verification_json).toBeNull()
+  expect(result.artifacts).toEqual([])
+  expect(
+    result.capabilities.every(
+      (capability: { revoked: number }) => capability.revoked === 1
+    )
+  ).toBe(true)
+  expect(
+    result.commands.find(
+      (command: { name: string }) => command.name === "production"
+    ).capabilityVerified
+  ).toBe(true)
+})
+
+test("production browser evidence can be requested independently of managed recovery", async () => {
+  const result = await pipeline("basic-evidence")
+  expect(result.deployment.status).toBe("succeeded")
+  expect(result.deployment.recovery_json).toBeNull()
+  expect(result.artifacts).toHaveLength(2)
+})
+
+test("requested checks run no deployment or browser operation", async () => {
+  const result = await pipeline("checks-only")
+  expect(result.check.status).toBe("passed")
+  expect(
+    result.commands.map((command: { name: string }) => command.name)
+  ).toEqual(["verification"])
+  expect(result.capabilities).toEqual([])
+  expect(result.artifacts).toEqual([])
+})
+
+test("requested Preview bypasses lint and tests but retains resource isolation", async () => {
+  const result = await pipeline("preview")
+  expect(result.check.status).toBe("passed")
+  expect(
+    result.commands.map((command: { name: string }) => command.name)
+  ).toEqual(["verification", "resource-plan", "preview"])
+  expect(result.commands[0].command).not.toContain("run lint")
+  expect(result.commands[0].command).not.toContain("run test")
+  expect(
+    result.commands.find(
+      (command: { name: string }) => command.name === "preview"
+    ).capabilityVerified
+  ).toBe(true)
+  expect(result.artifacts).toEqual([])
+})

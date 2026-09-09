@@ -188,7 +188,7 @@ function ProjectSettingsScreen() {
             className="border-b py-3"
             deployments={deploymentContext?.deployments ?? []}
             error={repositoryError}
-            onDeploy={async (commit, recoveryDeploymentId) => {
+            onDeploy={async (commit, recoveryDeploymentId, options) => {
               setDeployPending(commit)
               setRepositoryError(null)
               try {
@@ -199,6 +199,8 @@ function ProjectSettingsScreen() {
                     confirmedCommit: commit,
                     idempotencyKey: deployKey,
                     recoveryDeploymentId,
+                    managedRelease: options?.managedRelease,
+                    captureEvidence: options?.captureEvidence,
                     confirmedDataLoss: recoveryDeploymentId ? true : undefined,
                   },
                 })

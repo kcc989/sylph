@@ -10,6 +10,7 @@ import { GitCommitId, WorkspaceFileChange } from "./version-control"
 
 export const WorkspaceCheckKind = Schema.Literals([
   "checkpoint",
+  "preview",
   "production",
   "dependencies",
 ])
@@ -88,6 +89,9 @@ export class WorkspaceCheckRun extends Schema.Class<WorkspaceCheckRun>(
   status: WorkspaceCheckStatus,
   attempt: Schema.Int,
   maxAttempts: Schema.optional(Schema.Int),
+  autoRepair: Schema.optional(Schema.Boolean),
+  captureEvidence: Schema.optional(Schema.Boolean),
+  managedRelease: Schema.optional(Schema.Boolean),
   previewUrl: Schema.NullOr(Schema.NonEmptyString),
   stages: Schema.Array(WorkspaceCheckStage),
   diagnostics: Schema.Array(WorkspaceCheckDiagnostic),
@@ -123,6 +127,9 @@ export class WorkspaceCiInput extends Schema.Class<WorkspaceCiInput>(
   kind: WorkspaceCheckKind,
   attempt: Schema.Int,
   deploymentId: Schema.NullOr(Schema.NonEmptyString),
+  autoRepair: Schema.optional(Schema.Boolean),
+  captureEvidence: Schema.optional(Schema.Boolean),
+  managedRelease: Schema.optional(Schema.Boolean),
   createdAt: Schema.Number,
 }) {}
 
@@ -211,6 +218,7 @@ export class WorkspaceSyncResult extends Schema.Class<WorkspaceSyncResult>(
 export class WorkspaceRunChecksToolInput extends Schema.Class<WorkspaceRunChecksToolInput>(
   "@sylph/domain/WorkspaceRunChecksToolInput"
 )({
+  autoRepair: Schema.optional(Schema.Boolean),
   message: Schema.optional(Schema.NonEmptyString),
 }) {}
 
@@ -253,7 +261,7 @@ export class WorkspaceMergeRequest extends Schema.Class<WorkspaceMergeRequest>(
 
 export class WorkspacePreviewToolInput extends Schema.Class<WorkspacePreviewToolInput>(
   "@sylph/domain/WorkspacePreviewToolInput"
-)({}) {}
+)({ captureEvidence: Schema.optional(Schema.Boolean) }) {}
 
 export class WorkspacePreviewResult extends Schema.Class<WorkspacePreviewResult>(
   "@sylph/domain/WorkspacePreviewResult"
@@ -384,4 +392,19 @@ export class BrowserActionReceipt extends Schema.Class<BrowserActionReceipt>(
   action: Schema.String,
   createdAt: Schema.Number,
   result: Schema.NullOr(WorkspaceBrowserResult),
+}) {}
+
+export class WorkspaceRunChecksInput extends Schema.Class<WorkspaceRunChecksInput>(
+  "@sylph/domain/WorkspaceRunChecksInput"
+)({
+  workspaceId: WorkspaceId,
+  idempotencyKey: Schema.NonEmptyString,
+  ...WorkspaceRunChecksToolInput.fields,
+}) {}
+
+export class WorkspaceCreatePreviewInput extends Schema.Class<WorkspaceCreatePreviewInput>(
+  "@sylph/domain/WorkspaceCreatePreviewInput"
+)({
+  workspaceId: WorkspaceId,
+  ...WorkspacePreviewToolInput.fields,
 }) {}

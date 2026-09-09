@@ -18,6 +18,8 @@ export class ProjectDeployInput extends Schema.Class<ProjectDeployInput>(
   commit: GitCommitId,
   confirmedCommit: GitCommitId,
   idempotencyKey: Schema.NonEmptyString,
+  managedRelease: Schema.optional(Schema.Boolean),
+  captureEvidence: Schema.optional(Schema.Boolean),
   recoveryDeploymentId: Schema.optional(Schema.NonEmptyString),
   confirmedDataLoss: Schema.optional(Schema.Boolean),
 }) {}

@@ -361,6 +361,7 @@ export class Probe extends DurableObject {
           checkpointId: "checkpoint",
           commit: "a".repeat(40),
           kind: "checkpoint",
+          autoRepair: true,
           attempt: 1,
           createdAt: 1,
         }),

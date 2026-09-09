@@ -1,3 +1,9 @@
+import {
+  WorkspaceRunChecksInput,
+  WorkspaceCreatePreviewInput,
+  type WorkspaceRunChecksToolInput,
+  type WorkspacePreviewToolInput,
+} from "@workspace/domain"
 import { browserJournal } from "./workspace-browser-journal"
 import {
   WorkspaceBrowserAcceptanceInput,
@@ -374,7 +380,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           const version = await this.#workspaceGit.versionControl()
           if (version.working.length)
             throw new Error(
-              "Save and Check the current changes before testing their Preview"
+              "Save the current changes and create a Preview before testing them"
             )
           return {
             ...previewForBrowser(this.#checks.list(), version.forkHead),
@@ -443,38 +449,11 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
                     ? (request) => reserveSmokeRequest(request, context.storage)
                     : undefined,
                 assertWritable: () => this.#assertWritable(),
-                runChecks: async (input) => {
-                  try {
-                    const state = this.#requiredState()
-                    const version = await this.#workspaceGit.versionControl()
-                    const checkpoint = version.working.length
-                      ? (await this.#agentCheckpoint(input.message)).checkpoint
-                      : this.#workspaceGit
-                          .checkpoints()
-                          .find(
-                            (candidate) => candidate.commit === version.forkHead
-                          )
-                    if (!checkpoint)
-                      throw new Error(
-                        "Create a Checkpoint before running Checks"
-                      )
-                    return await this.#startCheckpointCheck(
-                      state.workspaceId,
-                      checkpoint.id,
-                      checkpoint.commit
-                    )
-                  } catch (error) {
-                    console.error(
-                      "Workspace runChecks failed",
-                      error instanceof Error ? error.stack : error
-                    )
-                    throw error
-                  }
-                },
-                syncProject: async () => this.#syncProjectAndCheck(),
+                runChecks: async (input) => this.#runChecks(input),
+                syncProject: async () => this.#syncProject(),
                 checkpoint: async (input) =>
                   this.#agentCheckpoint(input.message),
-                preview: async () => this.#preview(),
+                preview: async (input) => this.#preview(input),
                 browser: async (input) => this.#browser(input),
               }
             ),
@@ -786,12 +765,6 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         message: data.message,
       })
       await this.#recordVersionControl(true)
-      const state = this.#requiredState()
-      await this.#startCheckpointCheck(
-        state.workspaceId,
-        result.checkpoint.id,
-        result.checkpoint.commit
-      )
       return encodeWorkspaceCheckpointResultSync(result)
     })
   }
@@ -956,7 +929,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     return this.#run(async () => {
       await this.#opencode
       return encodeWorkspaceSyncResultSync(
-        new WorkspaceSyncResult(await this.#syncProjectAndCheck())
+        new WorkspaceSyncResult(await this.#syncProject())
       )
     })
   }
@@ -1467,79 +1440,115 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       await this.ctx.storage.setAlarm(retryAt)
   }
 
-  async #preview() {
-    const state = this.#requiredState()
-    const versionControl = await this.#workspaceGit.versionControl()
-    const current =
-      this.#checks
-        .list()
-        .find(
-          (run) =>
-            run.kind === "checkpoint" && run.commit === versionControl.forkHead
-        ) ?? null
-    if (current?.previewUrl) {
+  async #checkpointForOperation(message: string) {
+    const version = await this.#workspaceGit.versionControl()
+    if (version.working.length)
+      return (await this.#agentCheckpoint(message)).checkpoint
+    return (
+      this.#workspaceGit
+        .checkpoints()
+        .find((checkpoint) => checkpoint.commit === version.forkHead) ?? {
+        id: null,
+        commit: version.forkHead,
+      }
+    )
+  }
+
+  async #runChecks(
+    input: WorkspaceRunChecksToolInput,
+    idempotencyKey?: string
+  ) {
+    this.#assertWritable()
+    const existing = idempotencyKey
+      ? this.#checks.get(`check-${idempotencyKey}`)
+      : null
+    if (existing) {
+      if (existing.autoRepair !== (input.autoRepair === true))
+        throw new InvalidRequest({
+          message:
+            "This request key already identifies different Check options",
+        })
+      await this.#startWorkflow(existing)
+      return existing
+    }
+    const checkpoint = await this.#checkpointForOperation(
+      input.message ?? "Checkpoint Workspace changes"
+    )
+    return this.#startCheckpointCheck(
+      this.#requiredState().workspaceId,
+      checkpoint.id,
+      checkpoint.commit,
+      idempotencyKey ? `check-${idempotencyKey}` : undefined,
+      { autoRepair: input.autoRepair === true }
+    )
+  }
+
+  runChecks(input: typeof WorkspaceRunChecksInput.Encoded) {
+    return this.#run(async () => {
+      const data = Schema.decodeUnknownSync(WorkspaceRunChecksInput)(input)
+      if (data.workspaceId !== this.#requiredState().workspaceId)
+        throw new InvalidRequest({
+          message: "Checks belong to another Workspace",
+        })
+      await this.#opencode
+      return encodeWorkspaceCheckRunSync(
+        await this.#runChecks(data, data.idempotencyKey)
+      )
+    })
+  }
+
+  createPreview(input: typeof WorkspaceCreatePreviewInput.Encoded) {
+    return this.#run(async () => {
+      const data = Schema.decodeUnknownSync(WorkspaceCreatePreviewInput)(input)
+      if (data.workspaceId !== this.#requiredState().workspaceId)
+        throw new InvalidRequest({
+          message: "Preview belongs to another Workspace",
+        })
+      await this.#opencode
+      return Schema.encodeSync(WorkspacePreviewResult)(
+        await this.#preview(data)
+      )
+    })
+  }
+
+  async #preview(input: WorkspacePreviewToolInput = {}) {
+    this.#assertWritable()
+    const version = await this.#workspaceGit.versionControl()
+    const current = !version.working.length
+      ? this.#checks
+          .list()
+          .find(
+            (run) =>
+              run.kind === "preview" &&
+              run.commit === version.forkHead &&
+              Boolean(run.captureEvidence) === Boolean(input.captureEvidence)
+          )
+      : undefined
+    if (
+      current &&
+      (current.previewUrl ||
+        current.status === "running" ||
+        current.status === "queued")
+    )
       return new WorkspacePreviewResult({
-        status: "ready",
-        commit: versionControl.forkHead,
+        status: current.previewUrl ? "ready" : "pending",
+        commit: current.commit,
         checkId: current.id,
         previewUrl: current.previewUrl,
         evidence: current.evidence,
-        detail: "The Preview for the current Checkpoint is reachable.",
+        detail: current.previewUrl
+          ? "Preview ready."
+          : "Preview deployment is running.",
       })
-    }
-    if (current && current.status === "failed") {
-      return new WorkspacePreviewResult({
-        status: "failed",
-        commit: versionControl.forkHead,
-        checkId: current.id,
-        previewUrl: null,
-        evidence: current.evidence,
-        detail:
-          "The current Checkpoint failed its Check. Read the Check diagnostics in this conversation, repair the failure with native file and shell tools, and run workspace_run_checks again.",
-      })
-    }
-    if (current) {
-      return new WorkspacePreviewResult({
-        status: "pending",
-        commit: versionControl.forkHead,
-        checkId: current.id,
-        previewUrl: null,
-        evidence: [],
-        detail:
-          "The Check for the current Checkpoint is still running. Sylph will deliver its result to this Conversation.",
-      })
-    }
-    if (versionControl.working.length) {
-      this.#assertWritable()
-      const checkpoint = await this.#agentCheckpoint("Preview Checkpoint")
-      const run = await this.#startCheckpointCheck(
-        state.workspaceId,
-        checkpoint.checkpoint.id,
-        checkpoint.checkpoint.commit
-      )
-      return new WorkspacePreviewResult({
-        status: "pending",
-        commit: run.commit,
-        checkId: run.id,
-        previewUrl: null,
-        evidence: [],
-        detail:
-          "Created a Checkpoint and started its Check. Sylph will deliver the Preview URL to this Conversation when it is ready.",
-      })
-    }
-    const checkpoint = this.#workspaceGit
-      .checkpoints()
-      .find((candidate) => candidate.commit === versionControl.forkHead)
-    if (!checkpoint) {
-      throw new Error(
-        "Nothing to preview yet. Change files, then run workspace_run_checks to build the first Preview."
-      )
-    }
-    this.#assertWritable()
+    const checkpoint = await this.#checkpointForOperation("Preview Checkpoint")
     const run = await this.#startCheckpointCheck(
-      state.workspaceId,
+      this.#requiredState().workspaceId,
       checkpoint.id,
-      checkpoint.commit
+      checkpoint.commit,
+      current?.status === "passed"
+        ? `preview-${crypto.randomUUID()}`
+        : `preview-${checkpoint.id ?? checkpoint.commit}-${input.captureEvidence ? "evidence" : "deploy"}`,
+      { kind: "preview", captureEvidence: input.captureEvidence }
     )
     return new WorkspacePreviewResult({
       status: "pending",
@@ -1547,8 +1556,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       checkId: run.id,
       previewUrl: null,
       evidence: [],
-      detail:
-        "Started the Check for the current Checkpoint. Sylph will deliver the Preview URL to this Conversation when it is ready.",
+      detail: "Preview deployment started. Its URL will appear when ready.",
     })
   }
 
@@ -1561,11 +1569,18 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
 
   async #startCheckpointCheck(
     workspaceId: string,
-    checkpointId: string,
+    checkpointId: string | null,
     commit: string,
-    checkId?: string
+    checkId?: string,
+    options: {
+      kind?: "checkpoint" | "preview"
+      autoRepair?: boolean
+      captureEvidence?: boolean
+    } = {}
   ) {
-    const id = checkId ?? `check-${checkpointId}`
+    const id =
+      checkId ??
+      `check-${checkpointId ?? commit}-${options.autoRepair ? "repair" : "manual"}`
     const existing = this.#checks.get(id)
     if (existing) {
       const run =
@@ -1583,7 +1598,9 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       workspaceId,
       checkpointId,
       commit,
-      kind: "checkpoint",
+      kind: options.kind ?? "checkpoint",
+      autoRepair: options.autoRepair,
+      captureEvidence: options.captureEvidence,
       attempt: 1,
       createdAt: Date.now(),
     })
@@ -1618,6 +1635,8 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       agentSessionId: state.sessionId,
       checkpointId: run.checkpointId,
       kind: run.kind,
+      autoRepair: run.autoRepair,
+      captureEvidence: run.captureEvidence,
       attempt: run.attempt,
       deploymentId: null,
       createdAt: run.createdAt,
@@ -1637,22 +1656,10 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     }
   }
 
-  async #syncProjectAndCheck() {
+  async #syncProject() {
     this.#assertWritable()
     const result = await this.#workspaceGit.syncProject()
-    const state = this.#requiredState()
-    const versionControl = await this.#recordVersionControl(false)
-    if (result.status !== "updated") return result
-    const checkpoint = this.#workspaceGit
-      .checkpoints()
-      .find((candidate) => candidate.commit === versionControl.forkHead)
-    if (checkpoint) {
-      await this.#startCheckpointCheck(
-        state.workspaceId,
-        checkpoint.id,
-        checkpoint.commit
-      )
-    }
+    await this.#recordVersionControl(false)
     return result
   }
 

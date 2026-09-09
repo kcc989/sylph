@@ -96,7 +96,7 @@ export class WorkspaceBrowser extends Context.Service<
       userId: string
     ): Effect.Effect<void, WorkspaceBrowserFailure>
     reserve(
-      binding: BrowserProofBinding
+      binding: BrowserProofBinding | null
     ): Effect.Effect<void, WorkspaceBrowserFailure>
     close(): Effect.Effect<void, WorkspaceBrowserFailure>
   }
@@ -773,13 +773,19 @@ export const workspaceBrowserLayer = (options: BrowserSessionOptions) =>
           operation(async () => {
             await options.assertWritable()
             const current = await snapshot()
-            if (
-              !current.binding ||
-              !browserProofMatches(current.binding, binding)
-            )
-              reject("Browser proof changed before Acceptance.", "stale")
-            const blockers = browserJourneyBlockers(current, binding)
-            if (blockers.length) reject(blockers.join(" "))
+            if (current.policy?.requirements.length) {
+              if (
+                !binding ||
+                !current.binding ||
+                !browserProofMatches(current.binding, binding)
+              )
+                return reject(
+                  "Browser proof changed before Acceptance.",
+                  "stale"
+                )
+              const blockers = browserJourneyBlockers(current, binding)
+              if (blockers.length) reject(blockers.join(" "))
+            }
             await closeSession()
             await options.reserveAcceptance()
           })

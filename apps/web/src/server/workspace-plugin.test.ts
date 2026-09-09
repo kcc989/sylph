@@ -17,9 +17,9 @@ describe("Workspace plugin", () => {
     expect(workspaceSystemPrompt).toContain("workspace_browser")
     expect(workspaceSystemPrompt).toContain("workspace_checkpoint")
     expect(workspaceSystemPrompt).toContain("workspace_preview")
-    expect(workspaceSystemPrompt).toContain("Do not poll")
+    expect(workspaceSystemPrompt).toContain("opt-in")
     expect(workspaceSystemPrompt).toContain(
-      "Failed Checks automatically resume you to fix the cause"
+      "Set autoRepair only when the User requested automatic repair"
     )
     expect(workspaceSystemPrompt).not.toContain("workspace_check_status")
     expect(workspaceSystemPrompt).not.toContain(

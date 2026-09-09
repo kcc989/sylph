@@ -42,6 +42,8 @@ const stub = (
   cancelSubscriptionSignIn: unreachable,
   initialize: unreachable,
   checkpoint: unreachable,
+  runChecks: unreachable,
+  createPreview: unreachable,
   listChecks: unreachable,
   readFile: unreachable,
   applyCheckUpdate: unreachable,

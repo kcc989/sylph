@@ -43,7 +43,7 @@ export const checkPassedNotification = (run: WorkspaceCheckRun) =>
   ].join("\n")
 
 export const checkContinuationPrompt = (run: WorkspaceCheckRun) =>
-  `Check ${run.id} failed for Checkpoint ${run.commit} (attempt ${run.attempt}). Fix the failures without weakening validation. Inspect the current Working copy, make the smallest correct changes, then run Workspace checks again. For Bun dependency or lockfile failures, correct package.json if needed and run bun install with the native shell tool to generate bun.lock, then run workspace_run_checks once. Do not hand-edit lockfiles or hashes.\n\n${checkDiagnosticsText(run)}`
+  `Check ${run.id} failed for Checkpoint ${run.commit} (attempt ${run.attempt}). Fix the failures without weakening validation. Inspect the current Working copy, make the smallest correct changes, then run Workspace checks again. For Bun dependency or lockfile failures, correct package.json if needed and run bun install with the native shell tool to generate bun.lock, then run workspace_run_checks once with autoRepair: true. Do not hand-edit lockfiles or hashes.\n\n${checkDiagnosticsText(run)}`
 
 export const checkFailedNotification = (
   run: WorkspaceCheckRun,
@@ -67,6 +67,7 @@ export const checkCompletion = (
     return null
   const resume =
     run.kind === "checkpoint" &&
+    run.autoRepair === true &&
     run.status === "failed" &&
     continuationsUsed < limit
   const text =
@@ -78,7 +79,9 @@ export const checkCompletion = (
             run,
             run.kind === "dependencies"
               ? "This legacy dependency job is retired. Use native bun install and a normal Checkpoint Check."
-              : `Self-healing CI reached its ${limit}-Turn limit. Send a message to continue.`
+              : run.autoRepair
+                ? `Automatic repair reached its ${limit}-Turn limit. Send a message to continue.`
+                : "Automatic repair was not requested."
           )
   return new WorkspaceCheckCompletion({
     id: `msg_check-completion:${run.id}:${run.attempt}`,
@@ -93,7 +96,9 @@ export const checkCompletion = (
           ? `Fixing failed Checks · ${run.commit.slice(0, 7)}`
           : run.kind === "dependencies"
             ? "Dependency Check failed"
-            : `Self-healing CI paused · ${limit}-Turn limit`,
+            : run.autoRepair
+              ? `Automatic repair paused · ${limit}-Turn limit`
+              : `Checks failed · ${run.commit.slice(0, 7)}`,
     resume,
   })
 }

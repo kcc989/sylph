@@ -28,16 +28,25 @@ export const workspaceAcceptance = (input: {
       ) ?? null
   const passing = current?.status === "passed" ? current : null
   const blockers: string[] = []
-  if (passing)
-    blockers.push(
-      ...browserJourneyBlockers(input.browserProof, {
-        workspaceId: passing.workspaceId,
-        conversationId: input.conversationId ?? "",
-        checkId: passing.id,
-        commit: passing.commit,
-        attempt: passing.attempt,
-      })
+  if (input.browserProof?.policy?.requirements.length) {
+    const preview = input.checks.find(
+      (run) => run.commit === versionControl.forkHead && run.previewUrl
     )
+    if (!preview)
+      blockers.push(
+        "Create a Preview to complete the configured browser journeys."
+      )
+    else
+      blockers.push(
+        ...browserJourneyBlockers(input.browserProof, {
+          workspaceId: preview.workspaceId,
+          conversationId: input.conversationId ?? "",
+          checkId: preview.id,
+          commit: preview.commit,
+          attempt: preview.attempt,
+        })
+      )
+  }
   if (input.workspaceStatus === "archived") {
     blockers.push("The Workspace is archived and read-only.")
   }
@@ -58,14 +67,9 @@ export const workspaceAcceptance = (input: {
   if (!versionControl.branch.length) {
     blockers.push("The Workspace fork has no Checkpoint changes to accept.")
   }
-  if (!passing) {
-    blockers.push(
-      "The latest Checkpoint has not passed its Check, Preview, and homepage identity verification."
-    )
-  }
   if (versionControl.projectChanged) {
     blockers.push(
-      "The Project Repository advanced. Update the Workspace and run a new Check."
+      "The Project Repository advanced. Update the Workspace before accepting."
     )
   }
   if (input.reviewDecision !== "approved") {

@@ -52,14 +52,6 @@ const setup = async (scope = "preview:check:1") => {
       )
     ).text()
   )
-  sqlite.exec(
-    await Bun.file(
-      new URL(
-        "../../../../packages/db/migrations/0003_resource_lifecycle.sql",
-        import.meta.url
-      )
-    ).text()
-  )
   sqlite.exec(`
     INSERT INTO user (id, name, email) VALUES ('admin', 'Admin', 'admin@example.com');
     INSERT INTO organization (id, name, slug) VALUES ('org', 'Organization', 'org');

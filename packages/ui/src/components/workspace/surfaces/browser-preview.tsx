@@ -122,7 +122,7 @@ export function BrowserPreview({
                     ? "Waiting for the workspace preview server."
                     : browser.status === "error"
                       ? "The preview could not be reached."
-                      : "Connect a browser surface to begin verification."}
+                      : "Use Create Preview when you want to inspect the app."}
                 </p>
               </div>
             ))}

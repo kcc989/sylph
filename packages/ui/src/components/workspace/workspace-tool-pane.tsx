@@ -62,6 +62,7 @@ export function WorkspaceToolPane({
   onSubmitReview,
   patch,
   previewContent,
+  operationControls,
   review,
   reviewPatch,
   currentReviewer,
@@ -104,6 +105,7 @@ export function WorkspaceToolPane({
   onSubmitReview?: (decision: "approved" | "changes_requested") => Promise<void>
   patch?: string
   previewContent?: ReactNode
+  operationControls?: ReactNode
   review?: WorkspaceReview
   reviewPatch?: string
   currentReviewer?: WorkspaceReviewActor
@@ -120,7 +122,11 @@ export function WorkspaceToolPane({
   acceptedCommit?: string | null
   deployPending?: string | null
   deployError?: string | null
-  onDeploy?: (commit: string, recoveryDeploymentId?: string) => Promise<void>
+  onDeploy?: (
+    commit: string,
+    recoveryDeploymentId?: string,
+    options?: { managedRelease?: boolean; captureEvidence?: boolean }
+  ) => Promise<void>
 }) {
   const store = useWorkspaceShellStore()
   const active = useWorkspaceShell((state) => state.activeTabId ?? "browser")
@@ -214,6 +220,7 @@ export function WorkspaceToolPane({
           {expanded ? <Minimize2 /> : <Maximize2 />}
         </Button>
       </header>
+      {operationControls}
       <div className="flex min-h-0 flex-1 flex-col">
         {active === "browser" ? (
           <BrowserPreview

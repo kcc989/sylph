@@ -751,3 +751,28 @@ test("a crash after saving a pass but before its receipt blocks acceptance", asy
   expect(await blockers(recovered)).toEqual([])
   await recovered.dispose()
 })
+
+test("acceptance without a browser policy reserves the Workspace without starting a browser", async () => {
+  const fixture = setup()
+  const runtime = fixture.runtime()
+  await runtime.runPromise(
+    Effect.flatMap(WorkspaceBrowser, (browser) => browser.reserve(null))
+  )
+  expect(fixture.getLaunches()).toBe(0)
+  await expect(execute(runtime, { action: { type: "start" } })).rejects.toThrow(
+    "Acceptance in progress"
+  )
+  await runtime.dispose()
+})
+
+test("configured browser journeys cannot be bypassed by omitting the binding", async () => {
+  const fixture = setup()
+  const runtime = fixture.runtime()
+  await configure(runtime)
+  await expect(
+    runtime.runPromise(
+      Effect.flatMap(WorkspaceBrowser, (browser) => browser.reserve(null))
+    )
+  ).rejects.toThrow("Browser proof changed")
+  await runtime.dispose()
+})

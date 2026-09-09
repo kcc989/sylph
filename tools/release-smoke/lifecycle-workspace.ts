@@ -256,11 +256,57 @@ export async function checkpoint(
   await inspector.getByRole("button", { name: /^Changes/ }).click()
   await r.page.getByLabel("Compare").selectOption("working")
   await r.page.getByRole("button", { name: "Checkpoint", exact: true }).click()
+  await expect(
+    r.page.getByRole("button", { name: "Checkpoint", exact: true })
+  ).toBeDisabled()
+  const checkRows = () =>
+    r.provider.rows(
+      r.state.installationDatabaseId,
+      "SELECT id, workspace_id, workflow_instance_id, commit_sha, status, summary_json FROM ci_runs WHERE workspace_id = ? AND kind = 'checkpoint' ORDER BY created_at DESC",
+      LifecycleCheckRow,
+      [r.workspace.id]
+    )
+  const priorChecks = new Set((await checkRows()).map((item) => item.id))
+  await inspector
+    .getByRole("button", { name: "Run checks", exact: true })
+    .click()
+  const verified = await eventually(
+    checkRows,
+    (items) =>
+      items.some(
+        (item) =>
+          !priorChecks.has(item.id) &&
+          ["passed", "failed"].includes(item.status)
+      ),
+    "requested checks reach a terminal result"
+  )
+  const verification = requireValue(
+    verified.find((item) => !priorChecks.has(item.id)),
+    "Requested Check missing"
+  )
+  r.assert("Requested checks passed", verification.status, "passed", true)
+  const verificationSummary = Schema.decodeUnknownSync(CiRunSummary)(
+    JSON.parse(requireValue(verification.summary_json, "Check summary missing"))
+  )
+  for (const name of ["install", "typecheck", "lint", "test", "build"])
+    r.assert(
+      `Verification stage ${name}`,
+      verificationSummary.stages.find((stage) => stage.name === name)?.status ??
+        null,
+      "passed",
+      true
+    )
+  await inspector
+    .getByRole("checkbox", { name: "Capture browser evidence", exact: true })
+    .check()
+  await inspector
+    .getByRole("button", { name: "Create Preview", exact: true })
+    .click()
   const rows = await eventually(
     () =>
       r.provider.rows(
         r.state.installationDatabaseId,
-        "SELECT id, workspace_id, workflow_instance_id, commit_sha, status, summary_json FROM ci_runs WHERE workspace_id = ? AND kind = 'checkpoint' ORDER BY created_at DESC",
+        "SELECT id, workspace_id, workflow_instance_id, commit_sha, status, summary_json FROM ci_runs WHERE workspace_id = ? AND kind = 'preview' ORDER BY created_at DESC",
         LifecycleCheckRow,
         [r.workspace.id]
       ),
@@ -280,15 +326,7 @@ export async function checkpoint(
   const summary = Schema.decodeUnknownSync(CiRunSummary)(
     JSON.parse(requireValue(check.summary_json, "Check summary missing"))
   )
-  for (const name of [
-    "install",
-    "typecheck",
-    "lint",
-    "test",
-    "build",
-    "preview",
-    "browser",
-  ])
+  for (const name of ["install", "build", "preview", "browser"])
     r.assert(
       `Check stage ${name}`,
       summary.stages.find((stage) => stage.name === name)?.status ?? null,
@@ -338,13 +376,13 @@ export async function checkpoint(
   r.state = { ...r.state, workspace, previews: [...r.state.previews, preview] }
   await openToolMenu(r.page)
   await r.page.getByRole("menuitem", { name: "Checks and evidence" }).click()
-  await expect(inspector.getByText("passed", { exact: true })).toHaveCount(7, {
+  await expect(inspector.getByText("passed", { exact: true })).toHaveCount(9, {
     timeout: 60_000,
   })
   r.assert(
     "Rendered meaningful checks",
     await inspector.getByText("passed", { exact: true }).count(),
-    7
+    9
   )
   return preview
 }

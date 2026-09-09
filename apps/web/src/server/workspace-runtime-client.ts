@@ -1,4 +1,9 @@
 import {
+  WorkspaceRunChecksInput,
+  WorkspaceCreatePreviewInput,
+  WorkspacePreviewResult,
+} from "@workspace/domain"
+import {
   WorkspaceBrowserAcceptanceInput,
   WorkspaceHumanBrowserInput,
   WorkspaceBrowserPolicyInput,
@@ -49,6 +54,8 @@ type WorkspaceRuntimeMethods = Pick<
   | "subscriptionSignInStatus"
   | "cancelSubscriptionSignIn"
   | "initialize"
+  | "runChecks"
+  | "createPreview"
   | "checkpoint"
   | "listChecks"
   | "readFile"
@@ -160,6 +167,20 @@ const encodeDisconnectUserInput = Schema.encodeSync(
 )
 
 export const makeWorkspaceRuntime = (stub: WorkspaceRuntimeStub) => ({
+  runChecks: (input: WorkspaceRunChecksInput) =>
+    call(async () =>
+      decodeCheckRun(
+        await stub.runChecks(Schema.encodeSync(WorkspaceRunChecksInput)(input))
+      )
+    ),
+  createPreview: (input: WorkspaceCreatePreviewInput) =>
+    call(async () =>
+      Schema.decodeUnknownSync(WorkspacePreviewResult)(
+        await stub.createPreview(
+          Schema.encodeSync(WorkspaceCreatePreviewInput)(input)
+        )
+      )
+    ),
   reserveBrowserAcceptance: (
     input: typeof WorkspaceBrowserAcceptanceInput.Type
   ) =>
