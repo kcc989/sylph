@@ -48,13 +48,16 @@ const fixture = (prefix: LanguageModelV3StreamPart[] = []) => {
   return { model, requests }
 }
 
-test("Cursor retries a Max Mode requirement before any model content", async () => {
+test("Cursor bridge does not change model options or retry provider failures", async () => {
   const { model, requests } = fixture()
   const parts = await Array.fromAsync(cursorModelStream(model, { prompt: [] }))
-  expect(requests.length).toBe(2)
-  expect(requests[1]?.providerOptions?.cursor?.maxMode).toBe(true)
+  expect(requests.length).toBe(1)
+  expect(requests[0]).toEqual({ prompt: [] })
   expect(parts.filter((part) => part.type === "stream-start").length).toBe(1)
-  expect(parts.at(-1)).toMatchObject({ type: "text-delta", delta: "ready" })
+  expect(parts.at(-1)).toMatchObject({
+    type: "error",
+    error: { message: "Max Mode Required" },
+  })
 })
 
 test("Cursor never retries after text or tool calls", async () => {
@@ -63,9 +66,13 @@ test("Cursor never retries after text or tool calls", async () => {
     { type: "tool-call", toolCallId: "call", toolName: "write", input: "{}" },
   ] satisfies LanguageModelV3StreamPart[]) {
     const { model, requests } = fixture([part])
-    await expect(
-      Array.fromAsync(cursorModelStream(model, { prompt: [] }))
-    ).rejects.toThrow("Max Mode Required")
+    const parts = await Array.fromAsync(
+      cursorModelStream(model, { prompt: [] })
+    )
+    expect(parts.at(-1)).toMatchObject({
+      type: "error",
+      error: { message: "Max Mode Required" },
+    })
     expect(requests.length).toBe(1)
   }
 })
@@ -80,8 +87,12 @@ test("Cursor does not retry unrelated request failures", async () => {
       replaySafe: true,
     })
   }
-  await expect(
-    Array.fromAsync(cursorModelStream(model, { prompt: [] }))
-  ).rejects.toThrow("Different failure")
+  const parts = await Array.fromAsync(cursorModelStream(model, { prompt: [] }))
+  expect(parts).toMatchObject([
+    {
+      type: "error",
+      error: { code: "invalid_argument", message: "Different failure" },
+    },
+  ])
   expect(requests.length).toBe(1)
 })

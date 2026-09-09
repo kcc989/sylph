@@ -1,6 +1,7 @@
 import { createServer } from "node:http"
 import { Readable } from "node:stream"
 import { pipeline } from "node:stream/promises"
+import { CursorServerError } from "cursor-opencode-provider/errors"
 import { handleCursorRequest } from "./handler"
 
 export const cursorServer = (handle = handleCursorRequest) => {
@@ -39,8 +40,29 @@ export const cursorServer = (handle = handleCursorRequest) => {
       outgoing.writeHead(response.status, Object.fromEntries(response.headers))
       if (response.body) await pipeline(Readable.from(response.body), outgoing)
       else outgoing.end()
-    } catch {
-      if (!outgoing.headersSent) outgoing.writeHead(502)
+    } catch (error) {
+      console.error("Cursor request failed", {
+        name: error instanceof Error ? error.name : "UnknownError",
+        code: error instanceof CursorServerError ? error.code : undefined,
+        frames:
+          error instanceof Error
+            ? error.stack
+                ?.split("\n")
+                .filter((line) => line.trimStart().startsWith("at "))
+                .slice(0, 8)
+            : [],
+      })
+      if (!outgoing.headersSent)
+        outgoing.writeHead(502, {
+          "x-sylph-cursor-failure":
+            error instanceof CursorServerError
+              ? "upstream"
+              : error instanceof TypeError
+                ? "type"
+                : error instanceof SyntaxError
+                  ? "syntax"
+                  : "request",
+        })
       outgoing.end()
     } finally {
       active = false

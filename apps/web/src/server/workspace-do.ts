@@ -335,7 +335,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   constructor(context: DurableObjectState, bindings: WorkspaceBindings) {
     super(context, bindings)
     this.#cursor = createCursorProvider(bindings.CURSOR, context.storage, () =>
-      this.#filesystem.commandFiles()
+      this.#filesystem.commandFiles(false)
     )
     context.setWebSocketAutoResponse(
       new WebSocketRequestResponsePair("ping", "pong")
@@ -1077,6 +1077,16 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
             ? `OpenCode could not use ${data.model.providerId}/${data.model.modelId}: ${detail}`
             : `OpenCode could not use ${data.model.providerId}/${data.model.modelId}. Choose another available model.`
         )
+      }
+
+      if (data.text.trim() === "/compact") {
+        await opencode.sessions.compact({
+          id: workspacePromptMessageId(data.messageId),
+          sessionID: sessionId,
+          delivery,
+        })
+        if (delivery !== "queue") await this.#scheduleTurnLimit()
+        return encodeWorkspaceRuntimeHealthSync(await this.#snapshot(opencode))
       }
 
       const invocation = resolveSkillInvocation(data.text, this.#skills.list())

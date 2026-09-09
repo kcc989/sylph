@@ -245,3 +245,28 @@ describe("workspaceRuntimeMessages", () => {
     })
   })
 })
+
+test("shows successful compaction using the original request identity", () => {
+  const messages = workspaceRuntimeMessages([
+    {
+      id: "compact-request",
+      type: "compaction",
+      status: "completed",
+      time: { created: 1, completed: 2 },
+    },
+  ])
+  expect(messages).toEqual([
+    {
+      id: "compact-request",
+      role: "assistant",
+      createdAt: 1,
+      parts: [
+        {
+          type: "text",
+          text: "Conversation context shortened. Earlier messages and files are preserved.",
+        },
+      ],
+      error: null,
+    },
+  ])
+})

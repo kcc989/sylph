@@ -1,12 +1,14 @@
 import { syncCursorWorkspace } from "./workspace"
+import { cursorToolNames } from "./tool-names"
 import { cursorToolInput } from "./tool-input"
 import { cursorModelStream } from "./model-stream"
-import { cursorModelOptions } from "./model-options"
+import { cursorCatalog } from "./catalog"
 import {
   CursorBridgeRequest,
   CursorTokens,
 } from "@workspace/domain/cursor-provider"
 import { Schema } from "effect"
+import { cursorFailureMessage } from "./failure"
 import { createCursor } from "cursor-opencode-provider"
 import {
   buildLoginUrl,
@@ -50,34 +52,22 @@ export const handleCursorRequest = async (
       return Response.json(await refreshAccessToken(input.refreshToken))
     case "models": {
       const models = await discoverModels(input.accessToken, cacheDir)
-      return Response.json(
-        models
-          .filter((model) => model.supportsAgent !== false)
-          .map((model) => ({
-            id: model.id,
-            name: model.displayName ?? model.id,
-            context: model.maxContext ?? 128_000,
-            images: model.supportsImages ?? false,
-          }))
-      )
+      return Response.json(cursorCatalog(models))
     }
     case "stream": {
       await syncCursorWorkspace("/workspace", input.call.files)
-      const models = await discoverModels(input.accessToken, cacheDir)
-      const model = models.find((model) => model.id === input.call.modelId)
-      if (!model)
-        throw new Error("The selected Cursor model is no longer available")
+      await discoverModels(input.accessToken, cacheDir)
       const provider = createCursor({
         name: "cursor",
         accessToken: input.accessToken,
         cacheDir,
         workspaceRoot: "/workspace",
-        retry: { maxAttempts: 1 },
       })
+      const names = cursorToolNames(input.call.options)
       const stream = cursorModelStream(
         provider.languageModel(input.call.modelId),
         {
-          ...cursorModelOptions(input.call.options, model),
+          ...names.options,
           headers: { "x-opencode-session": input.call.sessionId },
           abortSignal: request.signal,
         }
@@ -87,14 +77,16 @@ export const handleCursorRequest = async (
         stream.pipeThrough(
           new TransformStream({
             transform(rawPart, controller) {
-              const part = cursorToolInput(rawPart)
+              const part = cursorToolInput(names.output(rawPart))
               if (part.type === "raw") return
               const value =
                 part.type === "error"
                   ? {
                       type: "error",
                       error:
-                        "Cursor provider failed. Reconnect if your subscription has expired.",
+                        part.error instanceof Error
+                          ? cursorFailureMessage(part.error)
+                          : "Cursor model request failed",
                     }
                   : part.type === "file" && part.data instanceof Uint8Array
                     ? {

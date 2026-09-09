@@ -113,7 +113,7 @@ export class CursorConnectionObject extends DurableObject<{
           return {
             status: "complete" as const,
             key: result.key,
-            models: result.models,
+            models: result.models.map(({ id, name }) => ({ id, name })),
           }
       }
       const stored = await this.#read("login")
@@ -148,7 +148,11 @@ export class CursorConnectionObject extends DurableObject<{
         })
       )
       await this.ctx.storage.delete("login")
-      return { status: "complete" as const, key, models }
+      return {
+        status: "complete" as const,
+        key,
+        models: models.map(({ id, name }) => ({ id, name })),
+      }
     })
   }
 

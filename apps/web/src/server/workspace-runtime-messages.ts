@@ -41,6 +41,7 @@ export type WorkspaceRuntimeMessageSource = {
   type: string
   time: { created: number; completed?: number }
   text?: string
+  status?: string
   metadata?: typeof Schema.JsonObject.Type
   content?: ReadonlyArray<RuntimeContentPart>
   error?: { message: string }
@@ -126,6 +127,21 @@ export const workspaceRuntimeMessages = (
   messages: ReadonlyArray<WorkspaceRuntimeMessageSource>
 ): WorkspaceRuntimeMessage[] =>
   messages.reduce<WorkspaceRuntimeMessage[]>((result, message) => {
+    if (message.type === "compaction" && message.status === "completed") {
+      result.push({
+        id: message.id,
+        role: "assistant",
+        createdAt: message.time.created,
+        parts: [
+          {
+            type: "text",
+            text: "Conversation context shortened. Earlier messages and files are preserved.",
+          },
+        ],
+        error: null,
+      })
+      return result
+    }
     if (message.type === "compaction" && message.error) {
       result.push({
         id: message.id,
