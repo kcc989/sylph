@@ -17,7 +17,7 @@
     "@cloudflare/containers": "0.3.7",
     "@cloudflare/puppeteer": "1.1.0",
     "@opencode-ai/core": "0.0.0-dev-18308",
-    "@opencode-ai/plugin": "^0.0.0-dev-18308",
+    "@opencode-ai/plugin": "^1.18.29",
     "@opencode-ai/schema": "0.0.0-dev-18308",
     "@opencode-ai/sdk": "^0.0.0-dev-18308",
     "@tailwindcss/vite": "^4",
