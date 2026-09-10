@@ -466,36 +466,29 @@ test("setup through eviction recovery", async ({ page, browser }, testInfo) => {
     await expect(page.locator("article").last()).toContainText(proofMarker)
   })
 
-  if (!budgetedRun)
-    await test.step("verify browser tool details", async () => {
-      await page
-        .getByRole("region", { name: "Workspace inspector" })
-        .getByRole("button", { name: "Preview", exact: true })
-        .click()
-      await page
-        .getByRole("button", { name: "Browser Run", exact: true })
-        .click()
-      const release = page.getByRole("button", {
-        name: "Release to agent",
-        exact: true,
-      })
-      if (await release.count()) {
-        await release.click()
-        await expect(
-          page.getByRole("button", { name: "Take control", exact: true })
-        ).toBeEnabled()
-      }
-      const prompt = `Browser verification request ${crypto.randomUUID()}. Open the current Preview in the browser and verify that it contains ${proofMarker}. Do not change any files.`
-      await page
-        .getByRole("textbox", { name: "Message the agent" })
-        .fill(prompt)
-      await page.getByRole("button", { name: "Send message" }).click()
-      await expect(
-        page.getByText("Agent working", { exact: true })
-      ).toBeVisible()
-      await finishWorkspaceTurn(page)
-      await expectCheckAndBrowserToolCalls(page, prompt)
+  await test.step("verify browser tool details", async () => {
+    await page
+      .getByRole("region", { name: "Workspace inspector" })
+      .getByRole("button", { name: "Preview", exact: true })
+      .click()
+    await page.getByRole("button", { name: "Browser Run", exact: true }).click()
+    const release = page.getByRole("button", {
+      name: "Release to agent",
+      exact: true,
     })
+    if (await release.count()) {
+      await release.click()
+      await expect(
+        page.getByRole("button", { name: "Take control", exact: true })
+      ).toBeEnabled()
+    }
+    const prompt = `Browser verification request ${crypto.randomUUID()}. Open the current Preview in the browser and verify that it contains ${proofMarker}. Do not change any files.`
+    await page.getByRole("textbox", { name: "Message the agent" }).fill(prompt)
+    await page.getByRole("button", { name: "Send message" }).click()
+    await expect(page.getByText("Agent working", { exact: true })).toBeVisible()
+    await finishWorkspaceTurn(page)
+    await expectCheckAndBrowserToolCalls(page, prompt)
+  })
 
   if (!verificationOnly)
     await test.step("accept and archive the Workspace", async () => {

@@ -148,6 +148,7 @@ function WorkspaceScreen() {
     result: initialResult,
   } = Route.useLoaderData()
   const [deployments, setDeployments] = useState(initialDeployments)
+  const [browserMode, setBrowserMode] = useState<"run" | "iframe">("iframe")
   const readDeployments = useServerFn(getProjectDeployments)
   useEffect(() => setDeployments(initialDeployments), [initialDeployments])
   const pendingDeployment = deployments.deployments.some(
@@ -440,6 +441,8 @@ function WorkspaceScreen() {
             previewContent={
               browser.url ? (
                 <WorkspaceBrowserPanel
+                  mode={browserMode}
+                  setMode={setBrowserMode}
                   workspaceId={workspaceId}
                   userId={result.currentReviewer.id}
                   proof={runtime.browserProof}
