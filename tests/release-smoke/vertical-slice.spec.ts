@@ -481,6 +481,9 @@ test("setup through eviction recovery", async ({ page, browser }, testInfo) => {
           `Open the current Preview in the browser and verify that it contains ${proofMarker}. Do not change any files.`
         )
       await page.getByRole("button", { name: "Send message" }).click()
+      await expect(
+        page.getByText("Agent working", { exact: true })
+      ).toBeVisible()
       await finishWorkspaceTurn(page)
       await expectCheckAndBrowserToolCalls(page)
     })

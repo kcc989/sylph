@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { toolCallEntry } from "../lib/tool-call-entries"
 
 import {
   workspaceRuntimeMessages,
@@ -26,6 +27,54 @@ const completedTool = (overrides: CompletedToolOverrides = {}) => ({
 })
 
 describe("workspaceRuntimeMessages", () => {
+  test("preserves browser evidence links when accessibility output exceeds the message limit", () => {
+    const evidence = [
+      {
+        id: "screenshot-1",
+        kind: "screenshot",
+        label: "Preview",
+        url: "/api/evidence/screenshot-1",
+        createdAt: 1,
+      },
+    ]
+    const messages = workspaceRuntimeMessages([
+      {
+        id: "browser-1",
+        type: "assistant",
+        time: { created: 1 },
+        content: [
+          {
+            ...completedTool({
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({
+                    url: "https://preview.example.com",
+                    checkId: "check-1",
+                    evidence,
+                    accessibility: "x".repeat(24_000),
+                    outcome: "observed",
+                  }),
+                },
+                { type: "text", text: "Verified marker" },
+              ],
+            }),
+            name: "workspace_browser",
+          },
+        ],
+      },
+    ])
+    const part = messages[0]?.parts[0]
+    if (part?.type !== "tool") throw new Error("Expected browser tool output")
+    expect(part.output.length).toBeLessThanOrEqual(workspaceToolOutputLimit)
+    expect(part.outputTruncated).toBeTrue()
+    const detail = toolCallEntry(part).detail
+    expect(detail?.kind).toBe("browser")
+    if (detail?.kind !== "browser") throw new Error("Expected browser evidence")
+    expect(detail.evidence[0]?.url).toBe("/api/evidence/screenshot-1")
+    expect(detail.markdown).toBe("Verified marker")
+  })
+
   test("shows failed native compaction without exposing its internal context", () => {
     expect(
       workspaceRuntimeMessages([
