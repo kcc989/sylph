@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test"
 import { mkdir, writeFile, chmod } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
+import { browserToolCallsForTurn } from "./browser-evidence"
 import {
   waitForHydration,
   openToolMenu,
@@ -50,12 +51,8 @@ const finishWorkspaceTurn = async (page: Page) => {
     })
 }
 
-const expectCheckAndBrowserToolCalls = async (page: Page) => {
-  const browserCall = page
-    .getByRole("button", {
-      name: /^(Opened .+ in the Preview|Opened the Preview in the browser|Started browser session|Observed browser|Navigated Preview), completed$/,
-    })
-    .last()
+const expectCheckAndBrowserToolCalls = async (page: Page, prompt: string) => {
+  const browserCall = browserToolCallsForTurn(page, prompt).last()
   await expect(browserCall).toBeVisible()
   await browserCall.click()
   await expect(
@@ -472,16 +469,32 @@ test("setup through eviction recovery", async ({ page, browser }, testInfo) => {
   if (!budgetedRun)
     await test.step("verify browser tool details", async () => {
       await page
+        .getByRole("region", { name: "Workspace inspector" })
+        .getByRole("button", { name: "Preview", exact: true })
+        .click()
+      await page
+        .getByRole("button", { name: "Browser Run", exact: true })
+        .click()
+      const release = page.getByRole("button", {
+        name: "Release to agent",
+        exact: true,
+      })
+      if (await release.count()) {
+        await release.click()
+        await expect(
+          page.getByRole("button", { name: "Take control", exact: true })
+        ).toBeEnabled()
+      }
+      const prompt = `Browser verification request ${crypto.randomUUID()}. Open the current Preview in the browser and verify that it contains ${proofMarker}. Do not change any files.`
+      await page
         .getByRole("textbox", { name: "Message the agent" })
-        .fill(
-          `Open the current Preview in the browser and verify that it contains ${proofMarker}. Do not change any files.`
-        )
+        .fill(prompt)
       await page.getByRole("button", { name: "Send message" }).click()
       await expect(
         page.getByText("Agent working", { exact: true })
       ).toBeVisible()
       await finishWorkspaceTurn(page)
-      await expectCheckAndBrowserToolCalls(page)
+      await expectCheckAndBrowserToolCalls(page, prompt)
     })
 
   if (!verificationOnly)
