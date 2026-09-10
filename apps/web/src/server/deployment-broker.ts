@@ -18,6 +18,7 @@ import {
   authorizeBrokerRequest,
   validateBrokerQuery,
   brokerDenied,
+  brokerMigrationSteps,
 } from "./deployment-broker-policy"
 
 export interface DeploymentBrokerStore {
@@ -401,9 +402,7 @@ export const ProjectDeploymentBrokerLive = (configuration: {
               const migrations = Schema.decodeUnknownSync(BrokerJson)(
                 parsed.migrations
               )
-              for (const migration of Schema.decodeUnknownSync(
-                Schema.Array(BrokerJson)
-              )(migrations.steps ?? [])) {
+              for (const migration of brokerMigrationSteps(migrations)) {
                 for (const className of Schema.decodeUnknownSync(
                   Schema.Array(Schema.String)
                 )(migration.deleted_classes ?? [])) {

@@ -88,6 +88,22 @@ const options = {
       },
       d1Databases: ["DB"],
       outboundService: (request) => {
+        if (
+          new URL(request.url).pathname.endsWith(
+            "/workers/scripts/sylph-fixture-web/settings"
+          )
+        )
+          return new Response(null, { status: 404 })
+        if (
+          request.method === "PUT" &&
+          new URL(request.url).pathname.endsWith(
+            "/workers/scripts/sylph-fixture-web"
+          )
+        )
+          return Response.json({
+            success: true,
+            result: { id: "sylph-fixture-web" },
+          })
         if (new URL(request.url).pathname.endsWith("/d1/database")) {
           assert.equal(
             request.headers.get("Authorization"),

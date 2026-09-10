@@ -16,7 +16,10 @@ export const verifyDeploymentBroker = async (runtime) => {
       .filter(Boolean)
       .map((sql) => database.prepare(sql))
   )
-  const plan = JSON.stringify([{ kind: "d1", name: "sylph-fixture-db" }])
+  const plan = JSON.stringify([
+    { kind: "d1", name: "sylph-fixture-db" },
+    { kind: "worker", name: "sylph-fixture-web" },
+  ])
   const token = `sylph-cap-${"a".repeat(64)}`
   const hash = createHash("sha256").update(token).digest("hex")
   await database.batch([
@@ -54,6 +57,52 @@ export const verifyDeploymentBroker = async (runtime) => {
   assert.equal(redirect.status, 302)
   assert.equal(redirect.headers.get("Location"), null)
   assert.equal((await redirect.text()).includes("fixture-owner-token"), false)
+  const form = new FormData()
+  form.set(
+    "metadata",
+    JSON.stringify({
+      main_module: "main.js",
+      containers: [],
+      migrations: {
+        new_classes: [],
+        new_sqlite_classes: [],
+        deleted_classes: [],
+        renamed_classes: [],
+        transferred_classes: [],
+      },
+    })
+  )
+  form.set(
+    "main.js",
+    new File(
+      ["export default { fetch() { return new Response('fixture') } }"],
+      "main.js",
+      { type: "application/javascript+module" }
+    )
+  )
+  const encoded = new Response(form)
+  const created = await runtime.dispatchFetch(
+    "https://fixture.test/api/project-deployment/accounts/account/workers/scripts/sylph-fixture-web",
+    {
+      headers: {
+        ...options.headers,
+        "Content-Type": encoded.headers.get("Content-Type"),
+      },
+      method: "PUT",
+      body: await encoded.arrayBuffer(),
+    }
+  )
+  assert.equal(created.status, 200, await created.clone().text())
+  assert.equal(
+    (
+      await database
+        .prepare(
+          "SELECT resource_id FROM project_deployment_resource WHERE kind = 'worker'"
+        )
+        .first()
+    ).resource_id,
+    "sylph-fixture-web"
+  )
   const stateUrl =
     "https://fixture.test/api/project-deployment/state/stacks/sylph-fixture/stages/preview/resources/Database"
   const absent = await runtime.dispatchFetch(stateUrl, options)

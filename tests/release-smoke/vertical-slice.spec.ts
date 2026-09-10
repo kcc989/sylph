@@ -318,9 +318,6 @@ test("setup through eviction recovery", async ({ page, browser }, testInfo) => {
         timeout: 10 * 60 * 1000,
       })
       .toBeGreaterThanOrEqual(5)
-    await expect(checks.getByText(/^(queued|running|failed)$/)).toHaveCount(0, {
-      timeout: 10 * 60 * 1000,
-    })
     await inspector
       .getByRole("checkbox", { name: "Capture browser evidence", exact: true })
       .check()
@@ -330,6 +327,7 @@ test("setup through eviction recovery", async ({ page, browser }, testInfo) => {
     await expect(checks.getByText("passed", { exact: true })).toHaveCount(9, {
       timeout: 10 * 60 * 1000,
     })
+    await expect(checks.getByText(/^(queued|running|failed)$/)).toHaveCount(0)
     await expect(checks).toContainText("Evidence captured")
     await inspector.getByRole("button", { name: /^Changes/ }).click()
     await page.getByLabel("Compare").selectOption("branch")

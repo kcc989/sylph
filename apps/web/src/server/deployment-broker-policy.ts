@@ -148,6 +148,30 @@ export const validateBrokerBindings = (
   }
 }
 
+const migrationFields = [
+  "new_classes",
+  "new_sqlite_classes",
+  "deleted_classes",
+  "renamed_classes",
+  "transferred_classes",
+]
+
+export const brokerMigrationSteps = (migrations: typeof BrokerJson.Type) => {
+  keys(migrations, ["old_tag", "new_tag", "steps", ...migrationFields])
+  if (migrations.steps !== undefined) {
+    if (migrationFields.some((field) => field in migrations))
+      brokerDenied("mixed Durable Object migration formats")
+    return Schema.decodeUnknownSync(Schema.Array(BrokerJson))(migrations.steps)
+  }
+  return [
+    Object.fromEntries(
+      Object.entries(migrations).filter(([field]) =>
+        migrationFields.includes(field)
+      )
+    ),
+  ]
+}
+
 export const validateWorkerMetadata = (
   value: typeof BrokerJson.Type,
   plan: ProjectResourcePlan,
@@ -169,21 +193,20 @@ export const validateWorkerMetadata = (
     "keep_assets",
     "logpush",
     "tail_consumers",
+    "containers",
   ])
+  if (
+    Schema.decodeUnknownSync(Schema.Array(BrokerJson))(
+      metadata.containers ?? []
+    ).length
+  )
+    brokerDenied("Container-backed Workers require a reviewed adapter")
   if (metadata.tail_consumers) brokerDenied("tail consumers")
   validateBrokerBindings(metadata.bindings, plan, resources)
   if (metadata.migrations) {
     const migrations = object(metadata.migrations)
-    keys(migrations, ["old_tag", "new_tag", "steps"])
-    for (const step of Schema.decodeUnknownSync(Schema.Array(BrokerJson))(
-      migrations.steps ?? []
-    )) {
-      keys(step, [
-        "new_classes",
-        "new_sqlite_classes",
-        "deleted_classes",
-        "renamed_classes",
-      ])
+    for (const step of brokerMigrationSteps(migrations)) {
+      keys(step, migrationFields)
       for (const field of [
         "new_classes",
         "new_sqlite_classes",
@@ -210,8 +233,18 @@ export const validateWorkerMetadata = (
           )
             brokerDenied("unreviewed Durable Object migration")
       }
-      if (step.renamed_classes)
+      if (
+        Schema.decodeUnknownSync(Schema.Array(BrokerJson))(
+          step.renamed_classes ?? []
+        ).length
+      )
         brokerDenied("Durable Object rename requires dedicated review")
+      if (
+        Schema.decodeUnknownSync(Schema.Array(BrokerJson))(
+          step.transferred_classes ?? []
+        ).length
+      )
+        brokerDenied("Durable Object transfer requires dedicated review")
     }
   }
   return metadata
