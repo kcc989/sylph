@@ -443,7 +443,6 @@ test("setup through eviction recovery", async ({ page, browser }, testInfo) => {
     })
 
   await test.step("evict, restart, and recover the durable Workspace", async () => {
-    const articleCount = await page.locator("article").count()
     await page.getByRole("button", { name: "More workspace actions" }).click()
     await page.getByRole("menuitem", { name: "Restart runtime" }).click()
     await expect(
@@ -469,11 +468,8 @@ test("setup through eviction recovery", async ({ page, browser }, testInfo) => {
         `Read ${proofFile} and reply with its exact contents. Do not change any files.`
       )
     await page.getByRole("button", { name: "Send message" }).click()
-    await expect
-      .poll(() => page.locator("article").count(), {
-        timeout: 3 * 60 * 1000,
-      })
-      .toBeGreaterThan(articleCount + 1)
+    await expect(page.getByText("Agent working", { exact: true })).toBeVisible()
+    await finishWorkspaceTurn(page)
     await expect(page.locator("article").last()).toContainText(proofMarker)
   })
 
