@@ -840,13 +840,25 @@ export const ProjectDeploymentBrokerLive = (configuration: {
             }
             return Response.json(result)
           },
-          catch: (cause) =>
-            cause instanceof DeploymentBrokerFailure
-              ? cause
-              : new DeploymentBrokerFailure({
-                  message:
-                    "Project deployment capability denied or provider request failed. The operation is outside the approved surface, expired, or revoked; no account credential is available to Project commands.",
-                }),
+          catch: (cause) => {
+            if (cause instanceof DeploymentBrokerFailure) return cause
+            console.warn("Deployment broker internal failure", {
+              method: request.method,
+              route: new URL(request.url).pathname,
+              name: cause instanceof Error ? cause.name : "UnknownFailure",
+              frames:
+                cause instanceof Error
+                  ? cause.stack
+                      ?.split("\n")
+                      .filter((line) => /^\s+at /.test(line))
+                      .slice(-8)
+                  : [],
+            })
+            return new DeploymentBrokerFailure({
+              message:
+                "Project deployment capability denied or provider request failed. The operation is outside the approved surface, expired, or revoked; no account credential is available to Project commands.",
+            })
+          },
         })
       }),
     })
