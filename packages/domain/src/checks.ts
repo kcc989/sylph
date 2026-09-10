@@ -314,7 +314,6 @@ export class WorkspaceBrowserToolOutput extends Schema.Class<WorkspaceBrowserToo
   url: Schema.NonEmptyString,
   checkId: Schema.NonEmptyString,
   evidence: Schema.Array(WorkspaceCheckEvidence),
-  accessibility: Schema.String,
   session: Schema.optional(Schema.NullOr(WorkspaceBrowserSession)),
   journey: Schema.optional(Schema.NullOr(BrowserJourneyResult)),
   policy: Schema.optional(Schema.NullOr(BrowserJourneyPolicy)),
@@ -325,6 +324,7 @@ export class WorkspaceBrowserToolOutput extends Schema.Class<WorkspaceBrowserToo
     Schema.Literals(["observed", "passed", "failed", "closed"])
   ),
   detail: Schema.optional(Schema.String),
+  accessibility: Schema.String,
 }) {}
 
 export class WorkspaceArchiveInput extends Schema.Class<WorkspaceArchiveInput>(

@@ -15,6 +15,7 @@ on:
       - "packages/**"
       - "scripts/check-dependency-policy.mjs"
       - "tools/deployment/**"
+      - "tools/worker-build/**"
       - "tools/template-contract/**"
       - "tools/resource-management/**"
       - "tools/wizard/**"
@@ -60,6 +61,8 @@ jobs:
       - run: bun run typecheck
       - run: bun run test
       - run: bun run build
+      - run: bun run check:workers
+      - run: bun run smoke:workers
       - run: docker build -f packages/cursor-provider/Dockerfile -t sylph-cursor:test .
       - run: bun run smoke:runtime
 

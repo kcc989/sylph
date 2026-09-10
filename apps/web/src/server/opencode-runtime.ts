@@ -1,14 +1,31 @@
 import { openCodeLogging } from "./opencode-logging"
+import { openCodeCacheLayer } from "./opencode-cache"
+import { KV } from "@opencode-ai/core/kv"
+import { Bus } from "@opencode-ai/core/bus"
+import { Event } from "@opencode-ai/schema/event"
 import { OpenCode } from "@opencode-ai/client"
 import { PluginPromise } from "@opencode-ai/core/plugin/promise"
 import { ConfigPluginSource } from "@opencode-ai/core/config/plugin/source"
 import { SessionRestart } from "@opencode-ai/core/session/execution/restart"
 import { SdkPlugins } from "@opencode-ai/core/plugin/sdk"
 import type { Plugin } from "@opencode-ai/plugin"
+import {
+  OpenCodeEvent,
+  isOpenCodeEvent,
+} from "@opencode-ai/protocol/groups/event"
 import { ServerFetch } from "@opencode-ai/server/fetch"
 import { ServerWorkerd } from "@opencode-ai/server/workerd"
 import type { OpenCodeWorkerd } from "@opencode-ai/sdk/workerd"
-import { Context, Effect, Exit, Layer, Scope, Stream } from "effect"
+import {
+  Context,
+  Effect,
+  Exit,
+  Fiber,
+  Layer,
+  Schema,
+  Scope,
+  Stream,
+} from "effect"
 
 export const createOpenCodeRuntime = async (
   options: Omit<OpenCodeWorkerd.CreateOptions, "log">,
@@ -19,10 +36,13 @@ export const createOpenCodeRuntime = async (
   let register = async (_plugin: Plugin.Plugin): Promise<void> => {
     throw new Error("OpenCode runtime has not started")
   }
+  let events: Stream.Stream<unknown, unknown> | undefined
   const plugins = SdkPlugins.layer.pipe(
     Layer.tap((context) =>
       Effect.gen(function* () {
         const service = Context.get(context, SdkPlugins.Service)
+        const bus = yield* Bus.Service
+        events = bus.subscribe().pipe(Stream.filter(isOpenCodeEvent))
         register = (plugin) =>
           Effect.runPromise(service.register(PluginPromise.fromPromise(plugin)))
         for (const plugin of options.plugins ?? [])
@@ -44,6 +64,7 @@ export const createOpenCodeRuntime = async (
       ServerFetch.make(ServerWorkerd.serverOptions(profile), {
         overrides: [
           ...ServerWorkerd.replacements(profile),
+          [KV.node, { ...KV.node, implementation: openCodeCacheLayer }],
           [
             SessionRestart.node,
             {
@@ -68,7 +89,14 @@ export const createOpenCodeRuntime = async (
             },
           ],
           ...(boot.overrides ?? []),
-          [SdkPlugins.node, { ...SdkPlugins.node, implementation: plugins }],
+          [
+            SdkPlugins.node,
+            {
+              ...SdkPlugins.node,
+              dependencies: [...SdkPlugins.node.dependencies, Bus.node],
+              implementation: plugins,
+            },
+          ],
         ],
       }).pipe(
         Effect.provide(logging),
@@ -84,10 +112,48 @@ export const createOpenCodeRuntime = async (
       baseUrl: "http://opencode.local",
       fetch: transport,
     })
+    if (!events) throw new Error("OpenCode event subscription is unavailable")
+    const subscribedEvents = events
+    const liveEvents = Stream.unwrap(
+      Effect.gen(function* () {
+        const pull = yield* Stream.toPull(subscribedEvents)
+        const first = yield* Effect.forkScoped(pull, { startImmediately: true })
+        return Stream.make({
+          id: Event.ID.create(),
+          type: "server.connected",
+          data: {},
+        }).pipe(
+          Stream.concat(
+            Stream.fromEffect(Fiber.join(first)).pipe(Stream.flattenIterable)
+          ),
+          Stream.concat(Stream.fromPull(Effect.succeed(pull)))
+        )
+      })
+    )
     return {
       ...client,
       sessions: client.session,
-      events: client.event,
+      events: {
+        subscribe: ({ signal }: { signal?: AbortSignal } = {}) =>
+          Stream.toAsyncIterable(
+            liveEvents.pipe(
+              Stream.mapEffect((event) =>
+                Schema.encodeUnknownEffect(OpenCodeEvent)(event)
+              ),
+              Stream.interruptWhen(
+                Effect.callback<void>((resume) => {
+                  if (!signal) return
+                  const abort = () => resume(Effect.void)
+                  if (signal.aborted) abort()
+                  else signal.addEventListener("abort", abort, { once: true })
+                  return Effect.sync(() =>
+                    signal.removeEventListener("abort", abort)
+                  )
+                })
+              )
+            )
+          ),
+      },
       plugin: Object.assign(register, client.plugin),
       close,
       [Symbol.asyncDispose]: close,
@@ -97,3 +163,5 @@ export const createOpenCodeRuntime = async (
     throw error
   }
 }
+
+export type OpenCodeRuntime = Awaited<ReturnType<typeof createOpenCodeRuntime>>

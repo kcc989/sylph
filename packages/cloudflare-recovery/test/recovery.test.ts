@@ -36,7 +36,7 @@ class Provider {
     expect(new Headers(init.headers).get("authorization")).toBe(
       "Bearer test-token"
     )
-    expect(init.redirect).toBe("error")
+    expect(init.redirect).toBe("manual")
     const path = new URL(url)
     if (path.pathname.endsWith("/queues"))
       return Response.json({

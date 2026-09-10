@@ -9,6 +9,7 @@ import {
 import {
   authorizeBrokerRequest,
   validateBrokerBindings,
+  validateWorkerMetadata,
 } from "./deployment-broker-policy"
 import {
   BrokerJson,
@@ -25,6 +26,91 @@ const owned = [
   { kind: "worker", name: "project-a-web", id: "project-a-web" },
   { kind: "d1", name: "project-a-db", id: "database-a" },
 ]
+
+test("D1 upload bindings accept either provider identity field and reject conflicts or foreign databases", () => {
+  for (const field of ["id", "database_id"]) {
+    expect(() =>
+      validateBrokerBindings(
+        [{ name: "DB", type: "d1", [field]: "database-a" }],
+        plan,
+        owned
+      )
+    ).not.toThrow()
+    expect(() =>
+      validateBrokerBindings(
+        [{ name: "DB", type: "d1", [field]: "foreign" }],
+        plan,
+        owned
+      )
+    ).toThrow("foreign d1")
+    expect(() =>
+      validateBrokerBindings(
+        [{ name: "DB", type: "d1", [field]: "drill" }],
+        plan,
+        [
+          ...owned,
+          { kind: "d1", name: "project-a-recovery-drill", id: "drill" },
+        ]
+      )
+    ).toThrow("restore drill")
+  }
+  expect(() =>
+    validateBrokerBindings(
+      [{ name: "DB", type: "d1", id: "database-a", database_id: "foreign" }],
+      plan,
+      owned
+    )
+  ).toThrow("disagree")
+})
+
+test("Alchemy Worker metadata accepts empty containers and flat migrations without broadening ownership", () => {
+  const metadata = {
+    main_module: "main.js",
+    containers: [],
+    bindings: [],
+    migrations: {
+      new_classes: [],
+      new_sqlite_classes: [],
+      deleted_classes: [],
+      renamed_classes: [],
+      transferred_classes: [],
+    },
+  }
+  expect(validateWorkerMetadata(metadata, plan, owned)).toEqual(metadata)
+  expect(() =>
+    validateWorkerMetadata(
+      { ...metadata, containers: [{ class_name: "Container" }] },
+      plan,
+      owned
+    )
+  ).toThrow("Container-backed")
+  for (const field of ["new_classes", "new_sqlite_classes", "deleted_classes"])
+    expect(() =>
+      validateWorkerMetadata(
+        { ...metadata, migrations: { [field]: ["ForeignClass"] } },
+        plan,
+        owned
+      )
+    ).toThrow("unreviewed")
+  for (const field of ["renamed_classes", "transferred_classes"])
+    expect(() =>
+      validateWorkerMetadata(
+        {
+          ...metadata,
+          migrations: { [field]: [{ from: "ForeignClass", to: "LocalClass" }] },
+        },
+        plan,
+        owned
+      )
+    ).toThrow("dedicated review")
+  expect(() =>
+    validateWorkerMetadata(
+      { ...metadata, migrations: { steps: [], new_classes: [] } },
+      plan,
+      owned
+    )
+  ).toThrow("mixed")
+})
 
 const fixture = async () => {
   const lease = {
@@ -1516,96 +1602,101 @@ test("source-owned Queue consumer removal verifies host and provider absence", a
   ).rejects.toThrow("capability denied")
 })
 
-test("class retirement requires exact owned prior namespace, no snapshots and real provider identity", async () => {
-  const descriptor = {
-    kind: "durable_object" as const,
-    name: "project-a-web/Counter",
-    worker: "project-a-web",
-    className: "Counter",
-    retirement: { resourceId: "namespace-a", generation: null },
-  }
-  const topology = [...plan, descriptor]
-  const resources = [
-    ...owned,
-    { kind: "durable_object", name: descriptor.name, id: "namespace-a" },
-  ]
-  const command = (field = "deleted_classes") => ({
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      main_module: "index.js",
-      bindings: [],
-      migrations: {
-        new_tag: "retire-counter",
-        steps: [{ [field]: ["Counter"] }],
-      },
-    }),
-  })
-  for (const [allowed, providerId, succeeds] of [
-    [true, "namespace-a", true],
-    [false, "namespace-a", false],
-    [true, "namespace-b", false],
-  ] as const) {
-    const f = await protocolFixture(
-      async (request) =>
-        new URL(request.url).pathname.endsWith("/containers/applications")
-          ? Response.json([])
-          : new URL(request.url).pathname.endsWith("/workers/scripts")
-            ? Response.json({
-                success: true,
-                result: [{ id: "project-a-web", created_on: "2026-09-07" }],
-              })
-            : request.method === "GET"
+test.each(["steps", "flat"])(
+  "class retirement requires exact owned prior namespace, no snapshots and real provider identity: %s",
+  async (format) => {
+    const descriptor = {
+      kind: "durable_object" as const,
+      name: "project-a-web/Counter",
+      worker: "project-a-web",
+      className: "Counter",
+      retirement: { resourceId: "namespace-a", generation: null },
+    }
+    const topology = [...plan, descriptor]
+    const resources = [
+      ...owned,
+      { kind: "durable_object", name: descriptor.name, id: "namespace-a" },
+    ]
+    const command = (field = "deleted_classes") => ({
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        main_module: "index.js",
+        bindings: [],
+        migrations: {
+          new_tag: "retire-counter",
+          ...(format === "steps"
+            ? { steps: [{ [field]: ["Counter"] }] }
+            : { [field]: ["Counter"] }),
+        },
+      }),
+    })
+    for (const [allowed, providerId, succeeds] of [
+      [true, "namespace-a", true],
+      [false, "namespace-a", false],
+      [true, "namespace-b", false],
+    ] as const) {
+      const f = await protocolFixture(
+        async (request) =>
+          new URL(request.url).pathname.endsWith("/containers/applications")
+            ? Response.json([])
+            : new URL(request.url).pathname.endsWith("/workers/scripts")
               ? Response.json({
                   success: true,
-                  result: [
-                    {
-                      id: providerId,
-                      script: "project-a-web",
-                      class: "Counter",
-                    },
-                  ],
-                  result_info: {
-                    page: 1,
-                    per_page: 100,
-                    count: 1,
-                    total_count: 1,
-                    total_pages: 1,
-                  },
+                  result: [{ id: "project-a-web", created_on: "2026-09-07" }],
                 })
-              : Response.json({
-                  success: true,
-                  result: { id: "project-a-web" },
-                }),
-      resources,
-      topology,
-      async () => allowed
-    )
-    if (succeeds)
-      expect(
-        (await f.run("/workers/scripts/project-a-web", command())).status
-      ).toBe(200)
-    else {
+              : request.method === "GET"
+                ? Response.json({
+                    success: true,
+                    result: [
+                      {
+                        id: providerId,
+                        script: "project-a-web",
+                        class: "Counter",
+                      },
+                    ],
+                    result_info: {
+                      page: 1,
+                      per_page: 100,
+                      count: 1,
+                      total_count: 1,
+                      total_pages: 1,
+                    },
+                  })
+                : Response.json({
+                    success: true,
+                    result: { id: "project-a-web" },
+                  }),
+        resources,
+        topology,
+        async () => allowed
+      )
+      if (succeeds)
+        expect(
+          (await f.run("/workers/scripts/project-a-web", command())).status
+        ).toBe(200)
+      else {
+        await expect(
+          f.run("/workers/scripts/project-a-web", command())
+        ).rejects.toThrow("capability denied")
+        expect(f.calls.some((request) => request.method === "PUT")).toBe(false)
+      }
       await expect(
-        f.run("/workers/scripts/project-a-web", command())
+        f.run("/workers/scripts/project-a-web", command("new_classes"))
       ).rejects.toThrow("capability denied")
-      expect(f.calls.some((request) => request.method === "PUT")).toBe(false)
     }
+    const newClass = await protocolFixture(
+      async () => Response.json({ success: true }),
+      owned,
+      topology,
+      async () => true
+    )
     await expect(
-      f.run("/workers/scripts/project-a-web", command("new_classes"))
+      newClass.run("/workers/scripts/project-a-web", command())
     ).rejects.toThrow("capability denied")
+    expect(newClass.calls).toHaveLength(0)
   }
-  const newClass = await protocolFixture(
-    async () => Response.json({ success: true }),
-    owned,
-    topology,
-    async () => true
-  )
-  await expect(
-    newClass.run("/workers/scripts/project-a-web", command())
-  ).rejects.toThrow("capability denied")
-  expect(newClass.calls).toHaveLength(0)
-})
+)
 
 test("object ID inventory is read-only and limited to an owned namespace", async () => {
   const topology = [

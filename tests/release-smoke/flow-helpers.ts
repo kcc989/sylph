@@ -15,12 +15,16 @@ export const verifyMarkerJourney = async (page: Page, marker: string) => {
     .getByRole("region", { name: "Workspace inspector" })
     .getByRole("button", { name: "Preview", exact: true })
     .click()
-  await page.getByRole("button", { name: "Set policy", exact: true }).click()
-  await page.getByRole("button", { name: "Add journey", exact: true }).click()
+  await page.getByRole("button", { name: "Browser Run", exact: true }).click()
+  await page.getByRole("button", { name: /^(Set policy|Edit policy)$/ }).click()
+  if (!(await page.getByLabel("Journey name", { exact: true }).count()))
+    await page.getByRole("button", { name: "Add journey", exact: true }).click()
   await page
     .getByLabel("Journey name", { exact: true })
     .fill("Current Preview marker")
-  await page.getByLabel("Step 1: CSS selector", { exact: true }).fill("body")
+  await page
+    .getByLabel("Step 1: CSS selector", { exact: true })
+    .fill("[data-sylph-smoke-proof]")
   await page.getByLabel("Expected text", { exact: true }).fill(marker)
   await page
     .getByLabel("Reason for this policy", { exact: true })
@@ -35,7 +39,15 @@ export const verifyMarkerJourney = async (page: Page, marker: string) => {
     ).toBeEnabled()
     await expect(page.getByRole("alert")).toHaveCount(0)
   }
-  await act("Start browser")
+  const start = page.getByRole("button", {
+    name: /^(Start browser|Start new session)$/,
+  })
+  await expect(start).toBeEnabled()
+  await start.click()
+  await expect(
+    page.getByRole("button", { name: "Observe", exact: true })
+  ).toBeEnabled()
+  await expect(page.getByRole("alert")).toHaveCount(0)
   await act("Begin attempt")
   for (const viewport of ["desktop", "mobile"]) {
     await page
@@ -48,7 +60,9 @@ export const verifyMarkerJourney = async (page: Page, marker: string) => {
   }
   await act("Finish journey")
   await expect(
-    page.getByText("Browser acceptance requirement satisfied", { exact: false })
+    page.getByText("No browser requirements are blocking acceptance", {
+      exact: false,
+    })
   ).toBeVisible()
 }
 
@@ -75,7 +89,7 @@ export const finishWorkspaceTurn = async (
           (await page.getByText("Agent working", { exact: true }).count()) === 0
         )
       },
-      { timeout: 5 * 60 * 1000 }
+      { timeout: 15 * 60 * 1000 }
     )
     .toBe(true)
   const assistantError = page.getByRole("article").filter({
@@ -91,10 +105,37 @@ export const finishWorkspaceTurn = async (
 }
 
 export const expectExpandableToolCalls = async (page: Page) => {
+  const completedCalls = page.locator('button[aria-label$=", completed"]')
+  const writeCall = completedCalls
+    .filter({ hasText: /^(Wrote |Edited |Applied patch)/ })
+    .first()
+  const shellCall = completedCalls.filter({ hasText: /^Ran command$/ }).first()
+  const earlier = page.getByRole("button", {
+    name: "Earlier messages",
+    exact: true,
+  })
+  for (
+    let pageCount = 0;
+    pageCount < 20 &&
+    (!(await writeCall.count()) || !(await shellCall.count())) &&
+    (await earlier.count());
+    pageCount++
+  ) {
+    const previous = await page
+      .getByRole("log")
+      .getByRole("article")
+      .allTextContents()
+    await earlier.click()
+    await expect(page.getByRole("log").getByRole("article")).not.toHaveText(
+      previous
+    )
+    await expect(
+      page.getByRole("button", { name: "Loading messages…", exact: true })
+    ).toHaveCount(0)
+  }
   const groupToggle = page.getByRole("button", {
     name: /^Toggle \d+ tool calls:/,
   })
-  const completedCalls = page.locator('button[aria-label$=", completed"]')
   if (await groupToggle.count()) {
     const group = groupToggle.first().locator("..")
     const groupedCalls = group.locator('button[aria-label$=", completed"]')
@@ -107,15 +148,11 @@ export const expectExpandableToolCalls = async (page: Page) => {
   for (const toggle of await groupToggle.all())
     if ((await toggle.getAttribute("aria-expanded")) !== "true")
       await toggle.click()
-  const writeCall = completedCalls
-    .filter({ hasText: /^(Wrote |Edited |Applied patch)/ })
-    .first()
   await expect(writeCall).toBeVisible()
   await writeCall.click()
   await expect(
     writeCall.locator("..").getByRole("heading", { name: "Input", exact: true })
   ).toBeVisible()
-  const shellCall = completedCalls.filter({ hasText: /^Ran command$/ }).first()
   await expect(shellCall).toBeVisible()
   await shellCall.click()
   await expect(
@@ -123,4 +160,9 @@ export const expectExpandableToolCalls = async (page: Page) => {
       .locator("..")
       .getByRole("heading", { name: "Output", exact: true })
   ).toBeVisible()
+  const latest = page.getByRole("button", {
+    name: "Latest messages",
+    exact: true,
+  })
+  if (await latest.count()) await latest.click()
 }

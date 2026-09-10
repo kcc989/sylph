@@ -62,7 +62,6 @@ const fixture = (replay: WorkspaceSocketSource["sessions"]["log"]) => {
   const cursors: number[] = []
   const pending: WorkspaceRuntimeEvent[] = []
   const signals: AbortSignal[] = []
-  const subscriptions: Promise<void>[] = []
   let wake = deferred()
   const source: WorkspaceSocketSource = {
     sessions: { log: replay },
@@ -89,26 +88,31 @@ const fixture = (replay: WorkspaceSocketSource["sessions"]["log"]) => {
         sockets.filter(
           (socket) => !tag || tag === `user:${socket.attachment.userId}`
         ),
-      waitUntil: (promise) => {
-        subscriptions.push(promise)
-      },
     },
-    Promise.resolve(source),
+    () => Promise.resolve(source),
     () => ({ sessionId: "session", archivedAt: null }),
     (cursor) => {
       cursors.push(cursor)
     }
   )
-  const service = Effect.runSync(
-    Effect.gen(function* () {
-      return yield* WorkspaceSockets
-    }).pipe(Effect.provide(layer))
-  )
+  const createService = () =>
+    Effect.runSync(
+      Effect.gen(function* () {
+        return yield* WorkspaceSockets
+      }).pipe(Effect.provide(layer))
+    )
+  const service = createService()
   return {
     service,
     sockets,
     cursors,
     signals,
+    resumeAfterHibernation: async () => {
+      await service.stop()
+      const resumed = createService()
+      await resumed.resume(source)
+      return resumed
+    },
     connect: async (socket: Socket, cursor: number | null = null) => {
       sockets.push(socket)
       await service.webSocketMessage(
@@ -121,8 +125,7 @@ const fixture = (replay: WorkspaceSocketSource["sessions"]["log"]) => {
       wake.resolve()
     },
     stop: async () => {
-      service.stop()
-      await Promise.all(subscriptions)
+      await service.stop()
     },
   }
 }
@@ -133,6 +136,26 @@ const received = (socket: Socket) =>
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 describe("Workspace socket synchronization", () => {
+  test("resumes live delivery for retained sockets without another hello", async () => {
+    const replay = [event(1)]
+    const f = fixture(async function* () {
+      yield* replay
+    })
+    const socket = new Socket()
+    await f.connect(socket)
+    replay.push(event(2))
+    const resumed = await f.resumeAfterHibernation()
+    try {
+      f.emit(event(3))
+      await tick()
+      expect(received(socket)).toEqual([event(1).id, event(2).id, event(3).id])
+      expect(f.signals).toHaveLength(2)
+      expect(f.signals[0]?.aborted).toBe(true)
+      expect(f.signals[1]?.aborted).toBe(false)
+    } finally {
+      await resumed.stop()
+    }
+  })
   test("reconnects from its saved cursor when live events exceed replay memory", async () => {
     const started = deferred()
     const finish = deferred()

@@ -28,6 +28,111 @@ class TestSqlStorage {
   }
 }
 
+test("checks reuse a manual checkpoint whose Git push is still in flight", async () => {
+  const storage = new TestSqlStorage()
+  const filesystem = new WorkspaceFilesystem(storage)
+  filesystem.initialize()
+  await git.init({ fs: filesystem, dir: "/workspace", defaultBranch: "main" })
+  await filesystem.writeFile("proof.txt", "before")
+  await git.add({ fs: filesystem, dir: "/workspace", filepath: "proof.txt" })
+  const base = await git.commit({
+    fs: filesystem,
+    dir: "/workspace",
+    message: "Baseline",
+    author: { name: "Test", email: "test@example.com" },
+  })
+  let remoteHead = base
+  let pushes = 0
+  const started = Promise.withResolvers<void>()
+  const release = Promise.withResolvers<void>()
+  const packet = (value: string) =>
+    `${(new TextEncoder().encode(value).byteLength + 4).toString(16).padStart(4, "0")}${value}`
+  const server = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    async fetch(request) {
+      if (request.method === "GET")
+        return new Response(
+          `${packet("# service=git-receive-pack\n")}0000${packet(`${remoteHead} refs/heads/main\0report-status side-band-64k\n`)}0000`,
+          {
+            headers: {
+              "Content-Type": "application/x-git-receive-pack-advertisement",
+            },
+          }
+        )
+      const command =
+        new TextDecoder()
+          .decode(await request.arrayBuffer())
+          .slice(4)
+          .split("\n")[0] ?? ""
+      const [previous, next] = command.split(" ")
+      if (!previous || !next) throw new Error("Missing Git ref update")
+      pushes++
+      started.resolve()
+      await release.promise
+      const accepted = previous === remoteHead
+      if (accepted) remoteHead = next
+      return new Response(
+        `${packet(`\x01${packet("unpack ok\n")}${packet(accepted ? "ok refs/heads/main\n" : "ng refs/heads/main stale ref\n")}0000`)}0000`,
+        { headers: { "Content-Type": "application/x-git-receive-pack-result" } }
+      )
+    },
+  })
+  try {
+    const workspaceGit = new WorkspaceGit(
+      storage,
+      {
+        get: async () => ({
+          defaultBranch: "main",
+          createToken: async () => ({ plaintext: "fixture" }),
+        }),
+      },
+      filesystem
+    )
+    workspaceGit.initialize()
+    storage.sql.exec(
+      "INSERT INTO app_workspace_vcs (singleton, repository_name, repository_remote, project_repository_name, project_repository_remote, default_ref, base_commit, fork_head, project_head, sync_status, merge_status) VALUES (1, 'workspace', ?, 'project', ?, 'main', ?, ?, ?, 'ready', 'unreviewed')",
+      server.url.href,
+      server.url.href,
+      base,
+      base,
+      base
+    )
+    await filesystem.writeFile("proof.txt", "after")
+    const manual = workspaceGit.checkpoint({
+      idempotencyKey: "manual",
+      message: "Manual checkpoint",
+    })
+    await started.promise
+    const checks = workspaceGit.checkpointForOperation("Check checkpoint")
+    const preview = workspaceGit.checkpointForOperation("Preview checkpoint")
+    await Bun.sleep(50)
+    release.resolve()
+    const [saved, checked, previewed] = await Promise.all([
+      manual,
+      checks,
+      preview,
+    ])
+    expect(checked).toEqual(saved.checkpoint)
+    expect(previewed).toEqual(saved.checkpoint)
+    expect(remoteHead).toBe(saved.checkpoint.commit)
+    expect(pushes).toBe(1)
+    expect(workspaceGit.checkpoints()).toHaveLength(1)
+    await expect(
+      workspaceGit.checkpoint({
+        idempotencyKey: "empty",
+        message: "No changes",
+      })
+    ).rejects.toThrow("no changes")
+    expect(remoteHead).toBe(
+      (await workspaceGit.checkpointForOperation("After failure")).commit
+    )
+  } finally {
+    release.resolve()
+    server.stop(true)
+  }
+})
+
 describe("WorkspaceFilesystem", () => {
   test("lists root aliases and keeps directory prefixes distinct", async () => {
     const filesystem = new WorkspaceFilesystem(new TestSqlStorage())

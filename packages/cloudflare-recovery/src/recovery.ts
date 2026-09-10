@@ -140,7 +140,7 @@ const createRecovery = (
         "Content-Type": "application/json",
       },
       body,
-      redirect: "error",
+      redirect: "manual",
       signal: AbortSignal.timeout(60000),
     })
     if (!response.ok) throw new Error(`Cloudflare ${response.status}`)

@@ -145,21 +145,21 @@ export class WorkspaceCredentials extends Context.Service<
   }
 >()("@sylph/WorkspaceCredentials") {
   static layer(
-    source: Promise<WorkspaceCredentialClient>,
+    source: () => Promise<WorkspaceCredentialClient>,
     storage: WorkspaceStorage,
     oauth: OpenAIOAuthRequestState
   ) {
     return Layer.succeed(WorkspaceCredentials, {
       install: async (providerId, credential) =>
         installWorkspaceCredential(
-          await source,
+          await source(),
           storage,
           oauth,
           providerId,
           credential
         ),
       waitForIntegration: async (providerId) =>
-        waitForOpenCodeIntegration(await source, providerId),
+        waitForOpenCodeIntegration(await source(), providerId),
     })
   }
 }

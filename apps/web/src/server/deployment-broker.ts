@@ -18,6 +18,7 @@ import {
   authorizeBrokerRequest,
   validateBrokerQuery,
   brokerDenied,
+  brokerMigrationSteps,
 } from "./deployment-broker-policy"
 
 export interface DeploymentBrokerStore {
@@ -257,7 +258,7 @@ export const ProjectDeploymentBrokerLive = (configuration: {
                 {
                   method: "GET",
                   headers: { Authorization: `Bearer ${configuration.token}` },
-                  redirect: "error",
+                  redirect: "manual",
                   signal: AbortSignal.timeout(60000),
                 }
               )
@@ -297,7 +298,7 @@ export const ProjectDeploymentBrokerLive = (configuration: {
                   {
                     method: "GET",
                     headers: { Authorization: `Bearer ${configuration.token}` },
-                    redirect: "error",
+                    redirect: "manual",
                     signal: AbortSignal.timeout(60_000),
                   }
                 )
@@ -376,7 +377,7 @@ export const ProjectDeploymentBrokerLive = (configuration: {
               const existing = await fetcher(probe, {
                 method: "GET",
                 headers,
-                redirect: "error",
+                redirect: "manual",
                 signal: AbortSignal.timeout(60000),
               })
               if (existing.status !== 404)
@@ -390,7 +391,7 @@ export const ProjectDeploymentBrokerLive = (configuration: {
                 {
                   method: "GET",
                   headers,
-                  redirect: "error",
+                  redirect: "manual",
                   signal: AbortSignal.timeout(60000),
                 }
               )
@@ -401,9 +402,7 @@ export const ProjectDeploymentBrokerLive = (configuration: {
               const migrations = Schema.decodeUnknownSync(BrokerJson)(
                 parsed.migrations
               )
-              for (const migration of Schema.decodeUnknownSync(
-                Schema.Array(BrokerJson)
-              )(migrations.steps ?? [])) {
+              for (const migration of brokerMigrationSteps(migrations)) {
                 for (const className of Schema.decodeUnknownSync(
                   Schema.Array(Schema.String)
                 )(migration.deleted_classes ?? [])) {
@@ -513,7 +512,7 @@ export const ProjectDeploymentBrokerLive = (configuration: {
                 const existing = await fetcher(upstreamUrl.href, {
                   method: "GET",
                   headers,
-                  redirect: "error",
+                  redirect: "manual",
                   signal: AbortSignal.timeout(60_000),
                 })
                 if (!existing.ok)
@@ -543,7 +542,7 @@ export const ProjectDeploymentBrokerLive = (configuration: {
               method: request.method,
               headers,
               body: bytes.byteLength ? bytes : undefined,
-              redirect: "error",
+              redirect: "manual",
               signal: AbortSignal.timeout(60_000),
             })
             if (!upstream.ok) {
@@ -604,7 +603,7 @@ export const ProjectDeploymentBrokerLive = (configuration: {
                 const observed = await fetcher(collection.href, {
                   method: "GET",
                   headers,
-                  redirect: "error",
+                  redirect: "manual",
                   signal: AbortSignal.timeout(60_000),
                 })
                 if (!observed.ok)
@@ -744,7 +743,7 @@ export const ProjectDeploymentBrokerLive = (configuration: {
                 const next = await fetcher(upstreamUrl.href, {
                   method: "GET",
                   headers,
-                  redirect: "error",
+                  redirect: "manual",
                   signal: AbortSignal.timeout(60000),
                 })
                 if (!next.ok) brokerDenied("provider collection is unavailable")
@@ -840,11 +839,25 @@ export const ProjectDeploymentBrokerLive = (configuration: {
             }
             return Response.json(result)
           },
-          catch: () =>
-            new DeploymentBrokerFailure({
+          catch: (cause) => {
+            if (cause instanceof DeploymentBrokerFailure) return cause
+            console.warn("Deployment broker internal failure", {
+              method: request.method,
+              route: new URL(request.url).pathname,
+              name: cause instanceof Error ? cause.name : "UnknownFailure",
+              frames:
+                cause instanceof Error
+                  ? cause.stack
+                      ?.split("\n")
+                      .filter((line) => /^\s+at /.test(line))
+                      .slice(-8)
+                  : [],
+            })
+            return new DeploymentBrokerFailure({
               message:
                 "Project deployment capability denied or provider request failed. The operation is outside the approved surface, expired, or revoked; no account credential is available to Project commands.",
-            }),
+            })
+          },
         })
       }),
     })

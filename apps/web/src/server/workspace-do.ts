@@ -89,7 +89,7 @@ import {
   WorkspaceFileNotFound,
   WorkspaceBrowserToolInput,
 } from "@workspace/domain"
-import type { OpenCodeWorkerd } from "@opencode-ai/sdk/workerd"
+import type { OpenCodeRuntime } from "./opencode-runtime"
 import { DurableObject } from "cloudflare:workers"
 import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/durable-sqlite"
@@ -139,8 +139,12 @@ import {
 import { deliverCheckCompletion } from "./workspace-check-completion"
 import { loadInstalledSkills } from "./installed-skills"
 import { createWorkspaceSkillRegistry } from "./workspace-skills"
-import { previewForBrowser } from "./workspace-browser"
+import {
+  assertBrowserWorkspaceWritable,
+  previewForBrowser,
+} from "./workspace-browser"
 import { browserRunLayer } from "./browser-run"
+import { previewForRequest } from "./workspace-preview"
 import {
   WorkspaceBrowser,
   workspaceBrowserLayer,
@@ -301,6 +305,7 @@ const subscriptionMethodId = "chatgpt-headless"
 
 interface WorkspaceBindings extends Cloudflare.Env {
   SYLPH_SMOKE_GROK_BUDGET?: string
+  SYLPH_SMOKE_BUDGET_OVERRIDE?: string
   WORKSPACE_SANDBOX: DurableObjectNamespace<Sandbox>
   CODEX: DurableObjectNamespace<CodexContainer>
   CURSOR: DurableObjectNamespace<CursorConnectionObject>
@@ -324,7 +329,11 @@ const encodeSkillReloadResult = Schema.encodeSync(WorkspaceSkillReloadResult)
 
 export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   readonly #database
-  readonly #opencode: Promise<OpenCodeWorkerd.Interface>
+  readonly #opencode: () => Promise<OpenCodeRuntime>
+  #runtime: Promise<OpenCodeRuntime> | undefined
+  #shutdown: Promise<void> | undefined
+  #activeRequests = 0
+  #lastActivityAt = Date.now()
   readonly #filesystem
   readonly #workspaceGit
   readonly #checks
@@ -397,95 +406,104 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         },
       }).pipe(Layer.provide(browserRunLayer(bindings.BROWSER)))
     )
-    this.#opencode = context.blockConcurrencyWhile(async () => {
-      await this.#cursor.restore()
-      const { createOpenCodeRuntime } = await import("./opencode-runtime")
-      const { Environment } =
-        await import("@opencode-ai/core/environment/index")
-      const { Ripgrep } = await import("@opencode-ai/core/ripgrep")
-      const { workspaceSearchLayer } = await import("./workspace-search")
-      const { workspaceEnvironmentLayer } =
-        await import("./workspace-environment")
-      const { Workspace } = await import("@opencode-ai/core/workspace")
-      const { WorkspaceDriver } =
-        await import("@opencode-ai/core/workspace/driver")
-      const { workspaceShellSelection } =
-        await import("./workspace-shell-selection")
-      const { workspaceSandboxProvider } = await import("./workspace-sandbox")
-      const sandbox = workspaceSandboxProvider(
-        bindings.WORKSPACE_SANDBOX,
-        context.storage,
-        this.#filesystem,
-        () => this.#assertWritable(),
-        `agent-${context.id.toString().slice(0, 56)}`
-      )
-      const opencode = await createOpenCodeRuntime(
-        {
-          storage: context.storage,
-          models: {
-            url: "https://models.opencode.ai",
-            snapshot: false,
-          },
-          config:
-            bindings.SYLPH_SMOKE_GROK_BUDGET === "true"
-              ? {
-                  ...workerdModelConfiguration,
-                  ...smokeModelConfiguration,
+    this.#opencode = async () => {
+      await this.#shutdown
+      return (this.#runtime ??= context.blockConcurrencyWhile(async () => {
+        await this.#cursor.restore()
+        const { createOpenCodeRuntime } = await import("./opencode-runtime")
+        const { Environment } =
+          await import("@opencode-ai/core/environment/index")
+        const { Ripgrep } = await import("@opencode-ai/core/ripgrep")
+        const { workspaceSearchLayer } = await import("./workspace-search")
+        const { workspaceEnvironmentLayer } =
+          await import("./workspace-environment")
+        const { Workspace } = await import("@opencode-ai/core/workspace")
+        const { WorkspaceDriver } =
+          await import("@opencode-ai/core/workspace/driver")
+        const { workspaceShellSelection } =
+          await import("./workspace-shell-selection")
+        const { workspaceSandboxProvider } = await import("./workspace-sandbox")
+        const sandbox = workspaceSandboxProvider(
+          bindings.WORKSPACE_SANDBOX,
+          context.storage,
+          this.#filesystem,
+          () => this.#assertWritable(),
+          `agent-${context.id.toString().slice(0, 56)}`
+        )
+        const opencode = await createOpenCodeRuntime(
+          {
+            storage: context.storage,
+            models: {
+              url: "https://models.opencode.ai",
+              snapshot: false,
+            },
+            config:
+              bindings.SYLPH_SMOKE_GROK_BUDGET === "true"
+                ? {
+                    ...workerdModelConfiguration,
+                    ...smokeModelConfiguration,
+                  }
+                : workerdModelConfiguration,
+            plugins: [
+              this.#cursor.plugin,
+              createWorkspacePlugin(
+                this.#workspaceGit,
+                this.#openAIOAuth,
+                this.#skills,
+                {
+                  codexRequest: (request) =>
+                    this.env.CODEX.get(
+                      this.env.CODEX.idFromName(this.ctx.id.toString())
+                    ).fetch(request),
+                  authorizeModelRequest:
+                    bindings.SYLPH_SMOKE_GROK_BUDGET === "true"
+                      ? (request) =>
+                          reserveSmokeRequest(request, context.storage, {
+                            workspaceId: this.#database
+                              .select()
+                              .from(appWorkspaceState)
+                              .get()?.workspaceId,
+                            override: bindings.SYLPH_SMOKE_BUDGET_OVERRIDE,
+                          })
+                      : undefined,
+                  assertWritable: () => this.#assertWritable(),
+                  runChecks: async (input) => this.#runChecks(input),
+                  syncProject: async () => this.#syncProject(),
+                  checkpoint: async (input) =>
+                    this.#agentCheckpoint(input.message),
+                  preview: async (input) => this.#preview(input),
+                  browser: async (input) => this.#browser(input),
                 }
-              : workerdModelConfiguration,
-          plugins: [
-            this.#cursor.plugin,
-            createWorkspacePlugin(
-              this.#workspaceGit,
-              this.#openAIOAuth,
-              this.#skills,
-              {
-                codexRequest: (request) =>
-                  this.env.CODEX.get(
-                    this.env.CODEX.idFromName(this.ctx.id.toString())
-                  ).fetch(request),
-                authorizeModelRequest:
-                  bindings.SYLPH_SMOKE_GROK_BUDGET === "true"
-                    ? (request) => reserveSmokeRequest(request, context.storage)
-                    : undefined,
-                assertWritable: () => this.#assertWritable(),
-                runChecks: async (input) => this.#runChecks(input),
-                syncProject: async () => this.#syncProject(),
-                checkpoint: async (input) =>
-                  this.#agentCheckpoint(input.message),
-                preview: async (input) => this.#preview(input),
-                browser: async (input) => this.#browser(input),
-              }
-            ),
-          ],
-        },
-        {
-          overrides: [
-            workspaceShellSelection,
-            [WorkspaceDriver.node, sandbox.registry],
-            [Ripgrep.node, workspaceSearchLayer(this.#filesystem)],
-            [
-              Environment.node,
-              {
-                ...Environment.node,
-                dependencies: [Workspace.node],
-                implementation: workspaceEnvironmentLayer(
-                  this.#filesystem,
-                  () => this.#assertWritable(),
-                  sandbox.spawner
-                ),
-              },
+              ),
             ],
-          ],
-        }
-      )
+          },
+          {
+            overrides: [
+              workspaceShellSelection,
+              [WorkspaceDriver.node, sandbox.registry],
+              [Ripgrep.node, workspaceSearchLayer(this.#filesystem)],
+              [
+                Environment.node,
+                {
+                  ...Environment.node,
+                  dependencies: [Workspace.node],
+                  implementation: workspaceEnvironmentLayer(
+                    this.#filesystem,
+                    () => this.#assertWritable(),
+                    sandbox.spawner
+                  ),
+                },
+              ],
+            ],
+          }
+        )
 
-      this.#filesystem.initialize()
-      this.#workspaceGit.initialize()
-      this.#checks.initialize()
-      await this.#scheduleCheckCompletion()
+        this.#filesystem.initialize()
+        this.#workspaceGit.initialize()
+        this.#checks.initialize()
+        await this.#scheduleCheckCompletion()
 
-      this.#database.run(sql`
+        this.#database.run(sql`
         CREATE TABLE IF NOT EXISTS app_workspace_state (
           workspace_id TEXT PRIMARY KEY NOT NULL,
           organization_id TEXT NOT NULL,
@@ -501,8 +519,11 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           archived_at INTEGER
         )
       `)
-      return opencode
-    })
+        await this.#sockets.resume(opencode)
+        await this.#scheduleIdleCheck()
+        return opencode
+      }))
+    }
     const credentialLayer = WorkspaceCredentials.layer(
       this.#opencode,
       context.storage,
@@ -532,7 +553,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   }
 
   async alarm() {
-    const opencode = await this.#opencode
+    const opencode = await this.#opencode()
     try {
       await this.#deliverCheckCompletions(opencode)
     } catch (cause) {
@@ -541,9 +562,31 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       await this.#scheduleCheckCompletion()
     }
     const state = this.#database.select().from(appWorkspaceState).get()
-    if (!state?.sessionId) return
     const active = await opencode.sessions.active()
-    if (!active[state.sessionId]) return
+    if (!state?.sessionId || !active[state.sessionId]) {
+      const idleRemaining = 60_000 - (Date.now() - this.#lastActivityAt)
+      if (this.#activeRequests > 0 || Object.keys(active).length > 0) {
+        await this.#scheduleIdleCheck()
+        return
+      }
+      if (idleRemaining > 0) {
+        await this.#scheduleIdleCheck(idleRemaining)
+        return
+      }
+      this.#shutdown = (async () => {
+        try {
+          await this.#sockets.stop()
+          await opencode.close()
+          console.info("Workspace runtime suspended while idle")
+        } finally {
+          this.#runtime = undefined
+          this.#shutdown = undefined
+        }
+      })()
+      await this.#shutdown
+      return
+    }
+    await this.#scheduleIdleCheck()
     const { messages } = await this.#messages(opencode, state.sessionId)
     const startedAt = activeTurnStartedAt(messages) ?? Date.now()
     const deadline = startedAt + maxTurnDurationMs
@@ -603,8 +646,15 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     return new Response(null, { status: 101, webSocket: client })
   }
 
-  webSocketMessage(socket: WebSocket, message: string | ArrayBuffer) {
-    return this.#sockets.webSocketMessage(socket, message)
+  async webSocketMessage(socket: WebSocket, message: string | ArrayBuffer) {
+    this.#activeRequests += 1
+    this.#lastActivityAt = Date.now()
+    try {
+      return await this.#sockets.webSocketMessage(socket, message)
+    } finally {
+      this.#activeRequests -= 1
+      this.#lastActivityAt = Date.now()
+    }
   }
 
   webSocketClose(
@@ -623,7 +673,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   connectKey(input: typeof OpenCodeKeySetupInput.Encoded) {
     return this.#run(async () => {
       const data = await decodeOpenCodeKeySetupInputPromise(input)
-      const opencode = await this.#opencode
+      const opencode = await this.#opencode()
       await this.#credentials.waitForIntegration(data.providerId)
       try {
         await connectOpenCodeKeyCredential(opencode, {
@@ -655,7 +705,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   ) {
     return this.#run(async () => {
       await decodeOpenCodeSubscriptionStartInputPromise(input)
-      const opencode = await this.#opencode
+      const opencode = await this.#opencode()
       await this.#credentials.waitForIntegration(subscriptionProviderId)
       const attempt = await opencode.integration.oauth.connect({
         integrationID: subscriptionProviderId,
@@ -678,7 +728,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   ) {
     return this.#run(async () => {
       const data = await decodeOpenCodeSubscriptionStatusInputPromise(input)
-      const opencode = await this.#opencode
+      const opencode = await this.#opencode()
       const result = await opencode.integration.oauth
         .status({
           integrationID: subscriptionProviderId,
@@ -736,7 +786,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   ) {
     return this.#run(async () => {
       const data = await decodeOpenCodeSubscriptionStatusInputPromise(input)
-      const opencode = await this.#opencode
+      const opencode = await this.#opencode()
       await opencode.integration.oauth
         .cancel({
           integrationID: subscriptionProviderId,
@@ -749,7 +799,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   initialize(input: typeof InitializeWorkspaceRuntime.Encoded) {
     return this.#run(async () => {
       const data = await decodeInitializeWorkspaceRuntime(input)
-      const opencode = await this.#opencode
+      const opencode = await this.#opencode()
       await this.#initialize(opencode, data)
       return encodeWorkspaceRuntimeHealthSync(await this.#snapshot(opencode))
     })
@@ -758,7 +808,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   checkpoint(input: typeof WorkspaceCheckpointInput.Encoded) {
     return this.#run(async () => {
       const data = await decodeWorkspaceCheckpointInputPromise(input)
-      await this.#opencode
+      await this.#opencode()
       this.#assertWritable()
       const result = await this.#workspaceGit.checkpoint({
         idempotencyKey: data.idempotencyKey,
@@ -771,7 +821,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
 
   listChecks() {
     return this.#run(async () => {
-      await this.#opencode
+      await this.#opencode()
       return encodeWorkspaceCheckRunListSync(this.#checks.list())
     })
   }
@@ -835,7 +885,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   applyCheckUpdate(update: typeof WorkspaceCheckUpdate.Encoded) {
     return this.#run(async () => {
       const data = await decodeWorkspaceCheckUpdatePromise(update)
-      const opencode = await this.#opencode
+      const opencode = await this.#opencode()
       const state = this.#requiredState()
       if (data.run.workspaceId !== state.workspaceId)
         throw new InvalidRequest({
@@ -863,7 +913,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   archive(input: typeof WorkspaceArchiveInput.Encoded) {
     return this.#run(async () => {
       const data = await decodeWorkspaceArchiveInputPromise(input)
-      const opencode = await this.#opencode
+      const opencode = await this.#opencode()
       const state = this.#database.select().from(appWorkspaceState).get()
       if (!state) {
         return encodeArchiveResult(
@@ -911,7 +961,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   retryCheck(input: typeof WorkspaceRetryCheckInput.Encoded) {
     return this.#run(async () => {
       const data = await decodeWorkspaceRetryCheckInputPromise(input)
-      await this.#opencode
+      await this.#opencode()
       const state = this.#requiredState()
       if (data.workspaceId !== state.workspaceId) {
         throw new InvalidRequest({
@@ -927,7 +977,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
 
   updateProject() {
     return this.#run(async () => {
-      await this.#opencode
+      await this.#opencode()
       return encodeWorkspaceSyncResultSync(
         new WorkspaceSyncResult(await this.#syncProject())
       )
@@ -936,7 +986,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
 
   rebase() {
     return this.#run(async () => {
-      await this.#opencode
+      await this.#opencode()
       this.#assertWritable()
       const result = await this.#workspaceGit.rebase()
       await this.#recordVersionControl(false)
@@ -946,7 +996,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
 
   versionControl(refreshProjectHead: boolean, includePatches = true) {
     return this.#run(async () => {
-      await this.#opencode
+      await this.#opencode()
       if (!this.#workspaceGit.hydrated()) return null
       const vcs = await this.#workspaceGit.versionControl(
         refreshProjectHead,
@@ -965,7 +1015,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   prompt(input: typeof WorkspaceRuntimePromptInput.Encoded) {
     return this.#run(async () => {
       const data = await decodeWorkspaceRuntimePromptInputPromise(input)
-      const opencode = await this.#opencode
+      const opencode = await this.#opencode()
       const state = this.#database.select().from(appWorkspaceState).get()
 
       if (!state || state.workspaceId !== data.workspaceId) {
@@ -1018,19 +1068,24 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
             data.credential.type === "key"
           )
             await this.#cursor.refresh(data.credential.key)
-          if (state.credentialFingerprint !== nextCredentialFingerprint) {
+          let catalog = await opencode.model.list()
+          if (
+            state.credentialFingerprint !== nextCredentialFingerprint ||
+            !findWorkspaceModel(catalog.data, data.model)
+          ) {
             await this.#credentials.install(
               data.model.providerId,
               data.credential
             )
+            catalog = await opencode.model.list()
           }
-          const catalog = await opencode.model.list()
           const selected = findWorkspaceModel(catalog.data, data.model)
+          if (!selected) throw new Error("The selected model is unavailable")
           await opencode.sessions.switchModel({
             sessionID: sessionId,
             model: {
               providerID: data.model.providerId,
-              id: selected?.id ?? data.model.modelId,
+              id: selected.id,
               variant: data.model.variant,
             },
           })
@@ -1084,7 +1139,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   cancelTurn(input: typeof WorkspaceTurnCancelInput.Encoded) {
     return this.#run(async () => {
       const data = await decodeWorkspaceTurnCancelInputPromise(input)
-      const opencode = await this.#opencode
+      const opencode = await this.#opencode()
       const state = this.#database.select().from(appWorkspaceState).get()
       if (!state?.sessionId) {
         return encodeTurnCancelResult(
@@ -1123,7 +1178,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
 
   reloadSkills() {
     return this.#run(async () => {
-      await this.#opencode
+      await this.#opencode()
       const state = this.#requiredState()
       await this.#skills.replace(
         await loadInstalledSkills(
@@ -1141,7 +1196,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   replyPermission(input: typeof WorkspacePermissionReplyInput.Encoded) {
     return this.#run(async () => {
       const data = await decodeWorkspacePermissionReplyInputPromise(input)
-      const opencode = await this.#opencode
+      const opencode = await this.#opencode()
       const state = this.#database.select().from(appWorkspaceState).get()
 
       if (!state || state.workspaceId !== data.workspaceId) {
@@ -1164,7 +1219,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   answerQuestion(input: typeof WorkspaceQuestionReplyInput.Encoded) {
     return this.#run(async () => {
       const data = await decodeWorkspaceQuestionReplyInputPromise(input)
-      const opencode = await this.#opencode
+      const opencode = await this.#opencode()
       const state = this.#requiredState()
       if (state.workspaceId !== data.workspaceId || !state.sessionId) {
         throw new InvalidRequest({
@@ -1182,7 +1237,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
 
   discard() {
     return this.#run(async () => {
-      const opencode = await this.#opencode
+      const opencode = await this.#opencode()
       const state = this.#requiredState()
       if (state.sessionId) {
         await opencode.sessions
@@ -1191,6 +1246,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       }
       this.#sockets.stop()
       await opencode.close()
+      this.#runtime = undefined
       await this.ctx.storage.deleteAll()
     })
   }
@@ -1216,7 +1272,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           new WorkspaceMessagePage({ messages: [], cursor: null })
         )
       const page = await this.#messages(
-        await this.#opencode,
+        await this.#opencode(),
         state.sessionId,
         data.cursor
       )
@@ -1236,10 +1292,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     )
       .bind(this.#requiredState().workspaceId)
       .first<{ status: string }>()
-    if (state?.status !== "ready")
-      throw new Error(
-        "Browser actions require a ready Workspace; Acceptance or archival may be in progress."
-      )
+    assertBrowserWorkspaceWritable(state?.status)
   }
 
   reserveBrowserAcceptance(
@@ -1260,8 +1313,10 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   }
 
   browserSnapshot() {
-    return this.#browserRuntime.runPromise(
-      Effect.flatMap(WorkspaceBrowser, (browser) => browser.snapshot())
+    return this.#run(() =>
+      this.#browserRuntime.runPromise(
+        Effect.flatMap(WorkspaceBrowser, (browser) => browser.snapshot())
+      )
     )
   }
 
@@ -1322,13 +1377,16 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   snapshot() {
     return this.#run(async () =>
       encodeWorkspaceRuntimeHealthSync(
-        await this.#snapshot(await this.#opencode)
+        await this.#snapshot(await this.#opencode())
       )
     )
   }
 
   async #run<Value>(operation: () => Promise<Value>) {
+    this.#activeRequests += 1
+    this.#lastActivityAt = Date.now()
     try {
+      await this.#opencode()
       return await operation()
     } catch (error) {
       if (error instanceof OpenCodeCredentialReloadRequired) {
@@ -1356,7 +1414,18 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           })
         )
       )
+    } finally {
+      this.#activeRequests -= 1
+      this.#lastActivityAt = Date.now()
+      if (this.#runtime) await this.#scheduleIdleCheck()
     }
+  }
+
+  async #scheduleIdleCheck(delay = 60_000) {
+    const scheduled = await this.ctx.storage.getAlarm()
+    const deadline = Date.now() + delay
+    if (scheduled === null || scheduled > deadline)
+      await this.ctx.storage.setAlarm(deadline)
   }
 
   #requiredState() {
@@ -1403,7 +1472,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     return versionControl
   }
 
-  async #deliverCheckCompletions(opencode: OpenCodeWorkerd.Interface) {
+  async #deliverCheckCompletions(opencode: OpenCodeRuntime) {
     await this.#checks.deliverCompletions(
       async (completion) => {
         const state = this.#requiredState()
@@ -1441,17 +1510,11 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   }
 
   async #checkpointForOperation(message: string) {
-    const version = await this.#workspaceGit.versionControl()
-    if (version.working.length)
-      return (await this.#agentCheckpoint(message)).checkpoint
-    return (
-      this.#workspaceGit
-        .checkpoints()
-        .find((checkpoint) => checkpoint.commit === version.forkHead) ?? {
-        id: null,
-        commit: version.forkHead,
-      }
-    )
+    this.#assertWritable()
+    const previous = (await this.#workspaceGit.versionControl()).forkHead
+    const checkpoint = await this.#workspaceGit.checkpointForOperation(message)
+    await this.#recordVersionControl(checkpoint.commit !== previous)
+    return checkpoint
   }
 
   async #runChecks(
@@ -1490,7 +1553,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         throw new InvalidRequest({
           message: "Checks belong to another Workspace",
         })
-      await this.#opencode
+      await this.#opencode()
       return encodeWorkspaceCheckRunSync(
         await this.#runChecks(data, data.idempotencyKey)
       )
@@ -1504,7 +1567,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         throw new InvalidRequest({
           message: "Preview belongs to another Workspace",
         })
-      await this.#opencode
+      await this.#opencode()
       return Schema.encodeSync(WorkspacePreviewResult)(
         await this.#preview(data)
       )
@@ -1514,22 +1577,12 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   async #preview(input: WorkspacePreviewToolInput = {}) {
     this.#assertWritable()
     const version = await this.#workspaceGit.versionControl()
-    const current = !version.working.length
-      ? this.#checks
-          .list()
-          .find(
-            (run) =>
-              run.kind === "preview" &&
-              run.commit === version.forkHead &&
-              Boolean(run.captureEvidence) === Boolean(input.captureEvidence)
-          )
-      : undefined
-    if (
-      current &&
-      (current.previewUrl ||
-        current.status === "running" ||
-        current.status === "queued")
+    const { current, compatible, reusable } = previewForRequest(
+      version.working.length ? [] : this.#checks.list(),
+      version.forkHead,
+      Boolean(input.captureEvidence)
     )
+    if (current && reusable)
       return new WorkspacePreviewResult({
         status: current.previewUrl ? "ready" : "pending",
         commit: current.commit,
@@ -1545,9 +1598,11 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       this.#requiredState().workspaceId,
       checkpoint.id,
       checkpoint.commit,
-      current?.status === "passed"
-        ? `preview-${crypto.randomUUID()}`
-        : `preview-${checkpoint.id ?? checkpoint.commit}-${input.captureEvidence ? "evidence" : "deploy"}`,
+      current && compatible && current.status === "failed"
+        ? current.id
+        : current
+          ? `preview-${crypto.randomUUID()}`
+          : `preview-${checkpoint.id ?? checkpoint.commit}-${input.captureEvidence ? "evidence" : "deploy"}`,
       { kind: "preview", captureEvidence: input.captureEvidence }
     )
     return new WorkspacePreviewResult({
@@ -1664,7 +1719,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   }
 
   async #initialize(
-    opencode: OpenCodeWorkerd.Interface,
+    opencode: OpenCodeRuntime,
     input: InitializeWorkspaceRuntime
   ) {
     const existing = this.#database.select().from(appWorkspaceState).get()
@@ -1783,10 +1838,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     }
   }
 
-  async #connectionResult(
-    opencode: OpenCodeWorkerd.Interface,
-    providerId: string
-  ) {
+  async #connectionResult(opencode: OpenCodeRuntime, providerId: string) {
     const [listed, preferred] = await Promise.all([
       opencode.model.list(),
       opencode.model.default(),
@@ -1828,7 +1880,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   }
 
   async #messages(
-    opencode: OpenCodeWorkerd.Interface,
+    opencode: OpenCodeRuntime,
     sessionId: string,
     cursor?: string
   ) {
@@ -1839,7 +1891,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     )
   }
 
-  async #snapshot(opencode: OpenCodeWorkerd.Interface) {
+  async #snapshot(opencode: OpenCodeRuntime) {
     const state = this.#database.select().from(appWorkspaceState).get()
     const health = await opencode.health.get()
     const limits = {

@@ -3,6 +3,7 @@ import type {
   WorkspaceRuntimeMessage,
 } from "@workspace/domain"
 import { Option, Schema } from "effect"
+import { WorkspaceBrowserToolOutput } from "@workspace/domain"
 
 import { workspaceConversationText } from "./workspace-conversation-notice"
 
@@ -48,6 +49,9 @@ export type WorkspaceRuntimeMessageSource = {
 }
 
 const decodeToolInput = Schema.decodeUnknownOption(Schema.JsonObject)
+const decodeBrowserOutput = Schema.decodeUnknownOption(
+  Schema.fromJsonString(WorkspaceBrowserToolOutput)
+)
 
 const textOutput = (content: ReadonlyArray<RuntimeToolContent>) =>
   content
@@ -70,6 +74,37 @@ const boundedOutput = (output: string) => ({
   outputTruncated: output.length > workspaceToolOutputLimit,
 })
 
+const browserOutput = (output: string) => {
+  if (output.length <= workspaceToolOutputLimit) return boundedOutput(output)
+  const lineEnd = output.indexOf("\n")
+  const decoded = decodeBrowserOutput(
+    lineEnd === -1 ? output : output.slice(0, lineEnd)
+  )
+  if (Option.isNone(decoded)) return boundedOutput(output)
+  const value = decoded.value
+  const header = JSON.stringify(
+    new WorkspaceBrowserToolOutput({
+      url: value.url,
+      checkId: value.checkId,
+      evidence: value.evidence,
+      session: value.session,
+      journey: value.journey,
+      policy: value.policy,
+      pages: value.pages,
+      accessibility:
+        "Open the accessibility evidence for the complete snapshot.",
+      outcome: value.outcome,
+      detail: value.detail,
+    })
+  )
+  return {
+    ...boundedOutput(
+      `${header}\n${lineEnd === -1 ? "" : output.slice(lineEnd + 1)}`
+    ),
+    outputTruncated: true,
+  }
+}
+
 const toolPart = (
   part: RuntimeContentPart
 ): WorkspaceMessagePart | undefined => {
@@ -81,7 +116,10 @@ const toolPart = (
       ? "running"
       : stateStatus
   const content = "content" in state ? (state.content ?? []) : []
-  const output = boundedOutput(textOutput(content))
+  const output =
+    part.name === "workspace_browser"
+      ? browserOutput(textOutput(content))
+      : boundedOutput(textOutput(content))
   const input =
     stateStatus === "streaming"
       ? {}

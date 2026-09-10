@@ -80,6 +80,18 @@ test("dotenv values retain spaces, hash signs, and shell syntax without evaluati
   expect(parseEnv(serializeEnvironment({ TOKEN: value })).TOKEN).toBe(value)
 })
 
+test("dotenv snapshots preserve a scoped budget override", () => {
+  const value = JSON.stringify({ workspaceId: "approved", maximumUsd: 8 })
+  expect(
+    parseEnv(serializeEnvironment({ SYLPH_SMOKE_BUDGET_OVERRIDE: value }))
+      .SYLPH_SMOKE_BUDGET_OVERRIDE
+  ).toBe(value)
+  for (const unsupported of ["line\nbreak", "both'\"quotes", "back\\slash"])
+    expect(() => serializeEnvironment({ VALUE: unsupported })).toThrow(
+      "unsupported dotenv characters"
+    )
+})
+
 test("production and arbitrary stages cannot enter smoke deployment", () => {
   for (const stage of ["prod", "production", "release-smoke", "smoke-../prod"])
     expect(() => requireSmokeStage(stage)).toThrow()

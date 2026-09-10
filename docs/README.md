@@ -36,6 +36,7 @@ The [root README](../README.md#the-architecture) describes the current architect
 - [0008: Optional Workspace-owned Check repair](adr/0008-workspace-owned-check-loop.md)
 - [0009: Presentational shared UI](adr/0009-keep-shared-shell-ui-presentational.md)
 - [0010: Forked Template Repositories](adr/0010-project-templates-are-forked-template-repositories.md)
+- [0011: Separate web and runtime deployments](adr/0011-separate-web-and-runtime-deployments.md)
 
 The template ADR was renumbered from the duplicate `0005` to `0010`.
 

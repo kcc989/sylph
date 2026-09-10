@@ -169,7 +169,7 @@ const createRecovery = (
       method,
       headers: values,
       body,
-      redirect: "error",
+      redirect: "manual",
       signal: AbortSignal.timeout(60000),
     })
     if (!response.ok) throw new Error("Cloudflare rejected recovery request")

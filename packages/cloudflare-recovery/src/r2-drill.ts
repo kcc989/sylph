@@ -74,7 +74,7 @@ export const verifyR2RecoveryDrill = Effect.fn(
               "cf-r2-storage-class": "Standard",
             },
             body: value,
-            redirect: "error",
+            redirect: "manual",
             signal: AbortSignal.timeout(60000),
           }
         )
@@ -93,7 +93,7 @@ export const verifyR2RecoveryDrill = Effect.fn(
         `${root}/r2/buckets/${encodeURIComponent(input.bucketName)}/objects?prefix=${encodeURIComponent(key)}&per_page=1000`,
         {
           headers: { Authorization: `Bearer ${configuration.apiToken}` },
-          redirect: "error",
+          redirect: "manual",
           signal: AbortSignal.timeout(60000),
         }
       )
@@ -120,7 +120,7 @@ export const verifyR2RecoveryDrill = Effect.fn(
             Authorization: `Bearer ${configuration.apiToken}`,
             "Accept-Encoding": "identity",
           },
-          redirect: "error",
+          redirect: "manual",
           signal: AbortSignal.timeout(60000),
         }
       )

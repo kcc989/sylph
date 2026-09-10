@@ -1,5 +1,8 @@
 import { Schema } from "effect"
-import { WorkspaceSmokeRequest } from "@workspace/domain"
+import {
+  WorkspaceSmokeRequest,
+  WorkspaceSmokeBudgetOverride,
+} from "@workspace/domain"
 
 export const smokeModel = "x-ai/grok-4.6"
 
@@ -22,8 +25,18 @@ export const reserveSmokeRequest = async (
   request: Request,
   storage: {
     transaction<T>(run: (transaction: BudgetStorage) => Promise<T>): Promise<T>
-  }
+  },
+  options?: { workspaceId?: string; override?: string }
 ) => {
+  const override = options?.override
+    ? Schema.decodeUnknownSync(
+        Schema.fromJsonString(WorkspaceSmokeBudgetOverride)
+      )(options.override)
+    : undefined
+  const maximumUsd =
+    override?.workspaceId === options?.workspaceId
+      ? (override?.maximumUsd ?? 4)
+      : 4
   if (new URL(request.url).hostname !== "openrouter.ai")
     throw new Error("Smoke run permits only OpenRouter Grok 4.6 requests")
   const decoded = Schema.decodeUnknownOption(WorkspaceSmokeRequest)(
@@ -38,16 +51,16 @@ export const reserveSmokeRequest = async (
   if (!Number.isInteger(output) || output <= 0 || output > 4096)
     throw new Error("Smoke requests require an output limit of at most 4096")
   const bytes = (await request.clone().arrayBuffer()).byteLength
-  if (bytes > 128 * 1024)
-    throw new Error("Smoke request exceeds the conservative input budget")
   const key = "sylph:smoke:reserved-microdollars"
   const maximumCost = (bytes + 8192) * 2 + output * 6
   await storage.transaction(async (transaction) => {
     const reserved = Schema.decodeUnknownSync(Schema.Number)(
       (await transaction.get(key)) ?? 0
     )
-    if (reserved + maximumCost > 4_000_000)
-      throw new Error("Smoke run stopped at its $4 conservative request budget")
+    if (reserved + maximumCost > maximumUsd * 1_000_000)
+      throw new Error(
+        `Smoke run stopped at its $${maximumUsd} conservative request budget`
+      )
     await transaction.put(key, reserved + maximumCost)
   })
 }

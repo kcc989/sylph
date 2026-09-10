@@ -133,6 +133,7 @@ export const workspaceHydrationRefs = (
 })
 
 export class WorkspaceGit {
+  #checkpointQueue = Promise.resolve()
   #branchChanges:
     | { key: string; changes: Promise<WorkspaceFileChange[]> }
     | undefined
@@ -419,7 +420,38 @@ export class WorkspaceGit {
     })
   }
 
-  async checkpoint(input: { idempotencyKey: string; message: string }) {
+  checkpoint(input: { idempotencyKey: string; message: string }) {
+    return this.#serializeCheckpoint(() => this.#createCheckpoint(input))
+  }
+
+  checkpointForOperation(message: string) {
+    return this.#serializeCheckpoint(async () => {
+      const version = await this.versionControl()
+      if (version.working.length)
+        return (
+          await this.#createCheckpoint({
+            idempotencyKey: crypto.randomUUID(),
+            message,
+          })
+        ).checkpoint
+      return (
+        this.checkpoints().find(
+          (checkpoint) => checkpoint.commit === version.forkHead
+        ) ?? { id: null, commit: version.forkHead }
+      )
+    })
+  }
+
+  #serializeCheckpoint<Value>(operation: () => Promise<Value>) {
+    const result = this.#checkpointQueue.then(operation)
+    this.#checkpointQueue = result.then(
+      () => undefined,
+      () => undefined
+    )
+    return result
+  }
+
+  async #createCheckpoint(input: { idempotencyKey: string; message: string }) {
     const existing = this.#checkpoint(input.idempotencyKey)
     if (existing?.status === "complete") {
       return new WorkspaceCheckpointResult({

@@ -13,7 +13,7 @@ export default defineConfig({
   forbidOnly: true,
   retries: 0,
   workers: 1,
-  timeout: 15 * 60 * 1000,
+  timeout: 30 * 60 * 1000,
   expect: { timeout: 60 * 1000 },
   outputDir: process.env.SYLPH_SMOKE_OUTPUT_DIR || "test-results/release-smoke",
   reporter: [

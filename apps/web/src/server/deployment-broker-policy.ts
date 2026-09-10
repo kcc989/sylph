@@ -3,14 +3,15 @@ import {
   BrokerBinding,
   BrokerQueueMessage,
   BrokerJson,
+  DeploymentBrokerFailure,
   type BrokerResource,
 } from "@workspace/domain/project-deployment-broker"
 import type { ProjectResourcePlan } from "@workspace/domain/project-resources"
 
 export function brokerDenied(reason: string): never {
-  throw new Error(
-    `Project deployment capability denied: ${reason}. Add a reviewed broker adapter; account credentials are never supplied to Project commands.`
-  )
+  throw new DeploymentBrokerFailure({
+    message: `Project deployment capability denied: ${reason}. Add a reviewed broker adapter; account credentials are never supplied to Project commands.`,
+  })
 }
 
 const object = Schema.decodeUnknownSync(BrokerJson)
@@ -53,17 +54,24 @@ export const validateBrokerBindings = (
         keys(unknownBinding, ["name", "type"])
         break
       case "d1":
+        keys(unknownBinding, ["name", "type", "id", "database_id"])
+        if (
+          unknownBinding.id !== undefined &&
+          unknownBinding.database_id !== undefined &&
+          unknownBinding.id !== unknownBinding.database_id
+        )
+          brokerDenied("D1 binding identity fields disagree")
         if (
           resources.some(
             (resource) =>
               resource.kind === "d1" &&
-              resource.id === unknownBinding.id &&
+              resource.id ===
+                (unknownBinding.id ?? unknownBinding.database_id) &&
               resource.name.endsWith("-recovery-drill")
           )
         )
           brokerDenied("restore drill database cannot be bound to a Worker")
-        keys(unknownBinding, ["name", "type", "id"])
-        reference("d1", "id")
+        reference("d1", unknownBinding.id === undefined ? "database_id" : "id")
         break
       case "kv_namespace":
         keys(unknownBinding, ["name", "type", "namespace_id"])
@@ -147,6 +155,30 @@ export const validateBrokerBindings = (
   }
 }
 
+const migrationFields = [
+  "new_classes",
+  "new_sqlite_classes",
+  "deleted_classes",
+  "renamed_classes",
+  "transferred_classes",
+]
+
+export const brokerMigrationSteps = (migrations: typeof BrokerJson.Type) => {
+  keys(migrations, ["old_tag", "new_tag", "steps", ...migrationFields])
+  if (migrations.steps !== undefined) {
+    if (migrationFields.some((field) => field in migrations))
+      brokerDenied("mixed Durable Object migration formats")
+    return Schema.decodeUnknownSync(Schema.Array(BrokerJson))(migrations.steps)
+  }
+  return [
+    Object.fromEntries(
+      Object.entries(migrations).filter(([field]) =>
+        migrationFields.includes(field)
+      )
+    ),
+  ]
+}
+
 export const validateWorkerMetadata = (
   value: typeof BrokerJson.Type,
   plan: ProjectResourcePlan,
@@ -168,21 +200,20 @@ export const validateWorkerMetadata = (
     "keep_assets",
     "logpush",
     "tail_consumers",
+    "containers",
   ])
+  if (
+    Schema.decodeUnknownSync(Schema.Array(BrokerJson))(
+      metadata.containers ?? []
+    ).length
+  )
+    brokerDenied("Container-backed Workers require a reviewed adapter")
   if (metadata.tail_consumers) brokerDenied("tail consumers")
   validateBrokerBindings(metadata.bindings, plan, resources)
   if (metadata.migrations) {
     const migrations = object(metadata.migrations)
-    keys(migrations, ["old_tag", "new_tag", "steps"])
-    for (const step of Schema.decodeUnknownSync(Schema.Array(BrokerJson))(
-      migrations.steps ?? []
-    )) {
-      keys(step, [
-        "new_classes",
-        "new_sqlite_classes",
-        "deleted_classes",
-        "renamed_classes",
-      ])
+    for (const step of brokerMigrationSteps(migrations)) {
+      keys(step, migrationFields)
       for (const field of [
         "new_classes",
         "new_sqlite_classes",
@@ -209,8 +240,18 @@ export const validateWorkerMetadata = (
           )
             brokerDenied("unreviewed Durable Object migration")
       }
-      if (step.renamed_classes)
+      if (
+        Schema.decodeUnknownSync(Schema.Array(BrokerJson))(
+          step.renamed_classes ?? []
+        ).length
+      )
         brokerDenied("Durable Object rename requires dedicated review")
+      if (
+        Schema.decodeUnknownSync(Schema.Array(BrokerJson))(
+          step.transferred_classes ?? []
+        ).length
+      )
+        brokerDenied("Durable Object transfer requires dedicated review")
     }
   }
   return metadata

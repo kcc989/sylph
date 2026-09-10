@@ -6,7 +6,7 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "build": "turbo build",
+    "build": "turbo build && bun run build:runtime",
     "storybook": "bun --cwd packages/ui storybook",
     "build:storybook": "bun --cwd packages/ui build-storybook",
     "dev": "turbo dev",
@@ -29,9 +29,13 @@
     "smoke:browser": "node tools/browser-smoke/run.mjs",
     "smoke:release:doctor": "node scripts/release-smoke.mjs doctor",
     "smoke:release:deploy": "node scripts/release-smoke.mjs deploy",
-    "smoke:release:cleanup": "node scripts/release-smoke.mjs cleanup"
+    "smoke:release:cleanup": "node scripts/release-smoke.mjs cleanup",
+    "build:runtime": "node tools/worker-build/build.mjs",
+    "check:workers": "node tools/worker-build/check.mjs",
+    "smoke:workers": "node tools/worker-build/smoke.mjs"
   },
   "devDependencies": {
+    "@alchemy.run/cloudflare-runtime": "2.0.0-beta.76",
     "@cloudflare/workers-types": "5.20260901.1",
     "@effect/platform-bun": "4.0.0-rc.111",
     "@effect/platform-node": "4.0.0-rc.111",
@@ -44,8 +48,10 @@
     "oxfmt": "0.66.0",
     "oxlint": "1.81.0",
     "rolldown": "1.2.5",
+    "tsx": "4.23.13",
     "turbo": "^2.9.18",
-    "typescript": "^6"
+    "typescript": "^6",
+    "wrangler": "4.129.0"
   },
   "packageManager": "bun@1.2.7",
   "overrides": {

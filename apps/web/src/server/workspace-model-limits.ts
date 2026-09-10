@@ -4,6 +4,16 @@ export const workspaceModelOutputLimit = 4_096
 export const workspaceModelRequestByteLimit = 128 * 1024
 export const workspaceCompactionRequestByteLimit = 1024 * 1024
 
+export const workspaceModelRequestLimit = (limit: Model.Info["limit"]) => {
+  const tokens = Math.min(limit.input ?? limit.context, limit.context)
+  if (!Number.isFinite(tokens) || tokens <= 0)
+    return workspaceModelRequestByteLimit
+  return Math.min(
+    8 * 1024 * 1024,
+    workspaceModelRequestByteLimit + Math.ceil(tokens * 8)
+  )
+}
+
 export const boundedWorkspaceModelLimits = (limit: Model.Info["limit"]) => ({
   ...limit,
   output: Math.min(limit.output, workspaceModelOutputLimit),
@@ -11,12 +21,13 @@ export const boundedWorkspaceModelLimits = (limit: Model.Info["limit"]) => ({
 
 export const assertWorkspaceModelRequestSize = async (
   request: Request,
-  agent?: string
+  agent?: string,
+  modelByteLimit = workspaceModelRequestByteLimit
 ) => {
   const limit =
     agent === "compaction"
-      ? workspaceCompactionRequestByteLimit
-      : workspaceModelRequestByteLimit
+      ? Math.max(workspaceCompactionRequestByteLimit, modelByteLimit)
+      : modelByteLimit
   if (!request.body) return
   const reader = request.clone().body?.getReader()
   if (!reader) return

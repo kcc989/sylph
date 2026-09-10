@@ -32,6 +32,10 @@ All notable changes to Sylph are recorded here. The format follows [Keep a Chang
 
 ### Fixed
 
+- Keep large provider catalogs within Durable Object value limits, align request limits with model context, and serialize concurrent checkpoint pushes.
+- Run brokered Alchemy commands with supported Node/TypeScript loading and Workerd redirects; validate Alchemy Worker metadata and owned D1 bindings.
+- Allow agent browser actions during active Turns, preserve browser evidence links in bounded output, and reuse the current Preview consistently.
+
 - Keep guarded Browser Run ownership across actions, dispose contexts on transport loss and restore page focus for screenshot evidence. The separate 79-step live fixture passes screenshots and pointer actions.
 - Let Admins confirm immediate retained Preview cleanup with exact run identity, terminal Workflow verification, an audit record and resumable dispatch.
 
@@ -44,6 +48,8 @@ All notable changes to Sylph are recorded here. The format follows [Keep a Chang
 - Wait for an exact visible checkpoint/deployment DOM marker before collecting browser evidence.
 
 ### Changed
+
+- Separate the private web Worker from the existing runtime Worker, retaining public URLs and runtime resource identities. Add compiled import, startup CPU, size, and native Workerd checks. The upgrade needs no new manual secrets or database migration; its CI image build requires Docker.
 
 - Make checks, previews, browser evidence, automatic repair, and managed release verification optional. Saving and accepting work no longer require checks or previews; authorization and resource isolation remain enforced.
 - Consolidate all pre-launch database migrations into `0001_initial.sql` for a fresh Installation. Optional release capabilities default off. No upgrade or data transfer from experimental databases is provided.

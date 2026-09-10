@@ -1,5 +1,10 @@
 import { Schema } from "effect"
 
+export const WorkspaceSmokeBudgetOverride = Schema.Struct({
+  workspaceId: Schema.NonEmptyString,
+  maximumUsd: Schema.Literal(8),
+})
+
 export const WorkspaceSmokeRequest = Schema.Struct({
   model: Schema.Literal("x-ai/grok-4.6"),
   max_tokens: Schema.optional(Schema.Number),

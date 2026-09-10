@@ -22,6 +22,8 @@ export function WorkspaceBrowserPanelView({
   userId,
   proof,
   previewUrl,
+  mode,
+  setMode,
   refresh,
   readOnly,
   control,
@@ -32,6 +34,8 @@ export function WorkspaceBrowserPanelView({
   userId: string
   proof: typeof BrowserJourneySnapshot.Encoded | undefined
   previewUrl: string
+  mode: "run" | "iframe"
+  setMode: (mode: "run" | "iframe") => void
   refresh: () => Promise<void>
   readOnly: boolean
   control: (request: {
@@ -50,7 +54,6 @@ export function WorkspaceBrowserPanelView({
   const request = useRef<WorkspaceBrowserToolInput | null>(null)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [mode, setMode] = useState<"run" | "iframe">("iframe")
   const [text, setText] = useState("")
   const [selector, setSelector] = useState("")
   const [location, setLocation] = useState("")

@@ -77,7 +77,7 @@ export class R2Provider {
   fetch = async (url: string, init: RequestInit) => {
     const headers = new Headers(init.headers)
     expect(headers.get("authorization")).toBe(`Bearer ${this.apiToken}`)
-    expect(init.redirect).toBe("error")
+    expect(init.redirect).toBe("manual")
     const path = new URL(url)
     if (path.pathname.endsWith("/query")) {
       const input = Schema.decodeUnknownSync(RecoveryQueryInput)(

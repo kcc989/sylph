@@ -81,9 +81,13 @@ export function serializeEnvironment(values) {
   return (
     Object.entries(values)
       .map(([name, value]) => {
-        if (/[\r\n"\\]/.test(value))
+        if (
+          /[\r\n\\]/.test(value) ||
+          (value.includes('"') && value.includes("'"))
+        )
           throw new Error(`${name} contains unsupported dotenv characters`)
-        return `${name}="${value}"`
+        const quote = value.includes('"') ? "'" : '"'
+        return `${name}=${quote}${value}${quote}`
       })
       .join("\n") + "\n"
   )

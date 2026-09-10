@@ -136,7 +136,7 @@ export const CloudflareRecoveryGroupLive = (
                 "Content-Type": "application/json",
               },
               body: JSON.stringify({ sql, params }),
-              redirect: "error",
+              redirect: "manual",
               signal: AbortSignal.timeout(60000),
             }
           )
@@ -249,7 +249,7 @@ export const CloudflareRecoveryGroupLive = (
                   headers: {
                     Authorization: `Bearer ${configuration.apiToken}`,
                   },
-                  redirect: "error",
+                  redirect: "manual",
                   signal: AbortSignal.timeout(60000),
                 }
               )

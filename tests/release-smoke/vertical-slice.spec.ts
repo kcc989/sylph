@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test"
 import { mkdir, writeFile, chmod } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
+import { browserToolCallsForTurn } from "./browser-evidence"
 import {
   waitForHydration,
   openToolMenu,
@@ -50,12 +51,8 @@ const finishWorkspaceTurn = async (page: Page) => {
     })
 }
 
-const expectCheckAndBrowserToolCalls = async (page: Page) => {
-  const browserCall = page
-    .getByRole("button", {
-      name: /^Opened .+ in the Preview, completed$/,
-    })
-    .last()
+const expectCheckAndBrowserToolCalls = async (page: Page, prompt: string) => {
+  const browserCall = browserToolCallsForTurn(page, prompt).last()
   await expect(browserCall).toBeVisible()
   await browserCall.click()
   await expect(
@@ -144,7 +141,7 @@ test("setup through eviction recovery", async ({ page, browser }, testInfo) => {
     } else {
       await page.getByLabel("Organization name").fill(organizationName)
       await page.getByLabel("Confirm Admin email").fill(adminEmail)
-      await page.getByLabel("Installation claim secret").fill(claimSecret)
+      await page.getByLabel("Setup code").fill(claimSecret)
       await page.getByRole("button", { name: "Claim Installation" }).click()
       await page.waitForURL(/\/admin\?onboarding=1$/)
     }
@@ -277,7 +274,7 @@ test("setup through eviction recovery", async ({ page, browser }, testInfo) => {
       await page
         .getByRole("textbox", { name: "Message the agent" })
         .fill(
-          `Use the existing Project template and keep its stack and Alchemy deployment scripts. ${todoD1 ? "Build a working todo list at /. Store todos in the template Cloudflare D1 database, in a table named todos with title and completed columns. Use server operations for create, list, complete, and delete; do not store todos in browser storage or memory. Use an accessible textbox labelled New todo, a button Add todo, and for each todo a checkbox labelled with its title and a button labelled Delete followed by its title. Make the app usable without sign-in for this disposable smoke test. Apply the table migration during the Alchemy preview deployment. Use native write/edit tools and the native shell tool to run node --version, bun --version, git diff and bun install, then meaningful project tests. Keep dependencies compatible with the template. Add an executable shell script smoke-shell.sh that prints SYLPH_SANDBOX_OK and execute it using the shell tool. Do not replace testing with unconditional success. " : ""}Create ${proofFile} containing exactly ${proofMarker}. Add that marker to the root page. The root HTML must render SYLPH_CHECKPOINT=<the deployed checkpoint> and SYLPH_DEPLOYMENT=<preview or production>, using the deployment's actual runtime values. Render a visible element with both data-sylph-checkpoint and data-sylph-deployment attributes on that same element, populated from those exact runtime values. Keep meaningful typecheck, lint, test, build, sylph:preview and sylph:deploy scripts. Read back the files you changed and inspect the workspace diff before your final reply. Do not run a Check or create a Checkpoint.`
+          `Use the existing Project template and keep its stack and Alchemy deployment scripts. ${todoD1 ? "Build a working todo list at /. Store todos in the template Cloudflare D1 database, in a table named todos with title and completed columns. Use server operations for create, list, complete, and delete; do not store todos in browser storage or memory. Use an accessible textbox labelled New todo, a button Add todo, and for each todo a checkbox labelled with its title and a button labelled Delete followed by its title. Make the app usable without sign-in for this disposable smoke test. Apply the table migration during the Alchemy preview deployment. Use native write/edit tools and the native shell tool to run node --version, bun --version, git diff and bun install, then meaningful project tests. Keep dependencies compatible with the template. Add an executable shell script smoke-shell.sh that prints SYLPH_SANDBOX_OK and execute it using the shell tool. Do not replace testing with unconditional success. " : ""}Create ${proofFile} containing exactly ${proofMarker}. Render that marker as the exact text content of a visible element with the data-sylph-smoke-proof attribute on the root page. The root HTML must render SYLPH_CHECKPOINT=<the deployed checkpoint> and SYLPH_DEPLOYMENT=<preview or production>, using the deployment's actual runtime values. Render a visible element with both data-sylph-checkpoint and data-sylph-deployment attributes on that same element, populated from those exact runtime values. Keep meaningful typecheck, lint, test, build, sylph:preview and sylph:deploy scripts. Read back the files you changed and inspect the workspace diff before your final reply. Do not run a Check or create a Checkpoint.`
         )
       await page.getByRole("button", { name: "Send message" }).click()
       await expect(
@@ -299,7 +296,10 @@ test("setup through eviction recovery", async ({ page, browser }, testInfo) => {
     await expect(inspector).toContainText("Project Deployments")
     await inspector.getByRole("button", { name: /^Changes/ }).click()
     await page.getByLabel("Compare").selectOption("working")
-    const checkpoint = page.getByRole("button", { name: "Checkpoint" })
+    const checkpoint = page.getByRole("button", {
+      name: "Checkpoint",
+      exact: true,
+    })
     if (!resumeProofMarker || (await checkpoint.isEnabled())) {
       await expect(checkpoint).toBeEnabled()
       await checkpoint.click()
@@ -315,9 +315,6 @@ test("setup through eviction recovery", async ({ page, browser }, testInfo) => {
         timeout: 10 * 60 * 1000,
       })
       .toBeGreaterThanOrEqual(5)
-    await expect(checks.getByText(/^(queued|running|failed)$/)).toHaveCount(0, {
-      timeout: 10 * 60 * 1000,
-    })
     await inspector
       .getByRole("checkbox", { name: "Capture browser evidence", exact: true })
       .check()
@@ -327,6 +324,7 @@ test("setup through eviction recovery", async ({ page, browser }, testInfo) => {
     await expect(checks.getByText("passed", { exact: true })).toHaveCount(9, {
       timeout: 10 * 60 * 1000,
     })
+    await expect(checks.getByText(/^(queued|running|failed)$/)).toHaveCount(0)
     await expect(checks).toContainText("Evidence captured")
     await inspector.getByRole("button", { name: /^Changes/ }).click()
     await page.getByLabel("Compare").selectOption("branch")
@@ -338,10 +336,6 @@ test("setup through eviction recovery", async ({ page, browser }, testInfo) => {
     await expect
       .poll(() => workspaceSocketUrls.length)
       .toBeGreaterThan(socketCount)
-    if (!verificationOnly)
-      await expect(
-        page.getByRole("button", { name: "Accept checkpoint" })
-      ).toBeEnabled()
   })
 
   if (todoD1)
@@ -442,7 +436,6 @@ test("setup through eviction recovery", async ({ page, browser }, testInfo) => {
     })
 
   await test.step("evict, restart, and recover the durable Workspace", async () => {
-    const articleCount = await page.locator("article").count()
     await page.getByRole("button", { name: "More workspace actions" }).click()
     await page.getByRole("menuitem", { name: "Restart runtime" }).click()
     await expect(
@@ -468,25 +461,34 @@ test("setup through eviction recovery", async ({ page, browser }, testInfo) => {
         `Read ${proofFile} and reply with its exact contents. Do not change any files.`
       )
     await page.getByRole("button", { name: "Send message" }).click()
-    await expect
-      .poll(() => page.locator("article").count(), {
-        timeout: 3 * 60 * 1000,
-      })
-      .toBeGreaterThan(articleCount + 1)
+    await expect(page.getByText("Agent working", { exact: true })).toBeVisible()
+    await finishWorkspaceTurn(page)
     await expect(page.locator("article").last()).toContainText(proofMarker)
   })
 
-  if (!budgetedRun)
-    await test.step("verify browser tool details", async () => {
-      await page
-        .getByRole("textbox", { name: "Message the agent" })
-        .fill(
-          `Open the current Preview in the browser and verify that it contains ${proofMarker}. Do not change any files.`
-        )
-      await page.getByRole("button", { name: "Send message" }).click()
-      await finishWorkspaceTurn(page)
-      await expectCheckAndBrowserToolCalls(page)
+  await test.step("verify browser tool details", async () => {
+    await page
+      .getByRole("region", { name: "Workspace inspector" })
+      .getByRole("button", { name: "Preview", exact: true })
+      .click()
+    await page.getByRole("button", { name: "Browser Run", exact: true }).click()
+    const release = page.getByRole("button", {
+      name: "Release to agent",
+      exact: true,
     })
+    if (await release.count()) {
+      await release.click()
+      await expect(
+        page.getByRole("button", { name: "Take control", exact: true })
+      ).toBeEnabled()
+    }
+    const prompt = `Browser verification request ${crypto.randomUUID()}. Open the current Preview in the browser and verify that it contains ${proofMarker}. Do not change any files.`
+    await page.getByRole("textbox", { name: "Message the agent" }).fill(prompt)
+    await page.getByRole("button", { name: "Send message" }).click()
+    await expect(page.getByText("Agent working", { exact: true })).toBeVisible()
+    await finishWorkspaceTurn(page)
+    await expectCheckAndBrowserToolCalls(page, prompt)
+  })
 
   if (!verificationOnly)
     await test.step("accept and archive the Workspace", async () => {

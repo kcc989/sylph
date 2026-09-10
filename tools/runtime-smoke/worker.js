@@ -30,6 +30,7 @@ export class Probe extends DurableObject {
   bootStarted = Date.now()
   bootMs = 0
   files
+  cache
 
   constructor(state, env) {
     super(state, env)
@@ -168,6 +169,12 @@ export class Probe extends DurableObject {
           },
           plugins: [
             this.cursor.plugin,
+            {
+              id: "cache-storage-probe",
+              setup: async (context) => {
+                this.cache = context.storage
+              },
+            },
             ...Array.from({ length: 32 }, (_, index) => ({
               id: `initial-plugin-${index}`,
               async setup() {},
@@ -256,6 +263,65 @@ export class Probe extends DurableObject {
   async fetch(request) {
     const host = await this.host
     const path = new URL(request.url).pathname
+    if (path === "/events-open") {
+      this.eventAbort = new AbortController()
+      this.eventIterator = host.events
+        .subscribe({ signal: this.eventAbort.signal })
+        [Symbol.asyncIterator]()
+      const connected = await this.eventIterator.next()
+      this.pendingEvent = this.eventIterator.next()
+      return Response.json({ connected: connected.value?.type })
+    }
+    if (path === "/events-close") {
+      this.eventAbort.abort()
+      const event = await this.pendingEvent
+      return Response.json({ closed: event.done })
+    }
+    if (path === "/events") {
+      const abort = new AbortController()
+      const iterator = host.events
+        .subscribe({ signal: abort.signal })
+        [Symbol.asyncIterator]()
+      const connected = await iterator.next()
+      const session = await host.sessions.create({
+        location: { directory: "/workspace" },
+      })
+      let observed = await iterator.next()
+      while (!observed.done && observed.value.type !== "session.created")
+        observed = await iterator.next()
+      abort.abort()
+      const closed = await iterator.next()
+      await host.sessions.remove({ sessionID: session.id })
+      return Response.json({
+        connected: connected.value?.type,
+        type: observed.value?.type,
+        sessionId: observed.value?.data?.sessionID,
+        expectedSessionId: session.id,
+        closed: closed.done,
+      })
+    }
+    if (path.startsWith("/cache-")) await host.model.list()
+    if (path === "/cache-write") {
+      const value = { body: "model-catalog-🦋".repeat(350_000) }
+      await this.cache.set("large-catalog", value)
+      await this.cache.set("small", { value: "legacy-compatible" })
+      return Response.json({ length: value.body.length })
+    }
+    if (path === "/cache-read") {
+      const value = await this.cache.get("large-catalog")
+      const scanned = await this.cache.scan({ prefix: "large-" })
+      return Response.json({
+        length: value?.body.length,
+        scannedLength: scanned.entries[0]?.value.body.length,
+        small: await this.cache.get("small"),
+      })
+    }
+    if (path === "/cache-remove") {
+      await this.cache.remove("large-catalog")
+      return Response.json({
+        removed: (await this.cache.get("large-catalog")) === undefined,
+      })
+    }
     if (path === "/health")
       return Response.json({
         bootMs: this.bootMs,
@@ -299,7 +365,7 @@ export class Probe extends DurableObject {
         }).pipe(
           Effect.provide(
             WorkspaceCredentials.layer(
-              Promise.resolve(host),
+              () => Promise.resolve(host),
               this.ctx.storage,
               { active: false, accountID: null }
             )

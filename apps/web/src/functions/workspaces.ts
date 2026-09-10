@@ -39,6 +39,8 @@ import {
   RestartWorkspaceInput,
   WorkspaceAcceptInput,
   WorkspaceCheckRunList,
+  WorkspaceCheckRun,
+  WorkspacePreviewResult,
   WorkspaceCheckpointInput,
   WorkspaceCheckpointList,
   WorkspaceCheckpointResult,
@@ -1013,12 +1015,16 @@ export const runWorkspaceChecks = createServerFn({ method: "POST" })
   .middleware([writableWorkspace])
   .validator(Schema.decodeUnknownPromise(WorkspaceRunChecksInput))
   .handler(async ({ data }) =>
-    workspaceRuntime(data.workspaceId).runChecks(data)
+    Schema.encodeSync(WorkspaceCheckRun)(
+      await workspaceRuntime(data.workspaceId).runChecks(data)
+    )
   )
 
 export const createWorkspacePreview = createServerFn({ method: "POST" })
   .middleware([writableWorkspace])
   .validator(Schema.decodeUnknownPromise(WorkspaceCreatePreviewInput))
   .handler(async ({ data }) =>
-    workspaceRuntime(data.workspaceId).createPreview(data)
+    Schema.encodeSync(WorkspacePreviewResult)(
+      await workspaceRuntime(data.workspaceId).createPreview(data)
+    )
   )

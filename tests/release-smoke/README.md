@@ -112,4 +112,6 @@ Set `SYLPH_SMOKE_GROK_BUDGET=true` on the deploy command to pin the smoke picker
 
 Use `--resume` only to continue a claimed stage. To verify an existing Workspace without generating another app, also supply `--workspace <existing URL> --proof-marker <existing marker>`. This preserves the Workspace spending ledger. Record interrupted or failed earlier attempts separately from a resumed lifecycle result.
 
+After explicit approval, `SYLPH_SMOKE_BUDGET_OVERRIDE` can raise one existing Workspace's total reservation cap to $8. Set its JSON value to an object with `workspaceId` and `maximumUsd: 8` when deploying the Grok budget profile. Other Workspaces retain the $4 cap. The override preserves previous reservations; it does not grant another $8 or reset the ledger. Preserve the prior deployment identity and failed observations when updating the same stage.
+
 Set `SYLPH_SMOKE_VERIFY_ONLY=true` to verify the app, Checks, and runtime recovery without approving the review, accepting the checkpoint, or archiving the Workspace. The evidence records this reduced scope; it is not full acceptance lifecycle proof.
