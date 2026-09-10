@@ -16,13 +16,18 @@ export const verifyMarkerJourney = async (page: Page, marker: string) => {
     .getByRole("button", { name: "Preview", exact: true })
     .click()
   await page.getByRole("button", { name: "Browser Run", exact: true }).click()
-  await page.getByRole("button", { name: "Set policy", exact: true }).click()
-  await page.getByRole("button", { name: "Add journey", exact: true }).click()
+  await page.getByRole("button", { name: /^(Set policy|Edit policy)$/ }).click()
+  if (!(await page.getByLabel("Journey name", { exact: true }).count()))
+    await page.getByRole("button", { name: "Add journey", exact: true }).click()
   await page
     .getByLabel("Journey name", { exact: true })
     .fill("Current Preview marker")
-  await page.getByLabel("Step 1: CSS selector", { exact: true }).fill("body")
-  await page.getByLabel("Expected text", { exact: true }).fill(marker)
+  await page
+    .getByLabel("Step 1: CSS selector", { exact: true })
+    .fill("footer p:last-child")
+  await page
+    .getByLabel("Expected text", { exact: true })
+    .fill(`SYLPH_RELEASE_SMOKE_PROOF=${marker}`)
   await page
     .getByLabel("Reason for this policy", { exact: true })
     .fill(

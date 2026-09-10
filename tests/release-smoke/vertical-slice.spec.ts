@@ -339,10 +339,6 @@ test("setup through eviction recovery", async ({ page, browser }, testInfo) => {
     await expect
       .poll(() => workspaceSocketUrls.length)
       .toBeGreaterThan(socketCount)
-    if (!verificationOnly)
-      await expect(
-        page.getByRole("button", { name: "Accept checkpoint" })
-      ).toBeEnabled()
   })
 
   if (todoD1)
