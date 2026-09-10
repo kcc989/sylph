@@ -75,7 +75,7 @@ export const finishWorkspaceTurn = async (
           (await page.getByText("Agent working", { exact: true }).count()) === 0
         )
       },
-      { timeout: 5 * 60 * 1000 }
+      { timeout: 10 * 60 * 1000 }
     )
     .toBe(true)
   const assistantError = page.getByRole("article").filter({

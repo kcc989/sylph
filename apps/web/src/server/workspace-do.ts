@@ -1021,19 +1021,24 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
             data.credential.type === "key"
           )
             await this.#cursor.refresh(data.credential.key)
-          if (state.credentialFingerprint !== nextCredentialFingerprint) {
+          let catalog = await opencode.model.list()
+          if (
+            state.credentialFingerprint !== nextCredentialFingerprint ||
+            !findWorkspaceModel(catalog.data, data.model)
+          ) {
             await this.#credentials.install(
               data.model.providerId,
               data.credential
             )
+            catalog = await opencode.model.list()
           }
-          const catalog = await opencode.model.list()
           const selected = findWorkspaceModel(catalog.data, data.model)
+          if (!selected) throw new Error("The selected model is unavailable")
           await opencode.sessions.switchModel({
             sessionID: sessionId,
             model: {
               providerID: data.model.providerId,
-              id: selected?.id ?? data.model.modelId,
+              id: selected.id,
               variant: data.model.variant,
             },
           })
