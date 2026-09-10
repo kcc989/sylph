@@ -869,7 +869,7 @@ export class CI extends CIWorkflow<CloudflareArtifacts, WorkspaceCiBindings> {
           CLOUDFLARE_ACCOUNT_ID: this.env.CLOUDFLARE_ACCOUNT_ID,
           SYLPH_CLOUDFLARE_API_BASE_URL: brokerRoot,
           SYLPH_ALCHEMY_STATE_URL: brokerRoot,
-          NODE_OPTIONS: `--import=${preloadPath}`,
+          NODE_OPTIONS: `--import=/opt/sylph-ci/node_modules/tsx/dist/loader.mjs --import=${preloadPath}`,
         })
       result = await parent.runner({
         ...options,

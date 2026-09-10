@@ -12,7 +12,12 @@ test("deployment scripts keep the broker preload in Alchemy child processes", as
   const preload = join(directory, "broker.mjs")
   const alchemy = import.meta.resolve("alchemy/bin/alchemy.js")
   const launcher = new URL("cli.js", alchemy).pathname
+  const loader = import.meta.resolve("tsx")
   try {
+    await writeFile(
+      join(directory, "fixture.ts"),
+      'export const fixture: string = "typescript-import"'
+    )
     await writeFile(
       join(directory, "package.json"),
       JSON.stringify({
@@ -33,8 +38,9 @@ process.exit(result.status ?? 1)
       preload,
       deploymentBrokerPreload +
         `
+import { fixture } from './fixture'
 import { appendFileSync } from 'node:fs'
-appendFileSync(${JSON.stringify(record)}, JSON.stringify({entry: process.argv[1], runtime: process.versions.bun ? 'bun' : 'node'}) + '\\n')
+appendFileSync(${JSON.stringify(record)}, JSON.stringify({entry: process.argv[1], runtime: process.versions.bun ? 'bun' : 'node', fixture}) + '\\n')
 `
     )
     const result = spawnSync(
@@ -47,7 +53,7 @@ appendFileSync(${JSON.stringify(record)}, JSON.stringify({entry: process.argv[1]
         cwd: directory,
         env: {
           ...process.env,
-          NODE_OPTIONS: `--import=${preload}`,
+          NODE_OPTIONS: `--import=${loader} --import=${preload}`,
           SYLPH_CLOUDFLARE_API_BASE_URL:
             "https://broker.example/api/project-deployment",
         },
@@ -63,6 +69,7 @@ appendFileSync(${JSON.stringify(record)}, JSON.stringify({entry: process.argv[1]
     expect(entries).toContainEqual({
       entry: new URL(alchemy).pathname,
       runtime: "node",
+      fixture: "typescript-import",
     })
   } finally {
     await rm(directory, { recursive: true, force: true })
