@@ -205,6 +205,23 @@ try {
   )
   assert.equal(status.status, 200, await status.clone().text())
   assert.equal((await status.json()).opencode.healthy, true)
+  const bootState = await runtime.unsafeGetDurableObjectStorage(
+    "runtime",
+    "WorkspaceDO",
+    { name: "boot" }
+  )
+  await bootState.exec("CREATE TABLE idle_probe (value TEXT NOT NULL)")
+  await bootState.exec("INSERT INTO idle_probe VALUES (?)", "retained")
+  console.log("Waiting for the idle runtime to suspend")
+  await new Promise((resolve) => setTimeout(resolve, 65_000))
+  const resumed = await runtime.dispatchFetch(
+    "https://fixture.test/runtime-status"
+  )
+  assert.equal(resumed.status, 200, await resumed.clone().text())
+  assert.equal((await resumed.json()).opencode.healthy, true)
+  assert.deepEqual(await bootState.exec("SELECT value FROM idle_probe"), [
+    { value: "retained" },
+  ])
   await state.exec("CREATE TABLE lifecycle_probe (value TEXT NOT NULL)")
   await state.exec("INSERT INTO lifecycle_probe VALUES (?)", "durable")
   await runtime.dispose()

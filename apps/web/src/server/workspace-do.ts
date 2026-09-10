@@ -331,6 +331,8 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   readonly #database
   readonly #opencode: () => Promise<OpenCodeRuntime>
   #runtime: Promise<OpenCodeRuntime> | undefined
+  #activeRequests = 0
+  #lastActivityAt = Date.now()
   readonly #filesystem
   readonly #workspaceGit
   readonly #checks
@@ -516,6 +518,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         )
       `)
         await this.#sockets.resume(opencode)
+        await this.#scheduleIdleCheck()
         return opencode
       }))
     const credentialLayer = WorkspaceCredentials.layer(
@@ -556,9 +559,26 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       await this.#scheduleCheckCompletion()
     }
     const state = this.#database.select().from(appWorkspaceState).get()
-    if (!state?.sessionId) return
     const active = await opencode.sessions.active()
-    if (!active[state.sessionId]) return
+    if (!state?.sessionId || !active[state.sessionId]) {
+      const idleRemaining = 60_000 - (Date.now() - this.#lastActivityAt)
+      if (this.#activeRequests > 0 || Object.keys(active).length > 0) {
+        await this.#scheduleIdleCheck()
+        return
+      }
+      if (idleRemaining > 0) {
+        await this.#scheduleIdleCheck(idleRemaining)
+        return
+      }
+      await this.ctx.blockConcurrencyWhile(async () => {
+        await this.#sockets.stop()
+        await opencode.close()
+        this.#runtime = undefined
+        console.info("Workspace runtime suspended while idle")
+      })
+      return
+    }
+    await this.#scheduleIdleCheck()
     const { messages } = await this.#messages(opencode, state.sessionId)
     const startedAt = activeTurnStartedAt(messages) ?? Date.now()
     const deadline = startedAt + maxTurnDurationMs
@@ -618,8 +638,15 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     return new Response(null, { status: 101, webSocket: client })
   }
 
-  webSocketMessage(socket: WebSocket, message: string | ArrayBuffer) {
-    return this.#sockets.webSocketMessage(socket, message)
+  async webSocketMessage(socket: WebSocket, message: string | ArrayBuffer) {
+    this.#activeRequests += 1
+    this.#lastActivityAt = Date.now()
+    try {
+      return await this.#sockets.webSocketMessage(socket, message)
+    } finally {
+      this.#activeRequests -= 1
+      this.#lastActivityAt = Date.now()
+    }
   }
 
   webSocketClose(
@@ -1211,6 +1238,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       }
       this.#sockets.stop()
       await opencode.close()
+      this.#runtime = undefined
       await this.ctx.storage.deleteAll()
     })
   }
@@ -1347,6 +1375,8 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   }
 
   async #run<Value>(operation: () => Promise<Value>) {
+    this.#activeRequests += 1
+    this.#lastActivityAt = Date.now()
     try {
       await this.#opencode()
       return await operation()
@@ -1376,7 +1406,18 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           })
         )
       )
+    } finally {
+      this.#activeRequests -= 1
+      this.#lastActivityAt = Date.now()
+      if (this.#runtime) await this.#scheduleIdleCheck()
     }
+  }
+
+  async #scheduleIdleCheck(delay = 60_000) {
+    const scheduled = await this.ctx.storage.getAlarm()
+    const deadline = Date.now() + delay
+    if (scheduled === null || scheduled > deadline)
+      await this.ctx.storage.setAlarm(deadline)
   }
 
   #requiredState() {
