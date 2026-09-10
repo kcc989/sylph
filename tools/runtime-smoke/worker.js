@@ -263,6 +263,20 @@ export class Probe extends DurableObject {
   async fetch(request) {
     const host = await this.host
     const path = new URL(request.url).pathname
+    if (path === "/events-open") {
+      this.eventAbort = new AbortController()
+      this.eventIterator = host.events
+        .subscribe({ signal: this.eventAbort.signal })
+        [Symbol.asyncIterator]()
+      const connected = await this.eventIterator.next()
+      this.pendingEvent = this.eventIterator.next()
+      return Response.json({ connected: connected.value?.type })
+    }
+    if (path === "/events-close") {
+      this.eventAbort.abort()
+      const event = await this.pendingEvent
+      return Response.json({ closed: event.done })
+    }
     if (path === "/events") {
       const abort = new AbortController()
       const iterator = host.events

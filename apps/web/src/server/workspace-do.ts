@@ -331,6 +331,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   readonly #database
   readonly #opencode: () => Promise<OpenCodeRuntime>
   #runtime: Promise<OpenCodeRuntime> | undefined
+  #shutdown: Promise<void> | undefined
   #activeRequests = 0
   #lastActivityAt = Date.now()
   readonly #filesystem
@@ -405,8 +406,9 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         },
       }).pipe(Layer.provide(browserRunLayer(bindings.BROWSER)))
     )
-    this.#opencode = () =>
-      (this.#runtime ??= context.blockConcurrencyWhile(async () => {
+    this.#opencode = async () => {
+      await this.#shutdown
+      return (this.#runtime ??= context.blockConcurrencyWhile(async () => {
         await this.#cursor.restore()
         const { createOpenCodeRuntime } = await import("./opencode-runtime")
         const { Environment } =
@@ -521,6 +523,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         await this.#scheduleIdleCheck()
         return opencode
       }))
+    }
     const credentialLayer = WorkspaceCredentials.layer(
       this.#opencode,
       context.storage,
@@ -570,12 +573,17 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
         await this.#scheduleIdleCheck(idleRemaining)
         return
       }
-      await this.ctx.blockConcurrencyWhile(async () => {
-        await this.#sockets.stop()
-        await opencode.close()
-        this.#runtime = undefined
-        console.info("Workspace runtime suspended while idle")
-      })
+      this.#shutdown = (async () => {
+        try {
+          await this.#sockets.stop()
+          await opencode.close()
+          console.info("Workspace runtime suspended while idle")
+        } finally {
+          this.#runtime = undefined
+          this.#shutdown = undefined
+        }
+      })()
+      await this.#shutdown
       return
     }
     await this.#scheduleIdleCheck()

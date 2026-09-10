@@ -244,6 +244,8 @@ try {
   assert.equal(events.type, "session.created")
   assert.equal(events.sessionId, events.expectedSessionId)
   assert.equal(events.closed, true)
+  assert.deepEqual(await read("events-open"), { connected: "server.connected" })
+  assert.deepEqual(await read("events-close"), { closed: true })
   await read("cursor-connect")
   const cursorCatalog = await read("cursor-connect")
   assert(
