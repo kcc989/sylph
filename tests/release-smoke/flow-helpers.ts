@@ -102,6 +102,9 @@ export const expectExpandableToolCalls = async (page: Page) => {
   ) {
     const previous = await page.getByRole("log").innerText()
     await earlier.click()
+    await expect(
+      page.getByRole("button", { name: "Loading messages…", exact: true })
+    ).toHaveCount(0)
     await expect
       .poll(() => page.getByRole("log").innerText())
       .not.toBe(previous)
