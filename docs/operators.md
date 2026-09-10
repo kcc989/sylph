@@ -145,6 +145,8 @@ Review upstream changes, sync your fork, and push to `main`. Changes to deployme
 
 Keep the Cloudflare account, stage, and saved setup code unchanged. Generated credentials remain in Alchemy state; the GitHub connection remains in D1. Do not delete either to retry a failed update.
 
+The web/runtime split adds a private, service-bound `Web` Worker. The existing `Website` Worker retains the public address, Durable Objects, Workflows, containers, and schedules. Deploy through `alchemy.run.ts` with the existing account and stage to retain those identities. This update requires no new manual secrets or database migration. Docker must be available to build the CI image, which adds the supported `tsx` loader for brokered Alchemy commands. Do not transfer or recreate runtime resources as part of this update.
+
 ## Add or change a custom domain later
 
 1. Open your GitHub App's settings. Add `https://new-hostname/api/auth/callback/github` to its user authorization callback URLs. Keep the current callback until you verify the new address.
