@@ -139,7 +139,10 @@ import {
 import { deliverCheckCompletion } from "./workspace-check-completion"
 import { loadInstalledSkills } from "./installed-skills"
 import { createWorkspaceSkillRegistry } from "./workspace-skills"
-import { previewForBrowser } from "./workspace-browser"
+import {
+  assertBrowserWorkspaceWritable,
+  previewForBrowser,
+} from "./workspace-browser"
 import { browserRunLayer } from "./browser-run"
 import {
   WorkspaceBrowser,
@@ -1244,10 +1247,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     )
       .bind(this.#requiredState().workspaceId)
       .first<{ status: string }>()
-    if (state?.status !== "ready")
-      throw new Error(
-        "Browser actions require a ready Workspace; Acceptance or archival may be in progress."
-      )
+    assertBrowserWorkspaceWritable(state?.status)
   }
 
   reserveBrowserAcceptance(

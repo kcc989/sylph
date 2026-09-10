@@ -1,5 +1,12 @@
 import type { WorkspaceCheckRun } from "@workspace/domain"
 
+export const assertBrowserWorkspaceWritable = (status: string | undefined) => {
+  if (status !== "ready" && status !== "running")
+    throw new Error(
+      "Browser actions require a ready or running Workspace; Acceptance or archival may be in progress."
+    )
+}
+
 export const browserTargetUrl = (input: {
   previewUrl: string
   path?: string

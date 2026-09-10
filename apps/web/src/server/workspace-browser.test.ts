@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { GitCommitId, WorkspaceCheckRun, WorkspaceId } from "@workspace/domain"
 
 import {
+  assertBrowserWorkspaceWritable,
   bounded,
   browserEvidenceIds,
   browserTargetUrl,
@@ -35,6 +36,26 @@ const run = (input: {
   })
 
 describe("Agent browser", () => {
+  test("allows browser actions during an active agent Turn", () => {
+    expect(() => assertBrowserWorkspaceWritable("ready")).not.toThrow()
+    expect(() => assertBrowserWorkspaceWritable("running")).not.toThrow()
+  })
+
+  test.each([
+    "provisioning",
+    "waiting",
+    "idle",
+    "interrupted",
+    "merging",
+    "archived",
+    "error",
+    undefined,
+  ])("blocks browser actions in unavailable Workspace state %s", (status) => {
+    expect(() => assertBrowserWorkspaceWritable(status)).toThrow(
+      "Browser actions require"
+    )
+  })
+
   test("resolves paths against the Preview origin", () => {
     expect(
       browserTargetUrl({
