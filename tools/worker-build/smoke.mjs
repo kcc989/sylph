@@ -3,6 +3,7 @@ import { mkdtemp, readFile, readdir, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { Miniflare } from "miniflare"
+import { verifyDeploymentBroker } from "./broker-smoke.mjs"
 
 const modules = async (directory) => {
   const root = resolve(directory)
@@ -76,6 +77,7 @@ const options = {
       compatibilityDate: "2026-03-17",
       compatibilityFlags: ["nodejs_compat"],
       bindings: {
+        CF_TOKEN: "fixture-owner-token",
         SYLPH_URL: "https://fixture.test",
         SYLPH_SMOKE_SOURCE_COMMIT: "a".repeat(40),
         SYLPH_SMOKE_TEMPLATE_COMMIT: "b".repeat(40),
@@ -84,8 +86,26 @@ const options = {
       durableObjects: {
         WORKSPACES: { className: "WorkspaceDO", scriptName: "runtime" },
       },
-      outboundService: () =>
-        new Response("External access disabled", { status: 503 }),
+      d1Databases: ["DB"],
+      outboundService: (request) => {
+        if (new URL(request.url).pathname.endsWith("/d1/database")) {
+          assert.equal(
+            request.headers.get("Authorization"),
+            "Bearer fixture-owner-token"
+          )
+          if (new URL(request.url).searchParams.get("name") === "redirect")
+            return new Response(null, {
+              status: 302,
+              headers: { Location: "https://untrusted.test/" },
+            })
+          return Response.json({
+            success: true,
+            result: [{ uuid: "foreign-database", name: "another-project" }],
+            result_info: { total_pages: 1 },
+          })
+        }
+        return new Response("External access disabled", { status: 503 })
+      },
     },
   ],
 }
@@ -109,6 +129,7 @@ try {
     { method: "POST", body: "unauthorized" }
   )
   assert.equal(denied.status, 403)
+  await verifyDeploymentBroker(runtime)
   console.log("Checking cross-worker Workspace access")
   const rejected = await runtime.dispatchFetch("https://fixture.test/socket")
   assert.equal(rejected.status, 426, await rejected.text())

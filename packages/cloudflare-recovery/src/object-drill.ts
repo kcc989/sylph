@@ -42,7 +42,7 @@ export const verifyObjectRecoveryDrill = Effect.fn(
               "Content-Type": "application/json",
             },
             body: body ? JSON.stringify(body) : undefined,
-            redirect: "error",
+            redirect: "manual",
             signal: AbortSignal.timeout(60000),
           }
         )

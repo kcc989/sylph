@@ -257,7 +257,7 @@ export const ProjectDeploymentBrokerLive = (configuration: {
                 {
                   method: "GET",
                   headers: { Authorization: `Bearer ${configuration.token}` },
-                  redirect: "error",
+                  redirect: "manual",
                   signal: AbortSignal.timeout(60000),
                 }
               )
@@ -297,7 +297,7 @@ export const ProjectDeploymentBrokerLive = (configuration: {
                   {
                     method: "GET",
                     headers: { Authorization: `Bearer ${configuration.token}` },
-                    redirect: "error",
+                    redirect: "manual",
                     signal: AbortSignal.timeout(60_000),
                   }
                 )
@@ -376,7 +376,7 @@ export const ProjectDeploymentBrokerLive = (configuration: {
               const existing = await fetcher(probe, {
                 method: "GET",
                 headers,
-                redirect: "error",
+                redirect: "manual",
                 signal: AbortSignal.timeout(60000),
               })
               if (existing.status !== 404)
@@ -390,7 +390,7 @@ export const ProjectDeploymentBrokerLive = (configuration: {
                 {
                   method: "GET",
                   headers,
-                  redirect: "error",
+                  redirect: "manual",
                   signal: AbortSignal.timeout(60000),
                 }
               )
@@ -513,7 +513,7 @@ export const ProjectDeploymentBrokerLive = (configuration: {
                 const existing = await fetcher(upstreamUrl.href, {
                   method: "GET",
                   headers,
-                  redirect: "error",
+                  redirect: "manual",
                   signal: AbortSignal.timeout(60_000),
                 })
                 if (!existing.ok)
@@ -543,7 +543,7 @@ export const ProjectDeploymentBrokerLive = (configuration: {
               method: request.method,
               headers,
               body: bytes.byteLength ? bytes : undefined,
-              redirect: "error",
+              redirect: "manual",
               signal: AbortSignal.timeout(60_000),
             })
             if (!upstream.ok) {
@@ -604,7 +604,7 @@ export const ProjectDeploymentBrokerLive = (configuration: {
                 const observed = await fetcher(collection.href, {
                   method: "GET",
                   headers,
-                  redirect: "error",
+                  redirect: "manual",
                   signal: AbortSignal.timeout(60_000),
                 })
                 if (!observed.ok)
@@ -744,7 +744,7 @@ export const ProjectDeploymentBrokerLive = (configuration: {
                 const next = await fetcher(upstreamUrl.href, {
                   method: "GET",
                   headers,
-                  redirect: "error",
+                  redirect: "manual",
                   signal: AbortSignal.timeout(60000),
                 })
                 if (!next.ok) brokerDenied("provider collection is unavailable")

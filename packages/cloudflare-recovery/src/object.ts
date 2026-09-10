@@ -110,7 +110,7 @@ export const CloudflareObjectRecoveryLive = (
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ sql, params }),
-          redirect: "error",
+          redirect: "manual",
           signal: AbortSignal.timeout(60000),
         }
       )

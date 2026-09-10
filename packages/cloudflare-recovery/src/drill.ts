@@ -47,7 +47,7 @@ export const verifyRecoveryDrill = Effect.fn("CloudflareRecovery.verifyDrill")(
             "Content-Type": "application/json",
           },
           body: sql ? JSON.stringify({ sql, params }) : undefined,
-          redirect: "error",
+          redirect: "manual",
           signal: AbortSignal.timeout(60000),
         }
       )
