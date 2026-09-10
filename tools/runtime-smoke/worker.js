@@ -299,7 +299,7 @@ export class Probe extends DurableObject {
         }).pipe(
           Effect.provide(
             WorkspaceCredentials.layer(
-              Promise.resolve(host),
+              () => Promise.resolve(host),
               this.ctx.storage,
               { active: false, accountID: null }
             )

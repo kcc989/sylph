@@ -51,7 +51,7 @@ const fixture = () => {
     accountID: null,
   }
   const layer = WorkspaceCredentials.layer(
-    Promise.resolve(source),
+    () => Promise.resolve(source),
     storage,
     oauth
   )

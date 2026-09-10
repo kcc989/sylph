@@ -93,7 +93,7 @@ const fixture = (replay: WorkspaceSocketSource["sessions"]["log"]) => {
         subscriptions.push(promise)
       },
     },
-    Promise.resolve(source),
+    () => Promise.resolve(source),
     () => ({ sessionId: "session", archivedAt: null }),
     (cursor) => {
       cursors.push(cursor)

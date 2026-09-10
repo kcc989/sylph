@@ -22,15 +22,14 @@ Checks, Previews, browser evidence, and automatic Check repair are requested sep
 
 ## The architecture
 
-The app Worker exports the web entry point, `WorkspaceDO`, container classes, and Workflow classes. Alchemy binds these resources in [`alchemy.run.ts`](alchemy.run.ts).
+The runtime Worker retains the Installation address, `WorkspaceDO`, container classes, Workflow classes, and scheduled tasks. It forwards web requests through a service binding to a separate TanStack Start Worker. Alchemy binds both deployments in [`alchemy.run.ts`](alchemy.run.ts). UI-only releases can update the web Worker without uploading the runtime. See [the deployment decision](docs/adr/0011-separate-web-and-runtime-deployments.md).
 
 ```mermaid
 flowchart TD
-    UI["Browser"] --> API["App Worker: TanStack Start and authenticated routes"]
-    subgraph APP["Same Worker deployment"]
-        API --> DO["WorkspaceDO: OpenCode v2 Workerd runtime"]
-        DO --> SQL["DO SQLite: sessions, events, Working copy"]
-    end
+    UI["Browser"] --> ENTRY["Runtime Worker: Installation address"]
+    ENTRY -->|"Service binding"| API["Web Worker: TanStack Start and authenticated routes"]
+    API -->|"Cross-worker binding"| DO["Runtime Worker: WorkspaceDO and OpenCode"]
+    DO --> SQL["DO SQLite: sessions, events, Working copy"]
     API --> D1["D1: auth and cross-workspace indexes"]
     DO -->|"Derived status"| D1
     DO <-->|"File snapshots and command results"| WS["Workspace Sandbox container: /workspace and shell"]
@@ -44,7 +43,7 @@ flowchart TD
 
 | Resource | Responsibility | Durable storage |
 |---|---|---|
-| App Worker and D1 | Authentication, membership, routing, and cross-workspace lists | D1 product records |
+| Web Worker and D1 | Authentication, membership, routing, and cross-workspace lists | D1 product records |
 | `WorkspaceDO` | OpenCode sessions, event replay, prompt ordering, and file tools | Durable Object SQLite |
 | Workspace Sandbox container | Agent shell commands and their filesystem | File changes must synchronize back to the Durable Object |
 | Cloudflare Artifacts | Accepted source history and Workspace Checkpoints | Project Repository and Workspace forks |
@@ -52,9 +51,9 @@ flowchart TD
 
 ### Workspace state and agent execution
 
-The app Worker routes authenticated requests to one `WorkspaceDO` per Workspace. The object starts OpenCode v2 in Workerd and retains it for that instance’s lifetime. There is no separate OpenCode Worker host.
+The web Worker routes authenticated requests to one `WorkspaceDO` per Workspace. The object starts OpenCode v2 in Workerd and retains it for that instance’s lifetime. There is no separate OpenCode Worker host.
 
-OpenCode sessions and events persist in Durable Object SQLite. Product-owned tables store Working copy files, Git state, Checks, and pending operations. Native file and search tools use that durable Working copy. Browser WebSockets replay stored events. OpenCode starts in the constructor, and its subscription can keep the object active; account for both when measuring idle hibernation.
+OpenCode sessions and events persist in Durable Object SQLite. Product-owned tables store Working copy files, Git state, Checks, and pending operations. Native file and search tools use that durable Working copy. Browser WebSockets replay stored events. OpenCode starts on the first Workspace operation or socket hello. Socket rejection, ping, and close do not boot it. Its live subscription can still keep the object active; lazy initialization alone does not prove idle hibernation.
 
 OpenCode's process spawner uses a dedicated workspace Sandbox container:
 
@@ -113,7 +112,8 @@ With `ALLOW_TEST_MAGIC_LINKS=true`, local development stores requested links in 
 ```text
 apps/
   web/
-    src/worker.ts            Worker entry point and resource exports
+    src/worker.ts            Web entry point
+    src/runtime-worker.ts    Runtime entry point and resource exports
     src/server/             WorkspaceDO, OpenCode, Sandbox adapter, CI, auth, Git
     src/routes/             Product UI and authenticated routes
 packages/
@@ -137,8 +137,12 @@ bun run lint
 bun run typecheck
 bun run test
 bun run build
+bun run check:workers
+bun run smoke:workers
 bun run smoke:runtime
 ```
+
+The built-worker smoke checks the service binding, cross-worker Workspace access, lazy initialization, WebSocket ping, and SQLite persistence across restart. `check:workers` profiles the runtime deployment artifact and the Cloudflare-compatible web build; profiles and measured budgets are saved under `dist/`. Its temporary Wrangler configuration performs local profiling only.
 
 The local runtime smoke uses Workerd and deterministic providers. It does not prove live authentication, model inference, or Cloudflare deployment behavior. For a fresh deployed test, follow the [release smoke runbook](tests/release-smoke/README.md). Record source, template, stage, auth mode, and lifecycle results separately.
 

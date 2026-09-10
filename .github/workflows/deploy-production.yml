@@ -19,6 +19,7 @@ on:
       - "tools/oxlint/**"
       - "tools/wizard/**"
       - "tools/deployment/**"
+      - "tools/worker-build/**"
       - "scripts/deploy-*"
       - "tsconfig.json"
       - "turbo.json"
@@ -94,6 +95,8 @@ jobs:
       - run: bun run typecheck
       - run: bun run test
       - run: bun run build
+      - run: bun run check:workers
+      - run: bun run smoke:workers
       - name: Deploy production
         shell: bash
         run: |

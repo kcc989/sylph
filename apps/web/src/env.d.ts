@@ -13,6 +13,7 @@ import type { WorkspaceRetentionInput } from "./server/workspace-retention"
 declare global {
   namespace Cloudflare {
     interface Env {
+      FRONTEND: Fetcher
       RESOURCE_TOKEN: string
       CLOUDFLARE_ACCOUNT_ID: string
       SYLPH_URL: string

@@ -1,6 +1,6 @@
 # Sandbox agent execution
 
-OpenCode runs in `WorkspaceDO`, exported by the app Worker. There is no separate OpenCode Worker. Native file and search tools use the durable Workspace filesystem; Linux commands run in a dedicated Cloudflare Sandbox.
+OpenCode runs in `WorkspaceDO`, exported by the runtime Worker. There is no separate OpenCode Worker. Native file and search tools use the durable Workspace filesystem; Linux commands run in a dedicated Cloudflare Sandbox.
 
 ## Files and commands
 

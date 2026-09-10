@@ -20,6 +20,8 @@ import type { WorkspaceMergeInput } from "./apps/web/src/server/workspace-merge"
 import type { WorkspaceRetentionInput } from "./apps/web/src/server/workspace-retention"
 import type { CiSandbox } from "@cloudflare/ci/worker"
 import type { Sandbox } from "@cloudflare/sandbox"
+import { Build } from "alchemy/Command"
+import * as Output from "alchemy/Output"
 import * as Config from "effect/Config"
 import * as Effect from "effect/Effect"
 import * as Redacted from "effect/Redacted"
@@ -35,7 +37,7 @@ const smokeBucketOptions = Effect.gen(function* () {
 const CheckBackups = Cloudflare.R2.Bucket("CheckBackups", smokeBucketOptions)
 const CheckEvidence = Cloudflare.R2.Bucket("CheckEvidence", smokeBucketOptions)
 
-export class Website extends Cloudflare.Website.Vite<Website>()(
+export class Website extends Cloudflare.Worker<Website>()(
   "Website",
   Effect.gen(function* () {
     const domain = normalizeDomain(
@@ -54,12 +56,37 @@ export class Website extends Cloudflare.Website.Vite<Website>()(
     const repositories = yield* Repositories
     const checkEvidence = yield* CheckEvidence
 
+    const development = yield* Alchemy.ALCHEMY_DEV
+    const build = development
+      ? undefined
+      : yield* Build("RuntimeBuild", {
+          command: "bun run build:runtime",
+          outdir: "dist/runtime",
+          memo: {
+            include: [
+              "apps/web/src/runtime-worker.ts",
+              "apps/web/src/server/**",
+              "apps/web/package.json",
+              "packages/domain/**",
+              "packages/db/**",
+              "packages/cloudflare-recovery/**",
+              "tools/wizard/github-app-manifest.ts",
+              "tools/worker-build/**",
+              "package.json",
+              "tsconfig.json",
+            ],
+            lockfile: true,
+          },
+        })
     return {
       domain: domain || null,
-      rootDir: "apps/web",
-      main: "src/worker.ts",
+      main: build
+        ? Output.map(build.outdir, (directory) => `${directory}/worker.js`)
+        : "apps/web/src/runtime-worker.ts",
+      bundle: development,
       crons: ["15 * * * *", "* * * * *"],
       compatibility: {
+        date: "2026-03-17",
         flags: ["nodejs_compat"],
       },
       env: {
@@ -185,6 +212,94 @@ export class Website extends Cloudflare.Website.Vite<Website>()(
           className: "WorkspaceDO",
         }),
       },
+    }
+  })
+) {}
+
+export class Web extends Cloudflare.Website.Vite<Web>()(
+  "Web",
+  Effect.gen(function* () {
+    const runtime = yield* Website
+    const bindings = runtime.Props.env
+    return {
+      rootDir: "apps/web",
+      main: "src/worker.ts",
+      workersDev: false,
+      compatibility: { date: "2026-03-17", flags: ["nodejs_compat"] },
+      env: {
+        SYLPH_URL: runtime.url.as<string>(),
+        SYLPH_SMOKE_SOURCE_COMMIT: bindings.SYLPH_SMOKE_SOURCE_COMMIT,
+        SYLPH_SMOKE_TEMPLATE_COMMIT: bindings.SYLPH_SMOKE_TEMPLATE_COMMIT,
+        SYLPH_SMOKE_STAGE: bindings.SYLPH_SMOKE_STAGE,
+        DB: bindings.DB,
+        REPOS: bindings.REPOS,
+        CHECK_EVIDENCE: bindings.CHECK_EVIDENCE,
+        CLOUDFLARE_ACCOUNT_ID: bindings.CLOUDFLARE_ACCOUNT_ID,
+        CF_TOKEN: bindings.CF_TOKEN,
+        RESOURCE_TOKEN: bindings.RESOURCE_TOKEN,
+        BETTER_AUTH_SECRET: bindings.BETTER_AUTH_SECRET,
+        CREDENTIAL_ENCRYPTION_KEY: bindings.CREDENTIAL_ENCRYPTION_KEY,
+        INSTALLATION_CLAIM_SECRET: bindings.INSTALLATION_CLAIM_SECRET,
+        ALLOW_TEST_MAGIC_LINKS: bindings.ALLOW_TEST_MAGIC_LINKS,
+        GITHUB_CLIENT_ID: bindings.GITHUB_CLIENT_ID,
+        GITHUB_CLIENT_SECRET: bindings.GITHUB_CLIENT_SECRET,
+        OAUTH_PROXY_URL: bindings.OAUTH_PROXY_URL,
+        OAUTH_PROXY_SECRET: bindings.OAUTH_PROXY_SECRET,
+        OAUTH_PROXY_TRUSTED_ORIGINS: bindings.OAUTH_PROXY_TRUSTED_ORIGINS,
+        PREVIEW_RETENTION_SECONDS: bindings.PREVIEW_RETENTION_SECONDS,
+        REPOSITORY_NAMESPACE: bindings.REPOSITORY_NAMESPACE,
+        WORKSPACE_FORK_RETENTION_SECONDS:
+          bindings.WORKSPACE_FORK_RETENTION_SECONDS,
+        WORKSPACES: Cloudflare.DurableObject<WorkspaceDO>("Workspaces", {
+          className: "WorkspaceDO",
+          scriptName: runtime.workerName,
+        }),
+        PROJECT_SYNCS: Cloudflare.DurableObject<ProjectSynchronization>(
+          "ProjectSynchronization",
+          {
+            className: "ProjectSynchronization",
+            scriptName: runtime.workerName,
+          }
+        ),
+        CURSOR: Cloudflare.DurableObject<CursorConnectionObject>("Cursor", {
+          className: "CursorContainer",
+          scriptName: runtime.workerName,
+        }),
+        CI_WORKFLOW: Cloudflare.Workflow<WorkspaceCiInput>("CI", {
+          className: "CI",
+          scriptName: runtime.workerName,
+        }),
+        PROVISIONING: Cloudflare.Workflow<
+          typeof WorkspaceProvisioningInput.Encoded
+        >("WorkspaceProvisioning", {
+          className: "WorkspaceProvisioning",
+          scriptName: runtime.workerName,
+        }),
+        MESSAGE_DELIVERY: Cloudflare.Workflow<
+          typeof WorkspaceMessageDeliveryInput.Encoded
+        >("WorkspaceMessageDelivery", {
+          className: "WorkspaceMessageDelivery",
+          scriptName: runtime.workerName,
+        }),
+        MERGES: Cloudflare.Workflow<WorkspaceMergeInput>("WorkspaceMerge", {
+          className: "WorkspaceMerge",
+          scriptName: runtime.workerName,
+        }),
+        RETENTION: Cloudflare.Workflow<WorkspaceRetentionInput>(
+          "WorkspaceRetention",
+          {
+            className: "WorkspaceRetention",
+            scriptName: runtime.workerName,
+          }
+        ),
+        RESOURCE_MAINTENANCE: Cloudflare.Workflow<ProjectResourceMaintenance>(
+          "ResourceMaintenance",
+          {
+            className: "ResourceMaintenance",
+            scriptName: runtime.workerName,
+          }
+        ),
+      },
       memo: {
         include: [
           "**/*",
@@ -200,19 +315,17 @@ export class Website extends Cloudflare.Website.Vite<Website>()(
   })
 ) {}
 
-export type WebsiteEnv = Cloudflare.InferEnv<typeof Website>
+export const installation = Effect.gen(function* () {
+  const website = yield* Website
+  const web = yield* Web
+  yield* website.bind`Frontend`({
+    bindings: [{ type: "service", name: "FRONTEND", service: web.workerName }],
+  })
+  return { websiteUrl: website.url.as<string>() }
+})
 
 export default Alchemy.Stack(
   "Sylph",
-  {
-    providers: Cloudflare.providers(),
-    state: Cloudflare.state(),
-  },
-  Effect.gen(function* () {
-    const website = yield* Website
-
-    return {
-      websiteUrl: website.url.as<string>(),
-    }
-  })
+  { providers: Cloudflare.providers(), state: Cloudflare.state() },
+  installation
 )

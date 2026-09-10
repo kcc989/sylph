@@ -1,0 +1,4 @@
+{
+  "web": { "startupMs": 100, "gzipBytes": 1300000 },
+  "runtime": { "startupMs": 250, "gzipBytes": 4500000 }
+}
