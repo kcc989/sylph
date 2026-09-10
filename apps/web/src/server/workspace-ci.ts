@@ -22,7 +22,7 @@ import {
   releaseContextSql,
   releaseMutationStartedSql,
 } from "./release-reservation"
-import { ciCommand } from "./command-execution"
+import { ciCommand, requiredScriptCommand } from "./command-execution"
 import { readWorkspaceCiLogs } from "./workspace-ci-logs"
 import { projectAuthSecret } from "./project-auth-secret"
 import {
@@ -108,17 +108,6 @@ const isStageName = Schema.is(WorkspaceCheckStageName)
 const verificationRunnerConfig = {
   retries: { limit: 0, delay: 1_000 },
 }
-
-const packageRun = (script: string) =>
-  [
-    `if [ -f bun.lock ] || [ -f bun.lockb ]; then bun run ${script}`,
-    `elif [ -f pnpm-lock.yaml ]; then corepack pnpm run ${script}`,
-    `elif [ -f yarn.lock ]; then corepack yarn run ${script}`,
-    `else npm run ${script}; fi`,
-  ].join("; ")
-
-const requiredScriptCommand = (script: string, purpose: string) =>
-  `if node -e 'const p=require("./package.json");process.exit(p.scripts?.["${script}"]?0:1)'; then ${packageRun(script)}; else echo "Missing package script ${script} for ${purpose}" >&2; exit 64; fi`
 
 const safeDiagnosticOutput = (value: string) =>
   value
