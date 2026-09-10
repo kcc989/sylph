@@ -157,6 +157,9 @@ async function main() {
     if (process.env.SYLPH_SMOKE_GROK_BUDGET === "true") {
       configuration.SYLPH_SMOKE_GROK_BUDGET = "true"
       configuration.SYLPH_SMOKE_MODEL_NAME = "Grok 4.6"
+      if (process.env.SYLPH_SMOKE_BUDGET_OVERRIDE)
+        configuration.SYLPH_SMOKE_BUDGET_OVERRIDE =
+          process.env.SYLPH_SMOKE_BUDGET_OVERRIDE
     }
   }
   if (command !== "test")

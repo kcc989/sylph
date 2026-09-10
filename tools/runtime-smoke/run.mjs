@@ -239,6 +239,10 @@ try {
     scannedLength: cache.length,
     small: { value: "legacy-compatible" },
   })
+  const events = await read("events")
+  assert.equal(events.type, "session.created")
+  assert.equal(events.sessionId, events.expectedSessionId)
+  assert.equal(events.closed, true)
   await read("cursor-connect")
   const cursorCatalog = await read("cursor-connect")
   assert(

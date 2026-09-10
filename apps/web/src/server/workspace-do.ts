@@ -89,7 +89,7 @@ import {
   WorkspaceFileNotFound,
   WorkspaceBrowserToolInput,
 } from "@workspace/domain"
-import type { OpenCodeWorkerd } from "@opencode-ai/sdk/workerd"
+import type { OpenCodeRuntime } from "./opencode-runtime"
 import { DurableObject } from "cloudflare:workers"
 import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/durable-sqlite"
@@ -305,6 +305,7 @@ const subscriptionMethodId = "chatgpt-headless"
 
 interface WorkspaceBindings extends Cloudflare.Env {
   SYLPH_SMOKE_GROK_BUDGET?: string
+  SYLPH_SMOKE_BUDGET_OVERRIDE?: string
   WORKSPACE_SANDBOX: DurableObjectNamespace<Sandbox>
   CODEX: DurableObjectNamespace<CodexContainer>
   CURSOR: DurableObjectNamespace<CursorConnectionObject>
@@ -328,8 +329,8 @@ const encodeSkillReloadResult = Schema.encodeSync(WorkspaceSkillReloadResult)
 
 export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   readonly #database
-  readonly #opencode: () => Promise<OpenCodeWorkerd.Interface>
-  #runtime: Promise<OpenCodeWorkerd.Interface> | undefined
+  readonly #opencode: () => Promise<OpenCodeRuntime>
+  #runtime: Promise<OpenCodeRuntime> | undefined
   readonly #filesystem
   readonly #workspaceGit
   readonly #checks
@@ -453,7 +454,13 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
                   authorizeModelRequest:
                     bindings.SYLPH_SMOKE_GROK_BUDGET === "true"
                       ? (request) =>
-                          reserveSmokeRequest(request, context.storage)
+                          reserveSmokeRequest(request, context.storage, {
+                            workspaceId: this.#database
+                              .select()
+                              .from(appWorkspaceState)
+                              .get()?.workspaceId,
+                            override: bindings.SYLPH_SMOKE_BUDGET_OVERRIDE,
+                          })
                       : undefined,
                   assertWritable: () => this.#assertWritable(),
                   runChecks: async (input) => this.#runChecks(input),
@@ -508,6 +515,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
           archived_at INTEGER
         )
       `)
+        await this.#sockets.resume(opencode)
         return opencode
       }))
     const credentialLayer = WorkspaceCredentials.layer(
@@ -1415,7 +1423,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     return versionControl
   }
 
-  async #deliverCheckCompletions(opencode: OpenCodeWorkerd.Interface) {
+  async #deliverCheckCompletions(opencode: OpenCodeRuntime) {
     await this.#checks.deliverCompletions(
       async (completion) => {
         const state = this.#requiredState()
@@ -1662,7 +1670,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   }
 
   async #initialize(
-    opencode: OpenCodeWorkerd.Interface,
+    opencode: OpenCodeRuntime,
     input: InitializeWorkspaceRuntime
   ) {
     const existing = this.#database.select().from(appWorkspaceState).get()
@@ -1781,10 +1789,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     }
   }
 
-  async #connectionResult(
-    opencode: OpenCodeWorkerd.Interface,
-    providerId: string
-  ) {
+  async #connectionResult(opencode: OpenCodeRuntime, providerId: string) {
     const [listed, preferred] = await Promise.all([
       opencode.model.list(),
       opencode.model.default(),
@@ -1826,7 +1831,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   }
 
   async #messages(
-    opencode: OpenCodeWorkerd.Interface,
+    opencode: OpenCodeRuntime,
     sessionId: string,
     cursor?: string
   ) {
@@ -1837,7 +1842,7 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
     )
   }
 
-  async #snapshot(opencode: OpenCodeWorkerd.Interface) {
+  async #snapshot(opencode: OpenCodeRuntime) {
     const state = this.#database.select().from(appWorkspaceState).get()
     const health = await opencode.health.get()
     const limits = {

@@ -263,6 +263,29 @@ export class Probe extends DurableObject {
   async fetch(request) {
     const host = await this.host
     const path = new URL(request.url).pathname
+    if (path === "/events") {
+      const abort = new AbortController()
+      const iterator = host.events
+        .subscribe({ signal: abort.signal })
+        [Symbol.asyncIterator]()
+      const pending = iterator.next()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      const session = await host.sessions.create({
+        location: { directory: "/workspace" },
+      })
+      let observed = await pending
+      while (!observed.done && observed.value.type !== "session.created")
+        observed = await iterator.next()
+      abort.abort()
+      const closed = await iterator.next()
+      await host.sessions.remove({ sessionID: session.id })
+      return Response.json({
+        type: observed.value?.type,
+        sessionId: observed.value?.data?.sessionID,
+        expectedSessionId: session.id,
+        closed: closed.done,
+      })
+    }
     if (path.startsWith("/cache-")) await host.model.list()
     if (path === "/cache-write") {
       const value = { body: "model-catalog-🦋".repeat(350_000) }

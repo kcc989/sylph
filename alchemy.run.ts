@@ -150,6 +150,9 @@ export class Website extends Cloudflare.Worker<Website>()(
         SYLPH_SMOKE_GROK_BUDGET: Config.string("SYLPH_SMOKE_GROK_BUDGET").pipe(
           Config.withDefault("false")
         ),
+        SYLPH_SMOKE_BUDGET_OVERRIDE: Config.string(
+          "SYLPH_SMOKE_BUDGET_OVERRIDE"
+        ).pipe(Config.withDefault("")),
         CREDENTIAL_ENCRYPTION_KEY: encryptionSecret,
         INSTALLATION_CLAIM_SECRET: Config.redacted("INSTALLATION_CLAIM_SECRET"),
         ALLOW_TEST_MAGIC_LINKS: Config.string("ALLOW_TEST_MAGIC_LINKS").pipe(

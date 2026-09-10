@@ -25,7 +25,6 @@ export type WorkspaceSocket = Pick<
 >
 export type WorkspaceSocketHost = {
   getWebSockets: (tag?: string) => WorkspaceSocket[]
-  waitUntil: (promise: Promise<void>) => void
 }
 export type WorkspaceSocketState = {
   sessionId: string | null
@@ -110,6 +109,22 @@ class WorkspaceSocketSession {
 
   stop() {
     this.#socketSubscriberAbort?.abort()
+    return this.#socketSubscriber
+  }
+
+  resume(opencode: WorkspaceSocketSource) {
+    return Promise.all(
+      this.#initializedSockets().map((socket) => {
+        const attachment = this.#attachment(socket)
+        if (attachment.sessionId)
+          return this.#hello(
+            socket,
+            attachment.sessionId,
+            attachment.cursor,
+            opencode
+          )
+      })
+    )
   }
 
   #afterClose() {
@@ -229,9 +244,10 @@ class WorkspaceSocketSession {
   async #hello(
     socket: WorkspaceSocket,
     sessionId: string,
-    cursor: number | null
+    cursor: number | null,
+    source?: WorkspaceSocketSource
   ) {
-    const opencode = await this.opencode()
+    const opencode = source ?? (await this.opencode())
     const state = this.state()
     if (!state?.sessionId) {
       this.#sendError(
@@ -369,7 +385,6 @@ class WorkspaceSocketSession {
           this.#socketSubscriberAbort = null
         }
       })
-    this.host.waitUntil(this.#socketSubscriber)
   }
 
   async #consumeSocketEvents(
@@ -435,6 +450,7 @@ export class WorkspaceSockets extends Context.Service<
     | "disconnectUser"
     | "archive"
     | "stop"
+    | "resume"
   >
 >()("@sylph/WorkspaceSockets") {
   static layer(
