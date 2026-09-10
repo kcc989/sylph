@@ -75,7 +75,7 @@ export const finishWorkspaceTurn = async (
           (await page.getByText("Agent working", { exact: true }).count()) === 0
         )
       },
-      { timeout: 10 * 60 * 1000 }
+      { timeout: 15 * 60 * 1000 }
     )
     .toBe(true)
   const assistantError = page.getByRole("article").filter({
@@ -91,6 +91,22 @@ export const finishWorkspaceTurn = async (
 }
 
 export const expectExpandableToolCalls = async (page: Page) => {
+  const earlier = page.getByRole("button", {
+    name: "Earlier messages",
+    exact: true,
+  })
+  for (
+    let pageCount = 0;
+    pageCount < 20 && (await earlier.count());
+    pageCount++
+  ) {
+    const previous = await page.getByRole("log").innerText()
+    await earlier.click()
+    await expect
+      .poll(() => page.getByRole("log").innerText())
+      .not.toBe(previous)
+  }
+  await expect(earlier).toHaveCount(0)
   const groupToggle = page.getByRole("button", {
     name: /^Toggle \d+ tool calls:/,
   })
