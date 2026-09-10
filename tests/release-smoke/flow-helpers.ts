@@ -100,14 +100,17 @@ export const expectExpandableToolCalls = async (page: Page) => {
     pageCount < 20 && (await earlier.count());
     pageCount++
   ) {
-    const previous = await page.getByRole("log").innerText()
+    const previous = await page
+      .getByRole("log")
+      .getByRole("article")
+      .allTextContents()
     await earlier.click()
+    await expect(page.getByRole("log").getByRole("article")).not.toHaveText(
+      previous
+    )
     await expect(
       page.getByRole("button", { name: "Loading messages…", exact: true })
     ).toHaveCount(0)
-    await expect
-      .poll(() => page.getByRole("log").innerText())
-      .not.toBe(previous)
   }
   await expect(earlier).toHaveCount(0)
   const groupToggle = page.getByRole("button", {
