@@ -3,6 +3,7 @@ import { codexContainerResponse } from "./codex-container-response"
 import {
   assertWorkspaceModelRequestSize,
   boundedWorkspaceModelLimits,
+  workspaceModelRequestLimit,
 } from "./workspace-model-limits"
 import { openRouterErrorResponse } from "./openrouter-response"
 import { workspaceModelCacheBody } from "./workspace-model-cache"
@@ -116,8 +117,10 @@ export const createWorkspacePlugin = (
     id: "sylph-workspace",
     vcs: { id: "sylph", markers: [".git"] },
     async setup(context) {
+      const requestLimits = new Map<string, number>()
       const modelLimitRegistration = await context.catalog.transform(
         (draft) => {
+          requestLimits.clear()
           for (const provider of draft.provider.list()) {
             for (const model of provider.models.values()) {
               draft.model.update(
@@ -125,6 +128,10 @@ export const createWorkspacePlugin = (
                 model.modelID.toString(),
                 (current) => {
                   current.limit = boundedWorkspaceModelLimits(current.limit)
+                  requestLimits.set(
+                    JSON.stringify([current.providerID, current.modelID]),
+                    workspaceModelRequestLimit(current.limit)
+                  )
                   current.body = workspaceModelCacheBody(
                     current.providerID.toString(),
                     current.modelID.toString(),
@@ -139,7 +146,13 @@ export const createWorkspacePlugin = (
       const requestLimitRegistration = await context.session.hook(
         "http.request",
         async (event) => {
-          await assertWorkspaceModelRequestSize(event.request, event.agent)
+          await assertWorkspaceModelRequestSize(
+            event.request,
+            event.agent,
+            requestLimits.get(
+              JSON.stringify([event.model.providerID, event.model.id])
+            )
+          )
           await actions.authorizeModelRequest?.(event.request)
         }
       )

@@ -4,7 +4,39 @@ import {
   boundedWorkspaceModelLimits,
   workspaceModelRequestByteLimit,
   workspaceCompactionRequestByteLimit,
+  workspaceModelRequestLimit,
 } from "./workspace-model-limits"
+
+test("accepts ordinary coding history within a large model context window", async () => {
+  const request = new Request("https://model.example", {
+    method: "POST",
+    body: JSON.stringify({ messages: [{ content: "code ".repeat(50_000) }] }),
+  })
+  await expect(
+    assertWorkspaceModelRequestSize(
+      request,
+      "build",
+      workspaceModelRequestLimit({ context: 1_000_000, output: 4_096 })
+    )
+  ).resolves.toBeUndefined()
+  expect(request.bodyUsed).toBe(false)
+})
+
+test("uses a smaller advertised input limit and retains a transport ceiling", () => {
+  expect(
+    workspaceModelRequestLimit({
+      context: 1_000_000,
+      input: 16_000,
+      output: 4_096,
+    })
+  ).toBe(workspaceModelRequestByteLimit + 16_000 * 8)
+  expect(
+    workspaceModelRequestLimit({ context: 10_000_000, output: 4_096 })
+  ).toBe(8 * 1024 * 1024)
+  expect(workspaceModelRequestLimit({ context: 0, output: 4_096 })).toBe(
+    workspaceModelRequestByteLimit
+  )
+})
 
 test("preserves provider context windows while bounding generated output", () => {
   expect(
