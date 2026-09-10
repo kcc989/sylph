@@ -24,6 +24,9 @@ export const verifyDeploymentBroker = async (runtime) => {
   const hash = createHash("sha256").update(token).digest("hex")
   await database.batch([
     database.prepare(
+      "INSERT INTO project_deployment_resource (project_id, account_id, scope, kind, name, resource_id) VALUES ('fixture', 'account', 'preview', 'd1', 'sylph-fixture-db', 'database-fixture')"
+    ),
+    database.prepare(
       "INSERT INTO user (id, name, email) VALUES ('fixture', 'Fixture', 'fixture@example.test')"
     ),
     database.prepare(
@@ -62,6 +65,7 @@ export const verifyDeploymentBroker = async (runtime) => {
     "metadata",
     JSON.stringify({
       main_module: "main.js",
+      bindings: [{ name: "DB", type: "d1", database_id: "database-fixture" }],
       containers: [],
       migrations: {
         new_classes: [],

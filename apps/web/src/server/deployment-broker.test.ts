@@ -27,6 +27,42 @@ const owned = [
   { kind: "d1", name: "project-a-db", id: "database-a" },
 ]
 
+test("D1 upload bindings accept either provider identity field and reject conflicts or foreign databases", () => {
+  for (const field of ["id", "database_id"]) {
+    expect(() =>
+      validateBrokerBindings(
+        [{ name: "DB", type: "d1", [field]: "database-a" }],
+        plan,
+        owned
+      )
+    ).not.toThrow()
+    expect(() =>
+      validateBrokerBindings(
+        [{ name: "DB", type: "d1", [field]: "foreign" }],
+        plan,
+        owned
+      )
+    ).toThrow("foreign d1")
+    expect(() =>
+      validateBrokerBindings(
+        [{ name: "DB", type: "d1", [field]: "drill" }],
+        plan,
+        [
+          ...owned,
+          { kind: "d1", name: "project-a-recovery-drill", id: "drill" },
+        ]
+      )
+    ).toThrow("restore drill")
+  }
+  expect(() =>
+    validateBrokerBindings(
+      [{ name: "DB", type: "d1", id: "database-a", database_id: "foreign" }],
+      plan,
+      owned
+    )
+  ).toThrow("disagree")
+})
+
 test("Alchemy Worker metadata accepts empty containers and flat migrations without broadening ownership", () => {
   const metadata = {
     main_module: "main.js",

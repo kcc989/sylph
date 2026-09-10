@@ -54,17 +54,24 @@ export const validateBrokerBindings = (
         keys(unknownBinding, ["name", "type"])
         break
       case "d1":
+        keys(unknownBinding, ["name", "type", "id", "database_id"])
+        if (
+          unknownBinding.id !== undefined &&
+          unknownBinding.database_id !== undefined &&
+          unknownBinding.id !== unknownBinding.database_id
+        )
+          brokerDenied("D1 binding identity fields disagree")
         if (
           resources.some(
             (resource) =>
               resource.kind === "d1" &&
-              resource.id === unknownBinding.id &&
+              resource.id ===
+                (unknownBinding.id ?? unknownBinding.database_id) &&
               resource.name.endsWith("-recovery-drill")
           )
         )
           brokerDenied("restore drill database cannot be bound to a Worker")
-        keys(unknownBinding, ["name", "type", "id"])
-        reference("d1", "id")
+        reference("d1", unknownBinding.id === undefined ? "database_id" : "id")
         break
       case "kv_namespace":
         keys(unknownBinding, ["name", "type", "namespace_id"])
