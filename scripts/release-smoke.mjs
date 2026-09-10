@@ -8,6 +8,7 @@ import { cleanupSmokeRuns } from "../tools/release-smoke/cleanup.mjs"
 import {
   requireIntegratedSource,
   requireDeployedIdentity,
+  waitForDeployedIdentity,
   requirePublishedTemplate,
 } from "../tools/release-smoke/identity.mjs"
 import {
@@ -264,14 +265,7 @@ async function main() {
       resolve(directory, "deploy.log")
     )
     record.baseURL = deployedWebsite(output)
-    const identityResponse = await fetch(
-      `${record.baseURL}/__sylph/smoke-identity`,
-      { redirect: "error", signal: AbortSignal.timeout(30_000) }
-    )
-    if (!identityResponse.ok)
-      throw new Error("Deployed smoke identity endpoint is unavailable")
-    record.identity = await identityResponse.json()
-    requireDeployedIdentity(record.identity, record)
+    record.identity = await waitForDeployedIdentity(record)
     record.status = "deployed"
     await writeFile(recordPath, JSON.stringify(record, null, 2))
     console.log(

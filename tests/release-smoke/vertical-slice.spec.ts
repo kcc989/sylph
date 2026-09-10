@@ -144,7 +144,7 @@ test("setup through eviction recovery", async ({ page, browser }, testInfo) => {
     } else {
       await page.getByLabel("Organization name").fill(organizationName)
       await page.getByLabel("Confirm Admin email").fill(adminEmail)
-      await page.getByLabel("Installation claim secret").fill(claimSecret)
+      await page.getByLabel("Setup code").fill(claimSecret)
       await page.getByRole("button", { name: "Claim Installation" }).click()
       await page.waitForURL(/\/admin\?onboarding=1$/)
     }
