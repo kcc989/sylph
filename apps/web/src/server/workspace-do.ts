@@ -1452,17 +1452,11 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   }
 
   async #checkpointForOperation(message: string) {
-    const version = await this.#workspaceGit.versionControl()
-    if (version.working.length)
-      return (await this.#agentCheckpoint(message)).checkpoint
-    return (
-      this.#workspaceGit
-        .checkpoints()
-        .find((checkpoint) => checkpoint.commit === version.forkHead) ?? {
-        id: null,
-        commit: version.forkHead,
-      }
-    )
+    this.#assertWritable()
+    const previous = (await this.#workspaceGit.versionControl()).forkHead
+    const checkpoint = await this.#workspaceGit.checkpointForOperation(message)
+    await this.#recordVersionControl(checkpoint.commit !== previous)
+    return checkpoint
   }
 
   async #runChecks(
