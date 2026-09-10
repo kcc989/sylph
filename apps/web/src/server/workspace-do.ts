@@ -144,6 +144,7 @@ import {
   previewForBrowser,
 } from "./workspace-browser"
 import { browserRunLayer } from "./browser-run"
+import { previewForRequest } from "./workspace-preview"
 import {
   WorkspaceBrowser,
   workspaceBrowserLayer,
@@ -1519,22 +1520,12 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
   async #preview(input: WorkspacePreviewToolInput = {}) {
     this.#assertWritable()
     const version = await this.#workspaceGit.versionControl()
-    const current = !version.working.length
-      ? this.#checks
-          .list()
-          .find(
-            (run) =>
-              run.kind === "preview" &&
-              run.commit === version.forkHead &&
-              Boolean(run.captureEvidence) === Boolean(input.captureEvidence)
-          )
-      : undefined
-    if (
-      current &&
-      (current.previewUrl ||
-        current.status === "running" ||
-        current.status === "queued")
+    const { current, compatible, reusable } = previewForRequest(
+      version.working.length ? [] : this.#checks.list(),
+      version.forkHead,
+      Boolean(input.captureEvidence)
     )
+    if (current && reusable)
       return new WorkspacePreviewResult({
         status: current.previewUrl ? "ready" : "pending",
         commit: current.commit,
@@ -1550,9 +1541,11 @@ export class WorkspaceDO extends DurableObject<WorkspaceBindings> {
       this.#requiredState().workspaceId,
       checkpoint.id,
       checkpoint.commit,
-      current?.status === "passed"
-        ? `preview-${crypto.randomUUID()}`
-        : `preview-${checkpoint.id ?? checkpoint.commit}-${input.captureEvidence ? "evidence" : "deploy"}`,
+      current && compatible && current.status === "failed"
+        ? current.id
+        : current
+          ? `preview-${crypto.randomUUID()}`
+          : `preview-${checkpoint.id ?? checkpoint.commit}-${input.captureEvidence ? "evidence" : "deploy"}`,
       { kind: "preview", captureEvidence: input.captureEvidence }
     )
     return new WorkspacePreviewResult({
