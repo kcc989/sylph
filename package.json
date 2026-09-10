@@ -36,22 +36,22 @@
   },
   "devDependencies": {
     "@alchemy.run/cloudflare-runtime": "2.0.0-beta.76",
-    "@cloudflare/workers-types": "5.20260901.1",
+    "@cloudflare/workers-types": "5.20260907.1",
     "@effect/platform-bun": "4.0.0-rc.111",
     "@effect/platform-node": "4.0.0-rc.111",
-    "@oxlint/plugins": "1.81.0",
-    "@playwright/test": "^1.62.1",
+    "@oxlint/plugins": "1.82.0",
+    "@playwright/test": "^1.63.0",
     "@types/node": "^26",
     "alchemy": "2.0.0-beta.76",
     "lefthook": "2.1.12",
     "miniflare": "4.20260730.0",
-    "oxfmt": "0.66.0",
-    "oxlint": "1.81.0",
-    "rolldown": "1.2.5",
+    "oxfmt": "0.67.0",
+    "oxlint": "1.82.0",
+    "rolldown": "1.2.7",
     "tsx": "4.23.13",
     "turbo": "^2.9.18",
     "typescript": "^6",
-    "wrangler": "4.129.0"
+    "wrangler": "4.129.1"
   },
   "packageManager": "bun@1.2.7",
   "overrides": {
@@ -73,7 +73,7 @@
   ],
   "dependencies": {
     "@cloudflare/ci": "^0.1.0",
-    "@cloudflare/sandbox": "0.12.1",
+    "@cloudflare/sandbox": "0.12.9",
     "effect": "4.0.0-rc.112"
   }
 }
