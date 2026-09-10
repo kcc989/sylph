@@ -53,7 +53,7 @@ const finishWorkspaceTurn = async (page: Page) => {
 const expectCheckAndBrowserToolCalls = async (page: Page) => {
   const browserCall = page
     .getByRole("button", {
-      name: /^Opened .+ in the Preview, completed$/,
+      name: /^(Opened .+ in the Preview|Opened the Preview in the browser|Started browser session|Observed browser|Navigated Preview), completed$/,
     })
     .last()
   await expect(browserCall).toBeVisible()
