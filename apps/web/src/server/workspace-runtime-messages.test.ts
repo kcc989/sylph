@@ -37,6 +37,17 @@ describe("workspaceRuntimeMessages", () => {
         createdAt: 1,
       },
     ]
+    const session = {
+      id: "session-1",
+      workspaceId: "workspace-1",
+      conversationId: "conversation-1",
+      checkId: "check-1",
+      commit: "a".repeat(40),
+      attempt: 1,
+      previewUrl: "https://preview.example.com",
+      sequence: 3,
+      expiresAt: 1000,
+    }
     const messages = workspaceRuntimeMessages([
       {
         id: "browser-1",
@@ -52,6 +63,7 @@ describe("workspaceRuntimeMessages", () => {
                     url: "https://preview.example.com",
                     checkId: "check-1",
                     evidence,
+                    session,
                     accessibility: "x".repeat(24_000),
                     outcome: "observed",
                   }),
@@ -68,6 +80,9 @@ describe("workspaceRuntimeMessages", () => {
     if (part?.type !== "tool") throw new Error("Expected browser tool output")
     expect(part.output.length).toBeLessThanOrEqual(workspaceToolOutputLimit)
     expect(part.outputTruncated).toBeTrue()
+    expect(JSON.parse(part.output.split("\n")[0] ?? "{}").session).toEqual(
+      session
+    )
     const detail = toolCallEntry(part).detail
     expect(detail?.kind).toBe("browser")
     if (detail?.kind !== "browser") throw new Error("Expected browser evidence")

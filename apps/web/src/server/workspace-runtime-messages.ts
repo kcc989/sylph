@@ -87,6 +87,10 @@ const browserOutput = (output: string) => {
       url: value.url,
       checkId: value.checkId,
       evidence: value.evidence,
+      session: value.session,
+      journey: value.journey,
+      policy: value.policy,
+      pages: value.pages,
       accessibility:
         "Open the accessibility evidence for the complete snapshot.",
       outcome: value.outcome,
