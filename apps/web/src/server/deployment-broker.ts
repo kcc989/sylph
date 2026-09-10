@@ -840,11 +840,13 @@ export const ProjectDeploymentBrokerLive = (configuration: {
             }
             return Response.json(result)
           },
-          catch: () =>
-            new DeploymentBrokerFailure({
-              message:
-                "Project deployment capability denied or provider request failed. The operation is outside the approved surface, expired, or revoked; no account credential is available to Project commands.",
-            }),
+          catch: (cause) =>
+            cause instanceof DeploymentBrokerFailure
+              ? cause
+              : new DeploymentBrokerFailure({
+                  message:
+                    "Project deployment capability denied or provider request failed. The operation is outside the approved surface, expired, or revoked; no account credential is available to Project commands.",
+                }),
         })
       }),
     })

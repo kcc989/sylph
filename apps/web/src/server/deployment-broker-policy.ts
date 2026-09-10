@@ -3,14 +3,15 @@ import {
   BrokerBinding,
   BrokerQueueMessage,
   BrokerJson,
+  DeploymentBrokerFailure,
   type BrokerResource,
 } from "@workspace/domain/project-deployment-broker"
 import type { ProjectResourcePlan } from "@workspace/domain/project-resources"
 
 export function brokerDenied(reason: string): never {
-  throw new Error(
-    `Project deployment capability denied: ${reason}. Add a reviewed broker adapter; account credentials are never supplied to Project commands.`
-  )
+  throw new DeploymentBrokerFailure({
+    message: `Project deployment capability denied: ${reason}. Add a reviewed broker adapter; account credentials are never supplied to Project commands.`,
+  })
 }
 
 const object = Schema.decodeUnknownSync(BrokerJson)

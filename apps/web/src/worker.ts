@@ -23,16 +23,17 @@ export default {
               token: env.CF_TOKEN,
             })
           ),
-          Effect.catch(() =>
-            Effect.succeed(
-              Response.json(
+          Effect.catch((error) =>
+            Effect.sync(() => {
+              console.warn("Deployment broker rejected request", error.message)
+              return Response.json(
                 {
                   error:
                     "Deployment capability denied: request, plan, identity, or expiry is outside the approved scope",
                 },
                 { status: 403 }
               )
-            )
+            })
           )
         )
       )
