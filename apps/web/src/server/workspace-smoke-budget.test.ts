@@ -51,3 +51,33 @@ test("preserves a conservative budget across calls and stops before four dollars
   )
   expect(storage.reserved()).toBeLessThanOrEqual(4_000_000)
 })
+
+test("allows larger tool histories only within the remaining reservation", async () => {
+  const storage = ledger()
+  const input = {
+    model: smokeModel,
+    max_tokens: 4096,
+    messages: [{ role: "user", content: "a".repeat(256_000) }],
+  }
+  for (let count = 0; count < 7; count++)
+    await reserveSmokeRequest(request(input), storage)
+  const before = storage.reserved()
+  await expect(reserveSmokeRequest(request(input), storage)).rejects.toThrow(
+    "$4"
+  )
+  expect(storage.reserved()).toBe(before)
+  expect(storage.reserved()).toBeLessThanOrEqual(4_000_000)
+})
+
+test("rejects a single request above the entire budget without a reservation", async () => {
+  const storage = ledger()
+  const input = {
+    model: smokeModel,
+    max_tokens: 4096,
+    messages: [{ role: "user", content: "a".repeat(2_000_000) }],
+  }
+  await expect(reserveSmokeRequest(request(input), storage)).rejects.toThrow(
+    "$4"
+  )
+  expect(storage.reserved()).toBe(0)
+})

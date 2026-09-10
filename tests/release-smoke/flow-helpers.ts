@@ -24,10 +24,8 @@ export const verifyMarkerJourney = async (page: Page, marker: string) => {
     .fill("Current Preview marker")
   await page
     .getByLabel("Step 1: CSS selector", { exact: true })
-    .fill("footer p:last-child")
-  await page
-    .getByLabel("Expected text", { exact: true })
-    .fill(`SYLPH_RELEASE_SMOKE_PROOF=${marker}`)
+    .fill("[data-sylph-smoke-proof]")
+  await page.getByLabel("Expected text", { exact: true }).fill(marker)
   await page
     .getByLabel("Reason for this policy", { exact: true })
     .fill(

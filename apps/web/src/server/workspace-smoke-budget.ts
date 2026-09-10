@@ -38,8 +38,6 @@ export const reserveSmokeRequest = async (
   if (!Number.isInteger(output) || output <= 0 || output > 4096)
     throw new Error("Smoke requests require an output limit of at most 4096")
   const bytes = (await request.clone().arrayBuffer()).byteLength
-  if (bytes > 128 * 1024)
-    throw new Error("Smoke request exceeds the conservative input budget")
   const key = "sylph:smoke:reserved-microdollars"
   const maximumCost = (bytes + 8192) * 2 + output * 6
   await storage.transaction(async (transaction) => {
