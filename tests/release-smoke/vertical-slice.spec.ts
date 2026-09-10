@@ -299,7 +299,10 @@ test("setup through eviction recovery", async ({ page, browser }, testInfo) => {
     await expect(inspector).toContainText("Project Deployments")
     await inspector.getByRole("button", { name: /^Changes/ }).click()
     await page.getByLabel("Compare").selectOption("working")
-    const checkpoint = page.getByRole("button", { name: "Checkpoint" })
+    const checkpoint = page.getByRole("button", {
+      name: "Checkpoint",
+      exact: true,
+    })
     if (!resumeProofMarker || (await checkpoint.isEnabled())) {
       await expect(checkpoint).toBeEnabled()
       await checkpoint.click()
