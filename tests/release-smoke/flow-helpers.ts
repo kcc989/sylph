@@ -15,6 +15,7 @@ export const verifyMarkerJourney = async (page: Page, marker: string) => {
     .getByRole("region", { name: "Workspace inspector" })
     .getByRole("button", { name: "Preview", exact: true })
     .click()
+  await page.getByRole("button", { name: "Browser Run", exact: true }).click()
   await page.getByRole("button", { name: "Set policy", exact: true }).click()
   await page.getByRole("button", { name: "Add journey", exact: true }).click()
   await page
@@ -35,7 +36,15 @@ export const verifyMarkerJourney = async (page: Page, marker: string) => {
     ).toBeEnabled()
     await expect(page.getByRole("alert")).toHaveCount(0)
   }
-  await act("Start browser")
+  const start = page.getByRole("button", {
+    name: /^(Start browser|Start new session)$/,
+  })
+  await expect(start).toBeEnabled()
+  await start.click()
+  await expect(
+    page.getByRole("button", { name: "Observe", exact: true })
+  ).toBeEnabled()
+  await expect(page.getByRole("alert")).toHaveCount(0)
   await act("Begin attempt")
   for (const viewport of ["desktop", "mobile"]) {
     await page
@@ -48,7 +57,9 @@ export const verifyMarkerJourney = async (page: Page, marker: string) => {
   }
   await act("Finish journey")
   await expect(
-    page.getByText("Browser acceptance requirement satisfied", { exact: false })
+    page.getByText("No browser requirements are blocking acceptance", {
+      exact: false,
+    })
   ).toBeVisible()
 }
 
