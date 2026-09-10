@@ -240,6 +240,7 @@ try {
     small: { value: "legacy-compatible" },
   })
   const events = await read("events")
+  assert.equal(events.connected, "server.connected")
   assert.equal(events.type, "session.created")
   assert.equal(events.sessionId, events.expectedSessionId)
   assert.equal(events.closed, true)

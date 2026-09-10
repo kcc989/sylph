@@ -2,6 +2,7 @@ import { openCodeLogging } from "./opencode-logging"
 import { openCodeCacheLayer } from "./opencode-cache"
 import { KV } from "@opencode-ai/core/kv"
 import { Bus } from "@opencode-ai/core/bus"
+import { Event } from "@opencode-ai/schema/event"
 import { OpenCode } from "@opencode-ai/client"
 import { PluginPromise } from "@opencode-ai/core/plugin/promise"
 import { ConfigPluginSource } from "@opencode-ai/core/config/plugin/source"
@@ -15,7 +16,16 @@ import {
 import { ServerFetch } from "@opencode-ai/server/fetch"
 import { ServerWorkerd } from "@opencode-ai/server/workerd"
 import type { OpenCodeWorkerd } from "@opencode-ai/sdk/workerd"
-import { Context, Effect, Exit, Layer, Schema, Scope, Stream } from "effect"
+import {
+  Context,
+  Effect,
+  Exit,
+  Fiber,
+  Layer,
+  Schema,
+  Scope,
+  Stream,
+} from "effect"
 
 export const createOpenCodeRuntime = async (
   options: Omit<OpenCodeWorkerd.CreateOptions, "log">,
@@ -103,7 +113,23 @@ export const createOpenCodeRuntime = async (
       fetch: transport,
     })
     if (!events) throw new Error("OpenCode event subscription is unavailable")
-    const liveEvents = events
+    const subscribedEvents = events
+    const liveEvents = Stream.unwrap(
+      Effect.gen(function* () {
+        const pull = yield* Stream.toPull(subscribedEvents)
+        const first = yield* Effect.forkScoped(pull, { startImmediately: true })
+        return Stream.make({
+          id: Event.ID.create(),
+          type: "server.connected",
+          data: {},
+        }).pipe(
+          Stream.concat(
+            Stream.fromEffect(Fiber.join(first)).pipe(Stream.flattenIterable)
+          ),
+          Stream.concat(Stream.fromPull(Effect.succeed(pull)))
+        )
+      })
+    )
     return {
       ...client,
       sessions: client.session,

@@ -268,18 +268,18 @@ export class Probe extends DurableObject {
       const iterator = host.events
         .subscribe({ signal: abort.signal })
         [Symbol.asyncIterator]()
-      const pending = iterator.next()
-      await new Promise((resolve) => setTimeout(resolve, 0))
+      const connected = await iterator.next()
       const session = await host.sessions.create({
         location: { directory: "/workspace" },
       })
-      let observed = await pending
+      let observed = await iterator.next()
       while (!observed.done && observed.value.type !== "session.created")
         observed = await iterator.next()
       abort.abort()
       const closed = await iterator.next()
       await host.sessions.remove({ sessionID: session.id })
       return Response.json({
+        connected: connected.value?.type,
         type: observed.value?.type,
         sessionId: observed.value?.data?.sessionID,
         expectedSessionId: session.id,
