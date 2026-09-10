@@ -1,4 +1,6 @@
 import { openCodeLogging } from "./opencode-logging"
+import { openCodeCacheLayer } from "./opencode-cache"
+import { KV } from "@opencode-ai/core/kv"
 import { OpenCode } from "@opencode-ai/client"
 import { PluginPromise } from "@opencode-ai/core/plugin/promise"
 import { ConfigPluginSource } from "@opencode-ai/core/config/plugin/source"
@@ -44,6 +46,7 @@ export const createOpenCodeRuntime = async (
       ServerFetch.make(ServerWorkerd.serverOptions(profile), {
         overrides: [
           ...ServerWorkerd.replacements(profile),
+          [KV.node, { ...KV.node, implementation: openCodeCacheLayer }],
           [
             SessionRestart.node,
             {

@@ -233,6 +233,12 @@ try {
   const started = performance.now()
   const health = await read("health")
   assert.equal(health.health.healthy, true)
+  const cache = await read("cache-write")
+  assert.deepEqual(await read("cache-read"), {
+    length: cache.length,
+    scannedLength: cache.length,
+    small: { value: "legacy-compatible" },
+  })
   await read("cursor-connect")
   const cursorCatalog = await read("cursor-connect")
   assert(
@@ -255,6 +261,8 @@ try {
   )
   assert.equal(reset.status, 500)
   assert.equal((await read("health")).health.healthy, true)
+  assert.equal((await read("cache-read")).length, cache.length)
+  assert.equal((await read("cache-remove")).removed, true)
   assert(
     (await read("cursor-catalog")).data.some(
       (model) => model.providerID === "cursor" && model.id === "grok-4.6"
@@ -426,6 +434,7 @@ try {
         nativeSearchTools: true,
         nativeFilesSurviveRestart: true,
         nativeCacheConfiguration: true,
+        largeCacheSurvivesRestart: true,
         nativeCacheUsage: true,
         checkNoticeDoesNotResume: true,
         failedCheckResumesAgent: true,

@@ -30,6 +30,7 @@ export class Probe extends DurableObject {
   bootStarted = Date.now()
   bootMs = 0
   files
+  cache
 
   constructor(state, env) {
     super(state, env)
@@ -168,6 +169,12 @@ export class Probe extends DurableObject {
           },
           plugins: [
             this.cursor.plugin,
+            {
+              id: "cache-storage-probe",
+              setup: async (context) => {
+                this.cache = context.storage
+              },
+            },
             ...Array.from({ length: 32 }, (_, index) => ({
               id: `initial-plugin-${index}`,
               async setup() {},
@@ -256,6 +263,28 @@ export class Probe extends DurableObject {
   async fetch(request) {
     const host = await this.host
     const path = new URL(request.url).pathname
+    if (path.startsWith("/cache-")) await host.model.list()
+    if (path === "/cache-write") {
+      const value = { body: "model-catalog-🦋".repeat(350_000) }
+      await this.cache.set("large-catalog", value)
+      await this.cache.set("small", { value: "legacy-compatible" })
+      return Response.json({ length: value.body.length })
+    }
+    if (path === "/cache-read") {
+      const value = await this.cache.get("large-catalog")
+      const scanned = await this.cache.scan({ prefix: "large-" })
+      return Response.json({
+        length: value?.body.length,
+        scannedLength: scanned.entries[0]?.value.body.length,
+        small: await this.cache.get("small"),
+      })
+    }
+    if (path === "/cache-remove") {
+      await this.cache.remove("large-catalog")
+      return Response.json({
+        removed: (await this.cache.get("large-catalog")) === undefined,
+      })
+    }
     if (path === "/health")
       return Response.json({
         bootMs: this.bootMs,
