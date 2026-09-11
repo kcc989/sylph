@@ -4,9 +4,9 @@ name = "sylph"
 
 [setup]
 script = '''
-cp ~/projects/sylph/.env .
+cp ~/.config/sylph/release-smoke.env ./.env
 cp ~/projects/sylph/apps/web/.dev.vars .
-bun i '''
+bun i'''
 
 [cleanup]
 script = "rm -rf node_modules"

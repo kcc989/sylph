@@ -1,9 +1,9 @@
-<!-- BEGIN:nextjs-agent-rules -->
+# Codex project instructions
 
-# This is NOT the Next.js you know
+For complex coding tasks, use the `astra-orchestrator` skill when its trigger conditions match.
 
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
-<!-- END:nextjs-agent-rules -->
+The root agent owns architecture, decomposition, integration, and final verification.
+Prefer specialized subagents for bounded exploration, implementation, testing, review, and technical research.
 
 ## Tooling
 
@@ -43,3 +43,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - For GitHub OAuth proof, omit `--auth magic` and use `--headed` when a human login is needed. `gh auth` and other browser sessions do not sign Playwright in.
 - The runner loads `~/.config/sylph/release-smoke.env` (or `SYLPH_SMOKE_ENV_FILE`). Do not source it, print secrets, copy credentials into the checkout, or silently switch auth modes. Reuse the existing GitHub App and proxy with `SYLPH_SMOKE_GITHUB_ENV_FILE` or `--github-env` when their settings live in another file. Report missing values by key name; do not create another App.
 - Use a new stage for each fresh claim test. Keep the run record and report deployment, auth mode, and lifecycle results separately. Stage destruction still requires explicit approval.
+
+Do not delegate trivial work merely for parallelism.
+Do not let multiple implementation agents edit the same files without explicit ownership boundaries.
+User instructions always take precedence over this orchestration policy.
