@@ -23,7 +23,7 @@
   },
   "dependencies": {
     "@workspace/domain": "workspace:*",
-    "effect": "4.0.0-rc.112"
+    "effect": "4.0.0-rc.115"
   },
   "devDependencies": {
     "@types/bun": "1.4.0",

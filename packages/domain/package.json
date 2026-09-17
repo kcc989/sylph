@@ -10,7 +10,7 @@
     "test": "bun test"
   },
   "dependencies": {
-    "effect": "4.0.0-rc.112",
+    "effect": "4.0.0-rc.115",
     "@ai-sdk/provider": "3.0.8"
   },
   "devDependencies": {

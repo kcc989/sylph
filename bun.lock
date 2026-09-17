@@ -1,12 +1,13 @@
 {
   "lockfileVersion": 1,
+  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "start-monorepo",
       "dependencies": {
         "@cloudflare/ci": "^0.1.0",
         "@cloudflare/sandbox": "0.12.1",
-        "effect": "4.0.0-rc.112",
+        "effect": "4.0.0-rc.115",
       },
       "devDependencies": {
         "@alchemy.run/cloudflare-runtime": "2.0.0-beta.76",
@@ -77,7 +78,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@workspace/domain": "workspace:*",
-        "effect": "4.0.0-rc.112",
+        "effect": "4.0.0-rc.115",
       },
       "devDependencies": {
         "@types/bun": "1.4.0",
@@ -90,7 +91,7 @@
         "@ai-sdk/provider": "3.0.8",
         "@workspace/domain": "workspace:*",
         "cursor-opencode-provider": "0.6.6",
-        "effect": "4.0.0-rc.112",
+        "effect": "4.0.0-rc.115",
       },
       "devDependencies": {
         "@types/bun": "1.4.0",
@@ -114,7 +115,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@ai-sdk/provider": "3.0.8",
-        "effect": "4.0.0-rc.112",
+        "effect": "4.0.0-rc.115",
       },
       "devDependencies": {
         "@types/bun": "1.4.0",
@@ -164,8 +165,8 @@
     },
   },
   "overrides": {
-    "effect": "4.0.0-rc.111",
     "@effect/platform-node-shared": "4.0.0-rc.111",
+    "effect": "4.0.0-rc.111",
   },
   "packages": {
     "@adobe/css-tools": ["@adobe/css-tools@4.5.0", "", {}, "sha512-6OzddxPio9UiWTCemp4N8cYLV2ZN1ncRnV1cVGtve7dhPOtRkleRyx32GQCYSwDYgaHU3USMm84tNsvKzRCa1Q=="],
