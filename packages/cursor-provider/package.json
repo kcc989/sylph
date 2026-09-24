@@ -9,12 +9,12 @@
   "dependencies": {
     "@ai-sdk/provider": "3.0.8",
     "@workspace/domain": "workspace:*",
-    "cursor-opencode-provider": "0.6.6",
+    "cursor-opencode-provider": "0.7.2",
     "effect": "4.0.0-rc.112"
   },
   "devDependencies": {
     "@types/node": "^26",
-    "@types/bun": "1.4.0",
+    "@types/bun": "1.4.2",
     "typescript": "^6"
   }
 }
