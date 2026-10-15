@@ -36,22 +36,22 @@
   },
   "devDependencies": {
     "@alchemy.run/cloudflare-runtime": "2.0.0-beta.76",
-    "@cloudflare/workers-types": "5.20260901.1",
-    "@effect/platform-bun": "4.0.0-rc.111",
-    "@effect/platform-node": "4.0.0-rc.111",
-    "@oxlint/plugins": "1.81.0",
-    "@playwright/test": "^1.62.1",
+    "@cloudflare/workers-types": "5.20261012.1",
+    "@effect/platform-bun": "4.0.3",
+    "@effect/platform-node": "4.0.3",
+    "@oxlint/plugins": "1.87.0",
+    "@playwright/test": "^1.64.0",
     "@types/node": "^26",
     "alchemy": "2.0.0-beta.76",
-    "lefthook": "2.1.12",
+    "lefthook": "2.2.1",
     "miniflare": "4.20260730.0",
-    "oxfmt": "0.66.0",
-    "oxlint": "1.81.0",
-    "rolldown": "1.2.5",
-    "tsx": "4.23.13",
-    "turbo": "^2.9.18",
+    "oxfmt": "0.72.0",
+    "oxlint": "1.87.0",
+    "rolldown": "1.2.13",
+    "tsx": "4.23.15",
+    "turbo": "^2.11.7",
     "typescript": "^6",
-    "wrangler": "4.129.0"
+    "wrangler": "4.149.0"
   },
   "packageManager": "bun@1.2.7",
   "overrides": {
@@ -72,8 +72,8 @@
     "packages/*"
   ],
   "dependencies": {
-    "@cloudflare/ci": "^0.1.0",
+    "@cloudflare/ci": "^0.2.0",
     "@cloudflare/sandbox": "0.12.1",
-    "effect": "4.0.0-rc.112"
+    "effect": "4.0.3"
   }
 }
